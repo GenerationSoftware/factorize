@@ -4,15 +4,18 @@ import { flowDetailPage, flowPage, landingPage } from "../src/ui";
 describe("pages", () => {
   it("renders the simple landing page and theme control", () => {
     const html = landingPage(null);
-    expect(html).toContain("No-code Software Factories with your Favourite Tools");
+    expect(html).toContain("No-code Software Factories");
     expect(html).toContain("Create a multiplayer software factory with");
     expect(html).toContain("Factorize: Software Factories for Everybody");
     expect(html).toContain('href="https://linear.app/" target="_blank"');
     expect(html).toContain('href="https://exe.dev/" target="_blank"');
     expect(html).toContain('href="https://herdr.dev/" target="_blank"');
-    expect(html).toContain("From issue to agent-run work");
+    expect(html).toContain("Choose when to fully automate");
     expect(html).toContain("Issues are routed to agents");
     expect(html).toContain('href="/flows/new"');
+    expect(html).toContain('href="https://github.com/asselstine/factorize" target="_blank"');
+    expect(html).toContain("Host it Yourself");
+    expect(html).toContain("View on GitHub");
     expect(html).toContain('id="theme-toggle"');
     expect(html).toContain("dark:bg-slate-950");
   });
