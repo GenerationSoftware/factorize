@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { agentStatusCommand, connectionCheckCommand, defaultAgentCommand, herdrAgentStatus, shellAtom, startAgentCommand } from "../src/exe";
-import { workspaceNameFor } from "../src/workspace";
+import { workingDirectoryFor, workspaceNameFor } from "../src/workspace";
 
 describe("flow workspaces", () => {
   it("uses a harmless SSH round trip for connection tests", () => {
@@ -10,6 +10,11 @@ describe("flow workspaces", () => {
   it("derives a stable Herdr workspace label from a flow name", () => {
     expect(workspaceNameFor("Bug fixes / API")).toBe("bug-fixes-api");
     expect(workspaceNameFor("!!!")).toBe("flow");
+  });
+
+  it("renders a flow-specific working directory from its flow ID", () => {
+    expect(workingDirectoryFor("/repos/{{{flowId}}}", "bug-fixes")).toBe("/repos/bug-fixes");
+    expect(workingDirectoryFor("/repos/shared", "bug-fixes")).toBe("/repos/shared");
   });
 
   it("passes the saved flow workspace to Herdr", () => {

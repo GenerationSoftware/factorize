@@ -5,7 +5,7 @@ import { agentOutputCommand, agentStatusCommand, connectionCheckCommand, default
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY } from "./linear";
 import { matchingIssue } from "./matcher";
 import type { Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunState } from "./types";
-import { workspaceNameFor } from "./workspace";
+import { workingDirectoryFor, workspaceNameFor } from "./workspace";
 
 type Row = Record<string, unknown>;
 const json = (value: unknown) => Response.json(value);
@@ -191,13 +191,13 @@ export class Tenant extends DurableObject<Env> {
     if (!linear) throw new Error("Connect Linear first");
     const exe = await this.exeConnection(input.exeConnectionId);
     if (!exe) throw new Error("Connect Herdr first");
-    if (!input.cwd) throw new Error("Choose a working directory.");
+    const cwd = this.cwdTemplate(input.cwd, flowId);
     const workspaceName = flowId;
     // These legacy fields are retained for compatibility with the v1 Durable Object schema.
     // App-wide webhook verification is performed at the Worker edge before reaching this object.
     this.ctx.storage.sql.exec(
       "INSERT INTO pipes (id,name,project_id,team_id,filter_type,filter_target_id,max_concurrency,capability,webhook_id,signing_secret,workspace_name,agent_kind,context_template,match_rules,exe_connection_id,cwd,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      pipeId, input.name, input.projectId, "", rules[0].type, rules[0].targetId, maxConcurrency, "app-webhook", null, "app-webhook", workspaceName, exe.agentKind, this.contextTemplate(input.contextTemplate), JSON.stringify(rules), input.exeConnectionId || "default", input.cwd, now(),
+      pipeId, input.name, input.projectId, "", rules[0].type, rules[0].targetId, maxConcurrency, "app-webhook", null, "app-webhook", workspaceName, exe.agentKind, this.contextTemplate(input.contextTemplate), JSON.stringify(rules), input.exeConnectionId || "default", cwd, now(),
     );
     return Response.json({ id: pipeId }, { status: 201 });
   }
@@ -212,10 +212,10 @@ export class Tenant extends DurableObject<Env> {
     const workspaceName = flowId;
     const exe = await this.exeConnection(input.exeConnectionId);
     if (!exe) throw new Error("Choose an exe.dev connection.");
-    if (!input.cwd) throw new Error("Choose a working directory.");
+    const cwd = this.cwdTemplate(input.cwd, flowId);
     this.ctx.storage.sql.exec(
       "UPDATE pipes SET name=?, project_id=?, filter_type=?, filter_target_id=?, max_concurrency=?, workspace_name=?, agent_kind=?, context_template=?, match_rules=?, exe_connection_id=?, cwd=? WHERE id=?",
-      input.name, input.projectId, rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe.agentKind, this.contextTemplate(input.contextTemplate), JSON.stringify(rules), input.exeConnectionId || "default", input.cwd, pipeId,
+      input.name, input.projectId, rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe.agentKind, this.contextTemplate(input.contextTemplate), JSON.stringify(rules), input.exeConnectionId || "default", cwd, pipeId,
     );
     return json({ id: pipeId, ok: true });
   }
@@ -420,7 +420,7 @@ export class Tenant extends DurableObject<Env> {
 
   private async connectionForPipe(pipe: Row): Promise<ExeConnection | null> {
     const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
-    return connection && pipe.cwd ? { ...connection, cwd: String(pipe.cwd) } : connection;
+    return connection && pipe.cwd ? { ...connection, cwd: workingDirectoryFor(String(pipe.cwd), String(pipe.workspace_name)) } : connection;
   }
 
   private async upsertMember(input: unknown): Promise<Response> {
@@ -469,6 +469,17 @@ export class Tenant extends DurableObject<Env> {
       Mustache.parse(value);
     } catch {
       throw new Error("Context template contains invalid Mustache syntax.");
+    }
+    return value;
+  }
+
+  private cwdTemplate(value: unknown, flowId: string): string {
+    if (typeof value !== "string" || !value.trim()) throw new Error("Choose a working directory.");
+    try {
+      Mustache.parse(value);
+      if (!workingDirectoryFor(value, flowId).trim()) throw new Error();
+    } catch {
+      throw new Error("Working directory must be a valid Mustache template that renders to a path.");
     }
     return value;
   }

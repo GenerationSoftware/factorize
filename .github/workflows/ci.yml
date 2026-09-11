@@ -2,7 +2,15 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+    branches:
+      - main
+  # Run required checks again against GitHub's speculative merge-queue commit.
+  merge_group:
+    types:
+      - checks_requested
   workflow_dispatch:
 
 permissions:
