@@ -23,6 +23,9 @@ describe("pages", () => {
   it("renders all three flow configuration sections", () => {
     const html = flowPage({ email: "owner@example.com" });
     expect(html).toContain("Linear config");
+    expect(html).toContain("Flow config");
+    expect(html).toContain("Flow ID");
+    expect(html).toContain("slugFor");
     expect(html).toContain("Exe.dev config");
     expect(html).toContain("Agent config");
     expect(html).toContain("Context template");
@@ -35,6 +38,9 @@ describe("pages", () => {
     expect(html).toContain("Agent launch arguments");
     expect(html).toContain('class="min-w-0 w-full"');
     expect(html).toContain('id="test-exe"');
+    expect(html).toContain('id="exe-connection"');
+    expect(html).toContain("Connections save an SSH destination and its restricted HTTPS token");
+    expect(html).toContain("This is chosen per flow");
     expect(html).toContain("Test Connection");
     expect(html).toContain('id="exe-test-status"');
     expect(html).toContain("Connection successful");

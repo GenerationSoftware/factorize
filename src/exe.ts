@@ -71,6 +71,11 @@ export function herdrCheckCommand(connection: ExeConnection): string {
   return `${herdrPrefix(connection)} && ${herdrBinary(connection)} --version && ${herdrBinary(connection)} workspace list`;
 }
 
+/** A deliberately minimal SSH round trip for validating an exe.dev token. */
+export function connectionCheckCommand(): string {
+  return "printf '%s\\n' factorize-connection-ok";
+}
+
 /** exe.dev executes non-interactive shells, which do not load the user's PATH customizations. */
 function herdrPrefix(connection: ExeConnection): string {
   return `export PATH="$HOME/.local/bin:$PATH" && command -v ${shellAtom(herdrBinary(connection))}`;

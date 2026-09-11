@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { agentStatusCommand, defaultAgentCommand, herdrAgentStatus, shellAtom, startAgentCommand } from "../src/exe";
+import { agentStatusCommand, connectionCheckCommand, defaultAgentCommand, herdrAgentStatus, shellAtom, startAgentCommand } from "../src/exe";
 import { workspaceNameFor } from "../src/workspace";
 
 describe("flow workspaces", () => {
+  it("uses a harmless SSH round trip for connection tests", () => {
+    expect(connectionCheckCommand()).toBe("printf '%s\\n' factorize-connection-ok");
+  });
+
   it("derives a stable Herdr workspace label from a flow name", () => {
     expect(workspaceNameFor("Bug fixes / API")).toBe("bug-fixes-api");
     expect(workspaceNameFor("!!!")).toBe("flow");

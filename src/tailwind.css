@@ -41,4 +41,14 @@
     background-color: var(--color-slate-950);
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='520' viewBox='0 0 720 520'%3E%3Cg transform='rotate(-7 360 260)' fill='none' stroke='%23fdc901' stroke-opacity='.05' stroke-width='1.5'%3E%3Cpath d='M25 140 87.5 31.75h125L275 140l-62.5 108.25h-125zM385 380l62.5-108.25h125L635 380l-62.5 108.25h-125z'/%3E%3C/g%3E%3C/svg%3E");
   }
+
+  /* The agent is a short fixed choice; let launch arguments use the space. */
+  @media (min-width: 40rem) {
+    div:has(> label > select[name="agentKind"]) {
+      grid-template-columns: max-content minmax(0, 1fr);
+    }
+    div:has(> label > select[name="agentKind"]) > label:first-child {
+      width: 11rem;
+    }
+  }
 }

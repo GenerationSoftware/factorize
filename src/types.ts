@@ -16,6 +16,8 @@ export interface Env {
 
 export interface PipeInput {
   name: string;
+  /** Optional stable, machine-friendly identifier; defaults from the name. */
+  flowId?: string;
   projectId: string;
   /** At least one rule is required. All rules must match the issue. */
   matchRules?: MatchRule[];
@@ -26,9 +28,14 @@ export interface PipeInput {
   workspaceName?: string;
   /** Mustache template rendered with the Linear webhook payload for each run. */
   contextTemplate?: string;
+  /** Saved exe.dev connection selected for this flow. */
+  exeConnectionId?: string;
+  /** Working directory is flow-specific even when the VM is shared. */
+  cwd?: string;
 }
 
 export interface ExeConnectionInput {
+  connectionId?: string;
   vmName: string;
   apiToken: string;
   agentKind: "claude" | "codex" | "pi" | string;

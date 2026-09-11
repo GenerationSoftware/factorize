@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import Mustache from "mustache";
 import { decrypt, encrypt } from "./crypto";
-import { agentOutputCommand, agentStatusCommand, defaultAgentCommand, exec, herdrAgentStatus, herdrCheckCommand, startAgentCommand, type ExeConnection } from "./exe";
+import { agentOutputCommand, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, herdrAgentStatus, herdrCheckCommand, startAgentCommand, type ExeConnection } from "./exe";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY } from "./linear";
 import { matchingIssue } from "./matcher";
 import type { Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunState } from "./types";
@@ -88,6 +88,8 @@ export class Tenant extends DurableObject<Env> {
     this.ensureColumn("pipes", "agent_kind", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("pipes", "context_template", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("pipes", "match_rules", "TEXT NOT NULL DEFAULT '[]'");
+    this.ensureColumn("pipes", "exe_connection_id", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("pipes", "cwd", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("flow_events", "issue_url", "TEXT");
     this.ensureColumn("runs", "issue_url", "TEXT");
     this.ensureColumn("runs", "workspace_name", "TEXT NOT NULL DEFAULT ''");
@@ -160,36 +162,42 @@ export class Tenant extends DurableObject<Env> {
       throw new Error(`This token cannot run ssh commands on ${value.vmName}. Create an exe.dev API token with --cmds="'ssh ${value.vmName}'" (not --vm), then paste the new exe1 token.`);
     }
     if (!verification.ok) throw new Error(`exe.dev/Herdr verification failed (${verification.status}): ${verification.body.slice(0, 300)}`);
+    const connectionId = value.connectionId || id();
+    await this.putConnection(`exe:${connectionId}`, value);
+    // Preserve the most recently saved connection for existing flows created
+    // before connections were selectable.
     await this.putConnection("exe", value);
-    return json({ ok: true, verification: verification.body });
+    return json({ ok: true, connectionId, verification: verification.body });
   }
 
   private async testExe(input: unknown): Promise<Response> {
     const supplied = input as Partial<ExeConnectionInput>;
-    const saved = await this.connection<ExeConnection>("exe");
+    const saved = supplied.connectionId ? await this.exeConnection(supplied.connectionId) : await this.connection<ExeConnection>("exe");
     const connection = supplied.vmName || supplied.apiToken || supplied.cwd ? supplied as ExeConnection : saved;
-    if (!connection?.vmName || !connection.apiToken || !connection.cwd || !connection.agentKind) throw new Error("SSH destination, API token, agent, and working directory are required");
-    const result = await exec(connection, herdrCheckCommand(connection));
+    if (!connection?.vmName || !connection.apiToken) throw new Error("SSH destination and API token are required");
+    const result = await exec(connection, connectionCheckCommand());
     return json({ ok: result.ok && (result.exitCode === null || result.exitCode === 0), httpStatus: result.status, exitCode: result.exitCode, command: result.requestBody, output: result.body });
   }
 
   private async createPipe(input: PipeInput): Promise<Response> {
     const rules = this.matchRules(input);
     if (!input.name || !input.projectId) throw new Error("Pipe name and project are required");
-    this.assertHerdrFlowName(input.name);
+    const flowId = this.flowId(input.flowId, input.name);
     // Rules are validated above; legacy columns mirror the first rule.
-    const maxConcurrency = Math.max(1, Math.min(20, Math.floor(input.maxConcurrency || 3)));
+    const requestedConcurrency = Number(input.maxConcurrency);
+    const maxConcurrency = Math.max(0, Math.min(50, Math.floor(Number.isFinite(requestedConcurrency) ? requestedConcurrency : 3)));
     const pipeId = id();
     const linear = await this.connection<{ accessToken: string }>("linear");
     if (!linear) throw new Error("Connect Linear first");
-    const exe = await this.connection<ExeConnection>("exe");
+    const exe = await this.exeConnection(input.exeConnectionId);
     if (!exe) throw new Error("Connect Herdr first");
-    const workspaceName = input.name;
+    if (!input.cwd) throw new Error("Choose a working directory.");
+    const workspaceName = flowId;
     // These legacy fields are retained for compatibility with the v1 Durable Object schema.
     // App-wide webhook verification is performed at the Worker edge before reaching this object.
     this.ctx.storage.sql.exec(
-      "INSERT INTO pipes (id,name,project_id,team_id,filter_type,filter_target_id,max_concurrency,capability,webhook_id,signing_secret,workspace_name,agent_kind,context_template,match_rules,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      pipeId, input.name, input.projectId, "", rules[0].type, rules[0].targetId, maxConcurrency, "app-webhook", null, "app-webhook", workspaceName, exe.agentKind, this.contextTemplate(input.contextTemplate), JSON.stringify(rules), now(),
+      "INSERT INTO pipes (id,name,project_id,team_id,filter_type,filter_target_id,max_concurrency,capability,webhook_id,signing_secret,workspace_name,agent_kind,context_template,match_rules,exe_connection_id,cwd,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      pipeId, input.name, input.projectId, "", rules[0].type, rules[0].targetId, maxConcurrency, "app-webhook", null, "app-webhook", workspaceName, exe.agentKind, this.contextTemplate(input.contextTemplate), JSON.stringify(rules), input.exeConnectionId || "default", input.cwd, now(),
     );
     return Response.json({ id: pipeId }, { status: 201 });
   }
@@ -198,23 +206,28 @@ export class Tenant extends DurableObject<Env> {
     if (!pipeId || !this.one("SELECT id FROM pipes WHERE id = ?", pipeId)) return new Response("Not found", { status: 404 });
     const rules = this.matchRules(input);
     if (!input.name || !input.projectId) throw new Error("Pipe name and project are required");
-    this.assertHerdrFlowName(input.name);
-    const maxConcurrency = Math.max(1, Math.min(20, Math.floor(input.maxConcurrency || 3)));
-    const workspaceName = input.name;
-    const exe = await this.connection<ExeConnection>("exe");
+    const flowId = this.flowId(input.flowId, input.name);
+    const requestedConcurrency = Number(input.maxConcurrency);
+    const maxConcurrency = Math.max(0, Math.min(50, Math.floor(Number.isFinite(requestedConcurrency) ? requestedConcurrency : 3)));
+    const workspaceName = flowId;
+    const exe = await this.exeConnection(input.exeConnectionId);
+    if (!exe) throw new Error("Choose an exe.dev connection.");
+    if (!input.cwd) throw new Error("Choose a working directory.");
     this.ctx.storage.sql.exec(
-      "UPDATE pipes SET name=?, project_id=?, filter_type=?, filter_target_id=?, max_concurrency=?, workspace_name=?, agent_kind=?, context_template=?, match_rules=? WHERE id=?",
-      input.name, input.projectId, rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe?.agentKind ?? "", this.contextTemplate(input.contextTemplate), JSON.stringify(rules), pipeId,
+      "UPDATE pipes SET name=?, project_id=?, filter_type=?, filter_target_id=?, max_concurrency=?, workspace_name=?, agent_kind=?, context_template=?, match_rules=?, exe_connection_id=?, cwd=? WHERE id=?",
+      input.name, input.projectId, rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe.agentKind, this.contextTemplate(input.contextTemplate), JSON.stringify(rules), input.exeConnectionId || "default", input.cwd, pipeId,
     );
     return json({ id: pipeId, ok: true });
   }
 
   private async connectionStatus(): Promise<Response> {
     const linear = await this.connection<{ organizationName?: string }>("linear");
+    const connections = await this.exeConnections();
     const exe = await this.connection<ExeConnectionInput>("exe");
     return json({
       linear: linear ? { organizationName: linear.organizationName ?? null } : null,
       exe: exe ? { vmName: exe.vmName, agentKind: exe.agentKind, cwd: exe.cwd, herdrCommand: exe.herdrCommand ?? "herdr", agentCommand: exe.agentCommand ?? defaultAgentCommand(exe.agentKind) } : null,
+      exeConnections: connections.map(({ apiToken, ...connection }) => connection),
     });
   }
 
@@ -228,7 +241,7 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async flowDetail(flowId: string): Promise<Response> {
-    const flow = this.one("SELECT id, name, project_id, filter_type, filter_target_id, match_rules, max_concurrency, workspace_name, agent_kind, COALESCE(NULLIF(context_template, ''), ?) AS context_template, enabled, created_at FROM pipes WHERE id = ?", DEFAULT_CONTEXT_TEMPLATE, flowId);
+    const flow = this.one("SELECT id, name, project_id, filter_type, filter_target_id, match_rules, max_concurrency, workspace_name, agent_kind, exe_connection_id, cwd, COALESCE(NULLIF(context_template, ''), ?) AS context_template, enabled, created_at FROM pipes WHERE id = ?", DEFAULT_CONTEXT_TEMPLATE, flowId);
     if (!flow) return new Response("Not found", { status: 404 });
     const events = this.rows("SELECT id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, received_at FROM flow_events WHERE flow_id = ? ORDER BY received_at DESC LIMIT 100", flowId);
     const runs = this.rows("SELECT id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, prompt, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code FROM runs WHERE pipe_id = ? ORDER BY created_at DESC LIMIT 100", flowId);
@@ -321,7 +334,7 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async startRun(run: Row, pipe: Row): Promise<void> {
-    const connection = await this.connection<ExeConnection>("exe");
+    const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "No exe.dev VM is connected.");
     const workspaceName = String(run.workspace_name || pipe.workspace_name || workspaceNameFor(String(pipe.name)));
     await this.postLinearComment(String(run.issue_id), `Factorize started **${connection.agentKind}** on ${connection.vmName} in Herdr workspace \`${workspaceName}\` for this issue.`);
@@ -339,7 +352,8 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async pollRun(run: Row): Promise<void> {
-    const connection = await this.connection<ExeConnection>("exe");
+    const pipe = this.one("SELECT * FROM pipes WHERE id = ?", run.pipe_id) as Row | undefined;
+    const connection = pipe ? await this.connectionForPipe(pipe) : null;
     if (!connection) return this.finishRun(run, "failed", "exe.dev connection is unavailable.");
     const status = await exec(connection, agentStatusCommand(connection, String(run.agent_name)));
     if (status.exitCode !== null && status.exitCode !== 0) return this.finishRun(run, "failed", `Unable to query the Herdr agent (VM exit ${status.exitCode}): ${status.body.slice(0, 800)}`);
@@ -385,6 +399,30 @@ export class Tenant extends DurableObject<Env> {
     return row ? JSON.parse(await decrypt(String(row.value), this.env.CREDENTIAL_ENCRYPTION_KEY)) as T : null;
   }
 
+  private async exeConnection(connectionId?: string): Promise<ExeConnection | null> {
+    if (connectionId && connectionId !== "default") {
+      const saved = await this.connection<ExeConnection>(`exe:${connectionId}`);
+      if (saved) return saved;
+    }
+    return this.connection<ExeConnection>("exe");
+  }
+
+  private async exeConnections(): Promise<Array<ExeConnection & { connectionId: string }>> {
+    const rows = this.rows("SELECT kind, value FROM connections WHERE kind LIKE 'exe:%' ORDER BY updated_at DESC");
+    const connections = await Promise.all(rows.map(async (row) => ({
+      ...(JSON.parse(await decrypt(String(row.value), this.env.CREDENTIAL_ENCRYPTION_KEY)) as ExeConnection),
+      connectionId: String(row.kind).slice(4),
+    })));
+    if (connections.length) return connections;
+    const legacy = await this.connection<ExeConnection>("exe");
+    return legacy ? [{ ...legacy, connectionId: "default" }] : [];
+  }
+
+  private async connectionForPipe(pipe: Row): Promise<ExeConnection | null> {
+    const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
+    return connection && pipe.cwd ? { ...connection, cwd: String(pipe.cwd) } : connection;
+  }
+
   private async upsertMember(input: unknown): Promise<Response> {
     const member = input as { userId?: string; email?: string };
     if (!member.userId || !member.email) throw new Error("Member identity is required");
@@ -417,8 +455,10 @@ export class Tenant extends DurableObject<Env> {
     return candidate;
   }
 
-  private assertHerdrFlowName(value: string): void {
-    if (!HERDR_FLOW_NAME.test(value)) throw new Error("Flow name must start with a lowercase letter and contain only lowercase letters, digits, hyphens, or underscores (30 characters maximum).");
+  private flowId(provided: unknown, name: string): string {
+    const value = typeof provided === "string" && provided.trim() ? provided.trim() : workspaceNameFor(name).slice(0, 30);
+    if (!HERDR_FLOW_NAME.test(value)) throw new Error("Flow ID must start with a lowercase letter and contain only lowercase letters, digits, hyphens, or underscores (30 characters maximum).");
+    return value;
   }
 
   private contextTemplate(value: unknown): string {
