@@ -30,7 +30,7 @@ export interface PipeInput {
   contextTemplate?: string;
   /** Saved exe.dev connection selected for this flow. */
   exeConnectionId?: string;
-  /** Working directory is flow-specific even when the VM is shared. */
+  /** Mustache template for the working directory; receives `flowId`. */
   cwd?: string;
 }
 

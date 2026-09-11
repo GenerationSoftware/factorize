@@ -1,0 +1,31 @@
+name: Auto-merge
+
+on:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  enable:
+    name: Enable auto-merge
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # This workflow intentionally does not check out or execute PR code.
+      - name: Merge after required checks pass
+        env:
+          # A fine-grained PAT or GitHub App token is required here. The built-in
+          # GITHUB_TOKEN cannot add PRs to a merge queue and can suppress
+          # downstream push-triggered workflows such as production deployment.
+          GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"

@@ -41,6 +41,8 @@ describe("pages", () => {
     expect(html).toContain('id="exe-connection"');
     expect(html).toContain("Connections save an SSH destination and its restricted HTTPS token");
     expect(html).toContain("This is chosen per flow");
+    expect(html).toContain("/home/exedev/projects/{{{flowId}}}");
+    expect(html).toContain("as a Mustache variable");
     expect(html).toContain("Test Connection");
     expect(html).toContain('id="exe-test-status"');
     expect(html).toContain("Connection successful");
