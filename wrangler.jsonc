@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "factorize",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-10",
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+  "durable_objects": {
+    "bindings": [{ "name": "TENANTS", "class_name": "Tenant" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Tenant"] }],
+  "vars": {
+    "APP_ORIGIN": "https://app.factorize.sh",
+    "LINEAR_OAUTH_SCOPES": "read,write"
+  }
+}
