@@ -4,6 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-10",
   "assets": { "directory": "./public", "binding": "ASSETS" },
+  "dispatch_namespaces": [{ "binding": "CUSTOM_HANDLERS", "namespace": "factorize-custom-handlers" }],
+  "services": [{ "binding": "CUSTOM_DEPLOYER", "service": "factorize-custom-deployer" }],
   "durable_objects": {
     "bindings": [{ "name": "TENANTS", "class_name": "Tenant" }, { "name": "GITHUB_INSTALLATIONS", "class_name": "GitHubInstallationRegistry" }]
   },
@@ -11,6 +13,8 @@
   "vars": {
     "APP_ORIGIN": "https://app.factorize.sh",
     "LINEAR_OAUTH_SCOPES": "read,write",
-    "GITHUB_INTEGRATION_ENABLED": "false"
+    "GITHUB_INTEGRATION_ENABLED": "false",
+    "CUSTOM_SOURCES_ENABLED": "false",
+    "CUSTOM_DISPATCH_NAMESPACE": "factorize-custom-handlers"
   }
 }

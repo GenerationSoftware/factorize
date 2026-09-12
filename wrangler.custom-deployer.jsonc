@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "factorize-custom-deployer",
+  "main": "src/custom-deployer.ts",
+  "compatibility_date": "2026-09-10",
+  "workers_dev": false,
+  "vars": { "CUSTOM_DISPATCH_NAMESPACE": "factorize-custom-handlers" }
+}

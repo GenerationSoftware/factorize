@@ -18,11 +18,19 @@ export interface Env {
   GITHUB_APP_PRIVATE_KEY?: string;
   GITHUB_WEBHOOK_SECRET?: string;
   GITHUB_INTEGRATION_ENABLED?: string;
+  CUSTOM_SOURCES_ENABLED?: string;
+  CUSTOM_HANDLERS?: DispatchNamespace;
+  CUSTOM_DEPLOYER?: Fetcher;
+  CUSTOM_DISPATCH_NAMESPACE?: string;
 }
+
+export type CustomOrigin = "linear" | "github";
+export type CustomSource = { kind: "custom"; origin: CustomOrigin; handlerName: string; handlerCode: string; handlerDeployment: { scriptName: string; codeDigest: string; state: "deploying" | "ready" | "failed"; lastError?: string } };
 
 export type FlowSource =
   | { kind: "linear"; projectId: string; matchRules: MatchRule[] }
-  | { kind: "github"; installationId: number; repositoryId: number; repositoryOwner?: string; repositoryName?: string; repositoryFullName?: string; baseRef: "main"; trigger: "merge_queue_conflict" };
+  | { kind: "github"; installationId: number; repositoryId: number; repositoryOwner?: string; repositoryName?: string; repositoryFullName?: string; baseRef: "main"; trigger: "merge_queue_conflict" }
+  | CustomSource;
 
 export interface WorkItem {
   provider: "linear" | "github";
@@ -37,6 +45,8 @@ export interface WorkItem {
 }
 
 export interface PipeInput {
+  /** Edge-generated immutable identifier; never accepted from browser callers. */
+  pipeId?: string;
   name: string;
   /** Optional stable, machine-friendly identifier; defaults from the name. */
   flowId?: string;
