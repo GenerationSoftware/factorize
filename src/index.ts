@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { equalHmac, hmac } from "./crypto";
 import { Tenant } from "./tenant";
+import { GitHubInstallationRegistry } from "./github-registry";
+import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
 import { flowDetailPage, flowPage, flowsPage, landingPage } from "./ui";
 import type { Env } from "./types";
 
@@ -39,6 +41,7 @@ async function readSession(value: string | undefined, secret: string): Promise<S
 }
 
 function tenant(c: { env: Env }, tenantId: string) { return c.env.TENANTS.get(c.env.TENANTS.idFromName(`tenant:${tenantId}`)); }
+function githubRegistry(c: { env: Env }) { if (!c.env.GITHUB_INSTALLATIONS) throw new Error("GitHub registry is not configured"); return c.env.GITHUB_INSTALLATIONS.get(c.env.GITHUB_INSTALLATIONS.idFromName("github-installations")); }
 async function authed(c: any): Promise<Session | null> { return readSession(getCookie(c, "factorize_session"), c.env.SESSION_SIGNING_SECRET); }
 async function owner(c: any): Promise<Session | null> {
   const session = await authed(c); if (!session) return null;
@@ -113,6 +116,48 @@ app.get("/api/linear/options", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/linear/options");
 });
+app.get("/api/github/installations", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  if (c.env.GITHUB_INTEGRATION_ENABLED !== "true") return c.json({ error: "GitHub integration is not enabled" }, 404);
+  return tenant(c, session.tenantId).fetch("https://tenant/github/installations");
+});
+app.get("/api/github/installations/:id/repositories", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  if (c.env.GITHUB_INTEGRATION_ENABLED !== "true") return c.json({ error: "GitHub integration is not enabled" }, 404);
+  return tenant(c, session.tenantId).fetch(`https://tenant/github/installations/${encodeURIComponent(c.req.param("id"))}/repositories`);
+});
+app.delete("/api/github/installations/:id", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  if (c.env.GITHUB_INTEGRATION_ENABLED !== "true") return c.json({ error: "GitHub integration is not enabled" }, 404);
+  const response = await tenant(c, session.tenantId).fetch(`https://tenant/github/installations/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
+  if (response.ok) await githubRegistry(c).fetch(`https://registry/installations/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
+  return response;
+});
+app.get("/auth/github/install", async (c) => {
+  const session = await owner(c); if (!session) return c.redirect("/auth/linear");
+  if (c.env.GITHUB_INTEGRATION_ENABLED !== "true" || !c.env.GITHUB_APP_SLUG) return c.text("GitHub integration is not enabled", 404);
+  const nonce = crypto.randomUUID();
+  const state = await signSetupState({ tenantId: session.tenantId, userId: session.userId, nonce, exp: Math.floor(Date.now() / 1000) + 600 }, c.env.SESSION_SIGNING_SECRET);
+  await tenant(c, session.tenantId).fetch("https://tenant/github/setup-state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce, exp: Math.floor(Date.now() / 1000) + 600 }) });
+  return c.redirect(`https://github.com/apps/${encodeURIComponent(c.env.GITHUB_APP_SLUG)}/installations/new?state=${encodeURIComponent(state)}`);
+});
+app.get("/auth/github/setup", async (c) => {
+  const session = await owner(c); if (!session) return c.text("Unauthorized", 401);
+  const state = await readSetupState(c.req.query("state") ?? "", c.env.SESSION_SIGNING_SECRET);
+  const installationId = Number(c.req.query("installation_id"));
+  if (!state || state.tenantId !== session.tenantId || state.userId !== session.userId || !Number.isSafeInteger(installationId)) return c.text("Invalid or expired setup state", 400);
+  const consume = await tenant(c, session.tenantId).fetch("https://tenant/github/setup-state/consume", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce: state.nonce }) });
+  if (!consume.ok) return c.text("Setup state was already used", 400);
+  if (!c.env.GITHUB_APP_ID || !c.env.GITHUB_APP_PRIVATE_KEY) return c.text("GitHub App is not configured", 503);
+  const jwt = await createAppJwt(c.env.GITHUB_APP_ID, c.env.GITHUB_APP_PRIVATE_KEY.replaceAll("\\n", "\n"));
+  const gh = await fetch(`https://api.github.com/app/installations/${installationId}`, { headers: githubHeaders(jwt) });
+  const installation = await gh.json() as any;
+  if (!gh.ok || installation.id !== installationId) return c.text("Could not verify GitHub installation", 502);
+  const bind = await githubRegistry(c).fetch(`https://registry/installations/${installationId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId: session.tenantId, accountLogin: installation.account?.login, accountType: installation.account?.type, state: installation.suspended_at ? "suspended" : "active" }) });
+  if (!bind.ok) return c.text("This GitHub installation is already connected to another tenant", 409);
+  await tenant(c, session.tenantId).fetch("https://tenant/github/installations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ installationId, accountLogin: installation.account?.login, accountType: installation.account?.type, state: installation.suspended_at ? "suspended" : "active" }) });
+  return c.redirect("/flows/new");
+});
 app.put("/api/connections/exe", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/connections/exe", { method: "PUT", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
@@ -146,7 +191,31 @@ app.post("/webhooks/linear", async (c) => {
   if (typeof organizationId !== "string" || !organizationId) return c.text("Missing organization ID", 400);
   const deliveryId = c.req.header("linear-delivery");
   if (!deliveryId) return c.text("Missing delivery ID", 400);
-  return tenant(c, organizationId).fetch("https://tenant/webhook", { method: "POST", headers: { "Content-Type": "application/json", "Linear-Delivery": deliveryId }, body: raw });
+  return tenant(c, organizationId).fetch("https://tenant/webhook/linear", { method: "POST", headers: { "Content-Type": "application/json", "Linear-Delivery": `linear:${deliveryId}` }, body: raw });
+});
+
+app.post("/webhooks/github", async (c) => {
+  if (c.env.GITHUB_INTEGRATION_ENABLED !== "true") return c.text("Not found", 404);
+  if (!c.env.GITHUB_WEBHOOK_SECRET) return c.text("Webhook verification is not configured", 503);
+  const raw = await c.req.text();
+  const signature = c.req.header("X-Hub-Signature-256") ?? "";
+  if (!signature.startsWith("sha256=") || !(await equalHmac(raw, signature.slice(7), c.env.GITHUB_WEBHOOK_SECRET))) return c.text("Invalid signature", 401);
+  const delivery = c.req.header("X-GitHub-Delivery"), eventName = c.req.header("X-GitHub-Event");
+  if (!delivery || !eventName) return c.text("Missing GitHub headers", 400);
+  let event: any; try { event = JSON.parse(raw); } catch { return c.text("Invalid JSON", 400); }
+  const installationId = event.installation?.id;
+  if (!Number.isSafeInteger(installationId)) return c.text("Missing installation ID", 400);
+  const registryResponse = await githubRegistry(c).fetch(`https://registry/installations/${installationId}`);
+  if (!registryResponse.ok) { console.info(JSON.stringify({ event: "github_webhook_unrouted", installationId, delivery, eventName })); return c.body(null, 202); }
+  const registration = await registryResponse.json() as any;
+  if (eventName === "installation" && ["deleted", "suspend", "unsuspend"].includes(event.action)) {
+    const state = event.action === "unsuspend" ? "active" : event.action === "suspend" ? "suspended" : "removed";
+    await tenant(c, registration.tenant_id).fetch(`https://tenant/github/installations/${installationId}/state`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state }) });
+    await githubRegistry(c).fetch(`https://registry/installations/${installationId}`, event.action === "deleted" ? { method: "DELETE" } : { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state }) });
+    return c.body(null, 202);
+  }
+  if (registration.state !== "active") return c.body(null, 202);
+  return tenant(c, registration.tenant_id).fetch("https://tenant/webhook/github", { method: "POST", headers: { "Content-Type": "application/json", "GitHub-Delivery": `github:${delivery}`, "GitHub-Event": eventName }, body: raw });
 });
 
 const render = (page: string, nonce: string) => page.replaceAll("<script>", `<script nonce="${nonce}">`);
@@ -175,5 +244,5 @@ app.get("/flows/:id/edit", async (c) => {
   return c.html(render(flowPage({ email: session.email }, c.req.param("id")), c.get("cspNonce")));
 });
 
-export { Tenant };
+export { Tenant, GitHubInstallationRegistry };
 export default app;
