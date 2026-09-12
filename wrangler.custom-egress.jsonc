@@ -1,0 +1,6 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "factorize-custom-egress-deny",
+  "main": "src/custom-egress-deny.ts",
+  "compatibility_date": "2026-09-10"
+}

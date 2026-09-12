@@ -8,6 +8,7 @@ import type { Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunStat
 import { workingDirectoryFor, workspaceNameFor } from "./workspace";
 import { githubClaimKey, githubHeaders, installationToken, normalizeRepository, renderGitHubPrompt } from "./github";
 import type { FlowSource, WorkItem } from "./types";
+import { invokeCustomHandler, validateCustomHandler } from "./custom-handler";
 
 type Row = Record<string, unknown>;
 const json = (value: unknown) => Response.json(value);
@@ -207,13 +208,13 @@ export class Tenant extends DurableObject<Env> {
 
   private async createPipe(input: PipeInput): Promise<Response> {
     const source = await this.validateSource(input);
-    const rules = source.kind === "linear" ? source.matchRules : [{ type: "status", targetId: "github" } as MatchRule];
+    const rules = source.kind === "linear" ? source.matchRules : [{ type: "status", targetId: source.kind } as MatchRule];
     if (!input.name) throw new Error("Pipe name is required");
     const flowId = this.flowId(input.flowId, input.name);
     // Rules are validated above; legacy columns mirror the first rule.
     const requestedConcurrency = Number(input.maxConcurrency);
     const maxConcurrency = Math.max(0, Math.min(50, Math.floor(Number.isFinite(requestedConcurrency) ? requestedConcurrency : 3)));
-    const pipeId = id();
+    const pipeId = input.pipeId || id();
     const linear = await this.connection<{ accessToken: string }>("linear");
     if (!linear) throw new Error("Connect Linear first");
     const exe = await this.exeConnection(input.exeConnectionId);
@@ -224,7 +225,7 @@ export class Tenant extends DurableObject<Env> {
     // App-wide webhook verification is performed at the Worker edge before reaching this object.
     this.ctx.storage.sql.exec(
       "INSERT INTO pipes (id,name,project_id,team_id,filter_type,filter_target_id,max_concurrency,capability,webhook_id,signing_secret,workspace_name,agent_kind,context_template,match_rules,exe_connection_id,cwd,source_kind,source_config,trigger_kind,trigger_config,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      pipeId, input.name, source.kind === "linear" ? source.projectId : "", "", rules[0].type, rules[0].targetId, maxConcurrency, "app-webhook", null, "app-webhook", workspaceName, exe.agentKind, source.kind === "linear" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : "linear_match", "{}", now(),
+      pipeId, input.name, source.kind === "linear" ? source.projectId : "", "", rules[0].type, rules[0].targetId, maxConcurrency, "app-webhook", null, "app-webhook", workspaceName, exe.agentKind, source.kind !== "github" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : source.kind === "custom" ? "custom_handler" : "linear_match", "{}", now(),
     );
     return Response.json({ id: pipeId }, { status: 201 });
   }
@@ -232,7 +233,7 @@ export class Tenant extends DurableObject<Env> {
   private async updatePipe(pipeId: string, input: PipeInput): Promise<Response> {
     if (!pipeId || !this.one("SELECT id FROM pipes WHERE id = ?", pipeId)) return new Response("Not found", { status: 404 });
     const source = await this.validateSource(input);
-    const rules = source.kind === "linear" ? source.matchRules : [{ type: "status", targetId: "github" } as MatchRule];
+    const rules = source.kind === "linear" ? source.matchRules : [{ type: "status", targetId: source.kind } as MatchRule];
     if (!input.name) throw new Error("Pipe name is required");
     const flowId = this.flowId(input.flowId, input.name);
     const requestedConcurrency = Number(input.maxConcurrency);
@@ -243,7 +244,7 @@ export class Tenant extends DurableObject<Env> {
     const cwd = this.cwdTemplate(input.cwd, flowId);
     this.ctx.storage.sql.exec(
       "UPDATE pipes SET name=?, project_id=?, filter_type=?, filter_target_id=?, max_concurrency=?, workspace_name=?, agent_kind=?, context_template=?, match_rules=?, exe_connection_id=?, cwd=?, source_kind=?, source_config=?, trigger_kind=?, trigger_config=? WHERE id=?",
-      input.name, source.kind === "linear" ? source.projectId : "", rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe.agentKind, source.kind === "linear" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : "linear_match", "{}", pipeId,
+      input.name, source.kind === "linear" ? source.projectId : "", rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe.agentKind, source.kind !== "github" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : source.kind === "custom" ? "custom_handler" : "linear_match", "{}", pipeId,
     );
     return json({ id: pipeId, ok: true });
   }
@@ -311,6 +312,7 @@ export class Tenant extends DurableObject<Env> {
     let projectId = data.project?.id ?? data.issue?.project?.id;
     const issueId = data.issueId ?? data.issue?.id ?? (matchingEvent.type === "Issue" ? data.id : undefined);
     const pipes = this.rows("SELECT * FROM pipes WHERE enabled = 1 AND source_kind = 'linear'");
+    const custom = this.rows("SELECT * FROM pipes WHERE enabled = 1 AND source_kind = 'custom'");
 
     // IssueLabel is a join entity. Linear serializes it with issueId and labelId,
     // and does not consistently expand the linked issue or its project. Resolve it
@@ -334,6 +336,7 @@ export class Tenant extends DurableObject<Env> {
       }
       await this.queueWorkItem(pipe, deliveryId, { provider: "linear", claimKey: matchingIssueId, identifier: matchingIssueId, title: String(data.title ?? data.issue?.title ?? ""), description: String(data.description ?? data.issue?.description ?? ""), url: this.issueUrl(data, matchingIssueId), event: matchingEvent }, renderContextTemplate(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), data, String(pipe.name)));
     }
+    await Promise.all(custom.map((pipe) => this.evaluateCustom(pipe, "linear", deliveryId, event)));
     await this.ctx.storage.setAlarm(Date.now());
     return new Response(null, { status: 200 });
   }
@@ -342,7 +345,9 @@ export class Tenant extends DurableObject<Env> {
     if (!deliveryId || !eventName) return new Response("Missing delivery metadata", { status: 400 });
     if (this.one("SELECT id FROM deliveries WHERE id = ?", deliveryId)) return new Response(null, { status: 200 });
     this.ctx.storage.sql.exec("INSERT INTO deliveries (id,pipe_id,received_at) VALUES (?,?,?)", deliveryId, "github-app", now());
-    if (eventName !== "pull_request" || event.action !== "dequeued") return new Response(null, { status: 202 });
+    const custom = this.rows("SELECT * FROM pipes WHERE enabled=1 AND source_kind='custom'");
+    await Promise.all(custom.map((pipe) => this.evaluateCustom(pipe, "github", deliveryId, event)));
+    if (eventName !== "pull_request" || event.action !== "dequeued") { await this.ctx.storage.setAlarm(Date.now()); return new Response(null, { status: 202 }); }
     const installationId = event.installation?.id, repositoryId = event.repository?.id, pull = event.pull_request;
     if (!Number.isSafeInteger(installationId) || !Number.isSafeInteger(repositoryId) || !Number.isSafeInteger(pull?.number)) return new Response(null, { status: 202 });
     const pipes = this.rows("SELECT * FROM pipes WHERE enabled=1 AND source_kind='github'");
@@ -358,12 +363,39 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async queueWorkItem(pipe: Row, deliveryId: string, workItem: WorkItem, plaintextPrompt: string): Promise<void> {
+    const pending = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id=? AND state='queued'", pipe.id) as Row;
+    if (Number(pending.count) >= 100) {
+      this.recordFlowEvent(pipe, deliveryId, workItem.identifier, null, workItem.event as any, "capacity_overflow", "Accepted delivery dropped because this flow already has 100 pending jobs.", workItem.provider);
+      return;
+    }
     const runId = id();
     try { this.ctx.storage.sql.exec("INSERT INTO active_claims (pipe_id,issue_id,run_id) VALUES (?,?,?)", pipe.id, workItem.claimKey, runId); }
     catch { this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, "duplicate", "An active or queued run already owns this work item.", workItem.provider); return; }
     const prompt = await encrypt(plaintextPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,provider,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, workItem.provider, now(), now());
-    this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, "triggered", "Conflict confirmed; agent queued.", workItem.provider);
+    const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id=? AND state IN ('starting','running','blocked')", pipe.id) as Row;
+    this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, Number(active.count) < Number(pipe.max_concurrency) ? "accepted" : "queued_capacity", Number(active.count) < Number(pipe.max_concurrency) ? "Handler accepted delivery; agent queued to start." : "Handler accepted delivery; queued for capacity.", workItem.provider);
+  }
+
+  private async evaluateCustom(pipe: Row, origin: "linear" | "github", deliveryId: string, payload: Record<string, any>): Promise<void> {
+    const source = this.sourceFor(pipe);
+    if (source.kind !== "custom" || source.origin !== origin || source.handlerDeployment.state !== "ready") return;
+    if (!this.env.CUSTOM_HANDLERS) {
+      this.recordFlowEvent(pipe, deliveryId, deliveryId, null, payload, "handler_error", "Custom handler platform is unavailable.", origin);
+      return;
+    }
+    const result = await invokeCustomHandler(this.env.CUSTOM_HANDLERS, source, payload);
+    if (!result.ok) {
+      const detail = result.category === "timeout" ? "Handler exceeded its execution deadline." : result.category === "invalid_return" ? "Handler must return the literal boolean true or false synchronously." : "Handler failed closed without starting a run.";
+      this.recordFlowEvent(pipe, deliveryId, deliveryId, null, payload, result.category, detail, origin);
+      return;
+    }
+    if (!result.decision) {
+      this.recordFlowEvent(pipe, deliveryId, deliveryId, null, payload, "rejected", "Handler returned false; delivery ignored.", origin);
+      return;
+    }
+    const workItem: WorkItem = { provider: origin, claimKey: deliveryId, identifier: deliveryId, title: source.handlerName, description: "", url: "", event: payload };
+    await this.queueWorkItem(pipe, deliveryId, workItem, renderContextTemplate(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), payload, String(pipe.name)));
   }
 
   private recordFlowEvent(pipe: Row, deliveryId: string, issueId: string | null, issueUrl: string | null, event: Record<string, any>, outcome: string, detail: string, provider = "linear"): void {
@@ -577,6 +609,11 @@ export class Tenant extends DurableObject<Env> {
       return { kind: "linear", projectId, matchRules: rules };
     }
     const source = input.source;
+    if (source.kind === "custom") {
+      const valid = validateCustomHandler(source.origin, source.handlerName, source.handlerCode);
+      if (!source.handlerDeployment || source.handlerDeployment.state !== "ready" || !/^fh-[a-f0-9]{40}$/.test(source.handlerDeployment.scriptName) || !/^[a-f0-9]{64}$/.test(source.handlerDeployment.codeDigest)) throw new Error("Custom handler deployment is not ready.");
+      return { kind: "custom", ...valid, handlerDeployment: source.handlerDeployment };
+    }
     if (this.env.GITHUB_INTEGRATION_ENABLED !== "true") throw new Error("GitHub integration is not enabled");
     if (source.baseRef !== "main" || source.trigger !== "merge_queue_conflict" || !Number.isSafeInteger(source.installationId) || !Number.isSafeInteger(source.repositoryId)) throw new Error("Invalid GitHub source");
     const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", source.installationId) as Row | undefined;
@@ -591,7 +628,7 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private sourceFor(pipe: Row): FlowSource {
-    if (pipe.source_kind === "github") { try { return JSON.parse(String(pipe.source_config)) as FlowSource; } catch { /* invalid config cannot trigger */ } }
+    if (pipe.source_kind === "github" || pipe.source_kind === "custom") { try { return JSON.parse(String(pipe.source_config)) as FlowSource; } catch { /* invalid config cannot trigger */ } }
     return { kind: "linear", projectId: String(pipe.project_id), matchRules: this.savedMatchRules(pipe) };
   }
 
