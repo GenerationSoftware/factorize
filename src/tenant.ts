@@ -380,11 +380,11 @@ export class Tenant extends DurableObject<Env> {
   private async evaluateCustom(pipe: Row, origin: "linear" | "github", deliveryId: string, payload: Record<string, any>): Promise<void> {
     const source = this.sourceFor(pipe);
     if (source.kind !== "custom" || source.origin !== origin || source.handlerDeployment.state !== "ready") return;
-    if (!this.env.CUSTOM_HANDLERS) {
+    if (!this.env.CUSTOM_HANDLER_LOADER) {
       this.recordFlowEvent(pipe, deliveryId, deliveryId, null, payload, "handler_error", "Custom handler platform is unavailable.", origin);
       return;
     }
-    const result = await invokeCustomHandler(this.env.CUSTOM_HANDLERS, source, payload);
+    const result = await invokeCustomHandler(this.env.CUSTOM_HANDLER_LOADER, source, payload);
     if (!result.ok) {
       const detail = result.category === "timeout" ? "Handler exceeded its execution deadline." : result.category === "invalid_return" ? "Handler must return the literal boolean true or false synchronously." : "Handler failed closed without starting a run.";
       this.recordFlowEvent(pipe, deliveryId, deliveryId, null, payload, result.category, detail, origin);

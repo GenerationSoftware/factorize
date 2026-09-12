@@ -19,9 +19,7 @@ export interface Env {
   GITHUB_WEBHOOK_SECRET?: string;
   GITHUB_INTEGRATION_ENABLED?: string;
   CUSTOM_SOURCES_ENABLED?: string;
-  CUSTOM_HANDLERS?: DispatchNamespace;
-  CUSTOM_DEPLOYER?: Fetcher;
-  CUSTOM_DISPATCH_NAMESPACE?: string;
+  CUSTOM_HANDLER_LOADER?: WorkerLoader;
 }
 
 export type CustomOrigin = "linear" | "github";

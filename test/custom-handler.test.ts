@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CUSTOM_HANDLER_MAX_CODE_BYTES, customScriptName, userWorkerModule, validateCustomHandler } from "../src/custom-handler";
+import { CUSTOM_HANDLER_MAX_CODE_BYTES, customScriptName, invokeCustomHandler, userWorkerModule, validateCustomHandler } from "../src/custom-handler";
+import type { CustomSource } from "../src/types";
 
 describe("custom handlers", () => {
   const runAdapter = async (body: string) => {
@@ -35,6 +36,32 @@ describe("custom handlers", () => {
     expect(module).toContain('typeof result.then === "function"');
     expect(module).toContain('typeof result !== "boolean"');
     expect(module).not.toContain("error.stack");
+  });
+
+  it("loads handlers without bindings or outbound network access", async () => {
+    let loaded: WorkerLoaderWorkerCode | undefined;
+    const loader = {
+      load(code: WorkerLoaderWorkerCode) {
+        loaded = code;
+        return {
+          getEntrypoint: () => ({
+            fetch: async () => Response.json({ ok: true, decision: true }),
+          }),
+        };
+      },
+    } as unknown as WorkerLoader;
+    const source: CustomSource = {
+      kind: "custom",
+      origin: "github",
+      handlerName: "isolated",
+      handlerCode: "function handler(webhook) { return true; }",
+      handlerDeployment: { scriptName: "fh-0000000000000000000000000000000000000000", codeDigest: "0".repeat(64), state: "ready" },
+    };
+
+    await expect(invokeCustomHandler(loader, source, {})).resolves.toEqual({ ok: true, decision: true });
+    expect(loaded?.env).toEqual({});
+    expect(loaded?.globalOutbound).toBeNull();
+    expect(loaded?.limits).toEqual({ cpuMs: 10, subRequests: 0 });
   });
 
   it("admits literal booleans and fails closed on invalid synchronous results", async () => {
