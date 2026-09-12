@@ -5,11 +5,12 @@
   "compatibility_date": "2026-09-10",
   "assets": { "directory": "./public", "binding": "ASSETS" },
   "durable_objects": {
-    "bindings": [{ "name": "TENANTS", "class_name": "Tenant" }]
+    "bindings": [{ "name": "TENANTS", "class_name": "Tenant" }, { "name": "GITHUB_INSTALLATIONS", "class_name": "GitHubInstallationRegistry" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Tenant"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Tenant"] }, { "tag": "v2", "new_sqlite_classes": ["GitHubInstallationRegistry"] }],
   "vars": {
     "APP_ORIGIN": "https://app.factorize.sh",
-    "LINEAR_OAUTH_SCOPES": "read,write"
+    "LINEAR_OAUTH_SCOPES": "read,write",
+    "GITHUB_INTEGRATION_ENABLED": "false"
   }
 }

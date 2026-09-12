@@ -4,6 +4,7 @@ export type RunState = "queued" | "starting" | "running" | "done" | "blocked" | 
 
 export interface Env {
   TENANTS: DurableObjectNamespace;
+  GITHUB_INSTALLATIONS?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
   LINEAR_CLIENT_ID: string;
@@ -12,6 +13,27 @@ export interface Env {
   LINEAR_WEBHOOK_SIGNING_SECRET: string;
   CREDENTIAL_ENCRYPTION_KEY: string;
   SESSION_SIGNING_SECRET: string;
+  GITHUB_APP_ID?: string;
+  GITHUB_APP_SLUG?: string;
+  GITHUB_APP_PRIVATE_KEY?: string;
+  GITHUB_WEBHOOK_SECRET?: string;
+  GITHUB_INTEGRATION_ENABLED?: string;
+}
+
+export type FlowSource =
+  | { kind: "linear"; projectId: string; matchRules: MatchRule[] }
+  | { kind: "github"; installationId: number; repositoryId: number; repositoryOwner?: string; repositoryName?: string; repositoryFullName?: string; baseRef: "main"; trigger: "merge_queue_conflict" };
+
+export interface WorkItem {
+  provider: "linear" | "github";
+  claimKey: string;
+  identifier: string;
+  title: string;
+  description: string;
+  url: string;
+  event: Record<string, unknown>;
+  repository?: Record<string, unknown>;
+  pullRequest?: Record<string, unknown>;
 }
 
 export interface PipeInput {
@@ -32,6 +54,7 @@ export interface PipeInput {
   exeConnectionId?: string;
   /** Mustache template for the working directory; receives `flowId`. */
   cwd?: string;
+  source?: FlowSource;
 }
 
 export interface ExeConnectionInput {

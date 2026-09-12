@@ -6,6 +6,8 @@ import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUER
 import { matchingIssue } from "./matcher";
 import type { Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunState } from "./types";
 import { workingDirectoryFor, workspaceNameFor } from "./workspace";
+import { githubClaimKey, githubHeaders, installationToken, normalizeRepository, renderGitHubPrompt } from "./github";
+import type { FlowSource, WorkItem } from "./types";
 
 type Row = Record<string, unknown>;
 const json = (value: unknown) => Response.json(value);
@@ -83,6 +85,9 @@ export class Tenant extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, pipe_id TEXT NOT NULL, issue_id TEXT NOT NULL, agent_name TEXT NOT NULL,
         issue_url TEXT, workspace_name TEXT NOT NULL DEFAULT '', agent_kind TEXT NOT NULL DEFAULT '', state TEXT NOT NULL, prompt TEXT NOT NULL, result TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS active_claims (pipe_id TEXT NOT NULL, issue_id TEXT NOT NULL, run_id TEXT NOT NULL, PRIMARY KEY(pipe_id, issue_id));
+      CREATE TABLE IF NOT EXISTS github_installations (installation_id INTEGER PRIMARY KEY, account_login TEXT NOT NULL, account_type TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS github_setup_states (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, used_at TEXT);
+      CREATE TABLE IF NOT EXISTS pending_verifications (id TEXT PRIMARY KEY, flow_id TEXT NOT NULL, delivery_id TEXT NOT NULL, installation_id INTEGER NOT NULL, repository_id INTEGER NOT NULL, repository_owner TEXT NOT NULL, repository_name TEXT NOT NULL, pull_number INTEGER NOT NULL, attempt INTEGER NOT NULL, next_attempt_at INTEGER NOT NULL, payload TEXT NOT NULL);
     `);
     this.ensureColumn("pipes", "workspace_name", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("pipes", "agent_kind", "TEXT NOT NULL DEFAULT ''");
@@ -98,12 +103,19 @@ export class Tenant extends DurableObject<Env> {
     this.ensureColumn("runs", "exec_response", "TEXT");
     this.ensureColumn("runs", "exec_status", "INTEGER");
     this.ensureColumn("runs", "exec_exit_code", "INTEGER");
+    this.ensureColumn("pipes", "source_kind", "TEXT NOT NULL DEFAULT 'linear'");
+    this.ensureColumn("pipes", "source_config", "TEXT NOT NULL DEFAULT '{}'");
+    this.ensureColumn("pipes", "trigger_kind", "TEXT NOT NULL DEFAULT 'linear_match'");
+    this.ensureColumn("pipes", "trigger_config", "TEXT NOT NULL DEFAULT '{}'");
+    this.ensureColumn("flow_events", "provider", "TEXT NOT NULL DEFAULT 'linear'");
+    this.ensureColumn("runs", "provider", "TEXT NOT NULL DEFAULT 'linear'");
+    this.ensureColumn("runs", "claim_key", "TEXT");
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     try {
-      if (request.method === "GET" && url.pathname === "/pipes") return json(this.rows("SELECT id, name, project_id, team_id, filter_type, filter_target_id, max_concurrency, workspace_name, agent_kind, enabled, created_at FROM pipes ORDER BY created_at DESC"));
+      if (request.method === "GET" && url.pathname === "/pipes") return json(this.rows("SELECT id, name, project_id, team_id, filter_type, filter_target_id, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, enabled, created_at FROM pipes ORDER BY created_at DESC"));
       if (request.method === "GET" && url.pathname.startsWith("/pipes/")) return await this.flowDetail(url.pathname.split("/")[2] ?? "");
       if (request.method === "GET" && url.pathname === "/runs") return json(this.rows("SELECT id, pipe_id, issue_id, agent_name, state, created_at, updated_at FROM runs ORDER BY created_at DESC LIMIT 100"));
       if (request.method === "GET" && url.pathname === "/connections/status") return await this.connectionStatus();
@@ -118,7 +130,18 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "POST" && url.pathname === "/pipes") return await this.createPipe(await request.json() as PipeInput);
       if (request.method === "PUT" && url.pathname.startsWith("/pipes/")) return await this.updatePipe(url.pathname.split("/")[2] ?? "", await request.json() as PipeInput);
       if (request.method === "DELETE" && url.pathname.startsWith("/pipes/")) return this.deletePipe(url.pathname.split("/")[2] ?? "");
-      if (request.method === "POST" && url.pathname === "/webhook") return await this.acceptWebhook(await request.json() as Record<string, any>, request.headers.get("linear-delivery"));
+      if (request.method === "POST" && url.pathname === "/webhook/linear") return await this.acceptLinearWebhook(await request.json() as Record<string, any>, request.headers.get("linear-delivery"));
+      if (request.method === "POST" && url.pathname === "/webhook/github") return await this.acceptGitHubWebhook(await request.json() as Record<string, any>, request.headers.get("github-delivery"), request.headers.get("github-event"));
+      if (request.method === "GET" && url.pathname === "/github/installations") return this.githubInstallations();
+      if (request.method === "PUT" && url.pathname === "/github/installations") return this.saveGitHubInstallation(await request.json());
+      if (request.method === "POST" && url.pathname === "/github/setup-state") return this.saveSetupState(await request.json());
+      if (request.method === "POST" && url.pathname === "/github/setup-state/consume") return this.consumeSetupState(await request.json());
+      const repoMatch = url.pathname.match(/^\/github\/installations\/(\d+)\/repositories$/);
+      if (request.method === "GET" && repoMatch) return await this.githubRepositories(Number(repoMatch[1]));
+      const stateMatch = url.pathname.match(/^\/github\/installations\/(\d+)\/state$/);
+      if (request.method === "PATCH" && stateMatch) return this.updateGitHubInstallation(Number(stateMatch[1]), await request.json());
+      const installMatch = url.pathname.match(/^\/github\/installations\/(\d+)$/);
+      if (request.method === "DELETE" && installMatch) return this.updateGitHubInstallation(Number(installMatch[1]), { state: "removed" });
       return new Response("Not found", { status: 404 });
     } catch (error) {
       console.error("Tenant request failed", error);
@@ -127,6 +150,7 @@ export class Tenant extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    await this.processGitHubVerifications();
     // Release completed slots before looking at the queue, so capacity is used
     // immediately rather than waiting for the next polling alarm.
     const running = this.rows("SELECT * FROM runs WHERE state IN ('running','blocked') ORDER BY updated_at LIMIT 40");
@@ -144,7 +168,9 @@ export class Tenant extends DurableObject<Env> {
     }
 
     const pending = this.one("SELECT count(*) AS count FROM runs WHERE state IN ('queued','starting','running','blocked')") as Row;
-    if (Number(pending.count) > 0) await this.ctx.storage.setAlarm(Date.now() + 15_000);
+    const verification = this.one("SELECT min(next_attempt_at) AS next_attempt_at FROM pending_verifications") as Row;
+    const nextVerification = Number(verification?.next_attempt_at || 0);
+    if (Number(pending.count) > 0 || nextVerification) await this.ctx.storage.setAlarm(nextVerification ? Math.min(Date.now() + 15_000, nextVerification) : Date.now() + 15_000);
   }
 
   private async saveLinear(input: unknown): Promise<Response> {
@@ -180,8 +206,9 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async createPipe(input: PipeInput): Promise<Response> {
-    const rules = this.matchRules(input);
-    if (!input.name || !input.projectId) throw new Error("Pipe name and project are required");
+    const source = await this.validateSource(input);
+    const rules = source.kind === "linear" ? source.matchRules : [{ type: "status", targetId: "github" } as MatchRule];
+    if (!input.name) throw new Error("Pipe name is required");
     const flowId = this.flowId(input.flowId, input.name);
     // Rules are validated above; legacy columns mirror the first rule.
     const requestedConcurrency = Number(input.maxConcurrency);
@@ -196,16 +223,17 @@ export class Tenant extends DurableObject<Env> {
     // These legacy fields are retained for compatibility with the v1 Durable Object schema.
     // App-wide webhook verification is performed at the Worker edge before reaching this object.
     this.ctx.storage.sql.exec(
-      "INSERT INTO pipes (id,name,project_id,team_id,filter_type,filter_target_id,max_concurrency,capability,webhook_id,signing_secret,workspace_name,agent_kind,context_template,match_rules,exe_connection_id,cwd,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      pipeId, input.name, input.projectId, "", rules[0].type, rules[0].targetId, maxConcurrency, "app-webhook", null, "app-webhook", workspaceName, exe.agentKind, this.contextTemplate(input.contextTemplate), JSON.stringify(rules), input.exeConnectionId || "default", cwd, now(),
+      "INSERT INTO pipes (id,name,project_id,team_id,filter_type,filter_target_id,max_concurrency,capability,webhook_id,signing_secret,workspace_name,agent_kind,context_template,match_rules,exe_connection_id,cwd,source_kind,source_config,trigger_kind,trigger_config,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      pipeId, input.name, source.kind === "linear" ? source.projectId : "", "", rules[0].type, rules[0].targetId, maxConcurrency, "app-webhook", null, "app-webhook", workspaceName, exe.agentKind, source.kind === "linear" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : "linear_match", "{}", now(),
     );
     return Response.json({ id: pipeId }, { status: 201 });
   }
 
   private async updatePipe(pipeId: string, input: PipeInput): Promise<Response> {
     if (!pipeId || !this.one("SELECT id FROM pipes WHERE id = ?", pipeId)) return new Response("Not found", { status: 404 });
-    const rules = this.matchRules(input);
-    if (!input.name || !input.projectId) throw new Error("Pipe name and project are required");
+    const source = await this.validateSource(input);
+    const rules = source.kind === "linear" ? source.matchRules : [{ type: "status", targetId: "github" } as MatchRule];
+    if (!input.name) throw new Error("Pipe name is required");
     const flowId = this.flowId(input.flowId, input.name);
     const requestedConcurrency = Number(input.maxConcurrency);
     const maxConcurrency = Math.max(0, Math.min(50, Math.floor(Number.isFinite(requestedConcurrency) ? requestedConcurrency : 3)));
@@ -214,8 +242,8 @@ export class Tenant extends DurableObject<Env> {
     if (!exe) throw new Error("Choose an exe.dev connection.");
     const cwd = this.cwdTemplate(input.cwd, flowId);
     this.ctx.storage.sql.exec(
-      "UPDATE pipes SET name=?, project_id=?, filter_type=?, filter_target_id=?, max_concurrency=?, workspace_name=?, agent_kind=?, context_template=?, match_rules=?, exe_connection_id=?, cwd=? WHERE id=?",
-      input.name, input.projectId, rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe.agentKind, this.contextTemplate(input.contextTemplate), JSON.stringify(rules), input.exeConnectionId || "default", cwd, pipeId,
+      "UPDATE pipes SET name=?, project_id=?, filter_type=?, filter_target_id=?, max_concurrency=?, workspace_name=?, agent_kind=?, context_template=?, match_rules=?, exe_connection_id=?, cwd=?, source_kind=?, source_config=?, trigger_kind=?, trigger_config=? WHERE id=?",
+      input.name, source.kind === "linear" ? source.projectId : "", rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe.agentKind, source.kind === "linear" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : "linear_match", "{}", pipeId,
     );
     return json({ id: pipeId, ok: true });
   }
@@ -241,10 +269,10 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async flowDetail(flowId: string): Promise<Response> {
-    const flow = this.one("SELECT id, name, project_id, filter_type, filter_target_id, match_rules, max_concurrency, workspace_name, agent_kind, exe_connection_id, cwd, COALESCE(NULLIF(context_template, ''), ?) AS context_template, enabled, created_at FROM pipes WHERE id = ?", DEFAULT_CONTEXT_TEMPLATE, flowId);
+    const flow = this.one("SELECT id, name, project_id, filter_type, filter_target_id, match_rules, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, exe_connection_id, cwd, COALESCE(NULLIF(context_template, ''), ?) AS context_template, enabled, created_at FROM pipes WHERE id = ?", DEFAULT_CONTEXT_TEMPLATE, flowId);
     if (!flow) return new Response("Not found", { status: 404 });
-    const events = this.rows("SELECT id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, received_at FROM flow_events WHERE flow_id = ? ORDER BY received_at DESC LIMIT 100", flowId);
-    const runs = this.rows("SELECT id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, prompt, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code FROM runs WHERE pipe_id = ? ORDER BY created_at DESC LIMIT 100", flowId);
+    const events = this.rows("SELECT id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, provider, received_at FROM flow_events WHERE flow_id = ? ORDER BY received_at DESC LIMIT 100", flowId);
+    const runs = this.rows("SELECT id, issue_id, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code FROM runs WHERE pipe_id = ? ORDER BY created_at DESC LIMIT 100", flowId);
     await Promise.all(runs.map(async (run) => {
       if (run.state !== "ignored" && typeof run.prompt === "string" && run.prompt) run.prompt = await decrypt(run.prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
       if (typeof run.exec_request === "string" && run.exec_request) run.exec_request = await decrypt(run.exec_request, this.env.CREDENTIAL_ENCRYPTION_KEY);
@@ -274,7 +302,7 @@ export class Tenant extends DurableObject<Env> {
     return json({ statuses: statusData.workflowStates.nodes, users: userData.users.nodes, labels: labelData.issueLabels.nodes });
   }
 
-  private async acceptWebhook(event: Record<string, any>, deliveryId: string | null): Promise<Response> {
+  private async acceptLinearWebhook(event: Record<string, any>, deliveryId: string | null): Promise<Response> {
     if (!deliveryId) return new Response("Missing delivery ID", { status: 400 });
     if (this.one("SELECT id FROM deliveries WHERE id = ?", deliveryId)) return new Response(null, { status: 200 });
     this.ctx.storage.sql.exec("INSERT INTO deliveries (id,pipe_id,received_at) VALUES (?,?,?)", deliveryId, "app-webhook", now());
@@ -282,7 +310,7 @@ export class Tenant extends DurableObject<Env> {
     let data = matchingEvent.data ?? {};
     let projectId = data.project?.id ?? data.issue?.project?.id;
     const issueId = data.issueId ?? data.issue?.id ?? (matchingEvent.type === "Issue" ? data.id : undefined);
-    const pipes = this.rows("SELECT * FROM pipes WHERE enabled = 1");
+    const pipes = this.rows("SELECT * FROM pipes WHERE enabled = 1 AND source_kind = 'linear'");
 
     // IssueLabel is a join entity. Linear serializes it with issueId and labelId,
     // and does not consistently expand the linked issue or its project. Resolve it
@@ -304,27 +332,44 @@ export class Tenant extends DurableObject<Env> {
         this.recordFlowEvent(pipe, deliveryId, null, null, matchingEvent, "ignored", "Webhook did not match this flow's trigger.");
         continue;
       }
-      const issueUrl = this.issueUrl(data, matchingIssueId);
-      const runId = id();
-      try {
-        this.ctx.storage.sql.exec("INSERT INTO active_claims (pipe_id,issue_id,run_id) VALUES (?,?,?)", pipe.id, matchingIssueId, runId);
-      } catch {
-        this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_url,agent_name,workspace_name,agent_kind,state,prompt,result,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, matchingIssueId, issueUrl, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "ignored", "", "Ignored: an active run already owns this issue.", now(), now());
-        this.recordFlowEvent(pipe, deliveryId, matchingIssueId, issueUrl, matchingEvent, "ignored", "An active or queued run already owns this issue.");
-        continue;
-      }
-      const prompt = await encrypt(renderContextTemplate(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), data, String(pipe.name)), this.env.CREDENTIAL_ENCRYPTION_KEY);
-      this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_url,agent_name,workspace_name,agent_kind,state,prompt,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, matchingIssueId, issueUrl, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, now(), now());
-      this.recordFlowEvent(pipe, deliveryId, matchingIssueId, issueUrl, matchingEvent, "triggered", "Queued an agent job.");
+      await this.queueWorkItem(pipe, deliveryId, { provider: "linear", claimKey: matchingIssueId, identifier: matchingIssueId, title: String(data.title ?? data.issue?.title ?? ""), description: String(data.description ?? data.issue?.description ?? ""), url: this.issueUrl(data, matchingIssueId), event: matchingEvent }, renderContextTemplate(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), data, String(pipe.name)));
     }
     await this.ctx.storage.setAlarm(Date.now());
     return new Response(null, { status: 200 });
   }
 
-  private recordFlowEvent(pipe: Row, deliveryId: string, issueId: string | null, issueUrl: string | null, event: Record<string, any>, outcome: "triggered" | "ignored", detail: string): void {
+  private async acceptGitHubWebhook(event: Record<string, any>, deliveryId: string | null, eventName: string | null): Promise<Response> {
+    if (!deliveryId || !eventName) return new Response("Missing delivery metadata", { status: 400 });
+    if (this.one("SELECT id FROM deliveries WHERE id = ?", deliveryId)) return new Response(null, { status: 200 });
+    this.ctx.storage.sql.exec("INSERT INTO deliveries (id,pipe_id,received_at) VALUES (?,?,?)", deliveryId, "github-app", now());
+    if (eventName !== "pull_request" || event.action !== "dequeued") return new Response(null, { status: 202 });
+    const installationId = event.installation?.id, repositoryId = event.repository?.id, pull = event.pull_request;
+    if (!Number.isSafeInteger(installationId) || !Number.isSafeInteger(repositoryId) || !Number.isSafeInteger(pull?.number)) return new Response(null, { status: 202 });
+    const pipes = this.rows("SELECT * FROM pipes WHERE enabled=1 AND source_kind='github'");
+    for (const pipe of pipes) {
+      const source = this.sourceFor(pipe);
+      if (source.kind !== "github" || source.installationId !== installationId || source.repositoryId !== repositoryId || pull.state !== "open" || pull.base?.ref !== "main") continue;
+      const minimal = { number: pull.number, url: pull.html_url, title: pull.title ?? "", body: pull.body ?? "", author: pull.user?.login ?? "", base: { ref: pull.base.ref, sha: pull.base.sha }, head: { ref: pull.head?.ref ?? "", sha: pull.head?.sha ?? "", repository: pull.head?.repo?.full_name ?? "" } };
+      this.ctx.storage.sql.exec("INSERT INTO pending_verifications VALUES (?,?,?,?,?,?,?,?,?,?,?)", id(), pipe.id, deliveryId, installationId, repositoryId, source.repositoryOwner ?? event.repository.owner?.login ?? "", source.repositoryName ?? event.repository.name ?? "", pull.number, 0, Date.now(), JSON.stringify(minimal));
+      this.recordFlowEvent(pipe, deliveryId, githubClaimKey(repositoryId, pull.number), pull.html_url ?? null, { type: "pull_request", action: "dequeued" }, "candidate", "Candidate received; waiting for GitHub mergeability verification.", "github");
+    }
+    await this.ctx.storage.setAlarm(Date.now());
+    return new Response(null, { status: 202 });
+  }
+
+  private async queueWorkItem(pipe: Row, deliveryId: string, workItem: WorkItem, plaintextPrompt: string): Promise<void> {
+    const runId = id();
+    try { this.ctx.storage.sql.exec("INSERT INTO active_claims (pipe_id,issue_id,run_id) VALUES (?,?,?)", pipe.id, workItem.claimKey, runId); }
+    catch { this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, "duplicate", "An active or queued run already owns this work item.", workItem.provider); return; }
+    const prompt = await encrypt(plaintextPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,provider,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, workItem.provider, now(), now());
+    this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, "triggered", "Conflict confirmed; agent queued.", workItem.provider);
+  }
+
+  private recordFlowEvent(pipe: Row, deliveryId: string, issueId: string | null, issueUrl: string | null, event: Record<string, any>, outcome: string, detail: string, provider = "linear"): void {
     this.ctx.storage.sql.exec(
-      "INSERT INTO flow_events (id,flow_id,delivery_id,issue_id,issue_url,event_type,event_action,outcome,detail,received_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      id(), pipe.id, deliveryId, issueId, issueUrl, String(event.type ?? "unknown"), String(event.action ?? "unknown"), outcome, detail, now(),
+      "INSERT INTO flow_events (id,flow_id,delivery_id,issue_id,issue_url,event_type,event_action,outcome,detail,provider,received_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      id(), pipe.id, deliveryId, issueId, issueUrl, String(event.type ?? "unknown"), String(event.action ?? "unknown"), outcome, detail, provider, now(),
     );
   }
 
@@ -333,11 +378,53 @@ export class Tenant extends DurableObject<Env> {
     return candidate.startsWith("https://linear.app/") ? candidate : `https://linear.app/issue/${encodeURIComponent(issueId)}`;
   }
 
+  private async processGitHubVerifications(): Promise<void> {
+    const pending = this.rows("SELECT * FROM pending_verifications WHERE next_attempt_at <= ? ORDER BY next_attempt_at LIMIT 20", Date.now());
+    const delays = [0, 5_000, 15_000, 30_000, 60_000];
+    for (const verification of pending) {
+      const pipe = this.one("SELECT * FROM pipes WHERE id=?", verification.flow_id) as Row | undefined;
+      if (!pipe) { this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id); continue; }
+      const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", verification.installation_id) as Row | undefined;
+      if (installation?.state !== "active") { this.finishVerification(verification, pipe, "verification_failed", "GitHub installation is disconnected."); continue; }
+      try {
+        const token = await installationToken(this.env, Number(verification.installation_id));
+        const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(String(verification.repository_owner))}/${encodeURIComponent(String(verification.repository_name))}/pulls/${verification.pull_number}`, { headers: githubHeaders(token) });
+        if (response.status === 404) { this.finishVerification(verification, pipe, "ignored", "Pull request no longer exists or is inaccessible."); continue; }
+        const rateLimited = response.status === 429 || (response.status === 403 && (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after")));
+        if (response.status === 401 || (response.status === 403 && !rateLimited)) { this.finishVerification(verification, pipe, "verification_failed", `GitHub access failed permanently (${response.status}).`); continue; }
+        if (!response.ok) { await this.retryVerification(verification, pipe, delays, `Transient GitHub API failure (${response.status}).`, rateLimited ? Number(response.headers.get("retry-after")) * 1000 : undefined); continue; }
+        const pull = await response.json() as any;
+        if (pull.state !== "open" || pull.base?.ref !== "main") { this.finishVerification(verification, pipe, "ignored", "Pull request is closed or no longer targets main."); continue; }
+        if (pull.mergeable === null) { await this.retryVerification(verification, pipe, delays, "GitHub is still calculating mergeability."); continue; }
+        if (pull.mergeable === true) { this.finishVerification(verification, pipe, "ignored", "GitHub reports that the pull request is mergeable."); continue; }
+        const source = this.sourceFor(pipe);
+        if (source.kind !== "github" || source.repositoryId !== Number(verification.repository_id)) { this.finishVerification(verification, pipe, "ignored", "Flow source changed while verification was pending."); continue; }
+        const saved = JSON.parse(String(verification.payload));
+        const workItem: WorkItem = { provider: "github", claimKey: githubClaimKey(source.repositoryId, pull.number), identifier: `${source.repositoryFullName}#${pull.number}`, title: pull.title ?? saved.title, description: pull.body ?? saved.body, url: pull.html_url, event: { type: "pull_request", name: "pull_request", action: "dequeued", delivery: verification.delivery_id }, repository: { id: source.repositoryId, owner: source.repositoryOwner, name: source.repositoryName, fullName: source.repositoryFullName }, pullRequest: { number: pull.number, url: pull.html_url, title: pull.title ?? "", body: pull.body ?? "", author: pull.user?.login ?? "", base: { ref: pull.base.ref, sha: pull.base.sha }, head: { ref: pull.head?.ref ?? "", sha: pull.head?.sha ?? "", repository: pull.head?.repo?.full_name ?? "" } } };
+        this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id);
+        await this.queueWorkItem(pipe, String(verification.delivery_id), workItem, renderGitHubPrompt(workItem, { id: String(pipe.id), name: String(pipe.name) }));
+      } catch (error) { await this.retryVerification(verification, pipe, delays, error instanceof Error ? error.message : "GitHub verification failed."); }
+    }
+  }
+
+  private async retryVerification(verification: Row, pipe: Row, delays: number[], detail: string, overrideDelay?: number): Promise<void> {
+    const nextAttempt = Number(verification.attempt) + 1;
+    if (nextAttempt >= delays.length) { this.finishVerification(verification, pipe, "verification_failed", `Verification retries exhausted: ${detail}`); return; }
+    const delay = Math.max(delays[nextAttempt]!, Number.isFinite(overrideDelay) ? overrideDelay! : 0);
+    this.ctx.storage.sql.exec("UPDATE pending_verifications SET attempt=?,next_attempt_at=? WHERE id=?", nextAttempt, Date.now() + delay, verification.id);
+    this.recordFlowEvent(pipe, String(verification.delivery_id), githubClaimKey(Number(verification.repository_id), Number(verification.pull_number)), null, { type: "pull_request", action: "dequeued" }, "waiting", detail, "github");
+  }
+
+  private finishVerification(verification: Row, pipe: Row, outcome: string, detail: string): void {
+    this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id);
+    this.recordFlowEvent(pipe, String(verification.delivery_id), githubClaimKey(Number(verification.repository_id), Number(verification.pull_number)), null, { type: "pull_request", action: "dequeued" }, outcome, detail, "github");
+  }
+
   private async startRun(run: Row, pipe: Row): Promise<void> {
     const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "No exe.dev VM is connected.");
     const workspaceName = String(run.workspace_name || pipe.workspace_name || workspaceNameFor(String(pipe.name)));
-    await this.postLinearComment(String(run.issue_id), `Factorize started **${connection.agentKind}** on ${connection.vmName} in Herdr workspace \`${workspaceName}\` for this issue.`);
+    if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize started **${connection.agentKind}** on ${connection.vmName} in Herdr workspace \`${workspaceName}\` for this issue.`);
     const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
     const result = await exec(connection, startAgentCommand(String(run.agent_name), connection, prompt, workspaceName));
     const execRequest = await encrypt(result.requestBody, this.env.CREDENTIAL_ENCRYPTION_KEY);
@@ -371,10 +458,12 @@ export class Tenant extends DurableObject<Env> {
   private async finishRun(run: Row, state: Extract<RunState, "done" | "failed">, result: string): Promise<void> {
     const encryptedResult = await encrypt(result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET state = ?, result = ?, updated_at = ? WHERE id = ?", state, encryptedResult, now(), run.id);
-    this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id = ? AND issue_id = ?", run.pipe_id, run.issue_id);
+    this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id = ? AND issue_id = ?", run.pipe_id, run.claim_key || run.issue_id);
     const heading = state === "done" ? "Factorize completed the agent run." : "Factorize could not complete the agent run.";
-    await this.postLinearComment(String(run.issue_id), `${heading}\n\nRun ID: \`${run.id}\`. Review the Herdr session on the configured VM for details.`);
+    if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `${heading}\n\nRun ID: \`${run.id}\`. Review the Herdr session on the configured VM for details.`);
   }
+
+  private async safeLinearComment(issueId: string, body: string): Promise<void> { try { await this.postLinearComment(issueId, body); } catch (error) { console.warn(JSON.stringify({ event: "linear_notification_failed", issueId, message: error instanceof Error ? error.message : "unknown" })); } }
 
   private async postLinearComment(issueId: string, body: string): Promise<void> {
     const linear = await this.connection<{ accessToken: string }>("linear");
@@ -433,6 +522,77 @@ export class Tenant extends DurableObject<Env> {
     const role = Number(count.count) === 0 ? "owner" : "pending";
     this.ctx.storage.sql.exec("INSERT INTO members (user_id,email,role,session_version,created_at) VALUES (?,?,?,?,?)", member.userId, member.email, role, 1, now());
     return json({ user_id: member.userId, email: member.email, role, session_version: 1 });
+  }
+
+  private githubInstallations(): Response { return json(this.rows("SELECT installation_id AS installationId,account_login AS accountLogin,account_type AS accountType,state,updated_at AS updatedAt FROM github_installations ORDER BY account_login")); }
+
+  private saveGitHubInstallation(input: any): Response {
+    if (!Number.isSafeInteger(input.installationId)) throw new Error("Invalid installation");
+    this.ctx.storage.sql.exec("INSERT INTO github_installations VALUES (?,?,?,?,?) ON CONFLICT(installation_id) DO UPDATE SET account_login=excluded.account_login,account_type=excluded.account_type,state=excluded.state,updated_at=excluded.updated_at", input.installationId, String(input.accountLogin ?? ""), String(input.accountType ?? ""), String(input.state ?? "active"), now());
+    return json({ ok: true });
+  }
+
+  private updateGitHubInstallation(installationId: number, input: any): Response {
+    const existing = this.one("SELECT installation_id FROM github_installations WHERE installation_id=?", installationId);
+    if (!existing) return new Response("Not found", { status: 404 });
+    const state = ["active", "suspended", "removed"].includes(input.state) ? input.state : "removed";
+    this.ctx.storage.sql.exec("UPDATE github_installations SET state=?,updated_at=? WHERE installation_id=?", state, now(), installationId);
+    return json({ ok: true });
+  }
+
+  private saveSetupState(input: any): Response {
+    if (!input.nonce || !Number.isFinite(input.exp)) throw new Error("Invalid setup state");
+    this.ctx.storage.sql.exec("INSERT INTO github_setup_states (nonce,expires_at) VALUES (?,?)", input.nonce, input.exp);
+    return json({ ok: true });
+  }
+
+  private consumeSetupState(input: any): Response {
+    const state = this.one("SELECT * FROM github_setup_states WHERE nonce=?", input.nonce) as Row | undefined;
+    if (!state || state.used_at || Number(state.expires_at) <= Math.floor(Date.now() / 1000)) return new Response("Invalid setup state", { status: 409 });
+    this.ctx.storage.sql.exec("UPDATE github_setup_states SET used_at=? WHERE nonce=? AND used_at IS NULL", now(), input.nonce);
+    return json({ ok: true });
+  }
+
+  private async githubRepositories(installationId: number): Promise<Response> {
+    const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", installationId) as Row | undefined;
+    if (!installation || installation.state !== "active") return new Response("Installation is disconnected", { status: 409 });
+    const token = await installationToken(this.env, installationId);
+    const repositories: any[] = []; let page = 1;
+    while (page <= 10) {
+      const response = await fetch(`https://api.github.com/installation/repositories?per_page=100&page=${page}`, { headers: githubHeaders(token) });
+      const body = await response.json() as any;
+      if (!response.ok) throw new Error(body.message ?? `GitHub repository request failed (${response.status})`);
+      repositories.push(...(body.repositories ?? []));
+      if ((body.repositories ?? []).length < 100) break;
+      page += 1;
+    }
+    return json(repositories.map(normalizeRepository));
+  }
+
+  private async validateSource(input: PipeInput): Promise<FlowSource> {
+    if (!input.source || input.source.kind === "linear") {
+      const projectId = input.source?.kind === "linear" ? input.source.projectId : input.projectId;
+      const rules = this.matchRules(input.source?.kind === "linear" ? { ...input, matchRules: input.source.matchRules } : input);
+      if (!projectId) throw new Error("Pipe name and project are required");
+      return { kind: "linear", projectId, matchRules: rules };
+    }
+    const source = input.source;
+    if (this.env.GITHUB_INTEGRATION_ENABLED !== "true") throw new Error("GitHub integration is not enabled");
+    if (source.baseRef !== "main" || source.trigger !== "merge_queue_conflict" || !Number.isSafeInteger(source.installationId) || !Number.isSafeInteger(source.repositoryId)) throw new Error("Invalid GitHub source");
+    const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", source.installationId) as Row | undefined;
+    if (!installation || installation.state !== "active") throw new Error("GitHub installation is disconnected");
+    const token = await installationToken(this.env, source.installationId);
+    const response = await fetch(`https://api.github.com/repositories/${source.repositoryId}`, { headers: githubHeaders(token) });
+    const body = await response.json() as any;
+    if (!response.ok) throw new Error("The installation cannot access this repository");
+    const repository = normalizeRepository(body);
+    if (repository.defaultBranch !== "main") throw new Error("GitHub flows require a repository whose default branch is main");
+    return { kind: "github", installationId: source.installationId, repositoryId: repository.id, repositoryOwner: repository.owner, repositoryName: repository.name, repositoryFullName: repository.fullName, baseRef: "main", trigger: "merge_queue_conflict" };
+  }
+
+  private sourceFor(pipe: Row): FlowSource {
+    if (pipe.source_kind === "github") { try { return JSON.parse(String(pipe.source_config)) as FlowSource; } catch { /* invalid config cannot trigger */ } }
+    return { kind: "linear", projectId: String(pipe.project_id), matchRules: this.savedMatchRules(pipe) };
   }
 
   private getMember(userId: string): Response {

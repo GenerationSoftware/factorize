@@ -22,7 +22,8 @@ describe("pages", () => {
 
   it("renders all three flow configuration sections", () => {
     const html = flowPage({ email: "owner@example.com" });
-    expect(html).toContain("Linear config");
+    expect(html).toContain(">Source</h2>");
+    expect(html).toContain("PR leaves merge queue with conflicts");
     expect(html).toContain("Flow config");
     expect(html).toContain("Flow ID");
     expect(html).toContain("slugFor");
