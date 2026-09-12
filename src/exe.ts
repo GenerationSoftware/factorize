@@ -64,7 +64,7 @@ export function herdrAgentStatus(body: string): string | null {
 }
 
 export function agentOutputCommand(connection: ExeConnection, agentName: string): string {
-  return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent read ${shellAtom(agentName)} --source recent --lines 40 --format text`;
+  return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent read ${shellAtom(agentName)} --source recent --format text`;
 }
 
 export function herdrCheckCommand(connection: ExeConnection): string {
