@@ -365,7 +365,7 @@ export class Tenant extends DurableObject<Env> {
     }
     if (agentStatus !== "done" && agentStatus !== "idle") return;
     const output = await exec(connection, agentOutputCommand(connection, String(run.agent_name)));
-    await this.finishRun(run, "done", output.ok ? output.body.slice(-6000) : "Agent completed; terminal output could not be read.");
+    await this.finishRun(run, "done", output.ok ? output.body : "Agent completed; terminal output could not be read.");
   }
 
   private async finishRun(run: Row, state: Extract<RunState, "done" | "failed">, result: string): Promise<void> {

@@ -59,6 +59,8 @@ describe("pages", () => {
     expect(html).toContain("Edit Flow");
     expect(html).toContain("issueLink");
     expect(html).toContain("Prompt sent to agent");
+    expect(html).toContain("Full agent output");
+    expect(html).toContain('max-h-[32rem] overflow-auto');
   });
 
   it("escapes profile data", () => {
