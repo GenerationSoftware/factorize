@@ -11,8 +11,12 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@modelcontextprotocol/hono": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "hono": "^4.11.4",
-    "mustache": "^4.2.0"
+    "mustache": "^4.2.0",
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260910.1",
