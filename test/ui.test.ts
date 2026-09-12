@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { flowDetailPage, flowPage, landingPage } from "../src/ui";
 
 describe("pages", () => {
+  const expectInlineScriptsToParse = (html: string) => {
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+    expect(scripts.length).toBeGreaterThan(0);
+    scripts.forEach((script) => expect(() => new Function(script)).not.toThrow());
+  };
+
   it("renders the simple landing page and theme control", () => {
     const html = landingPage(null);
     expect(html).toContain("No-code Software Factories");
@@ -62,6 +68,7 @@ describe("pages", () => {
     expect(html).toContain("Prompt sent to agent");
     expect(html).toContain("Full agent output");
     expect(html).toContain('max-h-[32rem] overflow-auto');
+    expectInlineScriptsToParse(html);
   });
 
   it("escapes profile data", () => {
