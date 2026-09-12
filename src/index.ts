@@ -7,7 +7,7 @@ import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./g
 import { flowDetailPage, flowPage, flowsPage, landingPage } from "./ui";
 import type { Env } from "./types";
 import type { CustomSource, PipeInput } from "./types";
-import { deleteCustomHandler, deployCustomHandler, invokeCustomHandler, validateCustomHandler } from "./custom-handler";
+import { invokeCustomHandler, prepareCustomHandler, validateCustomHandler } from "./custom-handler";
 
 const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string } }>();
 
@@ -171,18 +171,14 @@ app.post("/api/connections/exe/test", async (c) => {
 app.post("/api/pipes", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   const input = await c.req.json() as PipeInput;
-  let newlyDeployed: CustomSource | undefined;
   if (input.source?.kind === "custom") {
     if (c.env.CUSTOM_SOURCES_ENABLED !== "true") return c.json({ error: "Custom sources are not enabled." }, 404);
     const valid = validateCustomHandler(input.source.origin, input.source.handlerName, input.source.handlerCode);
     const pipeId = crypto.randomUUID();
     input.pipeId = pipeId;
-    newlyDeployed = await deployCustomHandler(c.env, session.tenantId, pipeId, { kind: "custom", ...valid });
-    input.source = newlyDeployed;
+    input.source = await prepareCustomHandler(session.tenantId, pipeId, { kind: "custom", ...valid });
   }
-  const response = await tenant(c, session.tenantId).fetch("https://tenant/pipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
-  if (!response.ok && newlyDeployed) await deleteCustomHandler(c.env, newlyDeployed.handlerDeployment.scriptName);
-  return response;
+  return tenant(c, session.tenantId).fetch("https://tenant/pipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 });
 app.put("/api/pipes/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
@@ -195,31 +191,24 @@ app.put("/api/pipes/:id", async (c) => {
     let previous: CustomSource | undefined;
     try { const source = JSON.parse(current.flow.source_config ?? "{}"); if (source.kind === "custom") previous = source; } catch { /* fail closed */ }
     const valid = validateCustomHandler(input.source.origin, input.source.handlerName, input.source.handlerCode);
-    input.source = await deployCustomHandler(c.env, session.tenantId, pipeId, { kind: "custom", ...valid }, previous);
+    input.source = await prepareCustomHandler(session.tenantId, pipeId, { kind: "custom", ...valid }, previous);
   }
   return tenant(c, session.tenantId).fetch(`https://tenant/pipes/${encodeURIComponent(pipeId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 });
 app.delete("/api/pipes/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   const pipeId = c.req.param("id");
-  const currentResponse = await tenant(c, session.tenantId).fetch(`https://tenant/pipes/${encodeURIComponent(pipeId)}`);
-  if (!currentResponse.ok) return currentResponse;
-  const current = await currentResponse.json() as { flow: { source_config?: string } };
-  const response = await tenant(c, session.tenantId).fetch(`https://tenant/pipes/${encodeURIComponent(pipeId)}`, { method: "DELETE" });
-  if (response.ok) { try { const source = JSON.parse(current.flow.source_config ?? "{}"); if (source.kind === "custom") await deleteCustomHandler(c.env, source.handlerDeployment.scriptName); } catch { /* cleanup reconciliation can retry */ } }
-  return response;
+  return tenant(c, session.tenantId).fetch(`https://tenant/pipes/${encodeURIComponent(pipeId)}`, { method: "DELETE" });
 });
 
 app.post("/api/custom-handlers/test", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  if (c.env.CUSTOM_SOURCES_ENABLED !== "true" || !c.env.CUSTOM_HANDLERS) return c.json({ error: "Custom sources are not enabled." }, 404);
+  if (c.env.CUSTOM_SOURCES_ENABLED !== "true" || !c.env.CUSTOM_HANDLER_LOADER) return c.json({ error: "Custom sources are not enabled." }, 404);
   const input = await c.req.json() as { origin?: unknown; handlerName?: unknown; handlerCode?: unknown; payload?: unknown };
   const valid = validateCustomHandler(input.origin, input.handlerName, input.handlerCode);
   const testId = `test-${crypto.randomUUID()}`;
-  try {
-    const source = await deployCustomHandler(c.env, session.tenantId, testId, { kind: "custom", ...valid });
-    return c.json(await invokeCustomHandler(c.env.CUSTOM_HANDLERS, source, input.payload));
-  } finally { await deleteCustomHandler(c.env, await (await import("./custom-handler")).customScriptName(session.tenantId, testId)); }
+  const source = await prepareCustomHandler(session.tenantId, testId, { kind: "custom", ...valid });
+  return c.json(await invokeCustomHandler(c.env.CUSTOM_HANDLER_LOADER, source, input.payload));
 });
 
 app.post("/webhooks/linear", async (c) => {

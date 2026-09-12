@@ -1,4 +1,4 @@
-import type { CustomOrigin, CustomSource, Env } from "./types";
+import type { CustomOrigin, CustomSource } from "./types";
 
 export const CUSTOM_HANDLER_SCAFFOLD = `function handler(webhook) {
   return true;
@@ -48,14 +48,21 @@ export default { async fetch(request) {
 } };`;
 }
 
-export async function invokeCustomHandler(dispatch: DispatchNamespace, source: CustomSource, payload: unknown): Promise<HandlerDecision> {
+export async function invokeCustomHandler(loader: WorkerLoader, source: CustomSource, payload: unknown): Promise<HandlerDecision> {
   const body = JSON.stringify(payload);
   if (encoder.encode(body).byteLength > CUSTOM_HANDLER_MAX_PAYLOAD_BYTES) return { ok: false, category: "platform_error" };
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), CUSTOM_HANDLER_DEADLINE_MS);
   try {
-    const worker = dispatch.get(source.handlerDeployment.scriptName, {}, { limits: { cpuMs: 10, subRequests: 1 } });
-    const response = await worker.fetch("https://handler.internal/", { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: controller.signal });
+    const worker = loader.load({
+      compatibilityDate: CUSTOM_HANDLER_COMPATIBILITY_DATE,
+      mainModule: "worker.js",
+      modules: { "worker.js": userWorkerModule(source.handlerCode) },
+      env: {},
+      globalOutbound: null,
+      limits: { cpuMs: 10, subRequests: 0 },
+    });
+    const response = await worker.getEntrypoint().fetch("https://handler.internal/", { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: controller.signal });
     if (!response.ok) return { ok: false, category: "platform_error" };
     const result = await response.json() as HandlerDecision;
     return result?.ok === true && typeof result.decision === "boolean" ? result : result?.ok === false && ["handler_error", "invalid_return", "timeout", "platform_error"].includes(result.category) ? result : { ok: false, category: "platform_error" };
@@ -64,18 +71,9 @@ export async function invokeCustomHandler(dispatch: DispatchNamespace, source: C
   } finally { clearTimeout(deadline); }
 }
 
-export async function deployCustomHandler(env: Env, tenantId: string, flowId: string, source: Omit<CustomSource, "handlerDeployment">, previous?: CustomSource): Promise<CustomSource> {
-  if (!env.CUSTOM_DEPLOYER) throw new Error("Custom handler deployment is not configured.");
+export async function prepareCustomHandler(tenantId: string, flowId: string, source: Omit<CustomSource, "handlerDeployment">, previous?: CustomSource): Promise<CustomSource> {
   const scriptName = await customScriptName(tenantId, flowId);
   const codeDigest = await sha256(source.handlerCode);
   if (previous?.handlerDeployment.state === "ready" && previous.handlerDeployment.codeDigest === codeDigest) return { ...source, handlerDeployment: previous.handlerDeployment };
-  const response = await env.CUSTOM_DEPLOYER.fetch("https://deployer.internal/scripts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scriptName, module: userWorkerModule(source.handlerCode) }) });
-  if (!response.ok) throw new Error(`Handler deployment failed (${response.status}).`);
   return { ...source, handlerDeployment: { scriptName, codeDigest, state: "ready" } };
-}
-
-export async function deleteCustomHandler(env: Env, scriptName: string): Promise<boolean> {
-  if (!env.CUSTOM_DEPLOYER) return false;
-  const response = await env.CUSTOM_DEPLOYER.fetch(`https://deployer.internal/scripts/${encodeURIComponent(scriptName)}`, { method: "DELETE" });
-  return response.ok || response.status === 404;
 }
