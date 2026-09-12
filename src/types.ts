@@ -1,6 +1,6 @@
 export type FilterType = "owner" | "creator" | "status" | "label" | "assignee";
 export interface MatchRule { type: FilterType; targetId: string; }
-export type RunState = "queued" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored";
+export type RunState = "queued" | "starting" | "running" | "recovering" | "done" | "blocked" | "failed" | "ignored";
 
 export interface Env {
   TENANTS: DurableObjectNamespace;
@@ -20,6 +20,8 @@ export interface Env {
   GITHUB_INTEGRATION_ENABLED?: string;
   CUSTOM_SOURCES_ENABLED?: string;
   CUSTOM_HANDLER_LOADER?: WorkerLoader;
+  RECOVERY_TIMEOUT_MS?: string;
+  RECOVERY_MAX_ATTEMPTS?: string;
 }
 
 export type CustomOrigin = "linear" | "github";
