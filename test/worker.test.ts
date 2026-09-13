@@ -88,6 +88,19 @@ describe("Worker routes", () => {
     await expect(response.json()).resolves.toEqual(activity);
   });
 
+  it("forwards flow activity pagination to the Durable Object", async () => {
+    let forwarded: URL | undefined;
+    const response = await app.request("https://factorize.test/api/pipes/flow-1?view=events&page=3", {
+      headers: { cookie: await sessionCookie() },
+    }, testEnv(request => {
+      if (new URL(request.url).pathname === "/members/user-1") return Response.json({ role: "owner", session_version: 1 });
+      forwarded = new URL(request.url);
+      return Response.json({ flow: {}, events: [], runs: [], pagination: { page: 3, hasNext: false } });
+    }));
+    expect(response.status).toBe(200);
+    expect(forwarded?.search).toBe("?view=events&page=3");
+  });
+
   it("returns an agent run through the authenticated Durable Object boundary", async () => {
     const run = { id: "run-1", issue_title: "Fix the thing" };
     const response = await app.request("https://factorize.test/api/runs/run-1", {

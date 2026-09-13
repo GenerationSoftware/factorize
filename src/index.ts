@@ -4,7 +4,7 @@ import { equalHmac, hmac } from "./crypto";
 import { Tenant } from "./tenant";
 import { GitHubInstallationRegistry } from "./github-registry";
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
-import { flowDetailPage, flowPage, flowsPage, landingPage, runDetailPage } from "./ui";
+import { flowDetailPage, flowPage, flowWebhooksPage, flowsPage, landingPage, runDetailPage } from "./ui";
 import type { Env } from "./types";
 import type { CustomSource, PipeInput } from "./types";
 import { invokeCustomHandler, prepareCustomHandler, validateCustomHandler } from "./custom-handler";
@@ -103,7 +103,9 @@ app.get("/api/pipes", async (c) => {
 });
 app.get("/api/pipes/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/pipes/${encodeURIComponent(c.req.param("id"))}`);
+  const url = new URL(`https://tenant/pipes/${encodeURIComponent(c.req.param("id"))}`);
+  for (const key of ["view", "page"]) { const value = c.req.query(key); if (value) url.searchParams.set(key, value); }
+  return tenant(c, session.tenantId).fetch(url);
 });
 app.get("/api/runs", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
@@ -297,6 +299,11 @@ app.get("/flows/:id/edit", async (c) => {
   const session = await owner(c);
   if (!session) return c.redirect("/auth/linear");
   return c.html(render(flowPage({ email: session.email }, c.req.param("id")), c.get("cspNonce")));
+});
+app.get("/flows/:id/webhooks", async (c) => {
+  const session = await owner(c);
+  if (!session) return c.redirect("/auth/linear");
+  return c.html(render(flowWebhooksPage({ email: session.email }, c.req.param("id")), c.get("cspNonce")));
 });
 app.get("/runs/:id", async (c) => {
   const session = await owner(c);

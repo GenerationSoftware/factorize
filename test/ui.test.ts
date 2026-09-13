@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flowDetailPage, flowPage, flowsPage, landingPage, runDetailPage } from "../src/ui";
+import { flowDetailPage, flowPage, flowWebhooksPage, flowsPage, landingPage, runDetailPage } from "../src/ui";
 
 describe("pages", () => {
   const expectInlineScriptsToParse = (html: string) => {
@@ -57,19 +57,26 @@ describe("pages", () => {
     expect(html).toContain("r.ok&&body.ok");
   });
 
-  it("renders flow-level webhook and agent-run activity", () => {
+  it("renders paginated agent runs with links to run and webhook pages", () => {
     const html = flowDetailPage({ email: "owner@example.com" }, "flow-1");
-    expect(html).toContain("Webhook activity");
     expect(html).toContain("Agent runs");
-    expect(html).toContain("/api/pipes/");
-    expect(html).toContain("whether they queued an agent");
+    expect(html).toContain("?view=runs&page=");
+    expect(html).toContain("/webhooks");
+    expect(html).toContain("/runs/");
     expect(html).toContain("Edit Flow");
     expect(html).toContain("issueLink");
     expect(html).toContain("Prompt sent to agent");
     expect(html).toContain("Full agent output");
     expect(html).toContain("issue_title");
-    expect(html).toContain("data-run-href");
     expect(html).toContain('max-h-[32rem] overflow-auto');
+    expectInlineScriptsToParse(html);
+  });
+
+  it("renders webhook activity on its own paginated page", () => {
+    const html = flowWebhooksPage({ email: "owner@example.com" }, "flow-1");
+    expect(html).toContain("Webhook activity");
+    expect(html).toContain("?view=events&page=");
+    expect(html).toContain("whether they queued an agent");
     expectInlineScriptsToParse(html);
   });
 

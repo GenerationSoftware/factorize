@@ -126,7 +126,7 @@ export class Tenant extends DurableObject<Env> {
         (SELECT count(*) FROM runs WHERE runs.pipe_id = pipes.id AND runs.state IN ('starting','running','blocked','recovering')) AS active_agents,
         (SELECT state FROM runs WHERE runs.pipe_id = pipes.id ORDER BY updated_at DESC, id DESC LIMIT 1) AS latest_run_state
         FROM pipes ORDER BY created_at DESC`));
-      if (request.method === "GET" && url.pathname.startsWith("/pipes/")) return await this.flowDetail(url.pathname.split("/")[2] ?? "");
+      if (request.method === "GET" && url.pathname.startsWith("/pipes/")) return await this.flowDetail(url.pathname.split("/")[2] ?? "", url);
       if (request.method === "GET" && url.pathname === "/runs") return json(this.rows("SELECT id, pipe_id, issue_id, agent_name, state, created_at, updated_at FROM runs ORDER BY created_at DESC LIMIT 100"));
       if (request.method === "GET" && /^\/runs\/[^/]+$/.test(url.pathname)) return await this.runDetail(decodeURIComponent(url.pathname.split("/")[2] ?? ""));
       if (request.method === "GET" && url.pathname === "/v1/runs") return this.listRuns(url);
@@ -288,11 +288,17 @@ export class Tenant extends DurableObject<Env> {
     return json({ ok: true });
   }
 
-  private async flowDetail(flowId: string): Promise<Response> {
+  private async flowDetail(flowId: string, url: URL): Promise<Response> {
     const flow = this.one("SELECT id, name, project_id, filter_type, filter_target_id, match_rules, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, exe_connection_id, cwd, COALESCE(NULLIF(context_template, ''), ?) AS context_template, enabled, created_at FROM pipes WHERE id = ?", DEFAULT_CONTEXT_TEMPLATE, flowId);
     if (!flow) return new Response("Not found", { status: 404 });
-    const events = this.rows("SELECT id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, provider, received_at FROM flow_events WHERE flow_id = ? ORDER BY received_at DESC LIMIT 100", flowId);
-    const runs = this.rows("SELECT id, issue_id, issue_title, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code, recovery_reason, recovery_attempt, recovery_last_action, recovery_started_at FROM runs WHERE pipe_id = ? ORDER BY created_at DESC LIMIT 100", flowId);
+    const view = url.searchParams.get("view") === "events" ? "events" : "runs";
+    const page = Math.max(1, Math.min(10000, Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1));
+    const offset = (page - 1) * 10;
+    const events = view === "events" ? this.rows("SELECT id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, provider, received_at FROM flow_events WHERE flow_id = ? ORDER BY received_at DESC, id DESC LIMIT 11 OFFSET ?", flowId, offset) : [];
+    const runs = view === "runs" ? this.rows("SELECT id, issue_id, issue_title, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code, recovery_reason, recovery_attempt, recovery_last_action, recovery_started_at FROM runs WHERE pipe_id = ? AND state != 'ignored' ORDER BY created_at DESC, id DESC LIMIT 11 OFFSET ?", flowId, offset) : [];
+    const hasNext = (view === "events" ? events : runs).length > 10;
+    if (events.length > 10) events.pop();
+    if (runs.length > 10) runs.pop();
     await Promise.all(runs.map(async (run) => {
       if (run.state !== "ignored" && typeof run.prompt === "string" && run.prompt) run.prompt = await decrypt(run.prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
       if (typeof run.exec_request === "string" && run.exec_request) run.exec_request = await decrypt(run.exec_request, this.env.CREDENTIAL_ENCRYPTION_KEY);
@@ -301,7 +307,7 @@ export class Tenant extends DurableObject<Env> {
       // a plain-text explanation. Only completed/failed agent output is encrypted.
       if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     }));
-    return json({ flow, events, runs });
+    return json({ flow, events, runs, pagination: { page, hasNext } });
   }
 
   private async runDetail(runId: string): Promise<Response> {
