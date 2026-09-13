@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flowDetailPage, flowPage, landingPage, runDetailPage } from "../src/ui";
+import { flowDetailPage, flowPage, flowsPage, landingPage, runDetailPage } from "../src/ui";
 
 describe("pages", () => {
   const expectInlineScriptsToParse = (html: string) => {
@@ -79,6 +79,17 @@ describe("pages", () => {
     expect(html).toContain("Prompt sent to agent");
     expect(html).toContain("Exact command submitted to exe.dev");
     expect(html).toContain("Full agent output");
+    expectInlineScriptsToParse(html);
+  });
+
+  it("renders flow status and active agent capacity without trigger details", () => {
+    const html = flowsPage({ email: "owner@example.com" });
+    expect(html).toContain("active_agents");
+    expect(html).toContain("bg-green-500");
+    expect(html).toContain("bg-blue-500");
+    expect(html).toContain("bg-red-500");
+    expect(html).toContain("concurrent agents");
+    expect(html).not.toContain("filter_type+' trigger'");
     expectInlineScriptsToParse(html);
   });
 

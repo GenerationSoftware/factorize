@@ -8,6 +8,7 @@ import { flowDetailPage, flowPage, flowsPage, landingPage, runDetailPage } from 
 import type { Env } from "./types";
 import type { CustomSource, PipeInput } from "./types";
 import { invokeCustomHandler, prepareCustomHandler, validateCustomHandler } from "./custom-handler";
+import { generateTailSecret } from "./cloudflare-tail";
 
 const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string } }>();
 
@@ -24,7 +25,7 @@ app.use("*", async (c, next) => {
 });
 
 app.onError((error, c) => {
-  console.error(JSON.stringify({ event: "request_failed", path: c.req.path, message: error.message }));
+  console.error(JSON.stringify({ event: "factorize_unexpected_failure", path: c.req.path, message: error.message, factorizeTailSuppressed: c.req.path.startsWith("/webhooks/cloudflare/") }));
   if (c.req.path.startsWith("/api/")) return c.json({ error: "Factorize could not complete this request. Try again shortly." }, 502);
   return c.text("Internal Server Error", 500);
 });
@@ -182,9 +183,12 @@ app.post("/api/pipes", async (c) => {
     const valid = validateCustomHandler(input.source.origin, input.source.handlerName, input.source.handlerCode);
     const pipeId = crypto.randomUUID();
     input.pipeId = pipeId;
-    input.source = await prepareCustomHandler(session.tenantId, pipeId, { kind: "custom", ...valid });
+    input.source = await prepareCustomHandler(session.tenantId, pipeId, { kind: "custom", ...valid, ...(valid.origin === "cloudflare" ? { tail: { signingSecret: generateTailSecret() } } : {}) });
   }
-  return tenant(c, session.tenantId).fetch("https://tenant/pipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  const response = await tenant(c, session.tenantId).fetch("https://tenant/pipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+  if (!response.ok || input.source?.kind !== "custom" || input.source.origin !== "cloudflare") return response;
+  const result = await response.json() as Record<string, unknown>;
+  return c.json({ ...result, cloudflareTail: { destination: `${c.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(session.tenantId)}/${encodeURIComponent(String(input.pipeId))}`, signingSecret: input.source.tail?.signingSecret } }, 201);
 });
 app.put("/api/pipes/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
@@ -215,6 +219,19 @@ app.post("/api/custom-handlers/test", async (c) => {
   const testId = `test-${crypto.randomUUID()}`;
   const source = await prepareCustomHandler(session.tenantId, testId, { kind: "custom", ...valid });
   return c.json(await invokeCustomHandler(c.env.CUSTOM_HANDLER_LOADER, source, input.payload));
+});
+
+app.post("/api/pipes/:id/cloudflare-tail/test", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch(`https://tenant/cloudflare-tail/${encodeURIComponent(c.req.param("id"))}/test`, { method: "POST" });
+});
+
+app.post("/webhooks/cloudflare/:tenantId/:flowId", async (c) => {
+  const raw = await c.req.text();
+  if (new TextEncoder().encode(raw).byteLength > 262_144) return c.text("Payload too large", 413);
+  return tenant(c, c.req.param("tenantId")).fetch(`https://tenant/webhook/cloudflare/${encodeURIComponent(c.req.param("flowId"))}`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Factorize-Timestamp": c.req.header("X-Factorize-Timestamp") ?? "", "X-Factorize-Delivery": c.req.header("X-Factorize-Delivery") ?? "", "X-Factorize-Signature": c.req.header("X-Factorize-Signature") ?? "" }, body: raw,
+  });
 });
 
 app.post("/webhooks/linear", async (c) => {

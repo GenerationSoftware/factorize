@@ -10,6 +10,7 @@ import { workingDirectoryFor, workspaceNameFor } from "./workspace";
 import { githubClaimKey, githubHeaders, installationToken, normalizeRepository, renderGitHubPrompt } from "./github";
 import type { FlowSource, WorkItem } from "./types";
 import { invokeCustomHandler, validateCustomHandler } from "./custom-handler";
+import { sanitizeTailEvent, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
 
 type Row = Record<string, unknown>;
 const json = (value: unknown) => Response.json(value);
@@ -91,6 +92,7 @@ export class Tenant extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS github_setup_states (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, used_at TEXT);
       CREATE TABLE IF NOT EXISTS pending_verifications (id TEXT PRIMARY KEY, flow_id TEXT NOT NULL, delivery_id TEXT NOT NULL, installation_id INTEGER NOT NULL, repository_id INTEGER NOT NULL, repository_owner TEXT NOT NULL, repository_name TEXT NOT NULL, pull_number INTEGER NOT NULL, attempt INTEGER NOT NULL, next_attempt_at INTEGER NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS run_activity (id TEXT PRIMARY KEY, run_id TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS tail_fingerprints (flow_id TEXT NOT NULL, fingerprint TEXT NOT NULL, window_started INTEGER NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(flow_id,fingerprint));
     `);
     this.ensureColumn("pipes", "workspace_name", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("pipes", "agent_kind", "TEXT NOT NULL DEFAULT ''");
@@ -120,7 +122,10 @@ export class Tenant extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     try {
-      if (request.method === "GET" && url.pathname === "/pipes") return json(this.rows("SELECT id, name, project_id, team_id, filter_type, filter_target_id, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, enabled, created_at FROM pipes ORDER BY created_at DESC"));
+      if (request.method === "GET" && url.pathname === "/pipes") return json(this.rows(`SELECT id, name, project_id, team_id, filter_type, filter_target_id, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, enabled, created_at,
+        (SELECT count(*) FROM runs WHERE runs.pipe_id = pipes.id AND runs.state IN ('starting','running','blocked','recovering')) AS active_agents,
+        (SELECT state FROM runs WHERE runs.pipe_id = pipes.id ORDER BY updated_at DESC, id DESC LIMIT 1) AS latest_run_state
+        FROM pipes ORDER BY created_at DESC`));
       if (request.method === "GET" && url.pathname.startsWith("/pipes/")) return await this.flowDetail(url.pathname.split("/")[2] ?? "");
       if (request.method === "GET" && url.pathname === "/runs") return json(this.rows("SELECT id, pipe_id, issue_id, agent_name, state, created_at, updated_at FROM runs ORDER BY created_at DESC LIMIT 100"));
       if (request.method === "GET" && /^\/runs\/[^/]+$/.test(url.pathname)) return await this.runDetail(decodeURIComponent(url.pathname.split("/")[2] ?? ""));
@@ -143,6 +148,10 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "DELETE" && url.pathname.startsWith("/pipes/")) return this.deletePipe(url.pathname.split("/")[2] ?? "");
       if (request.method === "POST" && url.pathname === "/webhook/linear") return await this.acceptLinearWebhook(await request.json() as Record<string, any>, request.headers.get("linear-delivery"));
       if (request.method === "POST" && url.pathname === "/webhook/github") return await this.acceptGitHubWebhook(await request.json() as Record<string, any>, request.headers.get("github-delivery"), request.headers.get("github-event"));
+      const tailMatch = url.pathname.match(/^\/webhook\/cloudflare\/([^/]+)$/);
+      if (request.method === "POST" && tailMatch) return await this.acceptCloudflareTail(decodeURIComponent(tailMatch[1]), await request.text(), request.headers);
+      const tailTestMatch = url.pathname.match(/^\/cloudflare-tail\/([^/]+)\/test$/);
+      if (request.method === "POST" && tailTestMatch) return await this.testCloudflareTail(decodeURIComponent(tailTestMatch[1]));
       if (request.method === "GET" && url.pathname === "/github/installations") return this.githubInstallations();
       if (request.method === "PUT" && url.pathname === "/github/installations") return this.saveGitHubInstallation(await request.json());
       if (request.method === "POST" && url.pathname === "/github/setup-state") return this.saveSetupState(await request.json());
@@ -155,7 +164,7 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "DELETE" && installMatch) return this.updateGitHubInstallation(Number(installMatch[1]), { state: "removed" });
       return new Response("Not found", { status: 404 });
     } catch (error) {
-      console.error("Tenant request failed", error);
+      console.error(JSON.stringify({ event: "factorize_unexpected_failure", component: "tenant", path: url.pathname, message: error instanceof Error ? error.message : "Unknown error", factorizeTailSuppressed: url.pathname.startsWith("/webhook/cloudflare/") }));
       return Response.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 400 });
     }
   }
@@ -453,6 +462,42 @@ export class Tenant extends DurableObject<Env> {
     return new Response(null, { status: 202 });
   }
 
+  private async acceptCloudflareTail(flowId: string, raw: string, headers: Headers): Promise<Response> {
+    const pipe = this.one("SELECT * FROM pipes WHERE id=? AND enabled=1", flowId) as Row | undefined;
+    if (!pipe) return new Response("Not found", { status: 404 });
+    const source = this.sourceFor(pipe);
+    if (source.kind !== "custom" || source.origin !== "cloudflare" || !source.tail?.signingSecret) return new Response("Not found", { status: 404 });
+    const timestamp = headers.get("x-factorize-timestamp") ?? "", delivery = headers.get("x-factorize-delivery") ?? "", signature = headers.get("x-factorize-signature") ?? "";
+    const metadataEvent = { type: "tail", action: "delivery" };
+    if (!timestamp || !delivery || !signature) { this.recordFlowEvent(pipe, delivery || "missing", null, null, metadataEvent, "invalid", "Tail delivery metadata was missing.", "cloudflare"); return new Response("Missing delivery metadata", { status: 400 }); }
+    const verification = await verifyTailDelivery(source.tail.signingSecret, timestamp, delivery, raw, signature);
+    if (verification !== "valid") { this.recordFlowEvent(pipe, delivery, null, null, metadataEvent, verification, verification === "stale" ? "Tail delivery timestamp was stale." : "Tail delivery signature was invalid.", "cloudflare"); return new Response(verification === "stale" ? "Stale delivery" : "Invalid signature", { status: 401 }); }
+    if (this.one("SELECT id FROM deliveries WHERE id=?", `cloudflare:${delivery}`)) { this.recordFlowEvent(pipe, delivery, null, null, metadataEvent, "duplicate", "Tail delivery ID was already processed.", "cloudflare"); return new Response("Duplicate delivery", { status: 409 }); }
+    let parsed: Record<string, any>; try { parsed = JSON.parse(raw); } catch { this.recordFlowEvent(pipe, delivery, null, null, metadataEvent, "invalid", "Tail delivery was not valid JSON.", "cloudflare"); return new Response("Invalid JSON", { status: 400 }); }
+    const event = sanitizeTailEvent(parsed) as Record<string, any>;
+    this.ctx.storage.sql.exec("INSERT INTO deliveries (id,pipe_id,received_at) VALUES (?,?,?)", `cloudflare:${delivery}`, pipe.id, now());
+    if (suppressTailEvent(event)) { this.recordFlowEvent(pipe, delivery, null, null, metadataEvent, "rejected", "Tail delivery was suppressed to prevent a Factorize ingestion loop.", "cloudflare"); return new Response(null, { status: 202 }); }
+    const fingerprint = await tailFingerprint(event), windowMs = 5 * 60_000, limit = 5;
+    const seen = this.one("SELECT * FROM tail_fingerprints WHERE flow_id=? AND fingerprint=?", pipe.id, fingerprint) as Row | undefined;
+    if (seen && Date.now() - Number(seen.window_started) < windowMs && Number(seen.count) >= limit) { this.ctx.storage.sql.exec("UPDATE tail_fingerprints SET count=count+1 WHERE flow_id=? AND fingerprint=?", pipe.id, fingerprint); this.recordFlowEvent(pipe, delivery, null, null, metadataEvent, "rate_limited", "Repeated Tail event fingerprint exceeded the per-flow limit.", "cloudflare"); return new Response("Rate limited", { status: 429 }); }
+    if (!seen || Date.now() - Number(seen.window_started) >= windowMs) this.ctx.storage.sql.exec("INSERT INTO tail_fingerprints VALUES (?,?,?,1) ON CONFLICT(flow_id,fingerprint) DO UPDATE SET window_started=excluded.window_started,count=1", pipe.id, fingerprint, Date.now());
+    else this.ctx.storage.sql.exec("UPDATE tail_fingerprints SET count=count+1 WHERE flow_id=? AND fingerprint=?", pipe.id, fingerprint);
+    await this.evaluateCustom(pipe, "cloudflare", delivery, event);
+    await this.ctx.storage.setAlarm(Date.now());
+    return new Response(null, { status: 202 });
+  }
+
+  private async testCloudflareTail(flowId: string): Promise<Response> {
+    const pipe = this.one("SELECT * FROM pipes WHERE id=? AND enabled=1", flowId) as Row | undefined;
+    if (!pipe) return new Response("Not found", { status: 404 });
+    const source = this.sourceFor(pipe);
+    if (source.kind !== "custom" || source.origin !== "cloudflare") return new Response("Not found", { status: 404 });
+    const delivery = `test-${id()}`;
+    await this.evaluateCustom(pipe, "cloudflare", delivery, { type: "tail", outcome: "exception", scriptName: "factorize-owner-test", event: { request: { method: "GET", url: "https://example.invalid/test" } }, logs: [], exceptions: [{ name: "Error", message: "Factorize Tail test event" }], test: true });
+    await this.ctx.storage.setAlarm(Date.now());
+    return json({ ok: true, deliveryId: delivery });
+  }
+
   private async queueWorkItem(pipe: Row, deliveryId: string, workItem: WorkItem, plaintextPrompt: string): Promise<void> {
     const pending = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id=? AND state='queued'", pipe.id) as Row;
     if (Number(pending.count) >= 100) {
@@ -468,7 +513,7 @@ export class Tenant extends DurableObject<Env> {
     this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, Number(active.count) < Number(pipe.max_concurrency) ? "accepted" : "queued_capacity", Number(active.count) < Number(pipe.max_concurrency) ? "Handler accepted delivery; agent queued to start." : "Handler accepted delivery; queued for capacity.", workItem.provider);
   }
 
-  private async evaluateCustom(pipe: Row, origin: "linear" | "github", deliveryId: string, payload: Record<string, any>): Promise<void> {
+  private async evaluateCustom(pipe: Row, origin: "linear" | "github" | "cloudflare", deliveryId: string, payload: Record<string, any>): Promise<void> {
     const source = this.sourceFor(pipe);
     if (source.kind !== "custom" || source.origin !== origin || source.handlerDeployment.state !== "ready") return;
     if (!this.env.CUSTOM_HANDLER_LOADER) {
@@ -486,7 +531,8 @@ export class Tenant extends DurableObject<Env> {
       return;
     }
     const workItem: WorkItem = { provider: origin, claimKey: deliveryId, identifier: deliveryId, title: source.handlerName, description: "", url: "", event: payload };
-    await this.queueWorkItem(pipe, deliveryId, workItem, renderContextTemplate(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), payload, String(pipe.name)));
+    const prompt = origin === "cloudflare" ? `---\npipe: "${String(pipe.name).replaceAll('"', "'")}"\nsource: "Cloudflare Tail"\ndelivery: "${deliveryId}"\n---\n\n# Cloudflare Worker Tail event\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\`` : renderContextTemplate(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), payload, String(pipe.name));
+    await this.queueWorkItem(pipe, deliveryId, workItem, prompt);
   }
 
   private recordFlowEvent(pipe: Row, deliveryId: string, issueId: string | null, issueUrl: string | null, event: Record<string, any>, outcome: string, detail: string, provider = "linear"): void {
@@ -798,7 +844,8 @@ export class Tenant extends DurableObject<Env> {
     if (source.kind === "custom") {
       const valid = validateCustomHandler(source.origin, source.handlerName, source.handlerCode);
       if (!source.handlerDeployment || source.handlerDeployment.state !== "ready" || !/^fh-[a-f0-9]{40}$/.test(source.handlerDeployment.scriptName) || !/^[a-f0-9]{64}$/.test(source.handlerDeployment.codeDigest)) throw new Error("Custom handler deployment is not ready.");
-      return { kind: "custom", ...valid, handlerDeployment: source.handlerDeployment };
+      if (valid.origin === "cloudflare" && (!source.tail?.signingSecret || source.tail.signingSecret.length < 32)) throw new Error("Cloudflare Tail signing is not configured.");
+      return { kind: "custom", ...valid, handlerDeployment: source.handlerDeployment, ...(valid.origin === "cloudflare" ? { tail: source.tail } : {}) };
     }
     if (this.env.GITHUB_INTEGRATION_ENABLED !== "true") throw new Error("GitHub integration is not enabled");
     if (source.baseRef !== "main" || source.trigger !== "merge_queue_conflict" || !Number.isSafeInteger(source.installationId) || !Number.isSafeInteger(source.repositoryId)) throw new Error("Invalid GitHub source");

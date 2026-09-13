@@ -24,7 +24,7 @@ export async function customScriptName(tenantId: string, flowId: string): Promis
 }
 
 export function validateCustomHandler(origin: unknown, handlerName: unknown, handlerCode: unknown): { origin: CustomOrigin; handlerName: string; handlerCode: string } {
-  if (origin !== "linear" && origin !== "github") throw new Error("Custom handler origin must be Linear or GitHub.");
+  if (origin !== "linear" && origin !== "github" && origin !== "cloudflare") throw new Error("Custom handler origin must be Linear, GitHub, or Cloudflare.");
   if (typeof handlerName !== "string" || !handlerName.trim() || handlerName.trim().length > 80) throw new Error("Handler name must be between 1 and 80 characters.");
   if (typeof handlerCode !== "string" || encoder.encode(handlerCode).byteLength > CUSTOM_HANDLER_MAX_CODE_BYTES) throw new Error(`Handler code must be at most ${CUSTOM_HANDLER_MAX_CODE_BYTES} bytes.`);
   // This is input validation, not the isolation boundary. Requiring exactly one
@@ -74,6 +74,6 @@ export async function invokeCustomHandler(loader: WorkerLoader, source: CustomSo
 export async function prepareCustomHandler(tenantId: string, flowId: string, source: Omit<CustomSource, "handlerDeployment">, previous?: CustomSource): Promise<CustomSource> {
   const scriptName = await customScriptName(tenantId, flowId);
   const codeDigest = await sha256(source.handlerCode);
-  if (previous?.handlerDeployment.state === "ready" && previous.handlerDeployment.codeDigest === codeDigest) return { ...source, handlerDeployment: previous.handlerDeployment };
+  if (previous?.handlerDeployment.state === "ready" && previous.handlerDeployment.codeDigest === codeDigest) return { ...source, tail: source.tail ?? previous.tail, handlerDeployment: previous.handlerDeployment };
   return { ...source, handlerDeployment: { scriptName, codeDigest, state: "ready" } };
 }

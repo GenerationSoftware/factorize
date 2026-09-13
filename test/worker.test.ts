@@ -114,6 +114,17 @@ describe("Worker routes", () => {
     await expect(response.json()).resolves.toEqual({ error: "Factorize could not complete this request. Try again shortly." });
   });
 
+  it("routes signed Cloudflare Tail deliveries without a browser session", async () => {
+    let forwarded: Request | undefined;
+    const response = await app.request("https://factorize.test/webhooks/cloudflare/tenant-a/flow-a", {
+      method: "POST", headers: { "content-type": "application/json", "x-factorize-timestamp": "123", "x-factorize-delivery": "delivery-a", "x-factorize-signature": "sha256=abc" }, body: '{"scriptName":"producer"}',
+    }, testEnv(request => { forwarded = request; return new Response(null, { status: 202 }); }));
+    expect(response.status).toBe(202);
+    expect(new URL(forwarded!.url).pathname).toBe("/webhook/cloudflare/flow-a");
+    expect(forwarded!.headers.get("x-factorize-delivery")).toBe("delivery-a");
+    await expect(forwarded!.text()).resolves.toBe('{"scriptName":"producer"}');
+  });
+
   it("forwards flow creation with its JSON body", async () => {
     let forwarded: { method: string; body: unknown } | undefined;
     const env = testEnv(async (request) => {

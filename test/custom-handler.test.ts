@@ -18,7 +18,8 @@ describe("custom handlers", () => {
   });
 
   it("enforces origin, name, and source size limits", () => {
-    expect(() => validateCustomHandler("slack", "x", "function handler(webhook) { return true; }")).toThrow("Linear or GitHub");
+    expect(validateCustomHandler("cloudflare", "Tail failures", "function handler(webhook) { return webhook.outcome === 'exception'; }").origin).toBe("cloudflare");
+    expect(() => validateCustomHandler("slack", "x", "function handler(webhook) { return true; }")).toThrow("Linear, GitHub, or Cloudflare");
     expect(() => validateCustomHandler("github", "", "function handler(webhook) { return true; }")).toThrow("Handler name");
     expect(() => validateCustomHandler("github", "x", `function handler(webhook) { /*${"x".repeat(CUSTOM_HANDLER_MAX_CODE_BYTES)}*/ return true; }`)).toThrow("at most");
   });
