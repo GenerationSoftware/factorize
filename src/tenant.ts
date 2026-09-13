@@ -121,7 +121,10 @@ export class Tenant extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     try {
-      if (request.method === "GET" && url.pathname === "/pipes") return json(this.rows("SELECT id, name, project_id, team_id, filter_type, filter_target_id, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, enabled, created_at FROM pipes ORDER BY created_at DESC"));
+      if (request.method === "GET" && url.pathname === "/pipes") return json(this.rows(`SELECT id, name, project_id, team_id, filter_type, filter_target_id, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, enabled, created_at,
+        (SELECT count(*) FROM runs WHERE runs.pipe_id = pipes.id AND runs.state IN ('starting','running','blocked','recovering')) AS active_agents,
+        (SELECT state FROM runs WHERE runs.pipe_id = pipes.id ORDER BY updated_at DESC, id DESC LIMIT 1) AS latest_run_state
+        FROM pipes ORDER BY created_at DESC`));
       if (request.method === "GET" && url.pathname.startsWith("/pipes/")) return await this.flowDetail(url.pathname.split("/")[2] ?? "");
       if (request.method === "GET" && url.pathname === "/runs") return json(this.rows("SELECT id, pipe_id, issue_id, agent_name, state, created_at, updated_at FROM runs ORDER BY created_at DESC LIMIT 100"));
       if (request.method === "GET" && url.pathname === "/v1/runs") return this.listRuns(url);
