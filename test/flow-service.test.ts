@@ -1,0 +1,51 @@
+import { describe, expect, it } from "vitest";
+import { FlowService, ServiceError } from "../src/flow-service";
+import { flowInputSchema, listRunsSchema } from "../src/flow-schemas";
+import type { Env, OAuthProps } from "../src/types";
+
+function environment(handler: (request: Request) => Response | Promise<Response>): Env {
+  const stub = { fetch: (input: RequestInfo | URL, init?: RequestInit) => handler(new Request(input, init)) } as DurableObjectStub;
+  return { TENANTS: { idFromName: (name: string) => name as unknown as DurableObjectId, get: () => stub } as unknown as DurableObjectNamespace } as Env;
+}
+
+const auth: OAuthProps = { tenantId: "tenant-a", userId: "owner-a", sessionVersion: 4, scopes: ["flows:read", "runs:read"] };
+
+describe("FlowService", () => {
+  it("checks current owner membership on every call", async () => {
+    let membershipChecks = 0;
+    const service = new FlowService(environment(request => {
+      const path = new URL(request.url).pathname;
+      if (path === "/members/owner-a") { membershipChecks++; return Response.json({ role: "owner", session_version: 4 }); }
+      if (path === "/pipes") return Response.json([{ id: "flow-1", name: "Triage" }]);
+      return new Response("Not found", { status: 404 });
+    }), auth);
+    await service.listFlows(); await service.listFlows();
+    expect(membershipChecks).toBe(2);
+  });
+
+  it("rejects missing mutation scopes before touching flow storage", async () => {
+    let mutated = false;
+    const service = new FlowService(environment(request => {
+      if (new URL(request.url).pathname === "/pipes" && request.method === "POST") mutated = true;
+      return Response.json({ role: "owner", session_version: 4 });
+    }), auth);
+    await expect(service.createFlow({ name: "Triage", projectId: "p", matchRules: [{ type: "label", targetId: "l" }], maxConcurrency: 3 })).rejects.toMatchObject({ status: 403, code: "insufficient_scope" } satisfies Partial<ServiceError>);
+    expect(mutated).toBe(false);
+  });
+
+  it("invalidates tokens when the owner session version changes", async () => {
+    const service = new FlowService(environment(() => Response.json({ role: "owner", session_version: 5 })), auth);
+    await expect(service.listFlows()).rejects.toMatchObject({ status: 401, code: "invalid_token" });
+  });
+});
+
+describe("shared API schemas", () => {
+  it("rejects credential and unknown fields", () => {
+    expect(() => flowInputSchema.parse({ name: "Triage", projectId: "p", matchRules: [{ type: "label", targetId: "l" }], maxConcurrency: 3, apiToken: "secret" })).toThrow();
+  });
+
+  it("bounds pagination and run states", () => {
+    expect(listRunsSchema.parse({ limit: "100", state: "running" })).toMatchObject({ limit: 100, state: "running" });
+    expect(() => listRunsSchema.parse({ limit: "101" })).toThrow();
+  });
+});

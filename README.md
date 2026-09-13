@@ -29,8 +29,9 @@ Click the **Deploy to Cloudflare** button above to create a copy of this Worker 
 
 1. Clone the repository and install dependencies.
 2. Set `APP_ORIGIN` in `wrangler.jsonc` to your final HTTPS Worker URL or custom domain.
-3. Configure the Linear OAuth callback as `https://your-domain.example/auth/linear/callback`.
-4. Build assets, add secrets, and deploy:
+3. Create a dedicated OAuth KV namespace with `npx wrangler kv namespace create OAUTH_KV`, then replace `REPLACE_WITH_OAUTH_KV_ID` in `wrangler.jsonc` with its ID.
+4. Configure the Linear OAuth callback as `https://your-domain.example/auth/linear/callback`.
+5. Build assets, add secrets, and deploy:
 
 ```bash
 npm ci
@@ -107,6 +108,7 @@ Matching issue updates queue work up to the flow’s configured concurrency. Whe
 | `CREDENTIAL_ENCRYPTION_KEY` | Base64-encoded 32-byte key for encrypted credentials |
 | `SESSION_SIGNING_SECRET` | Independent secret for signed browser sessions |
 | `APP_ORIGIN` | Public Worker origin, configured in `wrangler.jsonc` |
+| `OAUTH_KV` | KV binding containing OAuth clients, grants, refresh tokens, and revocation state |
 
 Never commit `.dev.vars` or production secret values. The included `.dev.vars.example` is a safe template.
 
@@ -122,11 +124,44 @@ Never commit `.dev.vars` or production secret values. The included `.dev.vars.ex
 
 GitHub Actions runs `npm run check` on every push and pull request.
 
+## REST API and OAuth
+
+API clients use OAuth 2.1 authorization code flow with PKCE S256. Factorize publishes authorization-server and protected-resource discovery metadata, supports Client ID Metadata Documents, and retains dynamic client registration at `/oauth/register` for older clients. Access tokens last one hour and may be refreshed for up to 30 days; RFC 7009 revocation is advertised by discovery metadata.
+
+Available scopes are `flows:read`, `flows:write`, `runs:read`, and `runs:write`. The resource owner must sign in through the normal Linear-backed Factorize session and explicitly approve the requested scopes. Factorize rechecks owner membership and session version on every service call.
+
+The versioned API is rooted at `/api/v1`:
+
+```bash
+curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
+  https://app.factorize.sh/api/v1/flows
+
+curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
+  'https://app.factorize.sh/api/v1/runs?flowId=FLOW_ID&state=running&limit=25'
+
+curl -X POST -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
+  https://app.factorize.sh/api/v1/runs/RUN_ID/stop
+```
+
+Flow CRUD is available at `/flows` and `/flows/:id`; supporting collections are `/projects`, `/flow-options`, `/runs`, and `/flow-events`. Run and event collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
+
+## MCP clients
+
+Configure a compatible remote MCP client with this single URL:
+
+```text
+https://app.factorize.sh/mcp
+```
+
+The client discovers OAuth automatically, opens Factorize in a browser, completes Linear sign-in if necessary, requests consent, and returns to the client after PKCE authorization. No Linear or exe.dev credential is copied into the MCP client. The server is stateless Streamable HTTP and exposes flow CRUD, projects/options, run inspection/filtering, webhook activity, and active-run stopping tools.
+
 ## Security
 
 - Linear and exe.dev credentials, issue prompts, and agent results are AES-GCM encrypted at rest in the Durable Object.
 - Linear webhooks require a valid HMAC-SHA256 signature and fresh timestamp before workspace routing.
 - Session cookies are signed, expire after seven days, and are checked against workspace membership.
+- OAuth access is tenant-bound, scope-checked, revocable, and revalidates current owner membership at the shared service boundary.
+- Public REST and MCP responses omit connection tokens, credential records, prompts, and internal execution requests/responses.
 - Agent output is not copied into Linear; completion comments point back to the Herdr session on your VM.
 - The dashboard uses a restrictive content-security policy and locally built Tailwind CSS.
 

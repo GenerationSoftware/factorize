@@ -20,7 +20,16 @@ export interface Env {
   GITHUB_INTEGRATION_ENABLED?: string;
   CUSTOM_SOURCES_ENABLED?: string;
   CUSTOM_HANDLER_LOADER?: WorkerLoader;
+  OAUTH_KV?: KVNamespace;
+  OAUTH_PROVIDER?: import("@cloudflare/workers-oauth-provider").OAuthHelpers;
 }
+
+export type OAuthProps = {
+  tenantId: string;
+  userId: string;
+  sessionVersion: number;
+  scopes: string[];
+};
 
 export type CustomOrigin = "linear" | "github";
 export type CustomSource = { kind: "custom"; origin: CustomOrigin; handlerName: string; handlerCode: string; handlerDeployment: { scriptName: string; codeDigest: string; state: "deploying" | "ready" | "failed"; lastError?: string } };

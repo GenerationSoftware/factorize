@@ -1,9 +1,11 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "factorize",
-  "main": "src/index.ts",
+  "main": "src/worker.ts",
   "compatibility_date": "2026-09-10",
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "assets": { "directory": "./public", "binding": "ASSETS" },
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "REPLACE_WITH_OAUTH_KV_ID" }],
   "worker_loaders": [{ "binding": "CUSTOM_HANDLER_LOADER" }],
   "durable_objects": {
     "bindings": [{ "name": "TENANTS", "class_name": "Tenant" }, { "name": "GITHUB_INSTALLATIONS", "class_name": "GitHubInstallationRegistry" }]

@@ -29,13 +29,13 @@ app.onError((error, c) => {
   return c.text("Internal Server Error", 500);
 });
 
-type Session = { tenantId: string; userId: string; email: string; exp: number; sessionVersion: number };
+export type Session = { tenantId: string; userId: string; email: string; exp: number; sessionVersion: number };
 const textEncoder = new TextEncoder();
 
 function b64(value: string): string { return btoa(String.fromCharCode(...textEncoder.encode(value))).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); }
 function unb64(value: string): string { const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "===".slice((value.length + 3) % 4); return new TextDecoder().decode(Uint8Array.from(atob(padded), (char) => char.charCodeAt(0))); }
 export async function signSession(session: Session, secret: string): Promise<string> { const body = b64(JSON.stringify(session)); return `${body}.${await hmac(body, secret)}`; }
-async function readSession(value: string | undefined, secret: string): Promise<Session | null> {
+export async function readSession(value: string | undefined, secret: string): Promise<Session | null> {
   if (!value) return null;
   const [body, signature] = value.split(".");
   if (!body || !signature || signature !== await hmac(body, secret)) return null;
@@ -86,6 +86,8 @@ app.get("/auth/linear/callback", async (c) => {
   await stub.fetch("https://tenant/connections/linear", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accessToken: tokens.access_token, refreshToken: tokens.refresh_token, organizationId: organization.id, organizationName: organization.name }) });
   const lifetime = 60 * 60 * 24 * 7;
   setCookie(c, "factorize_session", await signSession({ tenantId: organization.id, userId: viewer.id, email: viewer.email, exp: Math.floor(Date.now() / 1000) + lifetime, sessionVersion: member.session_version }, c.env.SESSION_SIGNING_SECRET), { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: lifetime });
+  const oauthReturn = getCookie(c, "factorize_oauth_return");
+  if (oauthReturn?.startsWith("/authorize?")) { deleteCookie(c, "factorize_oauth_return", { path: "/" }); return c.redirect(oauthReturn); }
   return c.redirect("/flows/new");
 });
 
