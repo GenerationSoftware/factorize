@@ -65,11 +65,10 @@ describe("pages", () => {
     expect(html).toContain("/runs/");
     expect(html).toContain("Edit Flow");
     expect(html).toContain("issueLink");
-    expect(html).toContain("Prompt sent to agent");
-    expect(html).toContain("Full agent output");
     expect(html).toContain("issue_title");
     expect(html).toContain("esc(run.issue_id)+(run.issue_title?': '+esc(run.issue_title):'')");
-    expect(html).toContain('max-h-[32rem] overflow-auto');
+    expect(html).toContain("Select a run to inspect its details and full output.");
+    expect(html).not.toContain('<details class="border-t');
     expectInlineScriptsToParse(html);
   });
 
