@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flowDetailPage, flowPage, landingPage } from "../src/ui";
+import { flowDetailPage, flowPage, landingPage, runDetailPage } from "../src/ui";
 
 describe("pages", () => {
   const expectInlineScriptsToParse = (html: string) => {
@@ -67,7 +67,18 @@ describe("pages", () => {
     expect(html).toContain("issueLink");
     expect(html).toContain("Prompt sent to agent");
     expect(html).toContain("Full agent output");
+    expect(html).toContain("issue_title");
+    expect(html).toContain("data-run-href");
     expect(html).toContain('max-h-[32rem] overflow-auto');
+    expectInlineScriptsToParse(html);
+  });
+
+  it("renders an agent run page", () => {
+    const html = runDetailPage({ email: "owner@example.com" }, "run-1");
+    expect(html).toContain("/api/runs/");
+    expect(html).toContain("Prompt sent to agent");
+    expect(html).toContain("Exact command submitted to exe.dev");
+    expect(html).toContain("Full agent output");
     expectInlineScriptsToParse(html);
   });
 

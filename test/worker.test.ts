@@ -88,6 +88,15 @@ describe("Worker routes", () => {
     await expect(response.json()).resolves.toEqual(activity);
   });
 
+  it("returns an agent run through the authenticated Durable Object boundary", async () => {
+    const run = { id: "run-1", issue_title: "Fix the thing" };
+    const response = await app.request("https://factorize.test/api/runs/run-1", {
+      headers: { cookie: await sessionCookie() },
+    }, testEnv(ownerHandler({ "/runs/run-1": Response.json(run) })));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(run);
+  });
+
   it("preserves a useful upstream GraphQL error instead of turning it into a 500", async () => {
     const response = await app.request("https://factorize.test/api/linear/projects", {
       headers: { cookie: await sessionCookie() },

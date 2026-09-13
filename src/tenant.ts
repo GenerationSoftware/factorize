@@ -100,6 +100,7 @@ export class Tenant extends DurableObject<Env> {
     this.ensureColumn("pipes", "cwd", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("flow_events", "issue_url", "TEXT");
     this.ensureColumn("runs", "issue_url", "TEXT");
+    this.ensureColumn("runs", "issue_title", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("runs", "workspace_name", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("runs", "agent_kind", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("runs", "exec_request", "TEXT");
@@ -122,6 +123,7 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "GET" && url.pathname === "/pipes") return json(this.rows("SELECT id, name, project_id, team_id, filter_type, filter_target_id, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, enabled, created_at FROM pipes ORDER BY created_at DESC"));
       if (request.method === "GET" && url.pathname.startsWith("/pipes/")) return await this.flowDetail(url.pathname.split("/")[2] ?? "");
       if (request.method === "GET" && url.pathname === "/runs") return json(this.rows("SELECT id, pipe_id, issue_id, agent_name, state, created_at, updated_at FROM runs ORDER BY created_at DESC LIMIT 100"));
+      if (request.method === "GET" && /^\/runs\/[^/]+$/.test(url.pathname)) return await this.runDetail(decodeURIComponent(url.pathname.split("/")[2] ?? ""));
       if (request.method === "GET" && url.pathname === "/v1/runs") return this.listRuns(url);
       if (request.method === "GET" && /^\/v1\/runs\/[^/]+$/.test(url.pathname)) return await this.getRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) return await this.stopRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
@@ -281,7 +283,7 @@ export class Tenant extends DurableObject<Env> {
     const flow = this.one("SELECT id, name, project_id, filter_type, filter_target_id, match_rules, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, exe_connection_id, cwd, COALESCE(NULLIF(context_template, ''), ?) AS context_template, enabled, created_at FROM pipes WHERE id = ?", DEFAULT_CONTEXT_TEMPLATE, flowId);
     if (!flow) return new Response("Not found", { status: 404 });
     const events = this.rows("SELECT id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, provider, received_at FROM flow_events WHERE flow_id = ? ORDER BY received_at DESC LIMIT 100", flowId);
-    const runs = this.rows("SELECT id, issue_id, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code, recovery_reason, recovery_attempt, recovery_last_action, recovery_started_at FROM runs WHERE pipe_id = ? ORDER BY created_at DESC LIMIT 100", flowId);
+    const runs = this.rows("SELECT id, issue_id, issue_title, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code, recovery_reason, recovery_attempt, recovery_last_action, recovery_started_at FROM runs WHERE pipe_id = ? ORDER BY created_at DESC LIMIT 100", flowId);
     await Promise.all(runs.map(async (run) => {
       if (run.state !== "ignored" && typeof run.prompt === "string" && run.prompt) run.prompt = await decrypt(run.prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
       if (typeof run.exec_request === "string" && run.exec_request) run.exec_request = await decrypt(run.exec_request, this.env.CREDENTIAL_ENCRYPTION_KEY);
@@ -291,6 +293,15 @@ export class Tenant extends DurableObject<Env> {
       if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     }));
     return json({ flow, events, runs });
+  }
+
+  private async runDetail(runId: string): Promise<Response> {
+    const run = this.one("SELECT runs.*, pipes.name AS flow_name FROM runs JOIN pipes ON pipes.id = runs.pipe_id WHERE runs.id = ?", runId);
+    if (!run) return new Response("Not found", { status: 404 });
+    for (const field of ["prompt", "exec_request", "exec_response", "result"] as const) {
+      if (run.state !== "ignored" && typeof run[field] === "string" && run[field]) run[field] = await decrypt(String(run[field]), this.env.CREDENTIAL_ENCRYPTION_KEY);
+    }
+    return json(run);
   }
 
   private getFlow(flowId: string): Response {
@@ -452,7 +463,7 @@ export class Tenant extends DurableObject<Env> {
     try { this.ctx.storage.sql.exec("INSERT INTO active_claims (pipe_id,issue_id,run_id) VALUES (?,?,?)", pipe.id, workItem.claimKey, runId); }
     catch { this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, "duplicate", "An active or queued run already owns this work item.", workItem.provider); return; }
     const prompt = await encrypt(plaintextPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,provider,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, workItem.provider, now(), now());
+    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,provider,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.title, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, workItem.provider, now(), now());
     const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id=? AND state IN ('starting','running','blocked','recovering')", pipe.id) as Row;
     this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, Number(active.count) < Number(pipe.max_concurrency) ? "accepted" : "queued_capacity", Number(active.count) < Number(pipe.max_concurrency) ? "Handler accepted delivery; agent queued to start." : "Handler accepted delivery; queued for capacity.", workItem.provider);
   }
