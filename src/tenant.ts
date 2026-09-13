@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import Mustache from "mustache";
 import { decrypt, encrypt } from "./crypto";
-import { agentListCommand, agentOutputCommand, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, renameAgentCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, type ExeConnection } from "./exe";
+import { agentListCommand, agentOutputCommand, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, renameAgentCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, type ExeConnection } from "./exe";
 import { parseAgent, parseAgentList, parsePaneProcess, safeToAdopt, sameStableSession, type HerdrIdentity } from "./recovery";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY } from "./linear";
 import { matchingIssue } from "./matcher";
@@ -122,6 +122,11 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "GET" && url.pathname === "/pipes") return json(this.rows("SELECT id, name, project_id, team_id, filter_type, filter_target_id, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, enabled, created_at FROM pipes ORDER BY created_at DESC"));
       if (request.method === "GET" && url.pathname.startsWith("/pipes/")) return await this.flowDetail(url.pathname.split("/")[2] ?? "");
       if (request.method === "GET" && url.pathname === "/runs") return json(this.rows("SELECT id, pipe_id, issue_id, agent_name, state, created_at, updated_at FROM runs ORDER BY created_at DESC LIMIT 100"));
+      if (request.method === "GET" && url.pathname === "/v1/runs") return this.listRuns(url);
+      if (request.method === "GET" && /^\/v1\/runs\/[^/]+$/.test(url.pathname)) return await this.getRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
+      if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) return await this.stopRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
+      if (request.method === "GET" && url.pathname === "/v1/events") return this.listEvents(url);
+      if (request.method === "GET" && /^\/v1\/flows\/[^/]+$/.test(url.pathname)) return this.getFlow(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/connections/status") return await this.connectionStatus();
       if (request.method === "POST" && url.pathname === "/members") return await this.upsertMember(await request.json());
       if (request.method === "GET" && url.pathname.startsWith("/members/")) return this.getMember(url.pathname.split("/")[2] ?? "");
@@ -286,6 +291,78 @@ export class Tenant extends DurableObject<Env> {
       if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     }));
     return json({ flow, events, runs });
+  }
+
+  private getFlow(flowId: string): Response {
+    const flow = this.one("SELECT id, name, project_id, match_rules, source_kind, source_config, max_concurrency, workspace_name, agent_kind, cwd, COALESCE(NULLIF(context_template, ''), ?) AS context_template, enabled, created_at FROM pipes WHERE id = ?", DEFAULT_CONTEXT_TEMPLATE, flowId);
+    return flow ? json(flow) : new Response("Not found", { status: 404 });
+  }
+
+  private pageSize(url: URL): number {
+    const value = Number(url.searchParams.get("limit") ?? 50);
+    return Math.max(1, Math.min(100, Number.isFinite(value) ? Math.floor(value) : 50));
+  }
+
+  private cursor(url: URL): { at: string; id: string } | null {
+    const value = url.searchParams.get("cursor");
+    if (!value) return null;
+    try {
+      const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+      const parsed = JSON.parse(atob(normalized + "===".slice((normalized.length + 3) % 4))) as { at?: unknown; id?: unknown };
+      return typeof parsed.at === "string" && typeof parsed.id === "string" ? { at: parsed.at, id: parsed.id } : null;
+    } catch { throw new Error("Invalid cursor"); }
+  }
+
+  private nextCursor(row: Row | undefined, atKey: string): string | null {
+    if (!row) return null;
+    return btoa(JSON.stringify({ at: String(row[atKey]), id: String(row.id) })).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+  }
+
+  private listRuns(url: URL): Response {
+    const limit = this.pageSize(url), cursor = this.cursor(url), flowId = url.searchParams.get("flowId"), state = url.searchParams.get("state");
+    const clauses: string[] = [], args: unknown[] = [];
+    if (flowId) { clauses.push("pipe_id = ?"); args.push(flowId); }
+    if (state) { clauses.push("state = ?"); args.push(state); }
+    if (cursor) { clauses.push("(created_at < ? OR (created_at = ? AND id < ?))"); args.push(cursor.at, cursor.at, cursor.id); }
+    const rows = this.rows(`SELECT id, pipe_id AS flow_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, created_at, updated_at FROM runs ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?`, ...args, limit + 1);
+    const hasMore = rows.length > limit, items = rows.slice(0, limit);
+    return json({ items, nextCursor: hasMore ? this.nextCursor(items.at(-1), "created_at") : null });
+  }
+
+  private async getRun(runId: string): Promise<Response> {
+    const run = this.one("SELECT id, pipe_id AS flow_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, result, exec_status, exec_exit_code, created_at, updated_at FROM runs WHERE id = ?", runId);
+    if (!run) return new Response("Not found", { status: 404 });
+    if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    return json(run);
+  }
+
+  private listEvents(url: URL): Response {
+    const limit = this.pageSize(url), cursor = this.cursor(url), flowId = url.searchParams.get("flowId");
+    const clauses: string[] = [], args: unknown[] = [];
+    if (flowId) { clauses.push("flow_id = ?"); args.push(flowId); }
+    if (cursor) { clauses.push("(received_at < ? OR (received_at = ? AND id < ?))"); args.push(cursor.at, cursor.at, cursor.id); }
+    const rows = this.rows(`SELECT id, flow_id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, provider, received_at FROM flow_events ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY received_at DESC, id DESC LIMIT ?`, ...args, limit + 1);
+    const hasMore = rows.length > limit, items = rows.slice(0, limit);
+    return json({ items, nextCursor: hasMore ? this.nextCursor(items.at(-1), "received_at") : null });
+  }
+
+  private async stopRun(runId: string): Promise<Response> {
+    const run = this.one("SELECT * FROM runs WHERE id = ?", runId);
+    if (!run) return new Response("Not found", { status: 404 });
+    if (!["starting", "running"].includes(String(run.state))) return Response.json({ error: "Run is not starting or running" }, { status: 409 });
+    if (["starting", "running"].includes(String(run.state))) {
+      const pipe = this.one("SELECT * FROM pipes WHERE id = ?", run.pipe_id) as Row | undefined;
+      if (pipe) {
+        const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
+        if (connection && run.agent_name) {
+          const stopped = await exec(connection, stopAgentCommand(connection, String(run.agent_name)));
+          if (!stopped.ok) return Response.json({ error: "Could not stop the active agent" }, { status: 502 });
+        }
+      }
+    }
+    this.ctx.storage.sql.exec("UPDATE runs SET state = 'failed', result = ?, updated_at = ? WHERE id = ?", await encrypt("Stopped by user", this.env.CREDENTIAL_ENCRYPTION_KEY), now(), runId);
+    this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id = ?", runId);
+    return json({ id: runId, state: "failed", stopped: true });
   }
 
   private async linearProjects(): Promise<Response> {

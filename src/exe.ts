@@ -82,6 +82,10 @@ export function agentOutputCommand(connection: ExeConnection, agentName: string)
   return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent read ${shellAtom(agentName)} --source recent --format text`;
 }
 
+export function stopAgentCommand(connection: ExeConnection, agentName: string): string {
+  return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent stop ${shellAtom(agentName)}`;
+}
+
 export function herdrCheckCommand(connection: ExeConnection): string {
   return `${herdrPrefix(connection)} && ${herdrBinary(connection)} --version && ${herdrBinary(connection)} workspace list`;
 }
