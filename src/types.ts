@@ -33,8 +33,8 @@ export type OAuthProps = {
   scopes: string[];
 };
 
-export type CustomOrigin = "linear" | "github";
-export type CustomSource = { kind: "custom"; origin: CustomOrigin; handlerName: string; handlerCode: string; handlerDeployment: { scriptName: string; codeDigest: string; state: "deploying" | "ready" | "failed"; lastError?: string } };
+export type CustomOrigin = "linear" | "github" | "cloudflare";
+export type CustomSource = { kind: "custom"; origin: CustomOrigin; handlerName: string; handlerCode: string; handlerDeployment: { scriptName: string; codeDigest: string; state: "deploying" | "ready" | "failed"; lastError?: string }; tail?: { signingSecret: string } };
 
 export type FlowSource =
   | { kind: "linear"; projectId: string; matchRules: MatchRule[] }
@@ -42,7 +42,7 @@ export type FlowSource =
   | CustomSource;
 
 export interface WorkItem {
-  provider: "linear" | "github";
+  provider: "linear" | "github" | "cloudflare";
   claimKey: string;
   identifier: string;
   title: string;

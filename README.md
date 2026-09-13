@@ -98,6 +98,8 @@ After changing the webhook settings, re-authorize existing workspaces so Linear 
 
 Matching issue updates queue work up to the flow’s configured concurrency. When a run finishes, Factorize fills its slot from the queue and posts a link to the Herdr session in Linear.
 
+Cloudflare Worker failures can also start flows through the separately deployable Tail relay. See [Cloudflare Tail flow source](docs/cloudflare-tail.md).
+
 ## Configuration reference
 
 | Variable | Purpose |

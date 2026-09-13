@@ -15,6 +15,6 @@
     "APP_ORIGIN": "https://app.factorize.sh",
     "LINEAR_OAUTH_SCOPES": "read,write",
     "GITHUB_INTEGRATION_ENABLED": "false",
-    "CUSTOM_SOURCES_ENABLED": "false"
+    "CUSTOM_SOURCES_ENABLED": "true"
   }
 }
