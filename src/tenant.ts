@@ -296,6 +296,7 @@ export class Tenant extends DurableObject<Env> {
     const offset = (page - 1) * 10;
     const events = view === "events" ? this.rows("SELECT id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, provider, received_at FROM flow_events WHERE flow_id = ? ORDER BY received_at DESC, id DESC LIMIT 11 OFFSET ?", flowId, offset) : [];
     const runs = view === "runs" ? this.rows("SELECT id, issue_id, issue_title, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code, recovery_reason, recovery_attempt, recovery_last_action, recovery_started_at FROM runs WHERE pipe_id = ? AND state != 'ignored' ORDER BY created_at DESC, id DESC LIMIT 11 OFFSET ?", flowId, offset) : [];
+    await this.backfillRunTitles(runs);
     const hasNext = (view === "events" ? events : runs).length > 10;
     if (events.length > 10) events.pop();
     if (runs.length > 10) runs.pop();
@@ -308,6 +309,24 @@ export class Tenant extends DurableObject<Env> {
       if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     }));
     return json({ flow, events, runs, pagination: { page, hasNext } });
+  }
+
+  private async backfillRunTitles(runs: Row[]): Promise<void> {
+    const missing = runs.filter((run) => String(run.provider || "linear") === "linear" && !String(run.issue_title || "").trim());
+    if (!missing.length) return;
+    const linear = await this.connection<{ accessToken: string }>("linear");
+    if (!linear) return;
+    await Promise.all(missing.map(async (run) => {
+      try {
+        const data = await this.linear(linear.accessToken, LINEAR_ISSUE_PROJECT_QUERY, { id: String(run.issue_id) });
+        const title = text(object(data?.issue).title).trim();
+        if (!title) return;
+        run.issue_title = title;
+        this.ctx.storage.sql.exec("UPDATE runs SET issue_title = ? WHERE id = ?", title, run.id);
+      } catch {
+        // A stale or inaccessible issue should not prevent the runs page loading.
+      }
+    }));
   }
 
   private async runDetail(runId: string): Promise<Response> {
