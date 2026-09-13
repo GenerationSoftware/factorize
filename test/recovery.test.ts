@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesLineage, parseAgent, parseAgentList, parsePaneProcess, safeToAdopt, sameStableSession } from "../src/recovery";
+import { matchesLineage, ownsPane, parseAgent, parseAgentList, parsePaneProcess, safeToAdopt, sameStableSession } from "../src/recovery";
 
 const moved = { name: "renamed", status: "working", kind: "codex", workspaceId: "ws-2", paneId: "pane-2", terminalId: "term-1", cwd: "/repo", sessionSource: "codex", sessionKind: "thread", sessionValue: "session-7" };
 
@@ -13,6 +13,11 @@ describe("Herdr 0.9 recovery identity", () => {
     const saved = { sessionKind: "thread", sessionValue: "session-7", paneId: "pane-1", workspaceId: "ws-1" };
     expect(sameStableSession(saved, moved)).toBe(true);
     expect(matchesLineage(saved, moved)).toBe(false);
+  });
+
+  it("keeps pane ownership when the native session generation rotates", () => {
+    expect(ownsPane({ terminalId: "term-1", paneId: "pane-2", sessionValue: "old" }, { ...moved, sessionValue: "new" }, "/repo")).toBe(true);
+    expect(ownsPane({ terminalId: "term-other", paneId: "pane-2" }, moved, "/repo")).toBe(false);
   });
 
   it("parses agent list arrays", () => {

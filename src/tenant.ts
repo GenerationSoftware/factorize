@@ -1,8 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import Mustache from "mustache";
 import { decrypt, encrypt } from "./crypto";
-import { agentListCommand, agentOutputCommand, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, renameAgentCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, type ExeConnection } from "./exe";
-import { parseAgent, parseAgentList, parsePaneProcess, safeToAdopt, sameStableSession, type HerdrIdentity } from "./recovery";
+import { agentListCommand, agentOutputCommand, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, garbageCollectPaneCommand, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, validateWorktreeLeaseCommand, type ExeConnection } from "./exe";
+import { ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY } from "./linear";
 import { matchingIssue } from "./matcher";
 import type { Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunState } from "./types";
@@ -116,6 +116,7 @@ export class Tenant extends DurableObject<Env> {
     this.ensureColumn("flow_events", "provider", "TEXT NOT NULL DEFAULT 'linear'");
     this.ensureColumn("runs", "provider", "TEXT NOT NULL DEFAULT 'linear'");
     this.ensureColumn("runs", "claim_key", "TEXT");
+    for (const [column, definition] of Object.entries({ herdr_server_namespace: "TEXT NOT NULL DEFAULT 'default'", worktree_path: "TEXT", ownership_lease: "TEXT", ownership_generation: "INTEGER NOT NULL DEFAULT 0", agent_session_generation: "INTEGER NOT NULL DEFAULT 0", output_captured: "INTEGER NOT NULL DEFAULT 0", claim_released: "INTEGER NOT NULL DEFAULT 0", pane_collected: "INTEGER NOT NULL DEFAULT 0", worktree_disposition: "TEXT" })) this.ensureColumn("runs", column, definition);
     for (const [column, definition] of Object.entries({ herdr_workspace_id: "TEXT", herdr_pane_id: "TEXT", herdr_terminal_id: "TEXT", agent_session_source: "TEXT", agent_session_kind: "TEXT", agent_session_value: "TEXT", herdr_cwd: "TEXT", last_agent_status: "TEXT", recovery_attempt: "INTEGER NOT NULL DEFAULT 0", recovery_reason: "TEXT", recovery_started_at: "TEXT", recovery_last_action: "TEXT", recovery_next_at: "INTEGER", recovery_comment_started: "INTEGER NOT NULL DEFAULT 0", recovery_comment_finished: "INTEGER NOT NULL DEFAULT 0", prompt_accepted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_attempted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_accepted: "INTEGER NOT NULL DEFAULT 0" })) this.ensureColumn("runs", column, definition);
   }
 
@@ -181,10 +182,9 @@ export class Tenant extends DurableObject<Env> {
       if (!pipe) continue;
       const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id = ? AND state IN ('starting','running','blocked','recovering')", pipe.id) as Row;
       if (Number(active.count) >= Number(pipe.max_concurrency)) continue;
-      const slot = this.nextRunSlot(pipe, String(run.id));
-      const name = `${String(pipe.workspace_name)}-${slot}`;
-      this.ctx.storage.sql.exec("UPDATE runs SET state = 'starting', agent_name = ?, workspace_name = ?, updated_at = ? WHERE id = ? AND state = 'queued'", name, name, now(), run.id);
-      await this.startRun({ ...run, agent_name: name, workspace_name: name }, pipe);
+      const name = `${String(pipe.workspace_name).slice(0, 20)}-${String(run.id).replaceAll("-", "").slice(0, 8)}`;
+      this.ctx.storage.sql.exec("UPDATE runs SET state = 'starting', agent_name = ?, workspace_name = ?, updated_at = ? WHERE id = ? AND state = 'queued'", name, pipe.workspace_name, now(), run.id);
+      await this.startRun({ ...run, agent_name: name, workspace_name: pipe.workspace_name }, pipe);
     }
 
     const pending = this.one("SELECT count(*) AS count FROM runs WHERE state IN ('queued','starting','running','blocked','recovering')") as Row;
@@ -599,9 +599,12 @@ export class Tenant extends DurableObject<Env> {
     const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "No exe.dev VM is connected.");
     const workspaceName = String(run.workspace_name || pipe.workspace_name || workspaceNameFor(String(pipe.name)));
+    const lease = crypto.randomUUID();
+    const worktreePath = `${connection.cwd.replace(/\/$/, "")}/.factorize-worktrees/${String(run.id)}`;
+    this.ctx.storage.sql.exec("UPDATE runs SET herdr_server_namespace='default',worktree_path=?,ownership_lease=?,ownership_generation=ownership_generation+1,agent_session_generation=1,updated_at=? WHERE id=?", worktreePath, lease, now(), run.id);
     if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize started **${connection.agentKind}** on ${connection.vmName} in Herdr workspace \`${workspaceName}\` for this issue.`);
     const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
-    const result = await exec(connection, startAgentCommand(String(run.agent_name), connection, prompt, workspaceName));
+    const result = await exec(connection, startAgentCommand(String(run.agent_name), connection, prompt, workspaceName, worktreePath, lease));
     const execRequest = await encrypt(result.requestBody, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const execResponse = await encrypt(result.body, this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET exec_request = ?, exec_response = ?, exec_status = ?, exec_exit_code = ?, updated_at = ? WHERE id = ?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
@@ -627,8 +630,15 @@ export class Tenant extends DurableObject<Env> {
     if (!status.ok && (status.exitCode === null || status.exitCode === 0)) return; // transient exe.dev/API failure
     if (!status.ok || (status.exitCode !== null && status.exitCode !== 0)) return this.beginRecovery(run, pipe, connection, `expected Herdr agent is no longer resolvable (VM exit ${status.exitCode ?? "unknown"})`);
     const live = parseAgent(status.body);
-    if (!live || (run.agent_session_value && !sameStableSession(this.savedIdentity(run), live))) return this.beginRecovery(run, pipe, connection, "Herdr returned an inconsistent agent identity");
-    this.persistIdentity(run.id, live, String(run.state));
+    if (!live) return this.beginRecovery(run, pipe, connection, "Herdr returned an inconsistent agent identity");
+    const terminalOwned = Boolean(run.herdr_terminal_id && ownsPane(this.savedIdentity(run), live, String(run.worktree_path || "")));
+    if (terminalOwned) {
+      const rotated = String(run.agent_session_value || "") !== live.sessionValue;
+      this.persistIdentity(run.id, live, String(run.state), rotated);
+      this.ctx.storage.sql.exec("UPDATE runs SET recovery_attempt=0,recovery_started_at=NULL,recovery_next_at=NULL,recovery_reason=NULL WHERE id=?", run.id);
+    }
+    if (run.herdr_terminal_id && !terminalOwned) return this.beginRecovery(run, pipe, connection, "Herdr alias resolved to a different terminal owner");
+    if (!terminalOwned) this.persistIdentity(run.id, live, String(run.state));
     const agentStatus = herdrAgentStatus(status.body);
     if (agentStatus === "blocked") {
       this.ctx.storage.sql.exec("UPDATE runs SET state = 'blocked', updated_at = ? WHERE id = ?", now(), run.id);
@@ -636,13 +646,13 @@ export class Tenant extends DurableObject<Env> {
     }
     if (agentStatus !== "done" && agentStatus !== "idle") return;
     const output = await exec(connection, agentOutputCommand(connection, String(run.agent_name)));
-    await this.finishRun(run, "done", output.ok ? output.body : "Agent completed; terminal output could not be read.");
+    await this.finishRun(run, "done", output.ok ? output.body : "Agent completed; terminal output could not be read.", output.ok);
   }
 
   private savedIdentity(run: Row): Partial<HerdrIdentity> { return { name: String(run.agent_name || ""), kind: String(run.agent_kind || ""), workspaceId: String(run.herdr_workspace_id || ""), paneId: String(run.herdr_pane_id || ""), terminalId: String(run.herdr_terminal_id || ""), cwd: String(run.herdr_cwd || ""), sessionSource: String(run.agent_session_source || ""), sessionKind: String(run.agent_session_kind || ""), sessionValue: String(run.agent_session_value || "") }; }
 
-  private persistIdentity(runId: unknown, live: HerdrIdentity, state = "running"): void {
-    this.ctx.storage.sql.exec("UPDATE runs SET state=?,herdr_workspace_id=?,herdr_pane_id=?,herdr_terminal_id=?,agent_session_source=?,agent_session_kind=?,agent_session_value=?,herdr_cwd=?,last_agent_status=?,updated_at=? WHERE id=?", state, live.workspaceId, live.paneId, live.terminalId, live.sessionSource, live.sessionKind, live.sessionValue, live.cwd, live.status, now(), runId);
+  private persistIdentity(runId: unknown, live: HerdrIdentity, state = "running", sessionRotated = false): void {
+    this.ctx.storage.sql.exec("UPDATE runs SET state=?,herdr_workspace_id=?,herdr_pane_id=?,herdr_terminal_id=?,agent_session_source=?,agent_session_kind=?,agent_session_value=?,agent_session_generation=agent_session_generation+?,herdr_cwd=?,last_agent_status=?,updated_at=? WHERE id=?", state, live.workspaceId, live.paneId, live.terminalId, live.sessionSource, live.sessionKind, live.sessionValue, sessionRotated ? 1 : 0, live.cwd, live.status, now(), runId);
   }
 
   private activity(runId: unknown, action: string, detail: string): void {
@@ -656,7 +666,7 @@ export class Tenant extends DurableObject<Env> {
     this.ctx.storage.sql.exec("UPDATE runs SET state='recovering',recovery_reason=?,recovery_started_at=COALESCE(recovery_started_at,?),recovery_next_at=?,recovery_last_action='inspecting Herdr state',updated_at=? WHERE id=?", reason, now(), Date.now(), now(), run.id);
     this.activity(run.id, "recovery_started", reason);
     const captured = await exec(connection, agentOutputCommand(connection, String(run.agent_name)));
-    if (captured.ok && captured.body.trim()) { const encrypted = await encrypt(captured.body, this.env.CREDENTIAL_ENCRYPTION_KEY); this.ctx.storage.sql.exec("UPDATE runs SET result=? WHERE id=?", encrypted, run.id); this.activity(run.id, "transcript_captured", "Captured recent output before reconciliation."); }
+    if (captured.ok && captured.body.trim()) { const encrypted = await encrypt(captured.body, this.env.CREDENTIAL_ENCRYPTION_KEY); this.ctx.storage.sql.exec("UPDATE runs SET result=?,output_captured=1 WHERE id=?", encrypted, run.id); this.activity(run.id, "transcript_captured", "Captured recent output before reconciliation."); }
     if (started && !Number(run.recovery_comment_started) && String(run.provider || "linear") === "linear") {
       await this.safeLinearComment(String(run.issue_id), `Factorize detected a Herdr change and started automatic recovery for run \`${run.id}\`. The concurrency slot remains reserved.`);
       this.ctx.storage.sql.exec("UPDATE runs SET recovery_comment_started=1 WHERE id=?", run.id);
@@ -674,47 +684,50 @@ export class Tenant extends DurableObject<Env> {
     this.commandActivity(run.id, "agent list", listed);
     if (!listed.ok || (listed.exitCode !== null && listed.exitCode !== 0)) { this.scheduleRecovery(run.id, attempt, "transient Herdr agent-list failure"); return; }
     const agents = parseAgentList(listed.body), saved = this.savedIdentity(run);
-    const stable = agents.find((agent) => sameStableSession(saved, agent));
-    if (stable) {
-      let live = stable;
-      if (stable.name !== String(run.agent_name)) { const renamed = await exec(connection, renameAgentCommand(connection, stable.name, String(run.agent_name))); this.commandActivity(run.id, "agent rename", renamed); if (!renamed.ok || (renamed.exitCode !== null && renamed.exitCode !== 0)) { this.scheduleRecovery(run.id, attempt, "stable session found but expected name could not be reclaimed"); return; } live = parseAgent(renamed.body) ?? { ...stable, name: String(run.agent_name) }; }
-      return this.finishRecovery(run, "running", "Recovered the original stable agent session after its pane/name moved.", live);
-    }
-    const claimed = new Set(this.rows("SELECT agent_session_value FROM runs WHERE id != ? AND state IN ('starting','running','blocked','recovering') AND agent_session_value IS NOT NULL", run.id).map((row) => String(row.agent_session_value)));
-    const lineage = agents.find((agent) => safeToAdopt(saved, agent, claimed));
-    if (lineage) {
-      let live = lineage;
-      if (lineage.name !== String(run.agent_name)) { const renamed = await exec(connection, renameAgentCommand(connection, lineage.name, String(run.agent_name))); if (!renamed.ok) { this.scheduleRecovery(run.id, attempt, "matching restarted harness could not be renamed"); return; } live = parseAgent(renamed.body) ?? { ...lineage, name: String(run.agent_name) }; }
-      return this.resumeRecoveredHarness(run, connection, live, "Adopted a matching restarted harness in the owned pane.");
+    const owned = agents.find((agent) => ownsPane(saved, agent, String(run.worktree_path || "")));
+    if (owned) {
+      const rotated = String(run.agent_session_value || "") !== owned.sessionValue;
+      this.persistIdentity(run.id, owned, "running", rotated);
+      return this.finishRecovery({ ...run, recovery_attempt: attempt }, "running", "Reconciled the owned terminal and worktree; refreshed native session continuity metadata.", owned);
     }
     if (saved.paneId) {
       const pane = await exec(connection, paneGetCommand(connection, saved.paneId));
       this.commandActivity(run.id, "pane get", pane);
       if (pane.ok && (pane.exitCode === null || pane.exitCode === 0)) {
+        const lease = await exec(connection, validateWorktreeLeaseCommand(connection, String(run.worktree_path || ""), String(run.ownership_lease || "")));
+        this.commandActivity(run.id, "worktree lease validation", lease);
+        if (!lease.ok || (lease.exitCode !== null && lease.exitCode !== 0)) { this.scheduleRecovery(run.id, attempt, "owned pane remained but its worktree lease did not validate"); return; }
         const process = await exec(connection, paneProcessInfoCommand(connection, saved.paneId));
         this.commandActivity(run.id, "pane process-info", process);
         const processIdentity = process.ok ? parsePaneProcess(process.body) : null;
         const processCommand = [processIdentity?.executable, ...(processIdentity?.argv ?? [])].join(" ").toLowerCase();
         if (processIdentity && processIdentity.paneId === saved.paneId && processIdentity.cwd === saved.cwd && processCommand.includes(connection.agentKind.toLowerCase())) {
-          const adopted = await exec(connection, startAgentInPaneCommand(String(run.agent_name), connection, saved.paneId));
+          const adopted = await exec(connection, startAgentInPaneCommand(String(run.agent_name), connection, saved.paneId, String(run.worktree_path)));
           const live = adopted.ok ? parseAgent(adopted.body) : null;
           if (live) return this.finishRecovery(run, "running", "Returned the matching harness in the owned pane to Herdr control.", live);
         }
+        if (processIdentity && processIdentity.paneId === saved.paneId && processIdentity.cwd === saved.cwd && /(^|\/)(ba|z|fi)?sh(?:\s|$)/.test(processCommand)) {
+          const restarted = await exec(connection, startAgentInPaneCommand(String(run.agent_name), connection, saved.paneId, String(run.worktree_path)));
+          const live = restarted.ok ? parseAgent(restarted.body) : null;
+          if (live) return this.resumeRecoveredHarness(run, connection, live, "Started a deliberate replacement after the owned pane's agent exited.");
+        }
         if (processIdentity && processIdentity.paneId === saved.paneId && processIdentity.cwd === saved.cwd) {
-          const replaced = await exec(connection, replaceForegroundCommand(String(run.agent_name), connection, saved.paneId));
+          const replaced = await exec(connection, replaceForegroundCommand(String(run.agent_name), connection, saved.paneId, String(run.worktree_path)));
           const live = replaced.ok ? parseAgent(replaced.body) : null;
           if (live) return this.resumeRecoveredHarness(run, connection, live, "Gracefully stopped the exact validated foreground process and restarted the configured harness.");
           this.scheduleRecovery(run.id, attempt, "foreground process identity changed during validated interruption");
           return;
         }
-        const restarted = await exec(connection, startAgentInPaneCommand(String(run.agent_name), connection, saved.paneId));
+        const restarted = await exec(connection, startAgentInPaneCommand(String(run.agent_name), connection, saved.paneId, String(run.worktree_path)));
         const live = restarted.ok ? parseAgent(restarted.body) : null;
         if (live) return this.resumeRecoveredHarness(run, connection, live, "Restarted the configured harness in the recovered pane.");
       }
     }
     const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
     const recoveryPrompt = `${prompt}\n\nRecovery context: inspect the existing repository state and continue completed work rather than repeating it. Last status: ${String(run.last_agent_status || "unknown")}.`;
-    const replacement = await exec(connection, startAgentCommand(String(run.agent_name), connection, recoveryPrompt, String(run.workspace_name)));
+    const lease = crypto.randomUUID(), worktreePath = `${connection.cwd.replace(/\/$/, "")}/.factorize-worktrees/${String(run.id)}-recovery-${attempt}`;
+    this.ctx.storage.sql.exec("UPDATE runs SET worktree_path=?,ownership_lease=?,ownership_generation=ownership_generation+1 WHERE id=?", worktreePath, lease, run.id);
+    const replacement = await exec(connection, startAgentCommand(String(run.agent_name), connection, recoveryPrompt, String(run.workspace_name), worktreePath, lease));
     if (replacement.ok && (replacement.exitCode === null || replacement.exitCode === 0)) this.ctx.storage.sql.exec("UPDATE runs SET prompt_accepted=1 WHERE id=?", run.id);
     const live = replacement.ok ? parseAgent(replacement.body) : null;
     if (live) return this.finishRecovery(run, "running", "Recreated the deleted pane/workspace and started a replacement harness.", live);
@@ -723,14 +736,26 @@ export class Tenant extends DurableObject<Env> {
 
   private scheduleRecovery(runId: unknown, attempt: number, action: string): void { const delay = Math.min(60_000, 2_000 * 2 ** Math.min(attempt - 1, 5)); this.ctx.storage.sql.exec("UPDATE runs SET recovery_next_at=?,recovery_last_action=?,updated_at=? WHERE id=?", Date.now() + delay, action, now(), runId); this.activity(runId, "recovery_retry", action); }
   private async resumeRecoveredHarness(run: Row, connection: ExeConnection, live: HerdrIdentity, action: string): Promise<void> { if (Number(run.recovery_prompt_attempted)) return this.finishRecovery(run, "running", `${action} Recovery prompt delivery was previously attempted and was not repeated.`, live); const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY); const output = run.result ? await decrypt(String(run.result), this.env.CREDENTIAL_ENCRYPTION_KEY) : ""; const recoveryPrompt = `${prompt}\n\nRecovery context: inspect existing repository state and continue rather than repeating completed work. Last captured output/status:\n${output.slice(-4000)}\n${String(run.last_agent_status || "unknown")}`; this.ctx.storage.sql.exec("UPDATE runs SET recovery_prompt_attempted=1 WHERE id=?", run.id); const sent = await exec(connection, `${agentStatusCommand(connection, live.name)} && ${connection.herdrCommand?.trim() || "herdr"} agent prompt '${live.name.replaceAll("'", `'\"'\"'`)}' '${recoveryPrompt.replaceAll("'", `'\"'\"'`)}'`); if (!sent.ok || (sent.exitCode !== null && sent.exitCode !== 0)) return this.finishRecovery(run, "running", `${action} Recovery prompt acknowledgement was ambiguous, so it will not be submitted twice.`, live); this.ctx.storage.sql.exec("UPDATE runs SET recovery_prompt_accepted=1 WHERE id=?", run.id); await this.finishRecovery(run, "running", action, live); }
-  private async finishRecovery(run: Row, state: "running" | "failed", action: string, live?: HerdrIdentity): Promise<void> { this.activity(run.id, state === "running" ? "recovery_succeeded" : "recovery_failed", action); if (live) this.persistIdentity(run.id, live, state); this.ctx.storage.sql.exec("UPDATE runs SET state=?,recovery_last_action=?,recovery_next_at=NULL,recovery_comment_finished=1,updated_at=? WHERE id=?", state, action, now(), run.id); if (!Number(run.recovery_comment_finished) && String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize automatic recovery ${state === "running" ? "succeeded" : "permanently failed"} for run \`${run.id}\`: ${action}`); if (state === "failed") { const encrypted = await encrypt(action, this.env.CREDENTIAL_ENCRYPTION_KEY); this.ctx.storage.sql.exec("UPDATE runs SET result=? WHERE id=?", encrypted, run.id); this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id=? AND issue_id=?", run.pipe_id, run.claim_key || run.issue_id); } }
+  private async finishRecovery(run: Row, state: "running" | "failed", action: string, live?: HerdrIdentity): Promise<void> { this.activity(run.id, state === "running" ? "recovery_succeeded" : "recovery_failed", action); if (live) this.persistIdentity(run.id, live, state); this.ctx.storage.sql.exec("UPDATE runs SET state=?,recovery_attempt=0,recovery_reason=NULL,recovery_started_at=NULL,recovery_last_action=?,recovery_next_at=NULL,recovery_comment_finished=1,updated_at=? WHERE id=?", state, action, now(), run.id); if (!Number(run.recovery_comment_finished) && String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize automatic recovery ${state === "running" ? "succeeded" : "permanently failed"} for run \`${run.id}\`: ${action}`); if (state === "failed") { const encrypted = await encrypt(action, this.env.CREDENTIAL_ENCRYPTION_KEY); this.ctx.storage.sql.exec("UPDATE runs SET result=? WHERE id=?", encrypted, run.id); this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id=? AND issue_id=?", run.pipe_id, run.claim_key || run.issue_id); this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id); } }
 
-  private async finishRun(run: Row, state: Extract<RunState, "done" | "failed">, result: string): Promise<void> {
+  private async finishRun(run: Row, state: Extract<RunState, "done" | "failed">, result: string, outputCaptured = false): Promise<void> {
     const encryptedResult = await encrypt(result, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    this.ctx.storage.sql.exec("UPDATE runs SET state = ?, result = ?, updated_at = ? WHERE id = ?", state, encryptedResult, now(), run.id);
+    this.ctx.storage.sql.exec("UPDATE runs SET state = ?, result = ?, output_captured=?, updated_at = ? WHERE id = ?", state, encryptedResult, outputCaptured ? 1 : Number(run.output_captured || 0), now(), run.id);
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id = ? AND issue_id = ?", run.pipe_id, run.claim_key || run.issue_id);
+    this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id);
+    await this.collectRunPane({ ...run, state, output_captured: outputCaptured ? 1 : Number(run.output_captured || 0), claim_released: 1 });
     const heading = state === "done" ? "Factorize completed the agent run." : "Factorize could not complete the agent run.";
     if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `${heading}\n\nRun ID: \`${run.id}\`. Review the Herdr session on the configured VM for details.`);
+  }
+
+  private async collectRunPane(run: Row): Promise<void> {
+    if (!['done', 'failed', 'cancelled'].includes(String(run.state)) || !Number(run.output_captured) || !Number(run.claim_released) || !run.herdr_pane_id || !run.herdr_terminal_id || !run.worktree_path || !run.ownership_lease) return;
+    const pipe = this.one("SELECT * FROM pipes WHERE id=?", run.pipe_id) as Row | undefined;
+    const connection = pipe ? await this.connectionForPipe(pipe) : null;
+    if (!connection) return;
+    const collected = await exec(connection, garbageCollectPaneCommand(connection, String(run.herdr_pane_id), String(run.herdr_terminal_id), String(run.worktree_path), String(run.ownership_lease)));
+    this.commandActivity(run.id, "pane garbage collection", collected);
+    if (collected.ok && (collected.exitCode === null || collected.exitCode === 0)) this.ctx.storage.sql.exec("UPDATE runs SET pane_collected=1,worktree_disposition='retained',updated_at=? WHERE id=?", now(), run.id);
   }
 
   private async safeLinearComment(issueId: string, body: string): Promise<void> { try { await this.postLinearComment(issueId, body); } catch (error) { console.warn(JSON.stringify({ event: "linear_notification_failed", issueId, message: error instanceof Error ? error.message : "unknown" })); } }

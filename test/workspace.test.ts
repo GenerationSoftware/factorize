@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentStatusCommand, connectionCheckCommand, defaultAgentCommand, herdrAgentStatus, replaceForegroundCommand, shellAtom, startAgentCommand } from "../src/exe";
+import { agentStatusCommand, connectionCheckCommand, defaultAgentCommand, garbageCollectPaneCommand, herdrAgentStatus, replaceForegroundCommand, shellAtom, startAgentCommand } from "../src/exe";
 import { workingDirectoryFor, workspaceNameFor } from "../src/workspace";
 
 describe("flow workspaces", () => {
@@ -18,15 +18,16 @@ describe("flow workspaces", () => {
   });
 
   it("passes the saved flow workspace to Herdr", () => {
-    const command = startAgentCommand("bug-fixes-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "fix it", "bug-fixes-1");
-    expect(command).toContain("--label 'bug-fixes-1'");
+    const command = startAgentCommand("bug-fixes-a1b2c3d4", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "fix it", "bug-fixes", "/repo/.factorize-worktrees/run-1", "lease-1");
+    expect(command).toContain("--label 'bug-fixes'");
+    expect(command).toContain("git worktree add --detach '/repo/.factorize-worktrees/run-1'");
+    expect(command).toContain("pane split");
     expect(command).toContain("--no-focus");
     expect(command).not.toContain("__FACTORIZE_EXIT_CODE__");
     expect(command).toContain('export PATH="$HOME/.local/bin:$PATH"');
     expect(command).not.toContain("-- 'codex'");
-    expect(command).toContain("agent get 'bug-fixes-1'");
-    expect(command).toContain('idle|done');
-    expect(command).toContain("agent prompt 'bug-fixes-1' '/new'");
+    expect(command).toContain("agent get 'bug-fixes-a1b2c3d4'");
+    expect(command).not.toContain("/new");
     expect(command).toContain("-- '--dangerously-bypass-approvals-and-sandbox'");
   });
 
@@ -37,8 +38,16 @@ describe("flow workspaces", () => {
   });
 
   it("passes a configured agent command as safely quoted arguments", () => {
-    const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo", agentCommand: "--model 'gpt 5'" }, "fix it");
+    const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo", agentCommand: "--model 'gpt 5'" }, "fix it", "factorize", "/repo/.factorize-worktrees/run", "lease");
     expect(command).toContain("-- '--model' 'gpt 5'");
+  });
+
+  it("garbage collects only after terminal, worktree, and lease revalidation", () => {
+    const command = garbageCollectPaneCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "w1:p2", "term-7", "/repo/.factorize-worktrees/run", "lease-7");
+    expect(command).toContain(".terminal_id == $terminal");
+    expect(command).toContain("factorize-lease");
+    expect(command).toContain("agent stop 'w1:p2'");
+    expect(command).toContain("pane close 'w1:p2'");
   });
 
   it("quotes the complete exe.dev SSH request body", () => {
