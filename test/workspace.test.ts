@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentStatusCommand, connectionCheckCommand, defaultAgentCommand, herdrAgentStatus, shellAtom, startAgentCommand } from "../src/exe";
+import { agentStatusCommand, connectionCheckCommand, defaultAgentCommand, herdrAgentStatus, replaceForegroundCommand, shellAtom, startAgentCommand } from "../src/exe";
 import { workingDirectoryFor, workspaceNameFor } from "../src/workspace";
 
 describe("flow workspaces", () => {
@@ -53,5 +53,15 @@ describe("flow workspaces", () => {
   it("reads Herdr's current agent_status response field", () => {
     expect(herdrAgentStatus('{"result":{"agent":{"agent_status":"working"}}}')).toBe("working");
     expect(herdrAgentStatus('{"result":{"agent":{"state":"idle"}}}')).toBe("idle");
+  });
+
+  it("revalidates exact pane and process identities before bounded escalation", () => {
+    const command = replaceForegroundCommand("flow-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "pane-7");
+    expect(command.match(/pane process-info 'pane-7'/g)).toHaveLength(2);
+    expect(command).toContain('second_pid" = "$first_pid');
+    expect(command).toContain('second_pgid" = "$first_pgid');
+    expect(command).toContain('kill -INT -- "-$first_pgid"');
+    expect(command).toContain('kill -TERM -- "-$first_pgid"');
+    expect(command).not.toContain("pkill");
   });
 });
