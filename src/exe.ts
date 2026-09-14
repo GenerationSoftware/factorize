@@ -109,7 +109,7 @@ export function connectionCheckCommand(): string {
 
 /** exe.dev executes non-interactive shells, which do not load the user's PATH customizations. */
 function herdrPrefix(connection: ExeConnection): string {
-  return `export PATH="$HOME/.local/bin:$PATH" && command -v ${shellAtom(herdrBinary(connection))}`;
+  return `export PATH="$HOME/.local/bin:$PATH" && command -v ${shellAtom(herdrBinary(connection))} >/dev/null`;
 }
 
 function herdrBinary(connection: ExeConnection): string {

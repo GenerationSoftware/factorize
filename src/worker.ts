@@ -1,16 +1,14 @@
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
-import app, { readSession } from "./index";
+import app, { readSession, requestCookie } from "./index";
 import { ProtectedApiHandler } from "./protected-api";
 import { hmac } from "./crypto";
-import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
+import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceLoginRedirect, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
 
 const scopes = ["flows:read", "flows:write", "runs:read", "runs:write"];
 const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-const cookie = (request: Request, name: string) => request.headers.get("Cookie")?.split(";").map(v => v.trim()).find(v => v.startsWith(`${name}=`))?.slice(name.length + 1);
-
 async function currentOwner(request: Request, env: Env) {
-  const session = await readSession(cookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
+  const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
   if (!session) return null;
   const stub = env.TENANTS.get(env.TENANTS.idFromName(`tenant:${session.tenantId}`));
   const response = await stub.fetch(`https://tenant/members/${encodeURIComponent(session.userId)}`);
@@ -36,9 +34,7 @@ const defaultHandler: ExportedHandler<Env> = {
     try {
       const session = await currentOwner(request, env);
       if (!session) {
-        const response = Response.redirect(`${env.APP_ORIGIN}/auth/linear`, 302);
-        response.headers.append("Set-Cookie", `factorize_oauth_return=${encodeURIComponent(url.pathname + url.search)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`);
-        return response;
+        return deviceLoginRedirect(env.APP_ORIGIN, url.pathname + url.search);
       }
       if (url.pathname === "/device") return deviceVerification(request, env, env.OAUTH_PROVIDER!, session);
       if (request.method === "GET") {

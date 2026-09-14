@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesLineage, ownsPane, parseAgent, parseAgentList, parsePaneProcess, safeToAdopt, sameStableSession } from "../src/recovery";
+import { findOwnedAgent, matchesLineage, ownsPane, parseAgent, parseAgentList, parsePaneProcess, safeToAdopt, sameStableSession } from "../src/recovery";
 
 const moved = { name: "renamed", status: "working", kind: "codex", workspaceId: "ws-2", paneId: "pane-2", terminalId: "term-1", cwd: "/repo", sessionSource: "codex", sessionKind: "thread", sessionValue: "session-7" };
 
@@ -24,6 +24,21 @@ describe("Herdr 0.9 recovery identity", () => {
     const agents = parseAgentList(JSON.stringify({ result: { agents: [{ name: "flow-1", kind: "codex", pane_id: "pane-1", session: { id: "abc" } }] } }));
     expect(agents).toHaveLength(1);
     expect(agents[0]).toMatchObject({ name: "flow-1", paneId: "pane-1", sessionValue: "abc" });
+  });
+
+  it("parses pretty JSON after non-JSON command output", () => {
+    const wireAgent = { name: "renamed", agent_status: "working", agent_kind: "codex", workspace_id: "ws-2", pane_id: "pane-2", terminal_id: "term-1", cwd: "/repo", session_identity: { source: "codex", kind: "thread", value: "session-7" } };
+    const body = `/home/exedev/.local/bin/herdr\nAgent started\n${JSON.stringify({ result: { agent: wireAgent } }, null, 2)}`;
+    expect(parseAgent(body)).toMatchObject({ name: "renamed", paneId: "pane-2" });
+    const list = `/home/exedev/.local/bin/herdr\n${JSON.stringify({ result: { agents: [wireAgent] } }, null, 2)}`;
+    expect(parseAgentList(list)).toHaveLength(1);
+  });
+
+  it("recovers pre-persistence agents by exact alias, kind, and unique worktree", () => {
+    const expected = { ...moved, name: "run-agent", cwd: "/repo/.factorize-worktrees/run-1" };
+    const wrongCwd = { ...expected, cwd: "/repo/human" };
+    expect(findOwnedAgent({}, [wrongCwd, expected], expected.cwd, "run-agent", "codex")).toBe(expected);
+    expect(findOwnedAgent({}, [wrongCwd], expected.cwd, "run-agent", "codex")).toBeUndefined();
   });
 
   it("adopts only matching cwd/kind/lineage and unclaimed sessions", () => {

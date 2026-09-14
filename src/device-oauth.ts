@@ -32,6 +32,16 @@ type DeviceRecord = {
 const noStoreHeaders = { "Content-Type": "application/json", "Cache-Control": "no-store", Pragma: "no-cache" };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: noStoreHeaders });
 const oauthError = (error: string, description: string, status = 400) => json({ error, error_description: description }, status);
+export function deviceLoginRedirect(appOrigin: string, returnTo: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      "Cache-Control": "no-store",
+      Location: `${appOrigin}/auth/linear`,
+      "Set-Cookie": `factorize_oauth_return=${encodeURIComponent(returnTo)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
+    },
+  });
+}
 const random = (bytes = 32) => {
   const value = crypto.getRandomValues(new Uint8Array(bytes));
   return btoa(String.fromCharCode(...value)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
@@ -139,14 +149,6 @@ export async function deviceToken(request: Request, env: Env, oauthProvider: { f
   if (!await authenticateDeviceClient(request, env, form, { clientId: record.clientId, redirectUris: [record.redirectUri], tokenEndpointAuthMethod: record.tokenEndpointAuthMethod })) return oauthError("invalid_client", "Client authentication failed.", 401);
   if (record.status === "denied") return oauthError("access_denied", "The resource owner denied the request.");
   if (record.status === "pending") {
-    if (record.lastPolledAt && now - record.lastPolledAt < record.interval) {
-      record.interval += 5;
-      record.lastPolledAt = now;
-      await env.OAUTH_KV.put(deviceKey(deviceCode), JSON.stringify(record), { expirationTtl: Math.max(1, record.expiresAt - now) });
-      return oauthError("slow_down", "Polling is too frequent.");
-    }
-    record.lastPolledAt = now;
-    await env.OAUTH_KV.put(deviceKey(deviceCode), JSON.stringify(record), { expirationTtl: Math.max(1, record.expiresAt - now) });
     return oauthError("authorization_pending", "The resource owner has not completed authorization.");
   }
   if (!record.authorizationCode) return oauthError("server_error", "The approved device grant is incomplete.", 500);

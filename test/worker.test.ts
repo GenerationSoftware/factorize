@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 
-import app, { signSession } from "../src/index";
+import app, { requestCookie, signSession } from "../src/index";
 import type { Env } from "../src/types";
 
 type StubHandler = (request: Request) => Response | Promise<Response>;
@@ -53,6 +53,12 @@ function ownerHandler(routes: Record<string, Response | (() => Response)>): Stub
 
 describe("Worker routes", () => {
   beforeEach(() => vi.restoreAllMocks());
+
+  it("decodes URL-encoded session cookies in OAuth routes", async () => {
+    const session = await signSession({ tenantId: "workspace-1", userId: "user-1", email: "owner@example.com", exp: Math.floor(Date.now() / 1000) + 60, sessionVersion: 1 }, "session-secret");
+    const request = new Request("https://factorize.test/device", { headers: { cookie: `factorize_session=${encodeURIComponent(session)}` } });
+    expect(requestCookie(request, "factorize_session")).toBe(session);
+  });
 
   it("serves the landing page with nonce-protected scripts", async () => {
     const response = await app.request("https://factorize.test/", {}, testEnv(() => new Response("Not found", { status: 404 })));

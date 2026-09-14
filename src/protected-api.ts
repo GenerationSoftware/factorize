@@ -76,7 +76,8 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
-    const mcpApp = createMcpHonoApp();
+    const appHostname = new URL(this.env.APP_ORIGIN).hostname;
+    const mcpApp = createMcpHonoApp({ host: appHostname, allowedHosts: [appHostname], allowedOrigins: [appHostname] });
     mcpApp.all("/mcp", c => transport.handleRequest(c.req.raw, { parsedBody: (c as any).get("parsedBody") }));
     return mcpApp.fetch(request, this.env, this.ctx);
   }
