@@ -37,8 +37,13 @@ describe("Herdr 0.9 recovery identity", () => {
   it("recovers pre-persistence agents by exact alias, kind, and unique worktree", () => {
     const expected = { ...moved, name: "run-agent", cwd: "/repo/.factorize-worktrees/run-1" };
     const wrongCwd = { ...expected, cwd: "/repo/human" };
-    expect(findOwnedAgent({}, [wrongCwd, expected], expected.cwd, "run-agent", "codex")).toBe(expected);
-    expect(findOwnedAgent({}, [wrongCwd], expected.cwd, "run-agent", "codex")).toBeUndefined();
+    expect(findOwnedAgent({}, [wrongCwd, expected], "/stale/recovery-path", "run-agent", "codex", "run-1")).toBe(expected);
+    expect(findOwnedAgent({}, [wrongCwd], expected.cwd, "run-agent", "codex", "run-1")).toBeUndefined();
+  });
+
+  it("accepts the current Herdr agent field as the agent kind", () => {
+    const agents = parseAgentList(JSON.stringify({ result: { agents: [{ name: "run-agent", agent: "codex", agent_status: "idle", cwd: "/repo/.factorize-runs/run-1", pane_id: "pane-1" }] } }));
+    expect(agents[0]).toMatchObject({ kind: "codex", status: "idle" });
   });
 
   it("adopts only matching cwd/kind/lineage and unclaimed sessions", () => {

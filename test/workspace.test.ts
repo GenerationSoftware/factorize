@@ -18,10 +18,14 @@ describe("flow workspaces", () => {
   });
 
   it("passes the saved flow workspace to Herdr", () => {
-    const command = startAgentCommand("bug-fixes-a1b2c3d4", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "fix it", "bug-fixes", "/repo/.factorize-worktrees/run-1", "lease-1");
+    const command = startAgentCommand("bug-fixes-a1b2c3d4", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "fix it", "bug-fixes", "/repo/.factorize-runs/run-1", "lease-1");
     expect(command).toContain("--label 'bug-fixes'");
-    expect(command).toContain("git worktree add --detach '/repo/.factorize-worktrees/run-1'");
-    expect(command).toContain("pane split");
+    expect(command).toContain("mkdir '/repo/.factorize-runs/run-1'");
+    expect(command).not.toContain("git worktree");
+    expect(command).toContain("tab list --workspace");
+    expect(command).toContain("tab create --workspace");
+    expect(command).toContain("tab rename \"$tab_id\" 'bug-fixes-a1b2c3d4'");
+    expect(command).not.toContain("pane split");
     expect(command).toContain("--no-focus");
     expect(command).not.toContain("__FACTORIZE_EXIT_CODE__");
     expect(command).toContain('export PATH="$HOME/.local/bin:$PATH"');
@@ -38,15 +42,15 @@ describe("flow workspaces", () => {
   });
 
   it("passes a configured agent command as safely quoted arguments", () => {
-    const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo", agentCommand: "--model 'gpt 5'" }, "fix it", "factorize", "/repo/.factorize-worktrees/run", "lease");
+    const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo", agentCommand: "--model 'gpt 5'" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
     expect(command).toContain("-- '--model' 'gpt 5'");
   });
 
-  it("garbage collects only after terminal, worktree, and lease revalidation", () => {
-    const command = garbageCollectPaneCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "w1:p2", "term-7", "/repo/.factorize-worktrees/run", "lease-7");
+  it("garbage collects only after terminal, run directory, and lease revalidation", () => {
+    const command = garbageCollectPaneCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "w1:p2", "term-7", "/repo/.factorize-runs/run", "lease-7");
     expect(command).toContain(".terminal_id == $terminal");
     expect(command).toContain("factorize-lease");
-    expect(command).toContain("agent stop 'w1:p2'");
+    expect(command).not.toContain("agent stop");
     expect(command).toContain("pane close 'w1:p2'");
   });
 
@@ -68,7 +72,7 @@ describe("flow workspaces", () => {
 
   it("revalidates exact pane and process identities before bounded escalation", () => {
     const command = replaceForegroundCommand("flow-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "pane-7");
-    expect(command.match(/pane process-info 'pane-7'/g)).toHaveLength(2);
+    expect(command.match(/pane process-info --pane 'pane-7'/g)).toHaveLength(2);
     expect(command).toContain('second_pid" = "$first_pid');
     expect(command).toContain('second_pgid" = "$first_pgid');
     expect(command).toContain('kill -INT -- "-$first_pgid"');

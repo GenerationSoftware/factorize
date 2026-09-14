@@ -399,8 +399,8 @@ export class Tenant extends DurableObject<Env> {
   private async stopRun(runId: string): Promise<Response> {
     const run = this.one("SELECT * FROM runs WHERE id = ?", runId);
     if (!run) return new Response("Not found", { status: 404 });
-    if (!["starting", "running"].includes(String(run.state))) return Response.json({ error: "Run is not starting or running" }, { status: 409 });
-    if (["starting", "running"].includes(String(run.state))) {
+    if (!["starting", "running", "recovering"].includes(String(run.state))) return Response.json({ error: "Run is not active" }, { status: 409 });
+    if (["starting", "running", "recovering"].includes(String(run.state))) {
       const pipe = this.one("SELECT * FROM pipes WHERE id = ?", run.pipe_id) as Row | undefined;
       if (pipe) {
         const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
@@ -624,7 +624,7 @@ export class Tenant extends DurableObject<Env> {
     if (!connection) return this.finishRun(run, "failed", "No exe.dev VM is connected.");
     const workspaceName = String(run.workspace_name || pipe.workspace_name || workspaceNameFor(String(pipe.name)));
     const lease = crypto.randomUUID();
-    const worktreePath = `${connection.cwd.replace(/\/$/, "")}/.factorize-worktrees/${String(run.id)}`;
+    const worktreePath = `${connection.cwd.replace(/\/$/, "")}/.factorize-runs/${String(run.id)}`;
     this.ctx.storage.sql.exec("UPDATE runs SET herdr_server_namespace='default',worktree_path=?,ownership_lease=?,ownership_generation=ownership_generation+1,agent_session_generation=1,updated_at=? WHERE id=?", worktreePath, lease, now(), run.id);
     if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize started **${connection.agentKind}** on ${connection.vmName} in Herdr workspace \`${workspaceName}\` for this issue.`);
     const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
@@ -724,7 +724,7 @@ export class Tenant extends DurableObject<Env> {
     this.commandActivity(run.id, "agent list", listed);
     if (!listed.ok || (listed.exitCode !== null && listed.exitCode !== 0)) { this.scheduleRecovery(run.id, attempt, "transient Herdr agent-list failure"); return; }
     const agents = parseAgentList(listed.body), saved = this.savedIdentity(run);
-    const owned = findOwnedAgent(saved, agents, String(run.worktree_path || ""), String(run.agent_name || ""), connection.agentKind);
+    const owned = findOwnedAgent(saved, agents, String(run.worktree_path || ""), String(run.agent_name || ""), connection.agentKind, String(run.id));
     if (owned) {
       const rotated = String(run.agent_session_value || "") !== owned.sessionValue;
       this.persistIdentity(run.id, owned, "running", rotated);
@@ -765,14 +765,14 @@ export class Tenant extends DurableObject<Env> {
     }
     const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
     const recoveryPrompt = `${prompt}\n\nRecovery context: inspect the existing repository state and continue completed work rather than repeating it. Last status: ${String(run.last_agent_status || "unknown")}.`;
-    const lease = crypto.randomUUID(), worktreePath = `${connection.cwd.replace(/\/$/, "")}/.factorize-worktrees/${String(run.id)}-recovery-${attempt}`;
-    this.ctx.storage.sql.exec("UPDATE runs SET worktree_path=?,ownership_lease=?,ownership_generation=ownership_generation+1 WHERE id=?", worktreePath, lease, run.id);
-    const replacement = await exec(connection, startAgentCommand(String(run.agent_name), connection, recoveryPrompt, String(run.workspace_name), worktreePath, lease));
+    const runPath = String(run.worktree_path || ""), lease = String(run.ownership_lease || "");
+    if (!runPath || !lease) return this.finishRecovery(run, "failed", "Recovery cannot prove the run directory lease.");
+    const replacement = await exec(connection, startAgentCommand(String(run.agent_name), connection, recoveryPrompt, String(run.workspace_name), runPath, lease));
     this.commandActivity(run.id, "replacement agent start", replacement);
     if (replacement.ok && (replacement.exitCode === null || replacement.exitCode === 0)) this.ctx.storage.sql.exec("UPDATE runs SET prompt_accepted=1 WHERE id=?", run.id);
     const live = replacement.ok ? parseAgent(replacement.body) : null;
     if (live) return this.finishRecovery(run, "running", "Recreated the deleted pane/workspace and started a replacement harness.", live);
-    this.scheduleRecovery(run.id, attempt, "replacement workspace/harness was not yet verifiable");
+    this.scheduleRecovery(run.id, attempt, "idempotent run-tab reconciliation was not yet verifiable");
   }
 
   private scheduleRecovery(runId: unknown, attempt: number, action: string): void { const delay = Math.min(60_000, 2_000 * 2 ** Math.min(attempt - 1, 5)); this.ctx.storage.sql.exec("UPDATE runs SET recovery_next_at=?,recovery_last_action=?,updated_at=? WHERE id=?", Date.now() + delay, action, now(), runId); this.activity(runId, "recovery_retry", action); }
