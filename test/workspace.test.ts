@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentStatusCommand, connectionCheckCommand, defaultAgentCommand, garbageCollectPaneCommand, herdrAgentStatus, replaceForegroundCommand, shellAtom, startAgentCommand } from "../src/exe";
+import { agentStatusCommand, connectionCheckCommand, defaultAgentCommand, garbageCollectPaneCommand, herdrAgentStatus, launchAgentCommand, promptAgentCommand, replaceForegroundCommand, shellAtom, startAgentCommand } from "../src/exe";
 import { workingDirectoryFor, workspaceNameFor } from "../src/workspace";
 
 describe("flow workspaces", () => {
@@ -33,6 +33,22 @@ describe("flow workspaces", () => {
     expect(command).toContain("agent get 'bug-fixes-a1b2c3d4'");
     expect(command).not.toContain("/new");
     expect(command).toContain("-- '--dangerously-bypass-approvals-and-sandbox'");
+  });
+
+  it("keeps harness launch separate from prompt delivery", () => {
+    const connection = { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" };
+    const launch = launchAgentCommand("factorize-1", connection, "factorize", "/repo/.factorize-runs/run", "lease");
+    const delivery = promptAgentCommand(connection, "factorize-1", "fix it");
+    expect(launch).toContain("agent start 'factorize-1'");
+    expect(launch).not.toContain("agent prompt");
+    expect(delivery).toContain("agent prompt 'factorize-1'");
+    expect(delivery).not.toContain("agent start");
+  });
+
+  it("never skips prompt delivery when an idempotent launch finds an agent", () => {
+    const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
+    expect(command.indexOf("agent prompt 'factorize-1'")).toBeGreaterThan(command.indexOf("existing="));
+    expect(command).not.toMatch(/then printf[^;]+; else[^;]+agent prompt/);
   });
 
   it("uses no-prompt defaults for Codex and Claude, but leaves Pi unchanged", () => {

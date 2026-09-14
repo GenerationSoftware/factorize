@@ -11,6 +11,10 @@ import { githubClaimKey, githubHeaders, installationToken, normalizeRepository, 
 import type { FlowSource, WorkItem } from "./types";
 import { invokeCustomHandler, validateCustomHandler } from "./custom-handler";
 import { sanitizeTailEvent, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
+import { ExeHerdrBackend } from "./exe-herdr-backend";
+import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
+
+export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
 type Row = Record<string, unknown>;
 const json = (value: unknown) => Response.json(value);
@@ -20,57 +24,7 @@ const HERDR_FLOW_NAME = /^[a-z][a-z0-9_-]{0,29}$/;
 
 const object = (value: unknown): Record<string, any> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 const text = (value: unknown): string => typeof value === "string" ? value : "";
-/** The initial per-flow template. It intentionally mirrors Factorize's former prompt. */
-export const DEFAULT_CONTEXT_TEMPLATE = `---
-pipe: "{{{flow.name}}}"
-issue: "{{{ticket.identifier}}}"
-url: "{{{ticket.url}}}"
-{{#ticket.project.name}}project: "{{{ticket.project.name}}}"
-{{/ticket.project.name}}{{#ticket.labels.length}}labels: [{{#ticket.labels}}"{{{name}}}"{{^last}}, {{/last}}{{/ticket.labels}}]
-{{/ticket.labels.length}}{{#ticket.assignee.name}}owner: "{{{ticket.assignee.name}}}"
-{{/ticket.assignee.name}}{{#ticket.state.name}}status: "{{{ticket.state.name}}}"
-{{/ticket.state.name}}---
-
-# {{{ticket.title}}}
-
-{{{ticket.description}}}`;
-
-/**
- * Render an agent prompt from the complete Linear webhook payload. `ticket` is
- * a normalized convenience alias; the original payload keys remain available.
- */
-export function renderContextTemplate(template: string, payload: Record<string, unknown>, pipeName: string): string {
-  const issue = object(payload.issue);
-  // Issue webhooks put fields directly on data; IssueLabel events use the fetched
-  // linked issue under `issue`.
-  const ticket = text(issue.title) || text(issue.description) ? issue : payload;
-  const project = object(ticket.project);
-  const assignee = object(ticket.assignee);
-  const state = object(ticket.state);
-  const labelsValue = object(ticket.labels);
-  const rawLabels = Array.isArray(ticket.labels) ? ticket.labels : Array.isArray(labelsValue.nodes) ? labelsValue.nodes : [];
-  const labels = rawLabels.map((label) => text(object(label).name)).filter(Boolean);
-  const normalizedTicket = {
-    ...ticket,
-    id: text(ticket.id),
-    identifier: text(ticket.identifier) || text(ticket.id),
-    url: text(ticket.url),
-    title: text(ticket.title) || "Untitled Linear issue",
-    description: text(ticket.description).trim() || "No description provided.",
-    project,
-    assignee,
-    state,
-    labels: labels.map((name, index) => ({ name, last: index === labels.length - 1 })),
-  };
-  return Mustache.render(template || DEFAULT_CONTEXT_TEMPLATE, {
-    ...payload,
-    ticket: normalizedTicket,
-    flow: { name: pipeName },
-  });
-}
-
-/** @deprecated Use renderContextTemplate with a flow's saved template. */
-export const linearTicketPrompt = (payload: Record<string, unknown>, pipeName: string) => renderContextTemplate(DEFAULT_CONTEXT_TEMPLATE, payload, pipeName);
+const linearSource = new LinearSourceAdapter();
 
 export class Tenant extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -109,6 +63,11 @@ export class Tenant extends DurableObject<Env> {
     this.ensureColumn("runs", "exec_response", "TEXT");
     this.ensureColumn("runs", "exec_status", "INTEGER");
     this.ensureColumn("runs", "exec_exit_code", "INTEGER");
+    this.ensureColumn("runs", "prompt_delivery_state", "TEXT NOT NULL DEFAULT 'legacy'");
+    this.ensureColumn("runs", "prompt_delivery_request", "TEXT");
+    this.ensureColumn("runs", "prompt_delivery_response", "TEXT");
+    this.ensureColumn("runs", "prompt_delivery_status", "INTEGER");
+    this.ensureColumn("runs", "prompt_delivery_exit_code", "INTEGER");
     this.ensureColumn("pipes", "source_kind", "TEXT NOT NULL DEFAULT 'linear'");
     this.ensureColumn("pipes", "source_config", "TEXT NOT NULL DEFAULT '{}'");
     this.ensureColumn("pipes", "trigger_kind", "TEXT NOT NULL DEFAULT 'linear_match'");
@@ -295,7 +254,7 @@ export class Tenant extends DurableObject<Env> {
     const page = Math.max(1, Math.min(10000, Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1));
     const offset = (page - 1) * 10;
     const events = view === "events" ? this.rows("SELECT id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, provider, received_at FROM flow_events WHERE flow_id = ? ORDER BY received_at DESC, id DESC LIMIT 11 OFFSET ?", flowId, offset) : [];
-    const runs = view === "runs" ? this.rows("SELECT id, issue_id, issue_title, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code, recovery_reason, recovery_attempt, recovery_last_action, recovery_started_at FROM runs WHERE pipe_id = ? AND state != 'ignored' ORDER BY created_at DESC, id DESC LIMIT 11 OFFSET ?", flowId, offset) : [];
+    const runs = view === "runs" ? this.rows("SELECT id, issue_id, issue_title, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, prompt_delivery_state, prompt_delivery_request, prompt_delivery_response, prompt_delivery_status, prompt_delivery_exit_code, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code, recovery_reason, recovery_attempt, recovery_last_action, recovery_started_at FROM runs WHERE pipe_id = ? AND state != 'ignored' ORDER BY created_at DESC, id DESC LIMIT 11 OFFSET ?", flowId, offset) : [];
     await this.backfillRunIssueDetails(runs);
     const hasNext = (view === "events" ? events : runs).length > 10;
     if (events.length > 10) events.pop();
@@ -304,6 +263,8 @@ export class Tenant extends DurableObject<Env> {
       if (run.state !== "ignored" && typeof run.prompt === "string" && run.prompt) run.prompt = await decrypt(run.prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
       if (typeof run.exec_request === "string" && run.exec_request) run.exec_request = await decrypt(run.exec_request, this.env.CREDENTIAL_ENCRYPTION_KEY);
       if (typeof run.exec_response === "string" && run.exec_response) run.exec_response = await decrypt(run.exec_response, this.env.CREDENTIAL_ENCRYPTION_KEY);
+      if (typeof run.prompt_delivery_request === "string" && run.prompt_delivery_request) run.prompt_delivery_request = await decrypt(run.prompt_delivery_request, this.env.CREDENTIAL_ENCRYPTION_KEY);
+      if (typeof run.prompt_delivery_response === "string" && run.prompt_delivery_response) run.prompt_delivery_response = await decrypt(run.prompt_delivery_response, this.env.CREDENTIAL_ENCRYPTION_KEY);
       // Duplicate-webhook records predate encrypted results and deliberately retain
       // a plain-text explanation. Only completed/failed agent output is encrypted.
       if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
@@ -336,7 +297,7 @@ export class Tenant extends DurableObject<Env> {
     const run = this.one("SELECT runs.*, pipes.name AS flow_name FROM runs JOIN pipes ON pipes.id = runs.pipe_id WHERE runs.id = ?", runId);
     if (!run) return new Response("Not found", { status: 404 });
     await this.backfillRunIssueDetails([run]);
-    for (const field of ["prompt", "exec_request", "exec_response", "result"] as const) {
+    for (const field of ["prompt", "exec_request", "exec_response", "prompt_delivery_request", "prompt_delivery_response", "result"] as const) {
       if (run.state !== "ignored" && typeof run[field] === "string" && run[field]) run[field] = await decrypt(String(run[field]), this.env.CREDENTIAL_ENCRYPTION_KEY);
     }
     return json(run);
@@ -405,7 +366,8 @@ export class Tenant extends DurableObject<Env> {
       if (pipe) {
         const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
         if (connection && run.agent_name) {
-          const stopped = await exec(connection, stopAgentCommand(connection, String(run.agent_name)));
+          const backend = new ExeHerdrBackend(connection);
+          const stopped = await backend.stop({ backend: backend.kind, agentName: String(run.agent_name) });
           if (!stopped.ok) return Response.json({ error: "Could not stop the active agent" }, { status: 502 });
         }
       }
@@ -464,7 +426,8 @@ export class Tenant extends DurableObject<Env> {
         this.recordFlowEvent(pipe, deliveryId, null, null, matchingEvent, "ignored", "Webhook did not match this flow's trigger.");
         continue;
       }
-      await this.queueWorkItem(pipe, deliveryId, { provider: "linear", claimKey: matchingIssueId, identifier: matchingIssueId, title: String(data.title ?? data.issue?.title ?? ""), description: String(data.description ?? data.issue?.description ?? ""), url: this.issueUrl(data, matchingIssueId), event: matchingEvent }, renderContextTemplate(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), data, String(pipe.name)));
+      const workItem = linearSource.toWorkItem(data, matchingIssueId, matchingEvent);
+      await this.queueWorkItem(pipe, deliveryId, workItem, linearSource.renderPrompt(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), data, String(pipe.name)));
     }
     await Promise.all(custom.map((pipe) => this.evaluateCustom(pipe, "linear", deliveryId, event)));
     await this.ctx.storage.setAlarm(Date.now());
@@ -538,7 +501,7 @@ export class Tenant extends DurableObject<Env> {
     try { this.ctx.storage.sql.exec("INSERT INTO active_claims (pipe_id,issue_id,run_id) VALUES (?,?,?)", pipe.id, workItem.claimKey, runId); }
     catch { this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, "duplicate", "An active or queued run already owns this work item.", workItem.provider); return; }
     const prompt = await encrypt(plaintextPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,provider,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.title, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, workItem.provider, now(), now());
+    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.title, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, "pending", workItem.provider, now(), now());
     const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id=? AND state IN ('starting','running','blocked','recovering')", pipe.id) as Row;
     this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, Number(active.count) < Number(pipe.max_concurrency) ? "accepted" : "queued_capacity", Number(active.count) < Number(pipe.max_concurrency) ? "Handler accepted delivery; agent queued to start." : "Handler accepted delivery; queued for capacity.", workItem.provider);
   }
@@ -627,23 +590,31 @@ export class Tenant extends DurableObject<Env> {
     const worktreePath = `${connection.cwd.replace(/\/$/, "")}/.factorize-runs/${String(run.id)}`;
     this.ctx.storage.sql.exec("UPDATE runs SET herdr_server_namespace='default',worktree_path=?,ownership_lease=?,ownership_generation=ownership_generation+1,agent_session_generation=1,updated_at=? WHERE id=?", worktreePath, lease, now(), run.id);
     if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize started **${connection.agentKind}** on ${connection.vmName} in Herdr workspace \`${workspaceName}\` for this issue.`);
-    const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
-    const result = await exec(connection, startAgentCommand(String(run.agent_name), connection, prompt, workspaceName, worktreePath, lease));
+    const backend = new ExeHerdrBackend(connection);
+    const launched = await backend.launch({ runId: String(run.id), agentName: String(run.agent_name), workspaceName, runPath: worktreePath, lease });
+    const result = launched.command;
     const execRequest = await encrypt(result.requestBody, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const execResponse = await encrypt(result.body, this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET exec_request = ?, exec_response = ?, exec_status = ?, exec_exit_code = ?, updated_at = ? WHERE id = ?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
     this.commandActivity(run.id, "initial agent start", result);
     if (!result.ok || (result.exitCode !== null && result.exitCode !== 0)) return this.finishRun(run, "failed", `Unable to start Herdr agent (exe.dev HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}): ${result.body.slice(0, 800)}`);
-    this.ctx.storage.sql.exec("UPDATE runs SET prompt_accepted=1,updated_at=? WHERE id=?", now(), run.id);
-    const verification = await exec(connection, agentStatusCommand(connection, String(run.agent_name)));
+    const verification = await backend.inspect(launched.handle);
     this.commandActivity(run.id, "initial agent verification", verification);
     if (!verification.ok || (verification.exitCode !== null && verification.exitCode !== 0) || !herdrAgentStatus(verification.body)) {
       return this.beginRecovery(run, pipe, connection, `agent start succeeded but verification was ambiguous (exe.dev HTTP ${verification.status}, VM exit ${verification.exitCode ?? "not reported"})`);
     }
     const identity = parseAgent(verification.body);
     if (!identity) return this.beginRecovery(run, pipe, connection, "agent start succeeded but its structured identity was inconsistent");
+    this.persistIdentity(run.id, identity, "starting");
+    const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
+    this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='submitting',updated_at=? WHERE id=?", now(), run.id);
+    const delivery = await backend.deliverPrompt(launched.handle, prompt);
+    const deliveryRequest = await encrypt(delivery.command.requestBody, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    const deliveryResponse = await encrypt(delivery.command.body, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state=?,prompt_delivery_request=?,prompt_delivery_response=?,prompt_delivery_status=?,prompt_delivery_exit_code=?,prompt_accepted=?,updated_at=? WHERE id=?", delivery.state, deliveryRequest, deliveryResponse, delivery.command.status, delivery.command.exitCode, delivery.state === "accepted" ? 1 : 0, now(), run.id);
+    this.commandActivity(run.id, "initial prompt delivery", delivery.command);
+    if (delivery.state !== "accepted") return this.finishRun(run, "failed", `Harness launched, but prompt delivery was ${delivery.state} (exe.dev HTTP ${delivery.command.status}, VM exit ${delivery.command.exitCode ?? "not reported"}).`);
     this.persistIdentity(run.id, identity, "running");
-    this.ctx.storage.sql.exec("UPDATE runs SET prompt_accepted=1, updated_at=? WHERE id=?", now(), run.id);
   }
 
   private async pollRun(run: Row): Promise<void> {
@@ -652,7 +623,8 @@ export class Tenant extends DurableObject<Env> {
     const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "exe.dev connection is unavailable.");
     if (String(run.state) === "recovering") return this.recoverRun(run, pipe, connection);
-    const status = await exec(connection, agentStatusCommand(connection, String(run.agent_name)));
+    const backend = new ExeHerdrBackend(connection), handle = { backend: "exe-herdr", agentName: String(run.agent_name) };
+    const status = await backend.inspect(handle);
     if (!status.ok && (status.exitCode === null || status.exitCode === 0)) return; // transient exe.dev/API failure
     if (!status.ok || (status.exitCode !== null && status.exitCode !== 0)) return this.beginRecovery(run, pipe, connection, `expected Herdr agent is no longer resolvable (VM exit ${status.exitCode ?? "unknown"})`);
     const live = parseAgent(status.body);
@@ -671,7 +643,7 @@ export class Tenant extends DurableObject<Env> {
       return;
     }
     if (agentStatus !== "done" && agentStatus !== "idle") return;
-    const output = await exec(connection, agentOutputCommand(connection, String(run.agent_name)));
+    const output = await backend.readOutput(handle);
     await this.finishRun(run, "done", output.ok ? output.body : "Agent completed; terminal output could not be read.", output.ok);
   }
 
@@ -769,14 +741,14 @@ export class Tenant extends DurableObject<Env> {
     if (!runPath || !lease) return this.finishRecovery(run, "failed", "Recovery cannot prove the run directory lease.");
     const replacement = await exec(connection, startAgentCommand(String(run.agent_name), connection, recoveryPrompt, String(run.workspace_name), runPath, lease));
     this.commandActivity(run.id, "replacement agent start", replacement);
-    if (replacement.ok && (replacement.exitCode === null || replacement.exitCode === 0)) this.ctx.storage.sql.exec("UPDATE runs SET prompt_accepted=1 WHERE id=?", run.id);
+    if (replacement.ok && (replacement.exitCode === null || replacement.exitCode === 0)) this.ctx.storage.sql.exec("UPDATE runs SET prompt_accepted=1,prompt_delivery_state='accepted' WHERE id=?", run.id);
     const live = replacement.ok ? parseAgent(replacement.body) : null;
     if (live) return this.finishRecovery(run, "running", "Recreated the deleted pane/workspace and started a replacement harness.", live);
     this.scheduleRecovery(run.id, attempt, "idempotent run-tab reconciliation was not yet verifiable");
   }
 
   private scheduleRecovery(runId: unknown, attempt: number, action: string): void { const delay = Math.min(60_000, 2_000 * 2 ** Math.min(attempt - 1, 5)); this.ctx.storage.sql.exec("UPDATE runs SET recovery_next_at=?,recovery_last_action=?,updated_at=? WHERE id=?", Date.now() + delay, action, now(), runId); this.activity(runId, "recovery_retry", action); }
-  private async resumeRecoveredHarness(run: Row, connection: ExeConnection, live: HerdrIdentity, action: string): Promise<void> { if (Number(run.recovery_prompt_attempted)) return this.finishRecovery(run, "running", `${action} Recovery prompt delivery was previously attempted and was not repeated.`, live); const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY); const output = run.result ? await decrypt(String(run.result), this.env.CREDENTIAL_ENCRYPTION_KEY) : ""; const recoveryPrompt = `${prompt}\n\nRecovery context: inspect existing repository state and continue rather than repeating completed work. Last captured output/status:\n${output.slice(-4000)}\n${String(run.last_agent_status || "unknown")}`; this.ctx.storage.sql.exec("UPDATE runs SET recovery_prompt_attempted=1 WHERE id=?", run.id); const sent = await exec(connection, `${agentStatusCommand(connection, live.name)} && ${connection.herdrCommand?.trim() || "herdr"} agent prompt '${live.name.replaceAll("'", `'\"'\"'`)}' '${recoveryPrompt.replaceAll("'", `'\"'\"'`)}'`); if (!sent.ok || (sent.exitCode !== null && sent.exitCode !== 0)) return this.finishRecovery(run, "running", `${action} Recovery prompt acknowledgement was ambiguous, so it will not be submitted twice.`, live); this.ctx.storage.sql.exec("UPDATE runs SET recovery_prompt_accepted=1 WHERE id=?", run.id); await this.finishRecovery(run, "running", action, live); }
+  private async resumeRecoveredHarness(run: Row, connection: ExeConnection, live: HerdrIdentity, action: string): Promise<void> { if (Number(run.recovery_prompt_attempted)) return this.finishRecovery(run, "running", `${action} Recovery prompt delivery was previously attempted and was not repeated.`, live); const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY); const output = run.result ? await decrypt(String(run.result), this.env.CREDENTIAL_ENCRYPTION_KEY) : ""; const recoveryPrompt = `${prompt}\n\nRecovery context: inspect existing repository state and continue rather than repeating completed work. Last captured output/status:\n${output.slice(-4000)}\n${String(run.last_agent_status || "unknown")}`; this.ctx.storage.sql.exec("UPDATE runs SET recovery_prompt_attempted=1,prompt_delivery_state='submitting' WHERE id=?", run.id); const sent = await exec(connection, `${agentStatusCommand(connection, live.name)} && ${connection.herdrCommand?.trim() || "herdr"} agent prompt '${live.name.replaceAll("'", `'\"'\"'`)}' '${recoveryPrompt.replaceAll("'", `'\"'\"'`)}'`); if (!sent.ok || (sent.exitCode !== null && sent.exitCode !== 0)) { this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='ambiguous' WHERE id=?", run.id); return this.finishRecovery(run, "running", `${action} Recovery prompt acknowledgement was ambiguous, so it will not be submitted twice.`, live); } this.ctx.storage.sql.exec("UPDATE runs SET recovery_prompt_accepted=1,prompt_delivery_state='accepted' WHERE id=?", run.id); await this.finishRecovery(run, "running", action, live); }
   private async finishRecovery(run: Row, state: "running" | "failed", action: string, live?: HerdrIdentity): Promise<void> { this.activity(run.id, state === "running" ? "recovery_succeeded" : "recovery_failed", action); if (live) this.persistIdentity(run.id, live, state); this.ctx.storage.sql.exec("UPDATE runs SET state=?,recovery_attempt=0,recovery_reason=NULL,recovery_started_at=NULL,recovery_last_action=?,recovery_next_at=NULL,recovery_comment_finished=1,updated_at=? WHERE id=?", state, action, now(), run.id); if (!Number(run.recovery_comment_finished) && String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize automatic recovery ${state === "running" ? "succeeded" : "permanently failed"} for run \`${run.id}\`: ${action}`); if (state === "failed") { const encrypted = await encrypt(action, this.env.CREDENTIAL_ENCRYPTION_KEY); this.ctx.storage.sql.exec("UPDATE runs SET result=? WHERE id=?", encrypted, run.id); this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id=? AND issue_id=?", run.pipe_id, run.claim_key || run.issue_id); this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id); } }
 
   private async finishRun(run: Row, state: Extract<RunState, "done" | "failed">, result: string, outputCaptured = false): Promise<void> {
