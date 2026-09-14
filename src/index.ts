@@ -88,7 +88,7 @@ app.get("/auth/linear/callback", async (c) => {
   const lifetime = 60 * 60 * 24 * 7;
   setCookie(c, "factorize_session", await signSession({ tenantId: organization.id, userId: viewer.id, email: viewer.email, exp: Math.floor(Date.now() / 1000) + lifetime, sessionVersion: member.session_version }, c.env.SESSION_SIGNING_SECRET), { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: lifetime });
   const oauthReturn = getCookie(c, "factorize_oauth_return");
-  if (oauthReturn?.startsWith("/authorize?")) { deleteCookie(c, "factorize_oauth_return", { path: "/" }); return c.redirect(oauthReturn); }
+  if (oauthReturn?.startsWith("/authorize?") || oauthReturn?.startsWith("/device")) { deleteCookie(c, "factorize_oauth_return", { path: "/" }); return c.redirect(oauthReturn); }
   return c.redirect("/flows/new");
 });
 
