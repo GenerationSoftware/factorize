@@ -1,12 +1,12 @@
 # Cloudflare Tail flow source
 
-Cloudflare Tail is a Factorize flow source for native uncaught Worker exceptions and structured `console.error` failures. Tail Workers require a Workers Paid or Enterprise plan. The relay stays in the same Cloudflare account as the producer Workers; the Factorize flow may be in any account.
+Cloudflare Tail is a Factorize flow source for native uncaught Worker exceptions and structured `console.error` failures. Tail Workers require a Workers Paid or Enterprise plan. The relay is a separate Cloudflare Worker and must be deployed in the same Cloudflare account as the producer Workers; the Factorize app Worker may be in any account.
 
 ## Configure the flow and relay
 
 1. Create a flow, choose **Cloudflare Tail**, and save it. Copy the one-time relay destination and signing secret from the response/flow setup view.
-2. In `factorize-tail-relay`, run `npm install`, set `FACTORIZE_TAIL_DESTINATION` as a Wrangler variable, and run `npx wrangler secret put FACTORIZE_TAIL_SECRET`.
-3. Run `npm run deploy`. Keep the relay name `factorize-tail-relay`; Factorize excludes its own relay traces to prevent loops.
+2. From the repository root, run `npm ci` and set `FACTORIZE_TAIL_DESTINATION` as a Wrangler variable in `packages/tail-relay/wrangler.jsonc`.
+3. Authenticate Wrangler to the producer Workers' Cloudflare account, then run `npm exec --workspace=factorize-tail-relay -- wrangler secret put FACTORIZE_TAIL_SECRET` and `npm run deploy:tail-relay`. Keep the relay name `factorize-tail-relay`; Factorize excludes its own relay traces to prevent loops.
 4. Add the relay to every producer Worker. One relay can consume multiple producers and forwards each event with its `scriptName`:
 
 ```jsonc
