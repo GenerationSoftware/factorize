@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { parse } from "hono/utils/cookie";
 import { equalHmac, hmac } from "./crypto";
 import { Tenant } from "./tenant";
 import { GitHubInstallationRegistry } from "./github-registry";
@@ -42,6 +43,10 @@ export async function readSession(value: string | undefined, secret: string): Pr
   if (!body || !signature || signature !== await hmac(body, secret)) return null;
   try { const session = JSON.parse(unb64(body)) as Session; return session.exp > Math.floor(Date.now() / 1000) ? session : null; } catch { return null; }
 }
+export const requestCookie = (request: Request, name: string) => {
+  const header = request.headers.get("Cookie");
+  return header ? parse(header, name)[name] : undefined;
+};
 
 function tenant(c: { env: Env }, tenantId: string) { return c.env.TENANTS.get(c.env.TENANTS.idFromName(`tenant:${tenantId}`)); }
 function githubRegistry(c: { env: Env }) { if (!c.env.GITHUB_INSTALLATIONS) throw new Error("GitHub registry is not configured"); return c.env.GITHUB_INSTALLATIONS.get(c.env.GITHUB_INSTALLATIONS.idFromName("github-installations")); }

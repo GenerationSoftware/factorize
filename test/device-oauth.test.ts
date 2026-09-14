@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "../src/device-oauth";
+import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceLoginRedirect, deviceToken, deviceVerification } from "../src/device-oauth";
 import type { Env } from "../src/types";
 
 class MemoryKv {
@@ -24,6 +24,14 @@ function environment(kv: MemoryKv): Env {
 const publicClient = { clientId: "client-1", clientName: "Codex", redirectUris: ["http://127.0.0.1/callback"], tokenEndpointAuthMethod: "none" };
 
 describe("OAuth device authorization", () => {
+  it("redirects unauthenticated device approval through login and preserves the device code", () => {
+    const response = deviceLoginRedirect("https://factorize.test", "/device?user_code=ABCD-2345");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("location")).toBe("https://factorize.test/auth/linear");
+    expect(response.headers.get("set-cookie")).toContain("factorize_oauth_return=%2Fdevice%3Fuser_code%3DABCD-2345");
+  });
+
   it("issues RFC 8628 device and user codes", async () => {
     const kv = new MemoryKv(), env = environment(kv);
     const response = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", {
@@ -48,13 +56,13 @@ describe("OAuth device authorization", () => {
     await expect(badResource.json()).resolves.toMatchObject({ error: "invalid_target" });
   });
 
-  it("returns authorization_pending and slow_down while approval is outstanding", async () => {
+  it("keeps polling read-only while approval is outstanding", async () => {
     const kv = new MemoryKv(), env = environment(kv);
     const issue = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client-1", scope: "runs:read" }) }), env, { lookupClient: vi.fn().mockResolvedValue(publicClient), completeAuthorization: vi.fn() }, ["flows:read", "runs:read"]);
     const { device_code } = await issue.json() as any;
     const poll = () => deviceToken(new Request("https://factorize.test/oauth/token", { method: "POST", body: new URLSearchParams({ grant_type: DEVICE_GRANT, client_id: "client-1", device_code }) }), env, { fetch: vi.fn() }, {} as ExecutionContext);
     await expect((await poll()).json()).resolves.toMatchObject({ error: "authorization_pending" });
-    await expect((await poll()).json()).resolves.toMatchObject({ error: "slow_down" });
+    await expect((await poll()).json()).resolves.toMatchObject({ error: "authorization_pending" });
   });
 
   it("approves a code and exchanges it through the normal PKCE token endpoint", async () => {

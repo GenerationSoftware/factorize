@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import Mustache from "mustache";
 import { decrypt, encrypt } from "./crypto";
 import { agentListCommand, agentOutputCommand, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, garbageCollectPaneCommand, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, validateWorktreeLeaseCommand, type ExeConnection } from "./exe";
-import { ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
+import { findOwnedAgent, ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY } from "./linear";
 import { matchingIssue } from "./matcher";
 import type { Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunState } from "./types";
@@ -379,9 +379,10 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async getRun(runId: string): Promise<Response> {
-    const run = this.one("SELECT id, pipe_id AS flow_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, result, exec_status, exec_exit_code, created_at, updated_at FROM runs WHERE id = ?", runId);
+    const run = this.one("SELECT id, pipe_id AS flow_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, result, exec_status, exec_exit_code, recovery_last_action, created_at, updated_at FROM runs WHERE id = ?", runId);
     if (!run) return new Response("Not found", { status: 404 });
     if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    run.activity = this.rows("SELECT action, detail, created_at FROM run_activity WHERE run_id = ? ORDER BY created_at, id", runId);
     return json(run);
   }
 
@@ -631,9 +632,11 @@ export class Tenant extends DurableObject<Env> {
     const execRequest = await encrypt(result.requestBody, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const execResponse = await encrypt(result.body, this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET exec_request = ?, exec_response = ?, exec_status = ?, exec_exit_code = ?, updated_at = ? WHERE id = ?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
+    this.commandActivity(run.id, "initial agent start", result);
     if (!result.ok || (result.exitCode !== null && result.exitCode !== 0)) return this.finishRun(run, "failed", `Unable to start Herdr agent (exe.dev HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}): ${result.body.slice(0, 800)}`);
     this.ctx.storage.sql.exec("UPDATE runs SET prompt_accepted=1,updated_at=? WHERE id=?", now(), run.id);
     const verification = await exec(connection, agentStatusCommand(connection, String(run.agent_name)));
+    this.commandActivity(run.id, "initial agent verification", verification);
     if (!verification.ok || (verification.exitCode !== null && verification.exitCode !== 0) || !herdrAgentStatus(verification.body)) {
       return this.beginRecovery(run, pipe, connection, `agent start succeeded but verification was ambiguous (exe.dev HTTP ${verification.status}, VM exit ${verification.exitCode ?? "not reported"})`);
     }
@@ -682,7 +685,20 @@ export class Tenant extends DurableObject<Env> {
     this.ctx.storage.sql.exec("INSERT INTO run_activity VALUES (?,?,?,?,?)", id(), runId, action, detail.slice(0, 1000), now());
   }
 
-  private commandActivity(runId: unknown, command: string, result: { ok: boolean; status: number; exitCode: number | null }): void { this.activity(runId, "herdr_command", `${command}: HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}, ${result.ok ? "request succeeded" : "request failed"}`); }
+  private diagnosticExcerpt(body: string): string {
+    return body.slice(-700)
+      .replace(/("(?:authorization|cookie|token|secret|credential|prompt|body)"\s*:\s*")[^"]*/gi, "$1[redacted]")
+      .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+/gi, "Bearer [redacted]")
+      .replace(/\bexe1[A-Za-z0-9_-]+/g, "[redacted exe.dev token]")
+      .replace(/[A-Za-z0-9+/_-]{80,}={0,2}/g, "[redacted long value]")
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ")
+      .trim();
+  }
+
+  private commandActivity(runId: unknown, command: string, result: { ok: boolean; status: number; exitCode: number | null; body?: string }): void {
+    const excerpt = result.body ? this.diagnosticExcerpt(result.body) : "";
+    this.activity(runId, "herdr_command", `${command}: HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}, ${result.ok ? "request succeeded" : "request failed"}${excerpt ? `; response: ${excerpt}` : "; empty response"}`);
+  }
 
   private async beginRecovery(run: Row, pipe: Row, connection: ExeConnection, reason: string): Promise<void> {
     const started = !run.recovery_started_at;
@@ -703,11 +719,12 @@ export class Tenant extends DurableObject<Env> {
     const timeoutMs = Math.max(15_000, Number(this.env.RECOVERY_TIMEOUT_MS) || 5 * 60_000), maxAttempts = Math.max(1, Number(this.env.RECOVERY_MAX_ATTEMPTS) || 8);
     if (attempt > maxAttempts || Date.now() - Date.parse(String(run.recovery_started_at)) > timeoutMs) return this.finishRecovery(run, "failed", "Automatic recovery exhausted its bounded retry budget.");
     this.ctx.storage.sql.exec("UPDATE runs SET recovery_attempt=?,recovery_last_action='listing Herdr agents',updated_at=? WHERE id=?", attempt, now(), run.id);
+    this.activity(run.id, "recovery_attempt", `Attempt ${attempt}/${maxAttempts}; elapsed ${Math.max(0, Date.now() - Date.parse(String(run.recovery_started_at)))}ms of ${timeoutMs}ms budget.`);
     const listed = await exec(connection, agentListCommand(connection));
     this.commandActivity(run.id, "agent list", listed);
     if (!listed.ok || (listed.exitCode !== null && listed.exitCode !== 0)) { this.scheduleRecovery(run.id, attempt, "transient Herdr agent-list failure"); return; }
     const agents = parseAgentList(listed.body), saved = this.savedIdentity(run);
-    const owned = agents.find((agent) => ownsPane(saved, agent, String(run.worktree_path || "")));
+    const owned = findOwnedAgent(saved, agents, String(run.worktree_path || ""), String(run.agent_name || ""), connection.agentKind);
     if (owned) {
       const rotated = String(run.agent_session_value || "") !== owned.sessionValue;
       this.persistIdentity(run.id, owned, "running", rotated);
@@ -751,6 +768,7 @@ export class Tenant extends DurableObject<Env> {
     const lease = crypto.randomUUID(), worktreePath = `${connection.cwd.replace(/\/$/, "")}/.factorize-worktrees/${String(run.id)}-recovery-${attempt}`;
     this.ctx.storage.sql.exec("UPDATE runs SET worktree_path=?,ownership_lease=?,ownership_generation=ownership_generation+1 WHERE id=?", worktreePath, lease, run.id);
     const replacement = await exec(connection, startAgentCommand(String(run.agent_name), connection, recoveryPrompt, String(run.workspace_name), worktreePath, lease));
+    this.commandActivity(run.id, "replacement agent start", replacement);
     if (replacement.ok && (replacement.exitCode === null || replacement.exitCode === 0)) this.ctx.storage.sql.exec("UPDATE runs SET prompt_accepted=1 WHERE id=?", run.id);
     const live = replacement.ok ? parseAgent(replacement.body) : null;
     if (live) return this.finishRecovery(run, "running", "Recreated the deleted pane/workspace and started a replacement harness.", live);

@@ -56,7 +56,9 @@ describe("flow workspaces", () => {
   });
 
   it("makes the user-local Herdr binary available to non-interactive VM commands", () => {
-    expect(agentStatusCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "factorize-1")).toContain('export PATH="$HOME/.local/bin:$PATH"');
+    const command = agentStatusCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "factorize-1");
+    expect(command).toContain('export PATH="$HOME/.local/bin:$PATH"');
+    expect(command).toContain("command -v 'herdr' >/dev/null");
   });
 
   it("reads Herdr's current agent_status response field", () => {
