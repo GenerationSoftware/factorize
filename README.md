@@ -1,7 +1,7 @@
 # Factorize
 
 [![CI](https://github.com/asselstine/factorize/actions/workflows/ci.yml/badge.svg)](https://github.com/asselstine/factorize/actions/workflows/ci.yml)
-[![Deploy to Cloudflare](https://img.shields.io/badge/Deploy_to-Cloudflare-F38020?style=flat&logo=cloudflare&logoColor=white)](https://deploy.workers.cloudflare.com/?url=https://github.com/asselstine/factorize)
+[![Deploy to Cloudflare](https://img.shields.io/badge/Deploy_to-Cloudflare-F38020?style=flat&logo=cloudflare&logoColor=white)](https://deploy.workers.cloudflare.com/?url=https://github.com/asselstine/factorize&path=packages/app)
 
 **A no-code software factory for Linear teams.** Factorize turns selected Linear issue changes into coding-agent jobs on your own exe.dev VM, using Herdr to run the agent you choose.
 
@@ -21,15 +21,15 @@ Linear webhook → Cloudflare Worker → Durable Object → exe.dev /exec → He
 
 ## Deploy to Cloudflare
 
-Click the **Deploy to Cloudflare** button above to create a copy of this Worker in your own Cloudflare account. Cloudflare provisions the Durable Object binding and configures Workers Builds for the copied repository.
+Click the **Deploy to Cloudflare** button above to create a copy of the app Worker in your own Cloudflare account. The button selects `packages/app` as the Worker root; Cloudflare provisions the Durable Object binding and configures Workers Builds for the copied repository.
 
 > The Deploy to Cloudflare button works for public GitHub or GitLab repositories. If you are using a private fork, deploy with Wrangler instead.
 
 ### Deploy with Wrangler
 
 1. Clone the repository and install dependencies.
-2. Set `APP_ORIGIN` in `wrangler.jsonc` to your final HTTPS Worker URL or custom domain.
-3. Create a dedicated OAuth KV namespace with `npx wrangler kv namespace create OAUTH_KV`, then replace `REPLACE_WITH_OAUTH_KV_ID` in `wrangler.jsonc` with its ID.
+2. Set `APP_ORIGIN` in `packages/app/wrangler.jsonc` to your final HTTPS Worker URL or custom domain.
+3. Create a dedicated OAuth KV namespace with `npm exec --workspace=factorize -- wrangler kv namespace create OAUTH_KV`, then set its ID in `packages/app/wrangler.jsonc`.
 4. Configure the Linear OAuth callback as `https://your-domain.example/auth/linear/callback`.
 5. Build assets, add secrets, and deploy:
 
@@ -37,13 +37,13 @@ Click the **Deploy to Cloudflare** button above to create a copy of this Worker 
 npm ci
 npm run build:css
 
-npx wrangler secret put LINEAR_CLIENT_ID
-npx wrangler secret put LINEAR_CLIENT_SECRET
-npx wrangler secret put LINEAR_WEBHOOK_SIGNING_SECRET
-npx wrangler secret put CREDENTIAL_ENCRYPTION_KEY
-npx wrangler secret put SESSION_SIGNING_SECRET
+npm exec --workspace=factorize -- wrangler secret put LINEAR_CLIENT_ID
+npm exec --workspace=factorize -- wrangler secret put LINEAR_CLIENT_SECRET
+npm exec --workspace=factorize -- wrangler secret put LINEAR_WEBHOOK_SIGNING_SECRET
+npm exec --workspace=factorize -- wrangler secret put CREDENTIAL_ENCRYPTION_KEY
+npm exec --workspace=factorize -- wrangler secret put SESSION_SIGNING_SECRET
 
-npm run deploy
+npm run deploy:app
 ```
 
 For a headless machine, authenticate first with `npx wrangler login --device --browser=false`, then open the displayed URL and approve the device code from your browser.
@@ -61,7 +61,7 @@ For a headless machine, authenticate first with `npx wrangler login --device --b
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars
+cp packages/app/.dev.vars.example packages/app/.dev.vars
 npm run dev
 ```
 
@@ -109,7 +109,7 @@ Cloudflare Worker failures can also start flows through the separately deployabl
 | `LINEAR_WEBHOOK_SIGNING_SECRET` | Verifies Linear webhook signatures |
 | `CREDENTIAL_ENCRYPTION_KEY` | Base64-encoded 32-byte key for encrypted credentials |
 | `SESSION_SIGNING_SECRET` | Independent secret for signed browser sessions |
-| `APP_ORIGIN` | Public Worker origin, configured in `wrangler.jsonc` |
+| `APP_ORIGIN` | Public Worker origin, configured in `packages/app/wrangler.jsonc` |
 | `OAUTH_KV` | KV binding containing OAuth clients, grants, refresh tokens, and revocation state |
 
 Never commit `.dev.vars` or production secret values. The included `.dev.vars.example` is a safe template.
@@ -119,12 +119,14 @@ Never commit `.dev.vars` or production secret values. The included `.dev.vars.ex
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Build CSS and start local Wrangler development |
-| `npm run build:css` | Compile Tailwind into `public/styles.css` |
+| `npm run build:css` | Compile Tailwind into `packages/app/public/styles.css` |
 | `npm test` | Run the unit test suite |
-| `npm run check` | Type-check, test, and validate a Wrangler dry-run deploy |
-| `npm run deploy` | Deploy the Worker with Wrangler |
+| `npm run check` | Type-check/test the app and dry-run both Worker deployments |
+| `npm run deploy:app` | Deploy only the `factorize` app Worker |
+| `npm run deploy:tail-relay` | Deploy only the `factorize-tail-relay` Worker |
+| `npm run deploy` | Deploy the app, then the Tail relay; stop on the first failure |
 
-GitHub Actions runs `npm run check` on every push and pull request.
+GitHub Actions installs the single root lockfile and runs `npm run check` on every push and pull request. The two packages are independently deployable Cloudflare Workers; the root scripts only provide a unified developer workflow.
 
 ## REST API and OAuth
 

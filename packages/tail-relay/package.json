@@ -1,0 +1,15 @@
+{
+  "name": "factorize-tail-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260910.1",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.44.0"
+  }
+}

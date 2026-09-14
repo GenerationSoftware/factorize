@@ -1,0 +1,32 @@
+{
+  "name": "factorize",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build:css && wrangler dev",
+    "build:css": "tailwindcss -i ./src/tailwind.css -o ./public/styles.css --minify",
+    "check": "tsc --noEmit && vitest run && npm run test:e2e && wrangler deploy --dry-run",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts && vitest run --config vitest.agent-e2e.config.ts",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@modelcontextprotocol/hono": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "hono": "^4.11.4",
+    "mustache": "^4.2.0",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.10.10",
+    "@cloudflare/workers-types": "^5.20260910.1",
+    "@tailwindcss/cli": "^4.1.14",
+    "@types/mustache": "^4.2.6",
+    "tailwindcss": "^4.1.14",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.44.0"
+  }
+}

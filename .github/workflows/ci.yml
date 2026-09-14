@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   check:
-    name: Test and validate Worker
+    name: Test and validate Workers
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
