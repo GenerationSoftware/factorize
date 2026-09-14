@@ -8,7 +8,7 @@ export class ExeHerdrBackend implements ExecutionBackend {
   constructor(private readonly connection: ExeConnection) {}
 
   async launch(request: LaunchRequest) {
-    const command = await exec(this.connection, launchAgentCommand(request.agentName, this.connection, request.workspaceName, request.runPath, request.lease));
+    const command = await exec(this.connection, launchAgentCommand(request.agentName, this.connection, request.workspaceName, request.runPath, request.lease, request.prompt));
     return { handle: { backend: this.kind, agentName: request.agentName }, command };
   }
 

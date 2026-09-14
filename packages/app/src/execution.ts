@@ -14,6 +14,7 @@ export interface LaunchRequest {
   workspaceName: string;
   runPath: string;
   lease: string;
+  prompt: string;
 }
 
 export interface RunHandle {

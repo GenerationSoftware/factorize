@@ -591,7 +591,9 @@ export class Tenant extends DurableObject<Env> {
     this.ctx.storage.sql.exec("UPDATE runs SET herdr_server_namespace='default',worktree_path=?,ownership_lease=?,ownership_generation=ownership_generation+1,agent_session_generation=1,updated_at=? WHERE id=?", worktreePath, lease, now(), run.id);
     if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize started **${connection.agentKind}** on ${connection.vmName} in Herdr workspace \`${workspaceName}\` for this issue.`);
     const backend = new ExeHerdrBackend(connection);
-    const launched = await backend.launch({ runId: String(run.id), agentName: String(run.agent_name), workspaceName, runPath: worktreePath, lease });
+    const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
+    this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='submitting',updated_at=? WHERE id=?", now(), run.id);
+    const launched = await backend.launch({ runId: String(run.id), agentName: String(run.agent_name), workspaceName, runPath: worktreePath, lease, prompt });
     const result = launched.command;
     const execRequest = await encrypt(result.requestBody, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const execResponse = await encrypt(result.body, this.env.CREDENTIAL_ENCRYPTION_KEY);
@@ -605,15 +607,8 @@ export class Tenant extends DurableObject<Env> {
     }
     const identity = parseAgent(verification.body);
     if (!identity) return this.beginRecovery(run, pipe, connection, "agent start succeeded but its structured identity was inconsistent");
-    this.persistIdentity(run.id, identity, "starting");
-    const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
-    this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='submitting',updated_at=? WHERE id=?", now(), run.id);
-    const delivery = await backend.deliverPrompt(launched.handle, prompt);
-    const deliveryRequest = await encrypt(delivery.command.requestBody, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    const deliveryResponse = await encrypt(delivery.command.body, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state=?,prompt_delivery_request=?,prompt_delivery_response=?,prompt_delivery_status=?,prompt_delivery_exit_code=?,prompt_accepted=?,updated_at=? WHERE id=?", delivery.state, deliveryRequest, deliveryResponse, delivery.command.status, delivery.command.exitCode, delivery.state === "accepted" ? 1 : 0, now(), run.id);
-    this.commandActivity(run.id, "initial prompt delivery", delivery.command);
-    if (delivery.state !== "accepted") return this.finishRun(run, "failed", `Harness launched, but prompt delivery was ${delivery.state} (exe.dev HTTP ${delivery.command.status}, VM exit ${delivery.command.exitCode ?? "not reported"}).`);
+    this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='accepted',prompt_delivery_request=?,prompt_delivery_response=?,prompt_delivery_status=?,prompt_delivery_exit_code=?,prompt_accepted=1,updated_at=? WHERE id=?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
+    this.activity(run.id, "prompt_delivered_at_launch", "The initial prompt was passed as a positional harness argument in the successful Herdr launch command.");
     this.persistIdentity(run.id, identity, "running");
   }
 

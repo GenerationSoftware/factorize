@@ -8,7 +8,7 @@
     "build:css": "tailwindcss -i ./src/tailwind.css -o ./public/styles.css --minify",
     "check": "tsc --noEmit && vitest run && npm run test:e2e && wrangler deploy --dry-run",
     "test": "vitest run",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts && vitest run --config vitest.agent-e2e.config.ts",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
