@@ -1,7 +1,8 @@
-import { OAuthProvider, AuthorizationError, type AuthRequest } from "@cloudflare/workers-oauth-provider";
+import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import app, { readSession } from "./index";
 import { ProtectedApiHandler } from "./protected-api";
 import { hmac } from "./crypto";
+import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
 
 const scopes = ["flows:read", "flows:write", "runs:read", "runs:write"];
@@ -31,7 +32,7 @@ function oauthError(error: AuthorizationError): Response {
 const defaultHandler: ExportedHandler<Env> = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname !== "/authorize") return app.fetch(request, env, ctx);
+    if (url.pathname !== "/authorize" && url.pathname !== "/device") return app.fetch(request, env, ctx);
     try {
       const session = await currentOwner(request, env);
       if (!session) {
@@ -39,6 +40,7 @@ const defaultHandler: ExportedHandler<Env> = {
         response.headers.append("Set-Cookie", `factorize_oauth_return=${encodeURIComponent(url.pathname + url.search)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`);
         return response;
       }
+      if (url.pathname === "/device") return deviceVerification(request, env, env.OAUTH_PROVIDER!, session);
       if (request.method === "GET") {
         const parsed = await env.OAUTH_PROVIDER!.parseAuthRequest(request);
         const client = await env.OAUTH_PROVIDER!.lookupClient(parsed.clientId);
@@ -64,14 +66,28 @@ const defaultHandler: ExportedHandler<Env> = {
   },
 };
 
-function provider(env: Env) { return new OAuthProvider<Env>({
+function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
   apiRoute: ["/api/v1", "/mcp"], apiHandler: ProtectedApiHandler, defaultHandler,
   authorizeEndpoint: "/authorize", tokenEndpoint: "/oauth/token", clientRegistrationEndpoint: "/oauth/register",
   scopesSupported: scopes, allowImplicitFlow: false, allowPlainPKCE: false,
   accessTokenTTL: 3600, refreshTokenTTL: 2_592_000,
   clientIdMetadataDocumentEnabled: true,
   resourceMetadata: { resource: `${env.APP_ORIGIN}/mcp`, authorization_servers: [env.APP_ORIGIN], scopes_supported: scopes, bearer_methods_supported: ["header"], resource_name: "Factorize flows" },
-}); }
+}; }
+function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)); }
 
 export { Tenant, GitHubInstallationRegistry } from "./index";
-export default { fetch: (request: Request, env: Env, ctx: ExecutionContext) => provider(env).fetch(request, env, ctx) } satisfies ExportedHandler<Env>;
+export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+  const oauth = provider(env);
+  const url = new URL(request.url);
+  if (url.pathname === "/oauth/device_authorization") return deviceAuthorization(request, env, getOAuthApi(providerOptions(env), env), scopes);
+  if (url.pathname === "/oauth/register") return deviceClientRegistration(request, env, oauth, ctx);
+  if (url.pathname === "/oauth/token" && request.method === "POST") {
+    const clone = request.clone();
+    const form = await clone.formData().catch(() => null);
+    if (form?.get("grant_type") === DEVICE_GRANT) return deviceToken(request, env, oauth, ctx);
+  }
+  const response = await oauth.fetch(request, env, ctx);
+  if (url.pathname === "/.well-known/oauth-authorization-server") return addDeviceMetadata(response, env.APP_ORIGIN);
+  return response;
+} } satisfies ExportedHandler<Env>;

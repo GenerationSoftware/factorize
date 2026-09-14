@@ -128,7 +128,7 @@ GitHub Actions runs `npm run check` on every push and pull request.
 
 ## REST API and OAuth
 
-API clients use OAuth 2.1 authorization code flow with PKCE S256. Factorize publishes authorization-server and protected-resource discovery metadata, supports Client ID Metadata Documents, and retains dynamic client registration at `/oauth/register` for older clients. Access tokens last one hour and may be refreshed for up to 30 days; RFC 7009 revocation is advertised by discovery metadata.
+API clients use OAuth 2.1 authorization code flow with PKCE S256 or the OAuth 2.0 Device Authorization Grant for headless environments. Factorize publishes authorization-server and protected-resource discovery metadata, supports Client ID Metadata Documents, and retains dynamic client registration at `/oauth/register` for older clients. Access tokens last one hour and may be refreshed for up to 30 days; RFC 7009 revocation is advertised by discovery metadata.
 
 Available scopes are `flows:read`, `flows:write`, `runs:read`, and `runs:write`. The resource owner must sign in through the normal Linear-backed Factorize session and explicitly approve the requested scopes. Factorize rechecks owner membership and session version on every service call.
 
@@ -156,6 +156,8 @@ https://app.factorize.sh/mcp
 ```
 
 The client discovers OAuth automatically, opens Factorize in a browser, completes Linear sign-in if necessary, requests consent, and returns to the client after PKCE authorization. No Linear or exe.dev credential is copied into the MCP client. The server is stateless Streamable HTTP and exposes flow CRUD, projects/options, run inspection/filtering, webhook activity, and active-run stopping tools.
+
+Factorize also supports the OAuth 2.0 Device Authorization Grant (RFC 8628) for headless clients. Discovery advertises `device_authorization_endpoint`; clients obtain a code from `POST /oauth/device_authorization`, direct the user to `/device`, and poll `/oauth/token` with grant type `urn:ietf:params:oauth:grant-type:device_code`. Device codes expire after ten minutes, polling is rate-limited, and approved grants use the same scoped access and refresh tokens, tenant checks, and revocation behavior as browser PKCE authorization.
 
 ## Security
 
