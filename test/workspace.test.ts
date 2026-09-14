@@ -37,18 +37,26 @@ describe("flow workspaces", () => {
 
   it("keeps harness launch separate from prompt delivery", () => {
     const connection = { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" };
-    const launch = launchAgentCommand("factorize-1", connection, "factorize", "/repo/.factorize-runs/run", "lease");
+    const launch = launchAgentCommand("factorize-1", connection, "factorize", "/repo/.factorize-runs/run", "lease", "fix it");
     const delivery = promptAgentCommand(connection, "factorize-1", "fix it");
     expect(launch).toContain("agent start 'factorize-1'");
+    expect(launch).toContain("/tmp/factorize-prompts/factorize-1/prompt.md");
+    expect(launch).toContain("Read and follow the complete task instructions in");
+    expect(launch).toContain("--dangerously-bypass-hook-trust");
+    expect(launch).toContain('projects."/repo/.factorize-runs/run".trust_level="trusted"');
     expect(launch).not.toContain("agent prompt");
     expect(delivery).toContain("agent prompt 'factorize-1'");
+    expect(delivery).toContain("agent wait 'factorize-1' --until idle --until done --timeout 15000");
+    expect(delivery).toContain("agent prompt 'factorize-1' \"$prompt\" --wait --until working --until blocked --timeout 7000");
+    expect(delivery).not.toContain("--until done --timeout 7000");
     expect(delivery).not.toContain("agent start");
   });
 
-  it("never skips prompt delivery when an idempotent launch finds an agent", () => {
+  it("passes the initial prompt only when starting a new idempotent agent", () => {
     const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
-    expect(command.indexOf("agent prompt 'factorize-1'")).toBeGreaterThan(command.indexOf("existing="));
-    expect(command).not.toMatch(/then printf[^;]+; else[^;]+agent prompt/);
+    expect(command).not.toContain("agent prompt");
+    expect(command).toContain("else herdr agent start 'factorize-1'");
+    expect(command).toContain("/tmp/factorize-prompts/factorize-1/prompt.md");
   });
 
   it("uses no-prompt defaults for Codex and Claude, but leaves Pi unchanged", () => {

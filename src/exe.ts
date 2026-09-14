@@ -41,9 +41,12 @@ export function shellAtom(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-export function launchAgentCommand(agentName: string, connection: ExeConnection, workspaceName: string, runPath: string, lease: string): string {
+export function launchAgentCommand(agentName: string, connection: ExeConnection, workspaceName: string, runPath: string, lease: string, prompt: string): string {
   const name = agentName;
   const herdr = herdrBinary(connection);
+  const promptDirectory = `/tmp/factorize-prompts/${agentName}`;
+  const promptPath = `${promptDirectory}/prompt.md`;
+  const launchInstruction = `Read and follow the complete task instructions in ${promptPath}`;
   return [
     herdrPrefix(connection),
     `cd ${shellAtom(connection.cwd)}`,
@@ -51,22 +54,32 @@ export function launchAgentCommand(agentName: string, connection: ExeConnection,
     `if [ ! -e ${shellAtom(runPath)} ]; then mkdir ${shellAtom(runPath)}; fi`,
     `test -d ${shellAtom(runPath)}`,
     `if [ -e ${shellAtom(`${runPath}/.factorize-lease`)} ]; then test "$(cat ${shellAtom(`${runPath}/.factorize-lease`)})" = ${shellAtom(lease)}; else printf '%s' ${shellAtom(lease)} > ${shellAtom(`${runPath}/.factorize-lease`)}; fi`,
+    `mkdir -p ${shellAtom(promptDirectory)}`,
+    `chmod 700 ${shellAtom(promptDirectory)}`,
+    `printf '%s' ${shellAtom(base64(prompt))} | base64 -d > ${shellAtom(promptPath)}`,
+    `chmod 600 ${shellAtom(promptPath)}`,
     `workspaces=$(${herdr} workspace list)`,
     `workspace_id=$(printf '%s' "$workspaces" | jq -r --arg label ${shellAtom(workspaceName)} '.result.workspaces[]? | select(.label == $label) | .workspace_id' | head -n1)`,
     `if [ -z "$workspace_id" ]; then created=$(${herdr} workspace create --cwd ${shellAtom(runPath)} --label ${shellAtom(workspaceName)} --no-focus) && workspace_id=$(printf '%s' "$created" | jq -er '.result.workspace.workspace_id') && tab_id=$(printf '%s' "$created" | jq -er '.result.tab.tab_id') && pane=$(printf '%s' "$created" | jq -er '.result.root_pane.pane_id') && ${herdr} tab rename "$tab_id" ${shellAtom(name)} >/dev/null; else tabs=$(${herdr} tab list --workspace "$workspace_id") && tab_id=$(printf '%s' "$tabs" | jq -r --arg label ${shellAtom(name)} '.result.tabs[]? | select(.label == $label) | .tab_id' | head -n1); if [ -z "$tab_id" ]; then created=$(${herdr} tab create --workspace "$workspace_id" --cwd ${shellAtom(runPath)} --label ${shellAtom(name)} --no-focus) && tab_id=$(printf '%s' "$created" | jq -er '.result.tab.tab_id') && pane=$(printf '%s' "$created" | jq -er '.result.root_pane.pane_id'); else panes=$(${herdr} pane list --workspace "$workspace_id") && pane=$(printf '%s' "$panes" | jq -r --arg tab "$tab_id" '.result.panes[]? | select(.tab_id == $tab) | .pane_id' | head -n1); test -n "$pane"; extras=$(printf '%s' "$panes" | jq -r --arg tab "$tab_id" --arg keep "$pane" '.result.panes[]? | select(.tab_id == $tab and .pane_id != $keep) | .pane_id'); for extra in $extras; do ${herdr} pane close "$extra" >/dev/null; done; fi; fi`,
     `existing=$(${herdr} agent get ${shellAtom(name)} 2>/dev/null || true)`,
-    `if [ -n "$existing" ]; then printf '%s\\n' "$existing"; else ${herdr} agent start ${shellAtom(name)} --kind ${shellAtom(connection.agentKind)} --pane "$pane"${agentCommand(connection)} && ${herdr} agent get ${shellAtom(name)}; fi`,
+    `if [ -n "$existing" ]; then printf '%s\\n' "$existing"; else ${herdr} agent start ${shellAtom(name)} --kind ${shellAtom(connection.agentKind)} --pane "$pane"${agentCommand(connection, launchInstruction, runPath)} && ${herdr} agent get ${shellAtom(name)}; fi`,
   ].join(" && ");
 }
 
 export function promptAgentCommand(connection: ExeConnection, agentName: string, prompt: string): string {
   const encodedPrompt = base64(prompt), herdr = herdrBinary(connection);
-  return `${herdrPrefix(connection)} && prompt=$(printf '%s' ${shellAtom(encodedPrompt)} | base64 -d) && ${herdr} agent prompt ${shellAtom(agentName)} "$prompt"`;
+  const name = shellAtom(agentName);
+  return [
+    herdrPrefix(connection),
+    `${herdr} agent wait ${name} --until idle --until done --timeout 15000 >/dev/null`,
+    `prompt=$(printf '%s' ${shellAtom(encodedPrompt)} | base64 -d)`,
+    `${herdr} agent prompt ${name} "$prompt" --wait --until working --until blocked --timeout 7000`,
+  ].join(" && ");
 }
 
 /** Compatibility helper used by recovery paths; prompt delivery is never skipped. */
 export function startAgentCommand(agentName: string, connection: ExeConnection, prompt: string, workspaceName: string, runPath: string, lease: string): string {
-  return `${launchAgentCommand(agentName, connection, workspaceName, runPath, lease)} && ${promptAgentCommand(connection, agentName, prompt)}`;
+  return launchAgentCommand(agentName, connection, workspaceName, runPath, lease, prompt);
 }
 
 export function agentListCommand(connection: ExeConnection): string { return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent list`; }
@@ -74,14 +87,14 @@ export function paneGetCommand(connection: ExeConnection, paneId: string): strin
 export function paneProcessInfoCommand(connection: ExeConnection, paneId: string): string { return `${herdrPrefix(connection)} && ${herdrBinary(connection)} pane process-info --pane ${shellAtom(paneId)}`; }
 export function validateWorktreeLeaseCommand(connection: ExeConnection, runPath: string, lease: string): string { return `${herdrPrefix(connection)} && test -d ${shellAtom(runPath)} && test "$(cat ${shellAtom(`${runPath}/.factorize-lease`)})" = ${shellAtom(lease)}`; }
 export function renameAgentCommand(connection: ExeConnection, currentName: string, expectedName: string): string { return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent rename ${shellAtom(currentName)} ${shellAtom(expectedName)} && ${herdrBinary(connection)} agent get ${shellAtom(expectedName)}`; }
-export function startAgentInPaneCommand(agentName: string, connection: ExeConnection, paneId: string, cwd = connection.cwd): string { return `${herdrPrefix(connection)} && cd ${shellAtom(cwd)} && ${herdrBinary(connection)} agent start ${shellAtom(agentName)} --kind ${shellAtom(connection.agentKind)} --pane ${shellAtom(paneId)}${agentCommand(connection)} && ${herdrBinary(connection)} agent get ${shellAtom(agentName)}`; }
+export function startAgentInPaneCommand(agentName: string, connection: ExeConnection, paneId: string, cwd = connection.cwd): string { return `${herdrPrefix(connection)} && cd ${shellAtom(cwd)} && ${herdrBinary(connection)} agent start ${shellAtom(agentName)} --kind ${shellAtom(connection.agentKind)} --pane ${shellAtom(paneId)}${agentCommand(connection, undefined, cwd)} && ${herdrBinary(connection)} agent get ${shellAtom(agentName)}`; }
 
 /** Stop only the foreground process group observed in the exact persisted pane.
  * Every signal is preceded by a fresh identity read, preventing stale-PID races. */
 export function replaceForegroundCommand(agentName: string, connection: ExeConnection, paneId: string, cwd = connection.cwd): string {
   const herdr = herdrBinary(connection), pane = shellAtom(paneId);
   const fields = `jq -er --arg pane ${pane} --arg cwd ${shellAtom(cwd)} '[.result.pane_id // .pane_id // .result.pane.pane_id, .result.foreground.pid // .result.pid // .pid, .result.foreground.process_group // .result.foreground.pgid // .result.process_group // .result.pgid // .pgid, .result.foreground.cwd // .result.cwd // .cwd] | select(.[0] == $pane and .[1] > 1 and .[2] > 1 and .[3] == $cwd) | @tsv'`;
-  return [herdrPrefix(connection), `first=$(${herdr} pane process-info --pane ${pane} | ${fields})`, `first_pid=$(printf '%s' "$first" | cut -f2)`, `first_pgid=$(printf '%s' "$first" | cut -f3)`, `kill -INT -- "-$first_pgid"`, `i=0; while [ "$i" -lt 10 ] && kill -0 -- "-$first_pgid" 2>/dev/null; do i=$((i+1)); sleep 1; done`, `if kill -0 -- "-$first_pgid" 2>/dev/null; then second=$(${herdr} pane process-info --pane ${pane} | ${fields}) && second_pid=$(printf '%s' "$second" | cut -f2) && second_pgid=$(printf '%s' "$second" | cut -f3) && [ "$second_pid" = "$first_pid" ] && [ "$second_pgid" = "$first_pgid" ] && kill -TERM -- "-$first_pgid"; fi`, `i=0; while [ "$i" -lt 10 ] && kill -0 -- "-$first_pgid" 2>/dev/null; do i=$((i+1)); sleep 1; done`, `! kill -0 -- "-$first_pgid" 2>/dev/null`, `cd ${shellAtom(cwd)}`, `${herdr} agent start ${shellAtom(agentName)} --kind ${shellAtom(connection.agentKind)} --pane ${pane}${agentCommand(connection)}`, `${herdr} agent get ${shellAtom(agentName)}`].join(" && ");
+  return [herdrPrefix(connection), `first=$(${herdr} pane process-info --pane ${pane} | ${fields})`, `first_pid=$(printf '%s' "$first" | cut -f2)`, `first_pgid=$(printf '%s' "$first" | cut -f3)`, `kill -INT -- "-$first_pgid"`, `i=0; while [ "$i" -lt 10 ] && kill -0 -- "-$first_pgid" 2>/dev/null; do i=$((i+1)); sleep 1; done`, `if kill -0 -- "-$first_pgid" 2>/dev/null; then second=$(${herdr} pane process-info --pane ${pane} | ${fields}) && second_pid=$(printf '%s' "$second" | cut -f2) && second_pgid=$(printf '%s' "$second" | cut -f3) && [ "$second_pid" = "$first_pid" ] && [ "$second_pgid" = "$first_pgid" ] && kill -TERM -- "-$first_pgid"; fi`, `i=0; while [ "$i" -lt 10 ] && kill -0 -- "-$first_pgid" 2>/dev/null; do i=$((i+1)); sleep 1; done`, `! kill -0 -- "-$first_pgid" 2>/dev/null`, `cd ${shellAtom(cwd)}`, `${herdr} agent start ${shellAtom(agentName)} --kind ${shellAtom(connection.agentKind)} --pane ${pane}${agentCommand(connection, undefined, cwd)}`, `${herdr} agent get ${shellAtom(agentName)}`].join(" && ");
 }
 
 export function agentStatusCommand(connection: ExeConnection, agentName: string): string {
@@ -128,9 +141,12 @@ function herdrBinary(connection: ExeConnection): string {
 }
 
 /** Herdr owns the executable; it forwards these arguments after `--` to it. */
-function agentCommand(connection: ExeConnection): string {
+function agentCommand(connection: ExeConnection, prompt?: string, cwd?: string): string {
   const command = connection.agentCommand?.trim() || defaultAgentCommand(connection.agentKind);
-  return command ? ` -- ${shellWords(command).map(shellAtom).join(" ")}` : "";
+  const args = command ? shellWords(command).map(shellAtom) : [];
+  if (connection.agentKind === "codex" && cwd) args.push("--dangerously-bypass-hook-trust", "-c", shellAtom(`projects.${JSON.stringify(cwd)}.trust_level="trusted"`));
+  if (prompt !== undefined) args.push("--", shellAtom(prompt));
+  return args.length ? ` -- ${args.join(" ")}` : "";
 }
 
 export function defaultAgentCommand(agentKind: string): string {
