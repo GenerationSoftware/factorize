@@ -83,8 +83,9 @@ describe("pages", () => {
   it("renders an agent run page", () => {
     const html = runDetailPage({ email: "owner@example.com" }, "run-1");
     expect(html).toContain("/api/runs/");
-    expect(html).toContain("Prompt sent to agent");
-    expect(html).toContain("Exact command submitted to exe.dev");
+    expect(html).toContain("Rendered prompt");
+    expect(html).toContain("Harness launch request");
+    expect(html).toContain("Prompt delivery request");
     expect(html).toContain("Full agent output");
     expectInlineScriptsToParse(html);
   });

@@ -41,8 +41,7 @@ export function shellAtom(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-export function startAgentCommand(agentName: string, connection: ExeConnection, prompt: string, workspaceName: string, runPath: string, lease: string): string {
-  const encodedPrompt = base64(prompt);
+export function launchAgentCommand(agentName: string, connection: ExeConnection, workspaceName: string, runPath: string, lease: string): string {
   const name = agentName;
   const herdr = herdrBinary(connection);
   return [
@@ -56,8 +55,18 @@ export function startAgentCommand(agentName: string, connection: ExeConnection, 
     `workspace_id=$(printf '%s' "$workspaces" | jq -r --arg label ${shellAtom(workspaceName)} '.result.workspaces[]? | select(.label == $label) | .workspace_id' | head -n1)`,
     `if [ -z "$workspace_id" ]; then created=$(${herdr} workspace create --cwd ${shellAtom(runPath)} --label ${shellAtom(workspaceName)} --no-focus) && workspace_id=$(printf '%s' "$created" | jq -er '.result.workspace.workspace_id') && tab_id=$(printf '%s' "$created" | jq -er '.result.tab.tab_id') && pane=$(printf '%s' "$created" | jq -er '.result.root_pane.pane_id') && ${herdr} tab rename "$tab_id" ${shellAtom(name)} >/dev/null; else tabs=$(${herdr} tab list --workspace "$workspace_id") && tab_id=$(printf '%s' "$tabs" | jq -r --arg label ${shellAtom(name)} '.result.tabs[]? | select(.label == $label) | .tab_id' | head -n1); if [ -z "$tab_id" ]; then created=$(${herdr} tab create --workspace "$workspace_id" --cwd ${shellAtom(runPath)} --label ${shellAtom(name)} --no-focus) && tab_id=$(printf '%s' "$created" | jq -er '.result.tab.tab_id') && pane=$(printf '%s' "$created" | jq -er '.result.root_pane.pane_id'); else panes=$(${herdr} pane list --workspace "$workspace_id") && pane=$(printf '%s' "$panes" | jq -r --arg tab "$tab_id" '.result.panes[]? | select(.tab_id == $tab) | .pane_id' | head -n1); test -n "$pane"; extras=$(printf '%s' "$panes" | jq -r --arg tab "$tab_id" --arg keep "$pane" '.result.panes[]? | select(.tab_id == $tab and .pane_id != $keep) | .pane_id'); for extra in $extras; do ${herdr} pane close "$extra" >/dev/null; done; fi; fi`,
     `existing=$(${herdr} agent get ${shellAtom(name)} 2>/dev/null || true)`,
-    `if [ -n "$existing" ]; then printf '%s\\n' "$existing"; else ${herdr} agent start ${shellAtom(name)} --kind ${shellAtom(connection.agentKind)} --pane "$pane"${agentCommand(connection)} && prompt=$(printf '%s' ${shellAtom(encodedPrompt)} | base64 -d) && ${herdr} agent prompt ${shellAtom(name)} "$prompt" && ${herdr} agent get ${shellAtom(name)}; fi`,
+    `if [ -n "$existing" ]; then printf '%s\\n' "$existing"; else ${herdr} agent start ${shellAtom(name)} --kind ${shellAtom(connection.agentKind)} --pane "$pane"${agentCommand(connection)} && ${herdr} agent get ${shellAtom(name)}; fi`,
   ].join(" && ");
+}
+
+export function promptAgentCommand(connection: ExeConnection, agentName: string, prompt: string): string {
+  const encodedPrompt = base64(prompt), herdr = herdrBinary(connection);
+  return `${herdrPrefix(connection)} && prompt=$(printf '%s' ${shellAtom(encodedPrompt)} | base64 -d) && ${herdr} agent prompt ${shellAtom(agentName)} "$prompt"`;
+}
+
+/** Compatibility helper used by recovery paths; prompt delivery is never skipped. */
+export function startAgentCommand(agentName: string, connection: ExeConnection, prompt: string, workspaceName: string, runPath: string, lease: string): string {
+  return `${launchAgentCommand(agentName, connection, workspaceName, runPath, lease)} && ${promptAgentCommand(connection, agentName, prompt)}`;
 }
 
 export function agentListCommand(connection: ExeConnection): string { return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent list`; }
