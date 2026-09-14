@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const scopeSchema = z.enum(["flows:read", "flows:write", "runs:read", "runs:write"]);
-export const runStateSchema = z.enum(["queued", "starting", "running", "done", "blocked", "failed", "ignored"]);
+export const runStateSchema = z.enum(["queued", "starting", "running", "recovering", "done", "blocked", "failed", "ignored"]);
 export const matchRuleSchema = z.object({
   type: z.enum(["owner", "creator", "status", "label", "assignee"]),
   targetId: z.string().min(1),

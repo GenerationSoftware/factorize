@@ -35,7 +35,7 @@ export function shellAtom(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-export function startAgentCommand(agentName: string, connection: ExeConnection, prompt: string, workspaceName: string, worktreePath: string, lease: string): string {
+export function startAgentCommand(agentName: string, connection: ExeConnection, prompt: string, workspaceName: string, runPath: string, lease: string): string {
   const encodedPrompt = base64(prompt);
   const name = agentName;
   const herdr = herdrBinary(connection);
@@ -43,14 +43,13 @@ export function startAgentCommand(agentName: string, connection: ExeConnection, 
   return [
     herdrPrefix(connection),
     `cd ${shellAtom(connection.cwd)}`,
-    `mkdir -p ${shellAtom(`${connection.cwd.replace(/\/$/, "")}/.factorize-worktrees`)}`,
-    `test ! -e ${shellAtom(worktreePath)} && git worktree add --detach ${shellAtom(worktreePath)} HEAD`,
-    `gitdir=$(git -C ${shellAtom(worktreePath)} rev-parse --git-dir)`,
-    `printf '%s' ${shellAtom(lease)} > "$gitdir/factorize-lease"`,
+    `mkdir -p ${shellAtom(`${connection.cwd.replace(/\/$/, "")}/.factorize-runs`)}`,
+    `test ! -e ${shellAtom(runPath)} && mkdir ${shellAtom(runPath)}`,
+    `printf '%s' ${shellAtom(lease)} > ${shellAtom(`${runPath}/.factorize-lease`)}`,
     `workspaces=$(${herdr} workspace list)`,
     `workspace_id=$(printf '%s' "$workspaces" | jq -r --arg label ${shellAtom(workspaceName)} '.result.workspaces[]? | select(.label == $label) | .workspace_id' | head -n1)`,
     `if [ -z "$workspace_id" ]; then workspace=$(${herdr} workspace create --cwd ${shellAtom(connection.cwd)} --label ${shellAtom(workspaceName)} --no-focus) && workspace_id=$(printf '%s' "$workspace" | jq -er '.result.workspace.workspace_id') && anchor=$(printf '%s' "$workspace" | jq -er '.result.root_pane.pane_id'); else anchor=$(${herdr} pane list --workspace "$workspace_id" | jq -er '.result.panes[0].pane_id'); fi`,
-    `created=$(${herdr} pane split "$anchor" --direction down --cwd ${shellAtom(worktreePath)} --no-focus)`,
+    `created=$(${herdr} pane split "$anchor" --direction down --cwd ${shellAtom(runPath)} --no-focus)`,
     `pane=$(printf '%s' "$created" | jq -er '.result.pane.pane_id')`,
     `${herdr} agent start ${shellAtom(name)} --kind ${shellAtom(connection.agentKind)} --pane "$pane"${agentCommand(connection)}`,
     `prompt=$(printf '%s' ${shellAtom(encodedPrompt)} | base64 -d)`,
@@ -62,7 +61,7 @@ export function startAgentCommand(agentName: string, connection: ExeConnection, 
 export function agentListCommand(connection: ExeConnection): string { return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent list`; }
 export function paneGetCommand(connection: ExeConnection, paneId: string): string { return `${herdrPrefix(connection)} && ${herdrBinary(connection)} pane get ${shellAtom(paneId)}`; }
 export function paneProcessInfoCommand(connection: ExeConnection, paneId: string): string { return `${herdrPrefix(connection)} && ${herdrBinary(connection)} pane process-info ${shellAtom(paneId)}`; }
-export function validateWorktreeLeaseCommand(connection: ExeConnection, worktreePath: string, lease: string): string { return `${herdrPrefix(connection)} && test "$(git -C ${shellAtom(worktreePath)} rev-parse --show-toplevel)" = ${shellAtom(worktreePath)} && gitdir=$(git -C ${shellAtom(worktreePath)} rev-parse --git-dir) && test "$(cat "$gitdir/factorize-lease")" = ${shellAtom(lease)}`; }
+export function validateWorktreeLeaseCommand(connection: ExeConnection, runPath: string, lease: string): string { return `${herdrPrefix(connection)} && test -d ${shellAtom(runPath)} && test "$(cat ${shellAtom(`${runPath}/.factorize-lease`)})" = ${shellAtom(lease)}`; }
 export function renameAgentCommand(connection: ExeConnection, currentName: string, expectedName: string): string { return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent rename ${shellAtom(currentName)} ${shellAtom(expectedName)} && ${herdrBinary(connection)} agent get ${shellAtom(expectedName)}`; }
 export function startAgentInPaneCommand(agentName: string, connection: ExeConnection, paneId: string, cwd = connection.cwd): string { return `${herdrPrefix(connection)} && cd ${shellAtom(cwd)} && ${herdrBinary(connection)} agent start ${shellAtom(agentName)} --kind ${shellAtom(connection.agentKind)} --pane ${shellAtom(paneId)}${agentCommand(connection)} && ${herdrBinary(connection)} agent get ${shellAtom(agentName)}`; }
 
@@ -92,10 +91,10 @@ export function stopAgentCommand(connection: ExeConnection, agentName: string): 
   return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent stop ${shellAtom(agentName)}`;
 }
 
-/** Revalidate terminal, worktree, and lease immediately before closing a pane. */
-export function garbageCollectPaneCommand(connection: ExeConnection, paneId: string, terminalId: string, worktreePath: string, lease: string): string {
+/** Revalidate terminal, run directory, and lease immediately before closing a pane. */
+export function garbageCollectPaneCommand(connection: ExeConnection, paneId: string, terminalId: string, runPath: string, lease: string): string {
   const herdr = herdrBinary(connection), pane = shellAtom(paneId);
-  return [herdrPrefix(connection), `pane_json=$(${herdr} pane get ${pane})`, `printf '%s' "$pane_json" | jq -e --arg pane ${pane} --arg terminal ${shellAtom(terminalId)} '(.result.pane // .result) | .pane_id == $pane and .terminal_id == $terminal' >/dev/null`, `test "$(git -C ${shellAtom(worktreePath)} rev-parse --show-toplevel)" = ${shellAtom(worktreePath)}`, `gitdir=$(git -C ${shellAtom(worktreePath)} rev-parse --git-dir)`, `test "$(cat "$gitdir/factorize-lease")" = ${shellAtom(lease)}`, `agent=$(${herdr} agent get ${pane} 2>/dev/null || true)`, `status=$(printf '%s' "$agent" | jq -r '.result.agent.agent_status // .result.agent.state // empty' | tr '[:upper:]' '[:lower:]')`, `case "$status" in ''|idle|done) ;; *) exit 1 ;; esac`, `[ -z "$status" ] || ${herdr} agent stop ${pane}`, `test -z "$(${herdr} agent get ${pane} 2>/dev/null || true)"`, `process=$(${herdr} pane process-info ${pane})`, `printf '%s' "$process" | jq -e '(.result.foreground.executable // .result.process.executable // "") | test("(^|/)(ba|z|fi)?sh$")' >/dev/null`, `${herdr} pane close ${pane}`].join(" && ");
+  return [herdrPrefix(connection), `pane_json=$(${herdr} pane get ${pane})`, `printf '%s' "$pane_json" | jq -e --arg pane ${pane} --arg terminal ${shellAtom(terminalId)} '(.result.pane // .result) | .pane_id == $pane and .terminal_id == $terminal' >/dev/null`, `test -d ${shellAtom(runPath)}`, `test "$(cat ${shellAtom(`${runPath}/.factorize-lease`)})" = ${shellAtom(lease)}`, `agent=$(${herdr} agent get ${pane} 2>/dev/null || true)`, `status=$(printf '%s' "$agent" | jq -r '.result.agent.agent_status // .result.agent.state // empty' | tr '[:upper:]' '[:lower:]')`, `case "$status" in ''|idle|done) ;; *) exit 1 ;; esac`, `[ -z "$status" ] || ${herdr} agent stop ${pane}`, `test -z "$(${herdr} agent get ${pane} 2>/dev/null || true)"`, `process=$(${herdr} pane process-info ${pane})`, `printf '%s' "$process" | jq -e '(.result.foreground.executable // .result.process.executable // "") | test("(^|/)(ba|z|fi)?sh$")' >/dev/null`, `${herdr} pane close ${pane}`].join(" && ");
 }
 
 export function herdrCheckCommand(connection: ExeConnection): string {
