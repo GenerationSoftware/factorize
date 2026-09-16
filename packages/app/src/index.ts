@@ -140,6 +140,7 @@ app.post("/api/jobs/:id/disable", (c) => jobApi(c, `/jobs/${encodeURIComponent(c
 app.post("/api/jobs/:id/invocations", async (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}/invocations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() }));
 app.get("/api/job-runs", (c) => jobApi(c, `/runs?${new URL(c.req.url).searchParams.toString()}`));
 app.get("/api/job-runs/:id", (c) => jobApi(c, `/runs/${encodeURIComponent(c.req.param("id"))}`));
+app.post("/api/job-runs/:id/stop", (c) => jobApi(c, `/runs/${encodeURIComponent(c.req.param("id"))}/stop`, { method: "POST" }));
 app.get("/api/execution-targets", (c) => jobApi(c, "/execution-targets"));
 app.post("/api/schedules/preview", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
@@ -207,6 +208,14 @@ app.put("/api/connections/exe", async (c) => {
 app.post("/api/connections/exe/test", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/connections/exe/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+});
+app.put("/api/connections/amp", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch("https://tenant/connections/amp", { method: "PUT", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+});
+app.post("/api/connections/amp/test", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch("https://tenant/connections/amp/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
 });
 app.post("/api/pipes", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);

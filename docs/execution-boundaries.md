@@ -20,11 +20,13 @@ Backends map their native lifecycle into `queued`, `starting`, `running`,
 `recovering`, and `cancelled` rows are presented as `succeeded`, `starting`, and
 `stopped` respectively, avoiding a risky rewrite of durable history.
 
-The current `ExeHerdrBackend` is one implementation. exe.dev supplies command
+`ExeHerdrBackend` and `AmpBackend` implement this boundary. exe.dev supplies command
 transport and VM wake-up, Herdr supplies workspace and agent supervision, and
 the configured harness supplies Codex, Claude, Pi, or another Herdr-supported
-agent. A future Amp implementation should implement `ExecutionBackend` without
-adding Amp-specific state or commands to the orchestrator.
+agent. Amp cloud runs persist an opaque thread handle and expose the canonical
+Amp thread URL. Amp does not declare output retrieval, so Factorize does not
+ingest thread contents. Amp credentials are dashboard-only; REST and MCP expose
+only non-secret target metadata and capabilities.
 
 Launch and prompt delivery are deliberately separate operations. An existing
 harness proves only that launch reconciliation succeeded. It never proves that
