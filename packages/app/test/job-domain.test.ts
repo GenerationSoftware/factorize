@@ -47,6 +47,7 @@ describe("job invocation domain", () => {
   it("defines exactly one trigger per job and durable claims in the clean schema", () => {
     expect(JOB_SCHEMA).toContain("job_id TEXT NOT NULL UNIQUE");
     expect(JOB_SCHEMA).toContain("UNIQUE(job_id, claim_key)");
+    expect(JOB_SCHEMA).toContain("CREATE TABLE IF NOT EXISTS schedule_state");
     expect(JOB_SCHEMA).not.toContain("pipes");
   });
 });

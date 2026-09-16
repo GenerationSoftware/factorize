@@ -167,4 +167,10 @@ export const JOB_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS job_runs_queue ON job_runs(state, created_at);
   CREATE INDEX IF NOT EXISTS job_runs_active ON job_runs(job_id, state);
+  CREATE TABLE IF NOT EXISTS schedule_state (
+    trigger_id TEXT PRIMARY KEY REFERENCES triggers(id) ON DELETE CASCADE,
+    job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
+    next_run_at INTEGER, last_triggered_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS schedules_due ON schedule_state(next_run_at);
 `;

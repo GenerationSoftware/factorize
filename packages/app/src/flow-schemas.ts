@@ -33,7 +33,10 @@ export const listEventsSchema = z.object({
 const stringRecordSchema = z.record(z.string(), z.string());
 export const triggerSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("manual"), config: z.object({}).strict().default({}) }).strict(),
-  z.object({ kind: z.literal("schedule"), config: z.record(z.string(), z.unknown()) }).strict(),
+  z.object({ kind: z.literal("schedule"), config: z.object({
+    cron: z.string().trim().min(1), timezone: z.string().trim().min(1),
+    context: z.string().max(50_000).optional(), parameters: stringRecordSchema.default({}),
+  }).strict() }).strict(),
   z.object({ kind: z.literal("webhook"), config: z.record(z.string(), z.unknown()) }).strict(),
 ]);
 export const jobInputSchema = z.object({
