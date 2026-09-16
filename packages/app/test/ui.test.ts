@@ -64,7 +64,9 @@ describe("pages", () => {
     expect(html).toContain('<label class="sr-only" for="add-trigger">Add a trigger</label>');
     expect(html).toContain('<select id="add-trigger" class="field disabled:cursor-wait disabled:opacity-60" disabled>');
     expect(html).toContain("Loading trigger types…");
-    expect(html).toContain("addTrigger.options[0].textContent='Add trigger…'");
+    expect(html).toContain("request('/api/job-trigger-availability')");
+    expect(html).toContain("filter(([kind])=>availability[kind])");
+    expect(html).toContain("window.addEventListener('focus'");
     expect(html).toContain("$('#add-trigger').onchange=");
     expect(html).not.toContain('id="add-trigger-kind"');
     expect(html).not.toContain('<button id="add-trigger"');

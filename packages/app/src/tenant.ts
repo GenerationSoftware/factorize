@@ -19,6 +19,7 @@ import { normalizeExecutionState, type RunHandle } from "./execution";
 import { catchUpOccurrence, nextOccurrence, validateScheduleConfig, type ScheduleConfig } from "./schedule";
 import { adaptWebhook, publicWebhookConfig, validateWebhookHandler, type WebhookProvider, type WebhookTriggerConfig } from "./webhook-trigger";
 import { reflectTriggerContext } from "./trigger-context";
+import { installedTriggerAvailability, sameProviderReference } from "./trigger-availability";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -178,6 +179,7 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "GET" && /^\/v1\/runs\/[^/]+$/.test(url.pathname)) return await this.getRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) return await this.stopRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/v1/execution-targets") return await this.executionTargets();
+      if (request.method === "GET" && url.pathname === "/v1/job-trigger-availability") return await this.triggerAvailability();
       if (request.method === "GET" && url.pathname === "/v1/jobs") return json(await Promise.all(this.rows("SELECT * FROM jobs ORDER BY created_at DESC").map(row => this.publicJob(row))));
       if (request.method === "POST" && url.pathname === "/v1/jobs") return await this.createJob(await request.json());
       const invocationMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/invocations$/);
@@ -339,8 +341,6 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private disconnectTailIntegration(integrationId: string): Response {
-    const referenced = this.one("SELECT count(*) AS count FROM triggers WHERE kind='webhook' AND json_extract(config,'$.provider')='cloudflareTail' AND json_extract(config,'$.integrationId')=?", integrationId) as Row;
-    if (Number(referenced?.count ?? 0)) return Response.json({ error: "Disable or remove Jobs that reference this Tail installation before disconnecting it." }, { status: 409 });
     const result = this.ctx.storage.sql.exec("DELETE FROM connections WHERE kind=?", `cloudflare-tail:${integrationId}`);
     return Number(result.rowsWritten) ? new Response(null, { status: 204 }) : new Response("Not found", { status: 404 });
   }
@@ -439,15 +439,17 @@ export class Tenant extends DurableObject<Env> {
     let executionTarget: Record<string, unknown> = {};
     try { executionTarget = JSON.parse(String(row.execution_target)); } catch { /* malformed internal state is presented safely */ }
     const activity = this.one("SELECT count(*) AS count,max(received_at) AS last_received_at FROM job_events WHERE job_id=?", row.id) as Row | undefined;
-    const publicTriggers = triggers.map(trigger => {
+    const publicTriggers = await Promise.all(triggers.map(async trigger => {
       let config: Record<string, unknown> = {};
       try { config = JSON.parse(String(trigger.config)); } catch { /* present malformed state safely */ }
       if (trigger.kind === "webhook") config = publicWebhookConfig(config as WebhookTriggerConfig);
       const runtime = trigger.kind === "schedule" ? this.one("SELECT next_run_at,last_triggered_at FROM schedule_state WHERE trigger_id=?", trigger.id) as Row | undefined : undefined;
+      const availability = await this.providerTriggerAvailability(trigger.kind, config);
       return { id: trigger.id, slug: trigger.slug, kind: trigger.kind, enabled: Boolean(trigger.enabled), config, reflection: reflectTriggerContext({ ...trigger, config }), createdAt: trigger.created_at, updatedAt: trigger.updated_at,
+        actionRequired: availability.available ? null : availability.reason,
         activity: { count: Number(activity?.count ?? 0), lastReceivedAt: activity?.last_received_at ?? null },
         ...(runtime ? { nextRunAt: runtime.next_run_at == null ? null : new Date(Number(runtime.next_run_at)).toISOString(), lastTriggeredAt: runtime.last_triggered_at ?? null } : {}) };
-    });
+    }));
     return {
       id: row.id, name: row.name,
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
@@ -496,10 +498,35 @@ export class Tenant extends DurableObject<Env> {
     });
   }
 
-  private async validateTailIntegrations(triggers: any[]): Promise<void> {
+  private async providerTriggerAvailability(kind: unknown, config: Record<string, any>): Promise<{ available: boolean; reason: string | null }> {
+    if (kind !== "webhook") return { available: true, reason: null };
+    if (config.provider === "linear") return await this.connection("linear") ? { available: true, reason: null } : { available: false, reason: "Reconnect Linear to use this trigger." };
+    if (config.provider === "github") {
+      const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", Number(config.installationId)) as Row | undefined;
+      return installation?.state === "active" ? { available: true, reason: null } : { available: false, reason: "Reconnect this GitHub installation to use this trigger." };
+    }
+    if (config.provider === "cloudflareTail") return await this.connection(`cloudflare-tail:${config.integrationId}`) ? { available: true, reason: null } : { available: false, reason: "Reconnect this Cloudflare Tail installation to use this trigger." };
+    return { available: false, reason: "This webhook provider is no longer supported." };
+  }
+
+  private async triggerAvailability(): Promise<Response> {
+    const linear = Boolean(await this.connection("linear"));
+    const githubStates = this.rows("SELECT state FROM github_installations").map(row => String(row.state));
+    const cloudflareTail = (await this.tailIntegrations()).length;
+    return json(installedTriggerAvailability(linear, githubStates, cloudflareTail));
+  }
+
+  private sameProviderReference(trigger: any, previous?: Row): boolean {
+    if (!previous || trigger.kind !== "webhook" || previous.kind !== "webhook") return false;
+    let config: Record<string, any>; try { config = JSON.parse(String(previous.config)); } catch { return false; }
+    return sameProviderReference(trigger.config ?? {}, config);
+  }
+
+  private async validateProviderIntegrations(triggers: any[], existing: Map<string, Row> = new Map()): Promise<void> {
     for (const trigger of triggers) {
-      if (trigger.kind !== "webhook" || trigger.config?.provider !== "cloudflareTail") continue;
-      if (!await this.connection(`cloudflare-tail:${trigger.config.integrationId}`)) throw new Error("Choose a connected Cloudflare Tail installation");
+      const availability = await this.providerTriggerAvailability(trigger.kind, trigger.config ?? {});
+      const previous = typeof trigger.id === "string" ? existing.get(trigger.id) : undefined;
+      if (!availability.available && !this.sameProviderReference(trigger, previous)) throw new Error(availability.reason ?? "Choose a connected provider installation");
     }
   }
 
@@ -530,7 +557,7 @@ export class Tenant extends DurableObject<Env> {
 
   private async createJob(input: any): Promise<Response> {
     this.validateJobInput(input);
-    await this.validateTailIntegrations(input.triggers);
+    await this.validateProviderIntegrations(input.triggers);
     const target = await this.jobTarget(input.executionTargetId), jobId = id(), timestamp = now();
     const triggers = this.normalizedTriggers(input.triggers);
     this.validateLifecycleGraph(jobId, triggers);
@@ -548,8 +575,8 @@ export class Tenant extends DurableObject<Env> {
   private async updateJob(jobId: string, input: any): Promise<Response> {
     if (!this.one("SELECT id FROM jobs WHERE id = ?", jobId)) return new Response("Not found", { status: 404 });
     this.validateJobInput(input);
-    await this.validateTailIntegrations(input.triggers);
     const existing = new Map(this.triggersFor(jobId).map(trigger => [String(trigger.id), trigger]));
+    await this.validateProviderIntegrations(input.triggers, existing);
     const triggers = this.normalizedTriggers(input.triggers, existing);
     this.validateLifecycleGraph(jobId, triggers);
     const target = await this.jobTarget(input.executionTargetId), timestamp = now();
