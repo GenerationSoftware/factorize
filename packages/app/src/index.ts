@@ -5,12 +5,13 @@ import { equalHmac, hmac } from "./crypto";
 import { Tenant } from "./tenant";
 import { GitHubInstallationRegistry } from "./github-registry";
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
-import { flowDetailPage, flowPage, flowWebhooksPage, flowsPage, landingPage, runDetailPage } from "./ui";
+import { flowDetailPage, flowPage, flowWebhooksPage, flowsPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, runDetailPage, settingsPage } from "./ui";
 import type { Env } from "./types";
 import type { CustomSource, PipeInput } from "./types";
 import { invokeCustomHandler, prepareCustomHandler, validateCustomHandler } from "./custom-handler";
 import { preparePublicSource, resolveContextTemplate } from "./source-lifecycle";
 import { generateTailSecret } from "./cloudflare-tail";
+import { nextOccurrence, validateScheduleConfig } from "./schedule";
 
 const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string } }>();
 
@@ -95,7 +96,7 @@ app.get("/auth/linear/callback", async (c) => {
   setCookie(c, "factorize_session", await signSession({ tenantId: organization.id, userId: viewer.id, email: viewer.email, exp: Math.floor(Date.now() / 1000) + lifetime, sessionVersion: member.session_version }, c.env.SESSION_SIGNING_SECRET), { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: lifetime });
   const oauthReturn = getCookie(c, "factorize_oauth_return");
   if (oauthReturn?.startsWith("/authorize?") || oauthReturn?.startsWith("/device")) { deleteCookie(c, "factorize_oauth_return", { path: "/" }); return c.redirect(oauthReturn); }
-  return c.redirect("/flows/new");
+  return c.redirect("/jobs");
 });
 
 app.post("/auth/logout", (c) => {
@@ -124,6 +125,26 @@ app.get("/api/runs", async (c) => {
 app.get("/api/runs/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch(`https://tenant/runs/${encodeURIComponent(c.req.param("id"))}`);
+});
+const jobApi = async (c: any, path: string, init?: RequestInit) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch(`https://tenant/v1${path}`, init);
+};
+app.get("/api/jobs", (c) => jobApi(c, "/jobs"));
+app.post("/api/jobs", async (c) => jobApi(c, "/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() }));
+app.get("/api/jobs/:id", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}`));
+app.put("/api/jobs/:id", async (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: await c.req.text() }));
+app.delete("/api/jobs/:id", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" }));
+app.post("/api/jobs/:id/enable", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}/enable`, { method: "POST" }));
+app.post("/api/jobs/:id/disable", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}/disable`, { method: "POST" }));
+app.post("/api/jobs/:id/invocations", async (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}/invocations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() }));
+app.get("/api/job-runs", (c) => jobApi(c, `/runs?${new URL(c.req.url).searchParams.toString()}`));
+app.get("/api/job-runs/:id", (c) => jobApi(c, `/runs/${encodeURIComponent(c.req.param("id"))}`));
+app.get("/api/execution-targets", (c) => jobApi(c, "/execution-targets"));
+app.post("/api/schedules/preview", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  try { const config = validateScheduleConfig(await c.req.json()); return c.json({ nextRunAt: nextOccurrence(config, new Date()).toISOString() }); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "Invalid schedule" }, 400); }
 });
 app.get("/api/connections/status", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
@@ -177,7 +198,7 @@ app.get("/auth/github/setup", async (c) => {
   const bind = await githubRegistry(c).fetch(`https://registry/installations/${installationId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId: session.tenantId, accountLogin: installation.account?.login, accountType: installation.account?.type, state: installation.suspended_at ? "suspended" : "active" }) });
   if (!bind.ok) return c.text("This GitHub installation is already connected to another tenant", 409);
   await tenant(c, session.tenantId).fetch("https://tenant/github/installations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ installationId, accountLogin: installation.account?.login, accountType: installation.account?.type, state: installation.suspended_at ? "suspended" : "active" }) });
-  return c.redirect("/flows/new");
+  return c.redirect("/settings");
 });
 app.put("/api/connections/exe", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
@@ -340,6 +361,12 @@ app.get("/runs/:id", async (c) => {
   if (!session) return c.redirect("/auth/linear");
   return c.html(render(runDetailPage({ email: session.email }, c.req.param("id")), c.get("cspNonce")));
 });
+app.get("/jobs", async (c) => { const session = await owner(c); return session ? c.html(render(jobsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
+app.get("/jobs/new", async (c) => { const session = await owner(c); return session ? c.html(render(jobPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
+app.get("/jobs/:id", async (c) => { const session = await owner(c); return session ? c.html(render(jobDetailPage({ email: session.email }, c.req.param("id")), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
+app.get("/jobs/:id/edit", async (c) => { const session = await owner(c); return session ? c.html(render(jobPage({ email: session.email }, c.req.param("id")), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
+app.get("/job-runs/:id", async (c) => { const session = await owner(c); return session ? c.html(render(jobRunPage({ email: session.email }, c.req.param("id")), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
+app.get("/settings", async (c) => { const session = await owner(c); return session ? c.html(render(settingsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
 
 export { Tenant, GitHubInstallationRegistry };
 export default app;

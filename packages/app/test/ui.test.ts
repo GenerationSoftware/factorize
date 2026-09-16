@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flowDetailPage, flowPage, flowWebhooksPage, flowsPage, landingPage, runDetailPage } from "../src/ui";
+import { flowDetailPage, flowPage, flowWebhooksPage, flowsPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, runDetailPage, settingsPage } from "../src/ui";
 
 describe("pages", () => {
   const expectInlineScriptsToParse = (html: string) => {
@@ -18,7 +18,7 @@ describe("pages", () => {
     expect(html).toContain('href="https://herdr.dev/" target="_blank"');
     expect(html).toContain("Choose when to fully automate");
     expect(html).toContain("Issues are routed to agents");
-    expect(html).toContain('href="/flows/new"');
+    expect(html).toContain('href="/jobs/new"');
     expect(html).toContain('href="https://github.com/asselstine/factorize" target="_blank"');
     expect(html).toContain("Host it Yourself");
     expect(html).toContain("View on GitHub");
@@ -111,5 +111,26 @@ describe("pages", () => {
     const html = landingPage({ email: '<script>alert("x")</script>@example.com' });
     expect(html).not.toContain('<script>alert("x")</script>@example.com');
     expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("renders the complete jobs dashboard experience", () => {
+    const list = jobsPage({ email: "owner@example.com" });
+    const editor = jobPage({ email: "owner@example.com" }, "job-1");
+    const detail = jobDetailPage({ email: "owner@example.com" }, "job-1");
+    const run = jobRunPage({ email: "owner@example.com" }, "run-1");
+    const settings = settingsPage({ email: "owner@example.com" });
+    expect(list).toContain("Manual only");
+    expect(editor).toContain("Exact MCP cron");
+    expect(editor).toContain("/api/schedules/preview");
+    expect(editor).toContain("America/New_York");
+    expect(editor).toContain("Credentials are managed only");
+    expect(editor).toContain("Cloudflare Tail");
+    expect(detail).toContain("Run now");
+    expect(run).toContain("destination_url");
+    expect(run).toContain("caps.includes('output')");
+    expect(settings).toContain("Save / rotate connection");
+    for (const [name, html] of Object.entries({ list, editor, detail, run, settings })) {
+      try { expectInlineScriptsToParse(html); } catch (error) { throw new Error(`${name}: ${error}`); }
+    }
   });
 });
