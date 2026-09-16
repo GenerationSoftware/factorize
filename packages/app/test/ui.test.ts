@@ -130,6 +130,13 @@ describe("pages", () => {
     expect(settings).toContain('id="installed-loading"');
     expect(settings).toContain('id="installed-empty"');
     expect(settings).toContain('data-open-setup="exe"');
+    expect(settings).toContain('aria-haspopup="dialog"');
+    expect(settings).toContain('<dialog id="linear-setup"');
+    expect(settings).toContain('<dialog id="github-setup"');
+    expect(settings).toContain('<dialog id="tail-setup"');
+    expect(settings).toContain("+' installed'");
+    expect(settings).toContain("/api/connections/cloudflare-tail");
+    expect(settings).toContain('data-disconnect-tail=');
     expect(settings).toContain('data-disconnect-github=');
     expect(settings).toContain("Reconnect");
     expect(settings).toContain("Configure");
