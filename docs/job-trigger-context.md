@@ -22,6 +22,8 @@ The available value beneath a slug is:
 | Custom webhook | Complete submitted JSON delivery, plus `provider`, `event`, `delivery_id` |
 | Job lifecycle | `source_job_id`, `source_run_id`, `final_state`, `transitioned_at`, `observation_destination` |
 
+Every trigger returned by `GET /api/v1/jobs` and `GET /api/v1/jobs/:id` (and the corresponding MCP `list_jobs` and `get_job` tools) includes a `reflection` object. It contains the stable `slug`, trigger kind/provider, whether the result is dynamic, and a flat `paths` list with nested path, basic value type, description, and occasional example. The Job editor consumes this same canonical contract for Mustache autocomplete. A custom webhook, or any webhook with a replacing handler, reports `dynamic: true` and an explicit `*`/`unknown` fallback because arbitrary handler output cannot be inferred safely.
+
 Manual invocation accepts `{ "prompt": "...", "idempotencyKey": "..." }`. Parameter defaults and invocation, schedule, or webhook parameter overrides are not accepted.
 
 Run inspection returns `context` as the complete persisted object and `invocation.trigger_id` as the trigger that fired. Parameter-era stored Jobs are migrated: old context and parameters are retained beneath `legacy_context` and `legacy_parameters` in the corresponding trigger context. They are not used as global template variables.

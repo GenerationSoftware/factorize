@@ -19,6 +19,7 @@ import { JOB_SCHEMA, renderJobPrompt } from "./job-domain";
 import { normalizeExecutionState, type RunHandle } from "./execution";
 import { catchUpOccurrence, nextOccurrence, validateScheduleConfig, type ScheduleConfig } from "./schedule";
 import { adaptWebhook, publicWebhookConfig, validateWebhookHandler, type WebhookProvider, type WebhookTriggerConfig } from "./webhook-trigger";
+import { reflectTriggerContext } from "./trigger-context";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -400,7 +401,7 @@ export class Tenant extends DurableObject<Env> {
       try { config = JSON.parse(String(trigger.config)); } catch { /* present malformed state safely */ }
       if (trigger.kind === "webhook") config = publicWebhookConfig(config as WebhookTriggerConfig);
       const runtime = trigger.kind === "schedule" ? this.one("SELECT next_run_at,last_triggered_at FROM schedule_state WHERE trigger_id=?", trigger.id) as Row | undefined : undefined;
-      return { id: trigger.id, slug: trigger.slug, kind: trigger.kind, enabled: Boolean(trigger.enabled), config, createdAt: trigger.created_at, updatedAt: trigger.updated_at,
+      return { id: trigger.id, slug: trigger.slug, kind: trigger.kind, enabled: Boolean(trigger.enabled), config, reflection: reflectTriggerContext({ ...trigger, config }), createdAt: trigger.created_at, updatedAt: trigger.updated_at,
         activity: { count: Number(activity?.count ?? 0), lastReceivedAt: activity?.last_received_at ?? null },
         ...(runtime ? { nextRunAt: runtime.next_run_at == null ? null : new Date(Number(runtime.next_run_at)).toISOString(), lastTriggeredAt: runtime.last_triggered_at ?? null } : {}) };
     });

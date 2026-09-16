@@ -213,6 +213,11 @@ describe("pages", () => {
     expect(editor).not.toContain("Order rows");
     expect(editor).toContain("multiple size=\"4\"");
     expect(editor).toContain("Available context");
+    expect(editor).toContain('role="listbox"');
+    expect(editor).toContain("contextCatalog");
+    expect(editor).toContain("e.key==='Tab'");
+    expect(editor).toContain("e.key==='ArrowDown'");
+    expect(editor).toContain("e.key==='Escape'");
     expect(editor).not.toContain("Additional triggers (JSON array)");
     expect(editor).not.toContain('name="triggerKind"');
     expect(editor).toContain("/api/schedules/preview");
