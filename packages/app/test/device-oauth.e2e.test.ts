@@ -128,7 +128,7 @@ describe("manually issued access tokens", () => {
     expect(listedText).not.toContain(created.token);
     expect(listedText).not.toContain("digest");
 
-    const scoped = await SELF.fetch(`${origin}/api/v1/flows`, { headers: { authorization: `Bearer ${created.token}` } });
+    const scoped = await SELF.fetch(`${origin}/api/v1/jobs`, { headers: { authorization: `Bearer ${created.token}` } });
     expect(scoped.status).toBe(403);
     const tracked = await (await SELF.fetch(`${origin}/api/access-tokens`, { headers: { cookie } })).json<Array<{ id: string; last_used_at?: string }>>();
     expect(tracked.find(token => token.id === created.id)?.last_used_at).toBeTruthy();

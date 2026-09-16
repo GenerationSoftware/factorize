@@ -5,16 +5,15 @@ import { agentListCommand, agentOutputCommand, agentStartupBlocked, agentStatusC
 import { findOwnedAgent, ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, isLinearAuthenticationError, refreshLinearToken } from "./linear";
 import { matchingIssue } from "./matcher";
-import type { AmpConnectionInput, Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunState } from "./types";
+import type { AmpConnectionInput, Env, ExeConnectionInput, FilterType, MatchRule, RunState } from "./types";
 import { workingDirectoryFor, workspaceNameFor } from "./workspace";
 import { githubClaimKey, githubHeaders, installationToken, normalizeRepository, renderGitHubPrompt } from "./github";
-import type { FlowSource, WorkItem } from "./types";
-import { invokeCustomHandler, validateCustomHandler } from "./custom-handler";
+import type { WorkItem } from "./types";
+import { invokeCustomHandler } from "./custom-handler";
 import { sanitizeTailEvent, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
 import { ExeHerdrBackend } from "./exe-herdr-backend";
 import { AmpBackend, type AmpConnection } from "./amp-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
-import { renderSourcePrompt } from "./source-lifecycle";
 import { JOB_SCHEMA, renderJobPrompt } from "./job-domain";
 import { normalizeExecutionState, type RunHandle } from "./execution";
 import { catchUpOccurrence, nextOccurrence, validateScheduleConfig, type ScheduleConfig } from "./schedule";
@@ -32,6 +31,12 @@ const HERDR_FLOW_NAME = /^[a-z][a-z0-9_-]{0,29}$/;
 const object = (value: unknown): Record<string, any> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 const text = (value: unknown): string => typeof value === "string" ? value : "";
 const linearSource = new LinearSourceAdapter();
+
+type FlowSource =
+  | { kind: "linear"; projectId: string; matchRules: MatchRule[] }
+  | { kind: "github"; installationId: number; repositoryId: number; repositoryOwner?: string; repositoryName?: string; repositoryFullName?: string; baseRef: "main"; trigger: "merge_queue_conflict" }
+  | { kind: "custom"; origin: "linear" | "github" | "cloudflare"; handlerName: string; handlerCode: string; handlerDeployment: { scriptName: string; codeDigest: string; state: "deploying" | "ready" | "failed" }; tail?: { signingSecret: string } };
+type PipeInput = { pipeId?: string; name: string; flowId?: string; projectId?: string; matchRules: MatchRule[]; maxConcurrency: number; contextTemplate?: string; exeConnectionId?: string; cwd?: string; source?: FlowSource };
 
 export class Tenant extends DurableObject<Env> {
   private linearRefresh?: Promise<string>;
@@ -169,17 +174,9 @@ export class Tenant extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     try {
-      if (request.method === "GET" && url.pathname === "/pipes") return json(this.rows(`SELECT id, name, project_id, team_id, filter_type, filter_target_id, source_kind, source_config, trigger_kind, trigger_config, max_concurrency, workspace_name, agent_kind, enabled, created_at,
-        (SELECT count(*) FROM runs WHERE runs.pipe_id = pipes.id AND runs.state IN ('starting','running','blocked','recovering')) AS active_agents,
-        (SELECT state FROM runs WHERE runs.pipe_id = pipes.id ORDER BY updated_at DESC, id DESC LIMIT 1) AS latest_run_state
-        FROM pipes ORDER BY created_at DESC`));
-      if (request.method === "GET" && url.pathname.startsWith("/pipes/")) return await this.flowDetail(url.pathname.split("/")[2] ?? "", url);
-      if (request.method === "GET" && url.pathname === "/runs") return json(this.rows("SELECT id, pipe_id, issue_id, agent_name, state, created_at, updated_at FROM runs ORDER BY created_at DESC LIMIT 100"));
-      if (request.method === "GET" && /^\/runs\/[^/]+$/.test(url.pathname)) return await this.runDetail(decodeURIComponent(url.pathname.split("/")[2] ?? ""));
       if (request.method === "GET" && url.pathname === "/v1/runs") return this.listRuns(url);
       if (request.method === "GET" && /^\/v1\/runs\/[^/]+$/.test(url.pathname)) return await this.getRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) return await this.stopRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
-      if (request.method === "GET" && url.pathname === "/v1/events") return this.listEvents(url);
       if (request.method === "GET" && url.pathname === "/v1/execution-targets") return await this.executionTargets();
       if (request.method === "GET" && url.pathname === "/v1/jobs") return json(await Promise.all(this.rows("SELECT * FROM jobs ORDER BY created_at DESC").map(row => this.publicJob(row))));
       if (request.method === "POST" && url.pathname === "/v1/jobs") return await this.createJob(await request.json());
@@ -194,7 +191,6 @@ export class Tenant extends DurableObject<Env> {
       const jobEventsMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/events$/);
       if (request.method === "GET" && jobEventsMatch) return this.listJobEvents(decodeURIComponent(jobEventsMatch[1]), url);
       if (request.method === "POST" && url.pathname === "/v1/job-handlers/test") return await this.testJobHandler(await request.json());
-      if (request.method === "GET" && /^\/v1\/flows\/[^/]+$/.test(url.pathname)) return this.getFlow(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/connections/status") return await this.connectionStatus();
       if (request.method === "POST" && url.pathname === "/members") return await this.upsertMember(await request.json());
       if (request.method === "GET" && url.pathname.startsWith("/members/")) return this.getMember(url.pathname.split("/")[2] ?? "");
@@ -213,17 +209,10 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "POST" && url.pathname === "/connections/exe/test") return await this.testExe(await request.json());
       if (request.method === "PUT" && url.pathname === "/connections/amp") return await this.saveAmp(await request.json());
       if (request.method === "POST" && url.pathname === "/connections/amp/test") return await this.testAmp(await request.json());
-      if (request.method === "POST" && url.pathname === "/pipes") return await this.createPipe(await request.json() as PipeInput);
-      if (request.method === "PUT" && url.pathname.startsWith("/pipes/")) return await this.updatePipe(url.pathname.split("/")[2] ?? "", await request.json() as PipeInput);
-      if (request.method === "DELETE" && url.pathname.startsWith("/pipes/")) return this.deletePipe(url.pathname.split("/")[2] ?? "");
       if (request.method === "POST" && url.pathname === "/webhook/linear") return await this.acceptLinearWebhook(await request.json() as Record<string, any>, request.headers.get("linear-delivery"));
       if (request.method === "POST" && url.pathname === "/webhook/github") return await this.acceptGitHubWebhook(await request.json() as Record<string, any>, request.headers.get("github-delivery"), request.headers.get("github-event"));
-      const customJobMatch = url.pathname.match(/^\/webhook\/custom\/([^/]+)$/);
-      if (request.method === "POST" && customJobMatch) return await this.acceptCustomJobWebhook(decodeURIComponent(customJobMatch[1]), await request.text(), request.headers);
       const tailMatch = url.pathname.match(/^\/webhook\/cloudflare\/([^/]+)$/);
       if (request.method === "POST" && tailMatch) return await this.acceptCloudflareTail(decodeURIComponent(tailMatch[1]), await request.text(), request.headers);
-      const tailTestMatch = url.pathname.match(/^\/cloudflare-tail\/([^/]+)\/test$/);
-      if (request.method === "POST" && tailTestMatch) return await this.testCloudflareTail(decodeURIComponent(tailTestMatch[1]));
       if (request.method === "GET" && url.pathname === "/github/installations") return this.githubInstallations();
       if (request.method === "PUT" && url.pathname === "/github/installations") return this.saveGitHubInstallation(await request.json());
       if (request.method === "POST" && url.pathname === "/github/setup-state") return this.saveSetupState(await request.json());
@@ -246,9 +235,9 @@ export class Tenant extends DurableObject<Env> {
     await this.processDueSchedules();
     // Release completed slots before looking at the queue, so capacity is used
     // immediately rather than waiting for the next polling alarm.
-    const running = this.rows("SELECT * FROM runs WHERE state IN ('starting','running','blocked','recovering') ORDER BY updated_at LIMIT 40");
+    const running = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('starting','running','blocked','recovering') ORDER BY updated_at LIMIT 40");
     for (const run of running) await this.pollRun(run);
-    const queued = this.rows("SELECT * FROM runs WHERE state = 'queued' ORDER BY created_at LIMIT 20");
+    const queued = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state = 'queued' ORDER BY created_at LIMIT 20");
     for (const run of queued) {
       const pipe = this.executionConfig(run.pipe_id);
       if (!pipe) continue;
@@ -260,7 +249,7 @@ export class Tenant extends DurableObject<Env> {
       await this.startRun({ ...run, agent_name: name, workspace_name: pipe.workspace_name }, pipe);
     }
 
-    const pending = this.one("SELECT count(*) AS count FROM runs WHERE state IN ('queued','starting','running','blocked','recovering')") as Row;
+    const pending = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('queued','starting','running','blocked','recovering')") as Row;
     const verification = this.one("SELECT min(next_attempt_at) AS next_attempt_at FROM pending_verifications") as Row;
     const nextVerification = Number(verification?.next_attempt_at || 0);
     const schedule = this.one("SELECT min(next_run_at) AS next_run_at FROM schedule_state") as Row;
@@ -390,8 +379,6 @@ export class Tenant extends DurableObject<Env> {
   private triggersFor(jobId: unknown): Row[] { return this.rows("SELECT * FROM triggers WHERE job_id = ? ORDER BY position,created_at,id", jobId); }
 
   private executionConfig(value: unknown): Row | undefined {
-    const pipe = this.one("SELECT * FROM pipes WHERE id = ?", value) as Row | undefined;
-    if (pipe) return pipe;
     const job = this.one("SELECT * FROM jobs WHERE id = ? AND enabled=1", value) as Row | undefined;
     if (!job) return undefined;
     let target: Record<string, unknown> = {};
@@ -894,7 +881,7 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async testJobHandler(input: { handlerCode?: unknown; payload?: unknown }): Promise<Response> {
-    const config: WebhookTriggerConfig = { provider: "custom", handlerCode: typeof input.handlerCode === "string" ? input.handlerCode : undefined };
+    const config: WebhookTriggerConfig = { provider: "linear", projectId: "handler-test", matchRules: [], handlerCode: typeof input.handlerCode === "string" ? input.handlerCode : undefined };
     validateWebhookHandler(config);
     if (!config.handlerCode) throw new Error("Handler code is required.");
     if (!this.env.CUSTOM_HANDLER_LOADER) return Response.json({ ok: false, category: "platform_error" }, { status: 503 });
@@ -909,50 +896,13 @@ export class Tenant extends DurableObject<Env> {
 
   private async acceptLinearWebhook(event: Record<string, any>, deliveryId: string | null): Promise<Response> {
     if (!deliveryId) return new Response("Missing delivery ID", { status: 400 });
-    if (this.one("SELECT id FROM deliveries WHERE id = ?", deliveryId)) return new Response(null, { status: 200 });
-    this.ctx.storage.sql.exec("INSERT INTO deliveries (id,pipe_id,received_at) VALUES (?,?,?)", deliveryId, "app-webhook", now());
-    let matchingEvent = event;
-    let data = matchingEvent.data ?? {};
-    let projectId = data.project?.id ?? data.issue?.project?.id;
-    const issueId = data.issueId ?? data.issue?.id ?? (matchingEvent.type === "Issue" ? data.id : undefined);
-    const pipes = this.rows("SELECT * FROM pipes WHERE enabled = 1 AND source_kind = 'linear'");
-    const custom = this.rows("SELECT * FROM pipes WHERE enabled = 1 AND source_kind = 'custom'");
-
-    // IssueLabel is a join entity. Linear serializes it with issueId and labelId,
-    // and does not consistently expand the linked issue or its project. Resolve it
-    // once so label flows can still be scoped to their selected project.
-    if (!projectId && matchingEvent.type === "IssueLabel" && typeof issueId === "string") {
-      const linear = await this.connection<{ accessToken: string }>("linear");
-      const issue = linear ? await this.linear(linear.accessToken, LINEAR_ISSUE_PROJECT_QUERY, { id: issueId }) : null;
-      projectId = issue?.issue?.project?.id;
-      if (projectId) {
-        data = { ...data, ...issue.issue, issue: { ...data.issue, ...issue.issue, id: issueId, project: { id: projectId } } };
-        matchingEvent = { ...matchingEvent, data };
-      }
-    }
-    await this.invokeWebhookJobs("linear", deliveryId, matchingEvent);
-
-    for (const pipe of pipes) {
-      if (projectId !== pipe.project_id) continue;
-      const matchingIssueId = matchingIssue(matchingEvent, { projectId: String(pipe.project_id), matchRules: this.savedMatchRules(pipe) });
-      if (!matchingIssueId) {
-        this.recordFlowEvent(pipe, deliveryId, null, null, matchingEvent, "ignored", "Webhook did not match this flow's trigger.");
-        continue;
-      }
-      const workItem = linearSource.toWorkItem(data, matchingIssueId, matchingEvent);
-      await this.queueWorkItem(pipe, deliveryId, workItem, linearSource.renderPrompt(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), data, String(pipe.name)));
-    }
-    await Promise.all(custom.map((pipe) => this.evaluateCustom(pipe, "linear", deliveryId, event)));
+    await this.invokeWebhookJobs("linear", deliveryId, event);
     await this.ctx.storage.setAlarm(Date.now());
     return new Response(null, { status: 200 });
   }
 
   private async acceptGitHubWebhook(event: Record<string, any>, deliveryId: string | null, eventName: string | null): Promise<Response> {
     if (!deliveryId || !eventName) return new Response("Missing delivery metadata", { status: 400 });
-    if (this.one("SELECT id FROM deliveries WHERE id = ?", deliveryId)) return new Response(null, { status: 200 });
-    this.ctx.storage.sql.exec("INSERT INTO deliveries (id,pipe_id,received_at) VALUES (?,?,?)", deliveryId, "github-app", now());
-    const custom = this.rows("SELECT * FROM pipes WHERE enabled=1 AND source_kind='custom'");
-    await Promise.all(custom.map((pipe) => this.evaluateCustom(pipe, "github", deliveryId, event)));
     if (eventName !== "pull_request" || event.action !== "dequeued") await this.invokeWebhookJobs("github", deliveryId, event, eventName);
     if (eventName !== "pull_request" || event.action !== "dequeued") { await this.ctx.storage.setAlarm(Date.now()); return new Response(null, { status: 202 }); }
     const installationId = event.installation?.id, repositoryId = event.repository?.id, pull = event.pull_request;
@@ -963,63 +913,21 @@ export class Tenant extends DurableObject<Env> {
       this.ctx.storage.sql.exec("INSERT INTO pending_verifications VALUES (?,?,?,?,?,?,?,?,?,?,?)", id(), job.id, deliveryId, installationId, repositoryId, event.repository.owner?.login ?? "", event.repository.name ?? "", pull.number, 0, Date.now(), JSON.stringify(minimal));
       this.recordJobEvent(String(job.id), "github", deliveryId, "candidate", "Candidate received; waiting for GitHub mergeability verification.");
     }
-    const pipes = this.rows("SELECT * FROM pipes WHERE enabled=1 AND source_kind='github'");
-    for (const pipe of pipes) {
-      const source = this.sourceFor(pipe);
-      if (source.kind !== "github" || source.installationId !== installationId || source.repositoryId !== repositoryId || pull.state !== "open" || pull.base?.ref !== "main") continue;
-      const minimal = { number: pull.number, url: pull.html_url, title: pull.title ?? "", body: pull.body ?? "", author: pull.user?.login ?? "", base: { ref: pull.base.ref, sha: pull.base.sha }, head: { ref: pull.head?.ref ?? "", sha: pull.head?.sha ?? "", repository: pull.head?.repo?.full_name ?? "" } };
-      this.ctx.storage.sql.exec("INSERT INTO pending_verifications VALUES (?,?,?,?,?,?,?,?,?,?,?)", id(), pipe.id, deliveryId, installationId, repositoryId, source.repositoryOwner ?? event.repository.owner?.login ?? "", source.repositoryName ?? event.repository.name ?? "", pull.number, 0, Date.now(), JSON.stringify(minimal));
-      this.recordFlowEvent(pipe, deliveryId, githubClaimKey(repositoryId, pull.number), pull.html_url ?? null, { type: "pull_request", action: "dequeued" }, "candidate", "Candidate received; waiting for GitHub mergeability verification.", "github");
-    }
     await this.ctx.storage.setAlarm(Date.now());
     return new Response(null, { status: 202 });
   }
 
-  private async acceptCloudflareTail(flowId: string, raw: string, headers: Headers): Promise<Response> {
-    const pipe = this.one("SELECT * FROM pipes WHERE id=? AND enabled=1", flowId) as Row | undefined;
-    if (!pipe) {
-      const item = this.webhookJobs("cloudflareTail").find(({ job }) => job.id === flowId);
+  private async acceptCloudflareTail(jobId: string, raw: string, headers: Headers): Promise<Response> {
+      const item = this.webhookJobs("cloudflareTail").find(({ job }) => job.id === jobId);
       if (!item?.config.signingSecret) return new Response("Not found", { status: 404 });
       const timestamp = headers.get("x-factorize-timestamp") ?? "", delivery = headers.get("x-factorize-delivery") ?? "", signature = headers.get("x-factorize-signature") ?? "";
       if (!timestamp || !delivery || !signature) return new Response("Missing delivery metadata", { status: 400 });
       const verification = await verifyTailDelivery(item.config.signingSecret, timestamp, delivery, raw, signature);
-      if (verification !== "valid") { this.recordJobEvent(flowId, "cloudflareTail", delivery, verification, "Tail delivery verification failed."); return new Response(verification === "stale" ? "Stale delivery" : "Invalid signature", { status: 401 }); }
+      if (verification !== "valid") { this.recordJobEvent(jobId, "cloudflareTail", delivery, verification, "Tail delivery verification failed."); return new Response(verification === "stale" ? "Stale delivery" : "Invalid signature", { status: 401 }); }
       let payload: Record<string, any>; try { payload = sanitizeTailEvent(JSON.parse(raw)) as Record<string, any>; } catch { return new Response("Invalid JSON", { status: 400 }); }
-      if (suppressTailEvent(payload)) { this.recordJobEvent(flowId, "cloudflareTail", delivery, "rejected", "Tail delivery was suppressed to prevent an ingestion loop."); return new Response(null, { status: 202 }); }
+      if (suppressTailEvent(payload)) { this.recordJobEvent(jobId, "cloudflareTail", delivery, "rejected", "Tail delivery was suppressed to prevent an ingestion loop."); return new Response(null, { status: 202 }); }
       await this.invokeWebhookJobs("cloudflareTail", delivery, payload, "tail");
       return new Response(null, { status: 202 });
-    }
-    const source = this.sourceFor(pipe);
-    if (source.kind !== "custom" || source.origin !== "cloudflare" || !source.tail?.signingSecret) return new Response("Not found", { status: 404 });
-    const timestamp = headers.get("x-factorize-timestamp") ?? "", delivery = headers.get("x-factorize-delivery") ?? "", signature = headers.get("x-factorize-signature") ?? "";
-    const metadataEvent = { type: "tail", action: "delivery" };
-    if (!timestamp || !delivery || !signature) { this.recordFlowEvent(pipe, delivery || "missing", null, null, metadataEvent, "invalid", "Tail delivery metadata was missing.", "cloudflare"); return new Response("Missing delivery metadata", { status: 400 }); }
-    const verification = await verifyTailDelivery(source.tail.signingSecret, timestamp, delivery, raw, signature);
-    if (verification !== "valid") { this.recordFlowEvent(pipe, delivery, null, null, metadataEvent, verification, verification === "stale" ? "Tail delivery timestamp was stale." : "Tail delivery signature was invalid.", "cloudflare"); return new Response(verification === "stale" ? "Stale delivery" : "Invalid signature", { status: 401 }); }
-    if (this.one("SELECT id FROM deliveries WHERE id=?", `cloudflare:${delivery}`)) { this.recordFlowEvent(pipe, delivery, null, null, metadataEvent, "duplicate", "Tail delivery ID was already processed.", "cloudflare"); return new Response("Duplicate delivery", { status: 409 }); }
-    let parsed: Record<string, any>; try { parsed = JSON.parse(raw); } catch { this.recordFlowEvent(pipe, delivery, null, null, metadataEvent, "invalid", "Tail delivery was not valid JSON.", "cloudflare"); return new Response("Invalid JSON", { status: 400 }); }
-    const event = sanitizeTailEvent(parsed) as Record<string, any>;
-    this.ctx.storage.sql.exec("INSERT INTO deliveries (id,pipe_id,received_at) VALUES (?,?,?)", `cloudflare:${delivery}`, pipe.id, now());
-    if (suppressTailEvent(event)) { this.recordFlowEvent(pipe, delivery, null, null, metadataEvent, "rejected", "Tail delivery was suppressed to prevent a Factorize ingestion loop.", "cloudflare"); return new Response(null, { status: 202 }); }
-    const fingerprint = await tailFingerprint(event), windowMs = 5 * 60_000, limit = 5;
-    const seen = this.one("SELECT * FROM tail_fingerprints WHERE flow_id=? AND fingerprint=?", pipe.id, fingerprint) as Row | undefined;
-    if (seen && Date.now() - Number(seen.window_started) < windowMs && Number(seen.count) >= limit) { this.ctx.storage.sql.exec("UPDATE tail_fingerprints SET count=count+1 WHERE flow_id=? AND fingerprint=?", pipe.id, fingerprint); this.recordFlowEvent(pipe, delivery, null, null, metadataEvent, "rate_limited", "Repeated Tail event fingerprint exceeded the per-flow limit.", "cloudflare"); return new Response("Rate limited", { status: 429 }); }
-    if (!seen || Date.now() - Number(seen.window_started) >= windowMs) this.ctx.storage.sql.exec("INSERT INTO tail_fingerprints VALUES (?,?,?,1) ON CONFLICT(flow_id,fingerprint) DO UPDATE SET window_started=excluded.window_started,count=1", pipe.id, fingerprint, Date.now());
-    else this.ctx.storage.sql.exec("UPDATE tail_fingerprints SET count=count+1 WHERE flow_id=? AND fingerprint=?", pipe.id, fingerprint);
-    await this.evaluateCustom(pipe, "cloudflare", delivery, event);
-    await this.ctx.storage.setAlarm(Date.now());
-    return new Response(null, { status: 202 });
-  }
-
-  private async acceptCustomJobWebhook(jobId: string, raw: string, headers: Headers): Promise<Response> {
-    const item = this.webhookJobs("custom").find(({ job }) => job.id === jobId);
-    if (!item) return new Response("Not found", { status: 404 });
-    if (item.config.secret && headers.get("x-factorize-secret") !== item.config.secret) { this.recordJobEvent(jobId, "custom", "unknown", "invalid", "Custom webhook secret was invalid."); return new Response("Invalid secret", { status: 401 }); }
-    let payload: Record<string, any>; try { payload = JSON.parse(raw); } catch { return new Response("Invalid JSON", { status: 400 }); }
-    let delivery = headers.get("x-factorize-delivery");
-    if (delivery === null) delivery = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw)).then(value => [...new Uint8Array(value)].map(byte => byte.toString(16).padStart(2, "0")).join(""));
-    await this.invokeWebhookJobs("custom", delivery!, payload, headers.get("x-factorize-event") ?? undefined);
-    return new Response(null, { status: 202 });
   }
 
   private async testCloudflareTail(flowId: string): Promise<Response> {
@@ -1066,7 +974,7 @@ export class Tenant extends DurableObject<Env> {
       return;
     }
     const workItem: WorkItem = { provider: origin, claimKey: deliveryId, identifier: deliveryId, title: source.handlerName, description: "", url: "", event: payload };
-    const prompt = renderSourcePrompt(source, String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), payload, String(pipe.name), deliveryId);
+    const prompt = Mustache.render(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), payload);
     await this.queueWorkItem(pipe, deliveryId, workItem, prompt);
   }
 
@@ -1086,9 +994,8 @@ export class Tenant extends DurableObject<Env> {
     const pending = this.rows("SELECT * FROM pending_verifications WHERE next_attempt_at <= ? ORDER BY next_attempt_at LIMIT 20", Date.now());
     const delays = [0, 5_000, 15_000, 30_000, 60_000];
     for (const verification of pending) {
-      const pipe = this.one("SELECT * FROM pipes WHERE id=?", verification.flow_id) as Row | undefined;
-      const job = pipe ? undefined : this.one("SELECT j.*,t.id AS trigger_id,t.slug AS trigger_slug,t.config AS trigger_config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.id=? AND j.enabled=1 AND t.enabled=1 AND t.kind='webhook' ORDER BY t.created_at LIMIT 1", verification.flow_id) as Row | undefined;
-      const target = pipe ?? job;
+      const job = this.one("SELECT j.*,t.id AS trigger_id,t.slug AS trigger_slug,t.config AS trigger_config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.id=? AND j.enabled=1 AND t.enabled=1 AND t.kind='webhook' ORDER BY t.created_at LIMIT 1", verification.flow_id) as Row | undefined;
+      const target = job;
       if (!target) { this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id); continue; }
       const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", verification.installation_id) as Row | undefined;
       if (installation?.state !== "active") { this.finishVerification(verification, target, "verification_failed", "GitHub installation is disconnected.", Boolean(job)); continue; }
@@ -1122,13 +1029,6 @@ export class Tenant extends DurableObject<Env> {
           this.recordJobEvent(String(job.id), "github", String(verification.delivery_id), result?.duplicate ? "duplicate" : result ? "accepted" : "ignored", result?.duplicate ? "Webhook occurrence was already claimed." : result ? "Verified webhook queued through canonical job invocation." : "Job was unavailable.");
           continue;
         }
-        const legacyPipe = pipe!;
-        const source = this.sourceFor(legacyPipe);
-        if (source.kind !== "github" || source.repositoryId !== Number(verification.repository_id)) { this.finishVerification(verification, legacyPipe, "ignored", "Flow source changed while verification was pending."); continue; }
-        const saved = JSON.parse(String(verification.payload));
-        const workItem: WorkItem = { provider: "github", claimKey: githubClaimKey(source.repositoryId, pull.number), identifier: `${source.repositoryFullName}#${pull.number}`, title: pull.title ?? saved.title, description: pull.body ?? saved.body, url: pull.html_url, event: { type: "pull_request", name: "pull_request", action: "dequeued", delivery: verification.delivery_id }, repository: { id: source.repositoryId, owner: source.repositoryOwner, name: source.repositoryName, fullName: source.repositoryFullName }, pullRequest: { number: pull.number, url: pull.html_url, title: pull.title ?? "", body: pull.body ?? "", author: pull.user?.login ?? "", base: { ref: pull.base.ref, sha: pull.base.sha }, head: { ref: pull.head?.ref ?? "", sha: pull.head?.sha ?? "", repository: pull.head?.repo?.full_name ?? "" } } };
-        this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id);
-        await this.queueWorkItem(legacyPipe, String(verification.delivery_id), workItem, renderGitHubPrompt(workItem, { id: String(legacyPipe.id), name: String(legacyPipe.name) }));
       } catch (error) { await this.retryVerification(verification, target, delays, error instanceof Error ? error.message : "GitHub verification failed.", undefined, Boolean(job)); }
     }
   }
@@ -1515,10 +1415,7 @@ export class Tenant extends DurableObject<Env> {
     }
     const source = input.source;
     if (source.kind === "custom") {
-      const valid = validateCustomHandler(source.origin, source.handlerName, source.handlerCode);
-      if (!source.handlerDeployment || source.handlerDeployment.state !== "ready" || !/^fh-[a-f0-9]{40}$/.test(source.handlerDeployment.scriptName) || !/^[a-f0-9]{64}$/.test(source.handlerDeployment.codeDigest)) throw new Error("Custom handler deployment is not ready.");
-      if (valid.origin === "cloudflare" && (!source.tail?.signingSecret || source.tail.signingSecret.length < 32)) throw new Error("Cloudflare Tail signing is not configured.");
-      return { kind: "custom", ...valid, handlerDeployment: source.handlerDeployment, ...(valid.origin === "cloudflare" ? { tail: source.tail } : {}) };
+      throw new Error("Custom Flow sources are no longer supported.");
     }
     if (source.baseRef !== "main" || source.trigger !== "merge_queue_conflict" || !Number.isSafeInteger(source.installationId) || !Number.isSafeInteger(source.repositoryId)) throw new Error("Invalid GitHub source");
     const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", source.installationId) as Row | undefined;

@@ -90,15 +90,15 @@ Use authorization-code OAuth and enable **Webhooks** on the OAuth application. C
 
 After changing the webhook settings, re-authorize existing workspaces so Linear creates a fresh workspace subscription.
 
-## Create a flow
+## Create a Job
 
 1. Sign in with Linear.
 2. Connect your exe.dev VM using its restricted HTTPS API token. Use the same user-qualified SSH destination you use interactively so Factorize and your terminal join the same Herdr session.
-3. Create a flow, select a Linear project, and add matching rules. Every rule must match.
+3. Create a Job, choose its execution target, and add authenticated provider triggers. Every Linear matching rule must match.
 
-Matching issue updates queue work up to the flow’s configured concurrency. When a run finishes, Factorize fills its slot from the queue and posts a link to the Herdr session in Linear.
+Matching provider events queue work up to the Job’s configured concurrency. When a run finishes, Factorize fills its slot from the queue and posts a link to the Herdr session in Linear.
 
-Cloudflare Worker failures can also start flows through the separately deployable Tail relay. See [Cloudflare Tail flow source](docs/cloudflare-tail.md).
+Cloudflare Worker failures can also start Jobs through the separately deployable Tail relay. See [Cloudflare Tail job trigger](docs/cloudflare-tail.md).
 
 ## Configuration reference
 
@@ -138,7 +138,7 @@ The versioned API is rooted at `/api/v1`:
 
 ```bash
 curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
-  https://app.factorize.sh/api/v1/flows
+  https://app.factorize.sh/api/v1/jobs
 
 curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
   'https://app.factorize.sh/api/v1/runs?jobId=JOB_ID&state=running&contextQuery=customer%20impact&limit=25'
@@ -150,7 +150,7 @@ curl -X POST -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
   https://app.factorize.sh/api/v1/runs/RUN_ID/stop
 ```
 
-Flow CRUD is available at `/flows` and `/flows/:id`; supporting collections are `/projects`, `/flow-options`, `/runs`, and `/flow-events`. Run and event collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Runs can be filtered by `jobId`, `state`, and `contextQuery`; context queries use case-insensitive literal substring matching and matching items contain a bounded `context_excerpt`, never the full context. `GET /runs/:runId` returns the complete structured trigger `context` and invocation metadata, including the firing `trigger_id`. Legacy runs return `null` for `context` and `invocation`. The canonical Job prompt contract is documented in [docs/job-trigger-context.md](docs/job-trigger-context.md). Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
+Job CRUD is available at `/jobs` and `/jobs/:id`. Run collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Runs can be filtered by `jobId`, `state`, and `contextQuery`; context queries use case-insensitive literal substring matching and matching items contain a bounded `context_excerpt`, never the full context. `GET /runs/:runId` returns the complete structured trigger `context` and invocation metadata, including the firing `trigger_id`. The canonical Job prompt contract is documented in [docs/job-trigger-context.md](docs/job-trigger-context.md). Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
 
 ## MCP clients
 
@@ -160,7 +160,7 @@ Configure a compatible remote MCP client with this single URL:
 https://app.factorize.sh/mcp
 ```
 
-The client discovers OAuth automatically, opens Factorize in a browser, completes Linear sign-in if necessary, requests consent, and returns to the client after PKCE authorization. No Linear or exe.dev credential is copied into the MCP client. The server is stateless Streamable HTTP and exposes flow CRUD, projects/options, run inspection/filtering, webhook activity, and active-run stopping tools.
+The client discovers OAuth automatically, opens Factorize in a browser, completes Linear sign-in if necessary, requests consent, and returns to the client after PKCE authorization. No Linear or exe.dev credential is copied into the MCP client. The server is stateless Streamable HTTP and exposes Job CRUD, run inspection/filtering, provider webhook activity, and active-run stopping tools.
 
 Factorize also supports the OAuth 2.0 Device Authorization Grant (RFC 8628) for headless clients. Discovery advertises `device_authorization_endpoint`; clients obtain a code from `POST /oauth/device_authorization`, direct the user to `/device`, and poll `/oauth/token` with grant type `urn:ietf:params:oauth:grant-type:device_code`. Device codes expire after ten minutes, polling is rate-limited, and approved grants use the same scoped access and refresh tokens, tenant checks, and revocation behavior as browser PKCE authorization.
 

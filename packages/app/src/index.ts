@@ -5,12 +5,8 @@ import { equalHmac, hmac } from "./crypto";
 import { Tenant } from "./tenant";
 import { GitHubInstallationRegistry } from "./github-registry";
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
-import { apiKeysSettingsPage, flowDetailPage, flowPage, flowWebhooksPage, flowsPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, runDetailPage, settingsPage } from "./ui";
+import { apiKeysSettingsPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, settingsPage } from "./ui";
 import type { Env } from "./types";
-import type { CustomSource, PipeInput } from "./types";
-import { invokeCustomHandler, prepareCustomHandler, validateCustomHandler } from "./custom-handler";
-import { preparePublicSource, resolveContextTemplate } from "./source-lifecycle";
-import { generateTailSecret } from "./cloudflare-tail";
 import { nextOccurrence, validateScheduleConfig } from "./schedule";
 import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
 
@@ -146,28 +142,6 @@ app.post("/auth/logout", (c) => {
   return c.redirect("/");
 });
 
-app.get("/api/pipes", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/pipes");
-});
-app.get("/api/pipes/:id", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const url = new URL(`https://tenant/pipes/${encodeURIComponent(c.req.param("id"))}`);
-  for (const key of ["view", "page"]) { const value = c.req.query(key); if (value) url.searchParams.set(key, value); }
-  const response = await tenant(c, session.tenantId).fetch(url);
-  if (!response.ok) return response;
-  const result = await response.json() as any;
-  let source: CustomSource | undefined; try { const parsed = JSON.parse(result.flow?.source_config ?? "{}"); if (parsed.kind === "custom" && parsed.origin === "cloudflare") source = parsed; } catch {}
-  return c.json({ ...result, ...(source ? { cloudflareTail: { destination: `${c.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(session.tenantId)}/${encodeURIComponent(c.req.param("id"))}`, signingSecret: source.tail?.signingSecret } } : {}) });
-});
-app.get("/api/runs", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/runs");
-});
-app.get("/api/runs/:id", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/runs/${encodeURIComponent(c.req.param("id"))}`);
-});
 const jobApi = async (c: any, path: string, init?: RequestInit) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch(`https://tenant/v1${path}`, init);
@@ -257,83 +231,12 @@ app.post("/api/connections/amp/test", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/connections/amp/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
 });
-app.post("/api/pipes", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const input = await c.req.json() as PipeInput & { source?: any };
-  if (input.source?.kind === "cloudflareTail") {
-    if (c.env.CUSTOM_SOURCES_ENABLED !== "true") return c.json({ error: "Custom sources are not enabled." }, 404);
-    const pipeId = crypto.randomUUID(); input.pipeId = pipeId;
-    input.contextTemplate = resolveContextTemplate(input.source, input.contextTemplate);
-    input.source = await preparePublicSource(session.tenantId, pipeId, input.source);
-  }
-  else if (input.source?.kind === "custom") {
-    if (c.env.CUSTOM_SOURCES_ENABLED !== "true") return c.json({ error: "Custom sources are not enabled." }, 404);
-    const valid = validateCustomHandler(input.source.origin, input.source.handlerName, input.source.handlerCode);
-    const pipeId = crypto.randomUUID();
-    input.pipeId = pipeId;
-    input.source = await prepareCustomHandler(session.tenantId, pipeId, { kind: "custom", ...valid, ...(valid.origin === "cloudflare" ? { tail: { signingSecret: generateTailSecret() } } : {}) });
-  }
-  const response = await tenant(c, session.tenantId).fetch("https://tenant/pipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
-  if (!response.ok || input.source?.kind !== "custom" || input.source.origin !== "cloudflare") return response;
-  const result = await response.json() as Record<string, unknown>;
-  return c.json({ ...result, cloudflareTail: { destination: `${c.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(session.tenantId)}/${encodeURIComponent(String(input.pipeId))}`, signingSecret: input.source.tail?.signingSecret } }, 201);
-});
-app.put("/api/pipes/:id", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const pipeId = c.req.param("id"), input = await c.req.json() as PipeInput & { source?: any; tailSigningSecret?: string };
-  if (input.source?.kind === "cloudflareTail") {
-    if (c.env.CUSTOM_SOURCES_ENABLED !== "true") return c.json({ error: "Custom sources are not enabled." }, 404);
-    const currentResponse = await tenant(c, session.tenantId).fetch(`https://tenant/v1/flows/${encodeURIComponent(pipeId)}`);
-    if (!currentResponse.ok) return currentResponse;
-    const current = await currentResponse.json() as { source_config?: string };
-    let previous: CustomSource | undefined; try { const parsed = JSON.parse(current.source_config ?? "{}"); if (parsed.kind === "custom") previous = parsed; } catch {}
-    input.contextTemplate = resolveContextTemplate(input.source, input.contextTemplate);
-    input.source = await preparePublicSource(session.tenantId, pipeId, input.source, previous, input.tailSigningSecret);
-    delete input.tailSigningSecret;
-  }
-  else if (input.source?.kind === "custom") {
-    if (c.env.CUSTOM_SOURCES_ENABLED !== "true") return c.json({ error: "Custom sources are not enabled." }, 404);
-    const currentResponse = await tenant(c, session.tenantId).fetch(`https://tenant/pipes/${encodeURIComponent(pipeId)}`);
-    if (!currentResponse.ok) return currentResponse;
-    const current = await currentResponse.json() as { flow: { source_config?: string } };
-    let previous: CustomSource | undefined;
-    try { const source = JSON.parse(current.flow.source_config ?? "{}"); if (source.kind === "custom") previous = source; } catch { /* fail closed */ }
-    const valid = validateCustomHandler(input.source.origin, input.source.handlerName, input.source.handlerCode);
-    input.source = await prepareCustomHandler(session.tenantId, pipeId, { kind: "custom", ...valid }, previous);
-  }
-  return tenant(c, session.tenantId).fetch(`https://tenant/pipes/${encodeURIComponent(pipeId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
-});
-app.delete("/api/pipes/:id", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const pipeId = c.req.param("id");
-  return tenant(c, session.tenantId).fetch(`https://tenant/pipes/${encodeURIComponent(pipeId)}`, { method: "DELETE" });
-});
-
-app.post("/api/custom-handlers/test", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  if (c.env.CUSTOM_SOURCES_ENABLED !== "true" || !c.env.CUSTOM_HANDLER_LOADER) return c.json({ error: "Custom sources are not enabled." }, 404);
-  const input = await c.req.json() as { origin?: unknown; handlerName?: unknown; handlerCode?: unknown; payload?: unknown };
-  const valid = validateCustomHandler(input.origin, input.handlerName, input.handlerCode);
-  const testId = `test-${crypto.randomUUID()}`;
-  const source = await prepareCustomHandler(session.tenantId, testId, { kind: "custom", ...valid });
-  return c.json(await invokeCustomHandler(c.env.CUSTOM_HANDLER_LOADER, source, input.payload));
-});
-
-app.post("/api/pipes/:id/cloudflare-tail/test", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/cloudflare-tail/${encodeURIComponent(c.req.param("id"))}/test`, { method: "POST" });
-});
-
-app.post("/webhooks/cloudflare/:tenantId/:flowId", async (c) => {
+app.post("/webhooks/cloudflare/:tenantId/:jobId", async (c) => {
   const raw = await c.req.text();
   if (new TextEncoder().encode(raw).byteLength > 262_144) return c.text("Payload too large", 413);
-  return tenant(c, c.req.param("tenantId")).fetch(`https://tenant/webhook/cloudflare/${encodeURIComponent(c.req.param("flowId"))}`, {
+  return tenant(c, c.req.param("tenantId")).fetch(`https://tenant/webhook/cloudflare/${encodeURIComponent(c.req.param("jobId"))}`, {
     method: "POST", headers: { "Content-Type": "application/json", "X-Factorize-Timestamp": c.req.header("X-Factorize-Timestamp") ?? "", "X-Factorize-Delivery": c.req.header("X-Factorize-Delivery") ?? "", "X-Factorize-Signature": c.req.header("X-Factorize-Signature") ?? "" }, body: raw,
   });
-});
-
-app.post("/webhooks/custom/:tenantId/:jobId", async (c) => {
-  return tenant(c, c.req.param("tenantId")).fetch(`https://tenant/webhook/custom/${encodeURIComponent(c.req.param("jobId"))}`, { method: "POST", headers: c.req.raw.headers, body: await c.req.text() });
 });
 
 app.post("/webhooks/linear", async (c) => {
@@ -379,35 +282,6 @@ const render = (page: string, nonce: string) => page.replaceAll("<script>", `<sc
 app.get("/", async (c) => {
   const session = await owner(c);
   return c.html(render(landingPage(session ? { email: session.email } : null), c.get("cspNonce")));
-});
-app.get("/flows/new", async (c) => {
-  const session = await owner(c);
-  return c.html(render(flowPage(session ? { email: session.email } : null), c.get("cspNonce")));
-});
-app.get("/flows", async (c) => {
-  const session = await owner(c);
-  if (!session) return c.redirect("/auth/linear");
-  return c.html(render(flowsPage({ email: session.email }), c.get("cspNonce")));
-});
-app.get("/flows/:id", async (c) => {
-  const session = await owner(c);
-  if (!session) return c.redirect("/auth/linear");
-  return c.html(render(flowDetailPage({ email: session.email }, c.req.param("id")), c.get("cspNonce")));
-});
-app.get("/flows/:id/edit", async (c) => {
-  const session = await owner(c);
-  if (!session) return c.redirect("/auth/linear");
-  return c.html(render(flowPage({ email: session.email }, c.req.param("id")), c.get("cspNonce")));
-});
-app.get("/flows/:id/webhooks", async (c) => {
-  const session = await owner(c);
-  if (!session) return c.redirect("/auth/linear");
-  return c.html(render(flowWebhooksPage({ email: session.email }, c.req.param("id")), c.get("cspNonce")));
-});
-app.get("/runs/:id", async (c) => {
-  const session = await owner(c);
-  if (!session) return c.redirect("/auth/linear");
-  return c.html(render(runDetailPage({ email: session.email }, c.req.param("id")), c.get("cspNonce")));
 });
 app.get("/jobs", async (c) => { const session = await owner(c); return session ? c.html(render(jobsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
 app.get("/jobs/new", async (c) => { const session = await owner(c); return session ? c.html(render(jobPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });

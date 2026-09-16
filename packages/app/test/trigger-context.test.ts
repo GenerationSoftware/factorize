@@ -3,7 +3,8 @@ import { reflectTriggerContext, triggerContextCatalog } from "../src/trigger-con
 
 describe("trigger context reflection", () => {
   it("defines typed nested paths for every built-in kind and provider", () => {
-    expect(Object.keys(triggerContextCatalog)).toEqual(expect.arrayContaining(["manual", "schedule", "linear", "github", "cloudflareTail", "custom", "jobLifecycle"]));
+    expect(Object.keys(triggerContextCatalog)).toEqual(expect.arrayContaining(["manual", "schedule", "linear", "github", "cloudflareTail", "jobLifecycle"]));
+    expect(triggerContextCatalog).not.toHaveProperty("custom");
     for (const paths of Object.values(triggerContextCatalog)) {
       expect(paths.length).toBeGreaterThan(0);
       expect(paths.every(path => path.path && path.type && path.description)).toBe(true);

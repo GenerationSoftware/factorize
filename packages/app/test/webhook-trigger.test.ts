@@ -19,9 +19,9 @@ describe("webhook Job trigger adapters", () => {
   });
 
   it("validates optional handlers for every provider", () => {
-    for (const provider of ["linear", "github", "cloudflareTail", "custom"] as const) {
+    for (const provider of ["linear", "github", "cloudflareTail"] as const) {
       expect(() => validateWebhookHandler({ provider, handlerCode: "function handler(webhook) { return { id: webhook.id }; }" })).not.toThrow();
     }
-    expect(() => validateWebhookHandler({ provider: "custom", handlerCode: "return true" })).toThrow("complete function handler(webhook)");
+    expect(() => validateWebhookHandler({ provider: "linear", handlerCode: "return true" })).toThrow("complete function handler(webhook)");
   });
 });

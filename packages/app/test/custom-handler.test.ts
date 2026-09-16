@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CUSTOM_HANDLER_MAX_CODE_BYTES, customScriptName, invokeCustomHandler, userWorkerModule, validateCustomHandler } from "../src/custom-handler";
-import type { CustomSource } from "../src/types";
+import { invokeCustomHandler, userWorkerModule, validateHandlerCode } from "../src/custom-handler";
 
 describe("custom handlers", () => {
   const runAdapter = async (body: string) => {
@@ -11,25 +10,10 @@ describe("custom handlers", () => {
   };
 
   it("accepts only the complete synchronous function contract", () => {
-    expect(validateCustomHandler("linear", "Issues", "function handler(webhook) { return webhook.type === 'Issue'; }").origin).toBe("linear");
+    expect(validateHandlerCode("function handler(webhook) { return webhook.type === 'Issue'; }")).toContain("function handler");
     for (const code of ["return true", "const handler = () => true", "async function handler(webhook) { return true; }", "function other(webhook) { return true; }"]) {
-      expect(() => validateCustomHandler("linear", "x", code)).toThrow("complete function handler(webhook)");
+      expect(() => validateHandlerCode(code)).toThrow("complete function handler(webhook)");
     }
-  });
-
-  it("enforces origin, name, and source size limits", () => {
-    expect(validateCustomHandler("cloudflare", "Tail failures", "function handler(webhook) { return webhook.outcome === 'exception'; }").origin).toBe("cloudflare");
-    expect(() => validateCustomHandler("slack", "x", "function handler(webhook) { return true; }")).toThrow("Linear, GitHub, or Cloudflare");
-    expect(() => validateCustomHandler("github", "", "function handler(webhook) { return true; }")).toThrow("Handler name");
-    expect(() => validateCustomHandler("github", "x", `function handler(webhook) { /*${"x".repeat(CUSTOM_HANDLER_MAX_CODE_BYTES)}*/ return true; }`)).toThrow("at most");
-  });
-
-  it("uses opaque stable names isolated by tenant and flow", async () => {
-    const first = await customScriptName("tenant-a", "flow-a");
-    expect(first).toMatch(/^fh-[a-f0-9]{40}$/);
-    expect(first).toBe(await customScriptName("tenant-a", "flow-a"));
-    expect(first).not.toBe(await customScriptName("tenant-b", "flow-a"));
-    expect(first).not.toContain("tenant");
   });
 
   it("pins an adapter that rejects thenables and invalid return types without exposing errors", () => {
@@ -52,13 +36,7 @@ describe("custom handlers", () => {
         };
       },
     } as unknown as WorkerLoader;
-    const source: CustomSource = {
-      kind: "custom",
-      origin: "github",
-      handlerName: "isolated",
-      handlerCode: "function handler(webhook) { return true; }",
-      handlerDeployment: { scriptName: "fh-0000000000000000000000000000000000000000", codeDigest: "0".repeat(64), state: "ready" },
-    };
+    const source = { handlerCode: "function handler(webhook) { return true; }" };
 
     await expect(invokeCustomHandler(loader, source, {})).resolves.toEqual({ ok: true, decision: true });
     expect(loaded?.env).toEqual({});
