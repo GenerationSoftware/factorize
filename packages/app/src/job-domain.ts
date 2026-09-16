@@ -167,6 +167,12 @@ export const JOB_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS job_runs_queue ON job_runs(state, created_at);
   CREATE INDEX IF NOT EXISTS job_runs_active ON job_runs(job_id, state);
+  CREATE TABLE IF NOT EXISTS job_events (
+    id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL, delivery_id TEXT NOT NULL, outcome TEXT NOT NULL,
+    detail TEXT NOT NULL, received_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS job_events_by_job ON job_events(job_id, received_at DESC);
   CREATE TABLE IF NOT EXISTS schedule_state (
     trigger_id TEXT PRIMARY KEY REFERENCES triggers(id) ON DELETE CASCADE,
     job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,

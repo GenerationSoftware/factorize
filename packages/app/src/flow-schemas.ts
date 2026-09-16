@@ -31,13 +31,22 @@ export const listEventsSchema = z.object({
 });
 
 const stringRecordSchema = z.record(z.string(), z.string());
+const webhookCommonSchema = z.object({
+  context: z.string().max(50_000).optional(), parameters: stringRecordSchema.default({}),
+});
+export const webhookTriggerConfigSchema = z.discriminatedUnion("provider", [
+  webhookCommonSchema.extend({ provider: z.literal("linear"), projectId: z.string().min(1), matchRules: z.array(matchRuleSchema).min(1) }).strict(),
+  webhookCommonSchema.extend({ provider: z.literal("github"), installationId: z.number().int().positive(), repositoryId: z.number().int().positive(), event: z.string().min(1).default("pull_request"), action: z.string().min(1).default("dequeued") }).strict(),
+  webhookCommonSchema.extend({ provider: z.literal("cloudflareTail"), signingSecret: z.string().min(16), handlerCode: z.string().max(16_384).optional() }).strict(),
+  webhookCommonSchema.extend({ provider: z.literal("custom"), secret: z.string().min(16).optional() }).strict(),
+]);
 export const triggerSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("manual"), config: z.object({}).strict().default({}) }).strict(),
   z.object({ kind: z.literal("schedule"), config: z.object({
     cron: z.string().trim().min(1), timezone: z.string().trim().min(1),
     context: z.string().max(50_000).optional(), parameters: stringRecordSchema.default({}),
   }).strict() }).strict(),
-  z.object({ kind: z.literal("webhook"), config: z.record(z.string(), z.unknown()) }).strict(),
+  z.object({ kind: z.literal("webhook"), config: webhookTriggerConfigSchema }).strict(),
 ]);
 export const jobInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
