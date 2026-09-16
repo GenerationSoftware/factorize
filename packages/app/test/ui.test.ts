@@ -128,6 +128,17 @@ describe("pages", () => {
     expect(html).toContain("setAttribute('aria-current','page')");
   });
 
+  it("edits complete Linear AND rule sets in the current job editor", () => {
+    const html = jobPage({ email: "owner@example.com" });
+    expect(html).toContain('id="linear-rules"');
+    expect(html).toContain('id="add-linear-rule"');
+    expect(html).toContain("status:'Status',label:'Label',assignee:'Assignee',creator:'Creator',owner:'Owner'");
+    expect(html).toContain("matchRules:readLinearRules()");
+    expect(html).toContain("(c.matchRules?.length?c.matchRules:");
+    expect(html).not.toContain("const legacyJobPage");
+    expectInlineScriptsToParse(html);
+  });
+
   it("aligns Settings with the Jobs page width and gutters", () => {
     const settings = settingsPage({ email: "owner@example.com" });
     expect(settings).toContain('<main class="mx-auto max-w-6xl px-5 py-12 lg:px-8">');

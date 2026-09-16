@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { matchingIssue } from "../src/matcher";
 
-const statusFlow = { projectId: "project-1", filterType: "status" as const, filterTargetId: "todo" };
+const ruleFlow = (type: "status" | "label", targetId: string) => ({ projectId: "project-1", matchRules: [{ type, targetId }] });
+const statusFlow = ruleFlow("status", "todo");
 
 describe("flow webhook matching", () => {
   it("queues a newly created issue in the selected status", () => {
@@ -19,31 +20,31 @@ describe("flow webhook matching", () => {
   });
 
   it("queues a new issue that already has the selected label", () => {
-    const labelFlow = { projectId: "project-1", filterType: "label" as const, filterTargetId: "bug" };
+    const labelFlow = ruleFlow("label", "bug");
     const event = { type: "Issue", action: "create", data: { id: "issue-1", project: { id: "project-1" }, labels: [{ id: "bug" }] } };
     expect(matchingIssue(event, labelFlow)).toBe("issue-1");
   });
 
   it("queues an existing issue as soon as the selected label is added", () => {
-    const labelFlow = { projectId: "project-1", filterType: "label" as const, filterTargetId: "bug" };
+    const labelFlow = ruleFlow("label", "bug");
     const event = { type: "IssueLabel", action: "create", data: { issueId: "issue-1", issue: { project: { id: "project-1" } }, labelId: "bug" } };
     expect(matchingIssue(event, labelFlow)).toBe("issue-1");
   });
 
   it("queues an issue when Linear reports a label addition as an Issue update", () => {
-    const labelFlow = { projectId: "project-1", filterType: "label" as const, filterTargetId: "odds-n-ends" };
+    const labelFlow = ruleFlow("label", "odds-n-ends");
     const event = { type: "Issue", action: "update", data: { id: "issue-1", project: { id: "project-1" }, labels: [{ id: "odds-n-ends" }] }, updatedFrom: { labelIds: [] } };
     expect(matchingIssue(event, labelFlow)).toBe("issue-1");
   });
 
   it("does not rerun a label flow for an unrelated Issue update", () => {
-    const labelFlow = { projectId: "project-1", filterType: "label" as const, filterTargetId: "odds-n-ends" };
+    const labelFlow = ruleFlow("label", "odds-n-ends");
     const event = { type: "Issue", action: "update", data: { id: "issue-1", project: { id: "project-1" }, labels: [{ id: "odds-n-ends" }] }, updatedFrom: { title: "Old title" } };
     expect(matchingIssue(event, labelFlow)).toBeNull();
   });
 
   it("matches Linear's serialized IssueLabel record after its issue project is resolved", () => {
-    const labelFlow = { projectId: "project-1", filterType: "label" as const, filterTargetId: "odds-n-ends-id" };
+    const labelFlow = ruleFlow("label", "odds-n-ends-id");
     const event = { type: "IssueLabel", action: "create", data: { id: "issue-label-1", issueId: "issue-1", labelId: "odds-n-ends-id", issue: { id: "issue-1", project: { id: "project-1" } } } };
     expect(matchingIssue(event, labelFlow)).toBe("issue-1");
   });

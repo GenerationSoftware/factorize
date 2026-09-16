@@ -61,10 +61,7 @@ export interface PipeInput {
   flowId?: string;
   projectId?: string;
   /** At least one rule is required. All rules must match the issue. */
-  matchRules?: MatchRule[];
-  /** Legacy single-rule input, retained so existing API clients keep working. */
-  filterType?: FilterType;
-  filterTargetId?: string;
+  matchRules: MatchRule[];
   maxConcurrency: number;
   workspaceName?: string;
   /** Mustache template rendered with the Linear webhook payload for each run. */
