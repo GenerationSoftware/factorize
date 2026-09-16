@@ -30,6 +30,7 @@ export type OAuthProps = {
   userId: string;
   sessionVersion: number;
   scopes: string[];
+  accessTokenId?: string;
 };
 
 export type CustomOrigin = "linear" | "github" | "cloudflare";
