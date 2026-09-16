@@ -86,3 +86,5 @@ export interface ExeConnectionInput {
   /** Arguments passed to Herdr's canonical executable for the selected kind. */
   agentCommand?: string;
 }
+
+export interface AmpConnectionInput { connectionId?: string; accessToken: string; project: string; apiBaseUrl?: string; }

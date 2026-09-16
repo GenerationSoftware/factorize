@@ -5,13 +5,14 @@ import { agentListCommand, agentOutputCommand, agentStartupBlocked, agentStatusC
 import { findOwnedAgent, ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, isLinearAuthenticationError, refreshLinearToken } from "./linear";
 import { matchingIssue } from "./matcher";
-import type { Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunState } from "./types";
+import type { AmpConnectionInput, Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunState } from "./types";
 import { workingDirectoryFor, workspaceNameFor } from "./workspace";
 import { githubClaimKey, githubHeaders, installationToken, normalizeRepository, renderGitHubPrompt } from "./github";
 import type { FlowSource, WorkItem } from "./types";
 import { invokeCustomHandler, validateCustomHandler } from "./custom-handler";
 import { sanitizeTailEvent, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
 import { ExeHerdrBackend } from "./exe-herdr-backend";
+import { AmpBackend, type AmpConnection } from "./amp-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 import { renderSourcePrompt } from "./source-lifecycle";
 import { JOB_SCHEMA, renderJobPrompt } from "./job-domain";
@@ -128,6 +129,8 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "PUT" && url.pathname === "/connections/linear") return await this.saveLinear(await request.json());
       if (request.method === "PUT" && url.pathname === "/connections/exe") return await this.saveExe(await request.json());
       if (request.method === "POST" && url.pathname === "/connections/exe/test") return await this.testExe(await request.json());
+      if (request.method === "PUT" && url.pathname === "/connections/amp") return await this.saveAmp(await request.json());
+      if (request.method === "POST" && url.pathname === "/connections/amp/test") return await this.testAmp(await request.json());
       if (request.method === "POST" && url.pathname === "/pipes") return await this.createPipe(await request.json() as PipeInput);
       if (request.method === "PUT" && url.pathname.startsWith("/pipes/")) return await this.updatePipe(url.pathname.split("/")[2] ?? "", await request.json() as PipeInput);
       if (request.method === "DELETE" && url.pathname.startsWith("/pipes/")) return this.deletePipe(url.pathname.split("/")[2] ?? "");
@@ -161,7 +164,7 @@ export class Tenant extends DurableObject<Env> {
     await this.processDueSchedules();
     // Release completed slots before looking at the queue, so capacity is used
     // immediately rather than waiting for the next polling alarm.
-    const running = this.rows("SELECT * FROM runs WHERE state IN ('running','blocked','recovering') ORDER BY updated_at LIMIT 40");
+    const running = this.rows("SELECT * FROM runs WHERE state IN ('starting','running','blocked','recovering') ORDER BY updated_at LIMIT 40");
     for (const run of running) await this.pollRun(run);
     const queued = this.rows("SELECT * FROM runs WHERE state = 'queued' ORDER BY created_at LIMIT 20");
     for (const run of queued) {
@@ -215,6 +218,23 @@ export class Tenant extends DurableObject<Env> {
     return json({ ok: result.ok && (result.exitCode === null || result.exitCode === 0), httpStatus: result.status, exitCode: result.exitCode, command: result.requestBody, output: result.body });
   }
 
+  private async saveAmp(input: unknown): Promise<Response> {
+    const value = input as AmpConnectionInput;
+    if (!value.accessToken || !value.project) throw new Error("Amp access token and project are required");
+    if (!await new AmpBackend(value).test()) throw new Error("Amp connection verification failed");
+    const connectionId = value.connectionId || id();
+    await this.putConnection(`amp:${connectionId}`, value);
+    return json({ ok: true, connectionId });
+  }
+
+  private async testAmp(input: unknown): Promise<Response> {
+    const supplied = input as Partial<AmpConnectionInput>;
+    const saved = supplied.connectionId ? await this.connection<AmpConnection>(`amp:${supplied.connectionId}`) : null;
+    const connection = supplied.accessToken ? supplied as AmpConnection : saved;
+    if (!connection?.accessToken || !connection.project) throw new Error("Amp access token and project are required");
+    return json({ ok: await new AmpBackend(connection).test() });
+  }
+
   private async createPipe(input: PipeInput): Promise<Response> {
     const source = await this.validateSource(input);
     const rules = source.kind === "linear" ? source.matchRules : [{ type: "status", targetId: source.kind } as MatchRule];
@@ -262,16 +282,19 @@ export class Tenant extends DurableObject<Env> {
     const linear = await this.connection<{ organizationName?: string }>("linear");
     const connections = await this.exeConnections();
     const exe = await this.connection<ExeConnectionInput>("exe");
+    const ampConnections = await this.ampConnections();
     return json({
       linear: linear ? { organizationName: linear.organizationName ?? null } : null,
       exe: exe ? { vmName: exe.vmName, agentKind: exe.agentKind, cwd: exe.cwd, herdrCommand: exe.herdrCommand ?? "herdr", agentCommand: exe.agentCommand ?? defaultAgentCommand(exe.agentKind) } : null,
       exeConnections: connections.map(({ apiToken, ...connection }) => connection),
+      ampConnections: ampConnections.map(({ accessToken, ...connection }) => connection),
     });
   }
 
   private async executionTargets(): Promise<Response> {
     const connections = await this.exeConnections();
-    return json(connections.map(connection => ({
+    const ampConnections = await this.ampConnections();
+    return json([...connections.map(connection => ({
       id: connection.connectionId,
       kind: "exe-herdr",
       name: connection.vmName,
@@ -279,7 +302,7 @@ export class Tenant extends DurableObject<Env> {
       cwd: connection.cwd,
       agentKind: connection.agentKind,
       capabilities: ["output", "prompt-delivery", "recovery", "stop"],
-    })));
+    })), ...ampConnections.map(connection => ({ id: `amp:${connection.connectionId}`, kind: "amp", name: `Amp · ${connection.project}`, workspace: connection.project, cwd: "Cloud orb", agentKind: "Amp", capabilities: ["stop"] }))]);
   }
 
   private triggerFor(jobId: unknown): Row | undefined { return this.one("SELECT * FROM triggers WHERE job_id = ?", jobId) as Row | undefined; }
@@ -291,7 +314,7 @@ export class Tenant extends DurableObject<Env> {
     if (!job) return undefined;
     let target: Record<string, unknown> = {};
     try { target = JSON.parse(String(job.execution_target)); } catch { return undefined; }
-    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: target.workspace, agent_kind: target.agentKind, cwd: target.cwd, exe_connection_id: target.connectionId, enabled: job.enabled };
+    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: target.workspace, agent_kind: target.agentKind, cwd: target.cwd, execution_backend_kind: target.backendKind ?? "exe-herdr", execution_connection_id: target.connectionId, exe_connection_id: target.connectionId, enabled: job.enabled };
   }
 
   private async publicJob(row: Row): Promise<Record<string, unknown>> {
@@ -309,7 +332,7 @@ export class Tenant extends DurableObject<Env> {
       id: row.id, name: row.name,
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
       parameterDefaults, concurrencyLimit: Number(row.concurrency_limit),
-      executionTargetId: String(executionTarget.connectionId ?? ""),
+      executionTargetId: `${executionTarget.backendKind === "amp" ? "amp:" : ""}${String(executionTarget.connectionId ?? "")}`,
       trigger: { kind: String(trigger?.kind ?? "manual"), config: triggerConfig, activity: { count: Number(activity?.count ?? 0), lastReceivedAt: activity?.last_received_at ?? null },
         ...(trigger?.kind === "schedule" ? (() => { const state = this.one("SELECT next_run_at,last_triggered_at FROM schedule_state WHERE job_id=?", row.id) as Row | undefined; return { nextRunAt: state?.next_run_at == null ? null : new Date(Number(state.next_run_at)).toISOString(), lastTriggeredAt: state?.last_triggered_at ?? null }; })() : {}) },
       enabled: Boolean(row.enabled), createdAt: row.created_at, updatedAt: row.updated_at,
@@ -318,9 +341,14 @@ export class Tenant extends DurableObject<Env> {
 
   private async jobTarget(targetId: unknown): Promise<Record<string, string>> {
     if (typeof targetId !== "string" || !targetId) throw new Error("Execution target is required");
+    if (targetId.startsWith("amp:")) {
+      const connectionId = targetId.slice(4), target = (await this.ampConnections()).find(item => item.connectionId === connectionId);
+      if (!target) throw new Error("Execution target not found");
+      return { connectionId, backendKind: "amp", workspace: target.project, cwd: "", agentKind: "Amp" };
+    }
     const target = (await this.exeConnections()).find(item => item.connectionId === targetId);
     if (!target) throw new Error("Execution target not found");
-    return { connectionId: target.connectionId, workspace: target.vmName, cwd: target.cwd, agentKind: target.agentKind };
+    return { connectionId: target.connectionId, backendKind: "exe-herdr", workspace: target.vmName, cwd: target.cwd, agentKind: target.agentKind };
   }
 
   private validateJobInput(input: any): void {
@@ -410,7 +438,8 @@ export class Tenant extends DurableObject<Env> {
     let target: Record<string, unknown> = {};
     try { target = JSON.parse(String(row.execution_target)); } catch { /* validated when the job is saved */ }
     const provider = source === "webhook" ? String((occurrence as any)?.metadata?.provider ?? "webhook") : source;
-    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", provider, "exe-herdr", JSON.stringify(["output", "prompt-delivery", "recovery", "stop"]), "https://exe.dev/", timestamp, timestamp);
+    const backendKind = String(target.backendKind ?? "exe-herdr"), capabilities = backendKind === "amp" ? ["stop"] : ["output", "prompt-delivery", "recovery", "stop"];
+    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", provider, backendKind, JSON.stringify(capabilities), backendKind === "amp" ? null : "https://exe.dev/", timestamp, timestamp);
     await this.ctx.storage.setAlarm(Date.now());
     return { invocationId, runId, state: "queued", duplicate: false };
   }
@@ -579,12 +608,21 @@ export class Tenant extends DurableObject<Env> {
     if (["starting", "running", "blocked", "recovering"].includes(String(run.state))) {
       const pipe = this.executionConfig(run.pipe_id);
       if (pipe) {
+        if (String(pipe.execution_backend_kind) === "amp") {
+          const connection = await this.connection<AmpConnection>(`amp:${String(pipe.execution_connection_id)}`);
+          if (!connection) return Response.json({ error: "Amp connection is unavailable" }, { status: 502 });
+          const backend = new AmpBackend(connection);
+          this.ctx.storage.sql.exec("UPDATE runs SET state='stopping',updated_at=? WHERE id=?", now(), runId);
+          const stopped = await backend.stop(this.executionHandle(run, backend.kind));
+          if (stopped.state !== "stopped") return Response.json({ error: "Could not stop the Amp run" }, { status: 502 });
+        } else {
         const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
         if (connection && run.agent_name) {
           const backend = new ExeHerdrBackend(connection);
           this.ctx.storage.sql.exec("UPDATE runs SET state='stopping',updated_at=? WHERE id=?", now(), runId);
           const stopped = await backend.stop(this.executionHandle(run, backend.kind));
           if (stopped.state !== "stopped") return Response.json({ error: "Could not stop the active agent" }, { status: 502 });
+        }
         }
       }
     }
@@ -869,6 +907,16 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async startRun(run: Row, pipe: Row): Promise<void> {
+    if (String(pipe.execution_backend_kind) === "amp") {
+      const connection = await this.connection<AmpConnection>(`amp:${String(pipe.execution_connection_id)}`);
+      if (!connection) return this.finishRun(run, "failed", "Amp connection is unavailable.");
+      const backend = new AmpBackend(connection), prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
+      try {
+        const launched = await backend.launch({ runId: String(run.id), prompt });
+        this.ctx.storage.sql.exec("UPDATE runs SET state=?,execution_backend_kind=?,execution_handle=?,execution_capabilities=?,destination_url=?,prompt_delivery_state='accepted',prompt_accepted=1,updated_at=? WHERE id=?", launched.observation.state, backend.kind, JSON.stringify(launched.handle), JSON.stringify(launched.capabilities), launched.destinationUrl, now(), run.id);
+      } catch (error) { return this.finishRun(run, "failed", error instanceof Error ? error.message : "Amp launch failed."); }
+      return;
+    }
     const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "No exe.dev VM is connected.");
     const workspaceName = String(run.workspace_name || pipe.workspace_name || workspaceNameFor(String(pipe.name)));
@@ -906,6 +954,21 @@ export class Tenant extends DurableObject<Env> {
   private async pollRun(run: Row): Promise<void> {
     const pipe = this.executionConfig(run.pipe_id);
     if (!pipe) return this.finishRun(run, "failed", "Job configuration is unavailable.");
+    if (String(pipe.execution_backend_kind) === "amp") {
+      const connection = await this.connection<AmpConnection>(`amp:${String(pipe.execution_connection_id)}`);
+      if (!connection) return this.finishRun(run, "failed", "Amp connection is unavailable.");
+      const backend = new AmpBackend(connection), observation = await backend.inspect(this.executionHandle(run, backend.kind));
+      if (observation.state === "succeeded") return this.finishRun(run, "done", "Completed in Amp. Open the Amp thread for output.");
+      if (observation.state === "failed") return this.finishRun(run, "failed", observation.detail ?? "Amp run failed.");
+      if (observation.state === "stopped") {
+        this.ctx.storage.sql.exec("UPDATE runs SET state='stopped',updated_at=? WHERE id=?", now(), run.id);
+        this.ctx.storage.sql.exec("UPDATE job_runs SET state='cancelled',updated_at=? WHERE id=?", now(), run.id);
+        this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id=?", run.id);
+        return;
+      }
+      this.ctx.storage.sql.exec("UPDATE runs SET state=?,updated_at=? WHERE id=?", observation.state, now(), run.id);
+      return;
+    }
     const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "exe.dev connection is unavailable.");
     if (String(run.state) === "recovering") return this.recoverRun(run, pipe, connection);
@@ -1129,6 +1192,11 @@ export class Tenant extends DurableObject<Env> {
     if (connections.length) return connections;
     const legacy = await this.connection<ExeConnection>("exe");
     return legacy ? [{ ...legacy, connectionId: "default" }] : [];
+  }
+
+  private async ampConnections(): Promise<Array<AmpConnection & { connectionId: string }>> {
+    const rows = this.rows("SELECT kind, value FROM connections WHERE kind LIKE 'amp:%' ORDER BY updated_at DESC");
+    return Promise.all(rows.map(async row => ({ ...(JSON.parse(await decrypt(String(row.value), this.env.CREDENTIAL_ENCRYPTION_KEY)) as AmpConnection), connectionId: String(row.kind).slice(4) })));
   }
 
   private async connectionForPipe(pipe: Row): Promise<ExeConnection | null> {

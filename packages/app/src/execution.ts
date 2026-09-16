@@ -1,5 +1,5 @@
 export type ExecutionState = "queued" | "starting" | "running" | "blocked" | "stopping" | "stopped" | "succeeded" | "failed";
-export type ExecutionCapability = "output" | "prompt-delivery" | "recovery";
+export type ExecutionCapability = "output" | "prompt-delivery" | "recovery" | "stop";
 export type PromptDeliveryState = "pending" | "submitting" | "accepted" | "ambiguous" | "failed";
 
 export interface BackendCommandResult {
