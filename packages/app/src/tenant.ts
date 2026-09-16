@@ -3,7 +3,7 @@ import Mustache from "mustache";
 import { decrypt, encrypt } from "./crypto";
 import { agentListCommand, agentOutputCommand, agentStartupBlocked, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, garbageCollectPaneCommand, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, validateWorktreeLeaseCommand, type ExeConnection } from "./exe";
 import { findOwnedAgent, ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
-import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, refreshLinearToken } from "./linear";
+import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, isLinearAuthenticationError, refreshLinearToken } from "./linear";
 import { matchingIssue } from "./matcher";
 import type { Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunState } from "./types";
 import { workingDirectoryFor, workspaceNameFor } from "./workspace";
@@ -789,8 +789,7 @@ export class Tenant extends DurableObject<Env> {
       return { response, payload };
     };
     let result = await request(token);
-    const message = result.payload.errors?.[0]?.message;
-    if ((result.response.status === 401 || /authentication required|not authenticated/i.test(message ?? ""))) {
+    if (isLinearAuthenticationError(result.response.status, result.payload.errors)) {
       const refreshed = await this.refreshLinearAccessToken(token);
       result = await request(refreshed);
     }

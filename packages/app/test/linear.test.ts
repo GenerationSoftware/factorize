@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, refreshLinearToken } from "../src/linear";
+import { LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, isLinearAuthenticationError, refreshLinearToken } from "../src/linear";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -17,6 +17,18 @@ describe("Linear queries", () => {
       expect(query.match(/first:/g)).toHaveLength(1);
       expect(query).not.toContain("projects");
     }
+  });
+
+  it("recognizes Linear's expired-token response variants", () => {
+    expect(isLinearAuthenticationError(401, undefined)).toBe(true);
+    expect(isLinearAuthenticationError(200, [{ message: "Authentication required, not authenticated" }])).toBe(true);
+    expect(isLinearAuthenticationError(200, [{ message: "The access token has expired" }])).toBe(true);
+    expect(isLinearAuthenticationError(200, [{ extensions: { code: "UNAUTHENTICATED" } }])).toBe(true);
+  });
+
+  it("does not refresh for unrelated Linear errors", () => {
+    expect(isLinearAuthenticationError(200, [{ message: "Query too complex", extensions: { code: "BAD_USER_INPUT" } }])).toBe(false);
+    expect(isLinearAuthenticationError(403, [{ message: "You do not have permission" }])).toBe(false);
   });
 
   it("exchanges a refresh token for a fresh Linear token pair", async () => {
