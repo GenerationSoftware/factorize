@@ -184,6 +184,17 @@ describe("pages", () => {
     expect(settings).not.toContain('<main class="mx-auto max-w-4xl');
   });
 
+  it("separates available providers from installed integration management", () => {
+    const settings = settingsPage({ email: "owner@example.com" });
+    expect(settings.indexOf("Available integrations")).toBeLessThan(settings.indexOf("Installed integrations"));
+    expect(settings).toContain('id="installed-loading"');
+    expect(settings).toContain('id="installed-empty"');
+    expect(settings).toContain('data-open-setup="exe"');
+    expect(settings).toContain('data-disconnect-github=');
+    expect(settings).toContain("Reconnect");
+    expect(settings).toContain("Configure");
+  });
+
   it("renders the complete jobs dashboard experience", () => {
     const list = jobsPage({ email: "owner@example.com" });
     const editor = jobPage({ email: "owner@example.com" }, "job-1");
@@ -214,9 +225,9 @@ describe("pages", () => {
     expect(settings).toContain("Connect every provider used by your Jobs");
     expect(settings).toContain("Linear");
     expect(settings).toContain("GitHub App");
-    expect(settings).toContain("Exe.dev execution");
-    expect(settings).toContain("Amp cloud execution");
-    expect(settings).toContain("Not connected");
+    expect(settings).toContain("Connect Exe.dev");
+    expect(settings).toContain("Connect Amp");
+    expect(settings).toContain("No integrations installed");
     expect(settings).toContain("Action required");
     expect(settings).toContain("Unavailable");
     expect(settings).toContain("write-only");
