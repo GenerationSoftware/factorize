@@ -42,12 +42,14 @@ export const webhookTriggerConfigSchema = z.discriminatedUnion("provider", [
   webhookCommonSchema.extend({ provider: z.literal("custom"), secret: z.string().min(16).optional() }).strict(),
 ]);
 export const triggerSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("manual"), config: z.object({}).strict().default({}) }).strict(),
-  z.object({ kind: z.literal("schedule"), config: z.object({
+  z.object({ id: z.string().min(1).optional(), kind: z.literal("schedule"), enabled: z.boolean().default(true), config: z.object({
     cron: z.string().trim().min(1), timezone: z.string().trim().min(1),
     context: z.string().max(50_000).optional(), parameters: stringRecordSchema.default({}),
   }).strict() }).strict(),
-  z.object({ kind: z.literal("webhook"), config: webhookTriggerConfigSchema }).strict(),
+  z.object({ id: z.string().min(1).optional(), kind: z.literal("webhook"), enabled: z.boolean().default(true), config: webhookTriggerConfigSchema }).strict(),
+  z.object({ id: z.string().min(1).optional(), kind: z.literal("jobLifecycle"), enabled: z.boolean().default(true), config: z.object({
+    sourceJobIds: z.array(z.string().min(1)).min(1), states: z.array(z.enum(["succeeded", "failed", "stopped"])).min(1),
+  }).strict() }).strict(),
 ]);
 export const jobInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -55,7 +57,7 @@ export const jobInputSchema = z.object({
   parameterDefaults: stringRecordSchema.default({}),
   concurrencyLimit: z.number().int().min(1).max(50).default(1),
   executionTargetId: z.string().min(1),
-  trigger: triggerSchema,
+  triggers: z.array(triggerSchema).max(50).default([]),
 }).strict().superRefine((value, ctx) => {
   if (Object.prototype.hasOwnProperty.call(value.parameterDefaults, "context")) ctx.addIssue({ code: "custom", path: ["parameterDefaults", "context"], message: "context is reserved" });
 });

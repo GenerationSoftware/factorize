@@ -46,7 +46,7 @@ describe("FlowService", () => {
       requests.push(`${request.method} ${path}`);
       return Response.json({ ok: true });
     }), { ...auth, scopes: ["flows:read", "flows:write", "runs:write"] });
-    await service.createJob({ name: "Manual", promptTemplate: "{{context}}", parameterDefaults: {}, concurrencyLimit: 1, executionTargetId: "target-1", trigger: { kind: "manual", config: {} } });
+    await service.createJob({ name: "Manual", promptTemplate: "{{context}}", parameterDefaults: {}, concurrencyLimit: 1, executionTargetId: "target-1", triggers: [] });
     await service.invokeJob("job-1", { parameters: {}, idempotencyKey: "client-1" });
     expect(requests).toEqual(["POST /v1/jobs", "POST /v1/jobs/job-1/invocations"]);
   });
@@ -66,8 +66,8 @@ describe("shared API schemas", () => {
   });
 
   it("validates job configuration and reserved invocation context", () => {
-    const job = jobInputSchema.parse({ name: "Deploy", promptTemplate: "Deploy {{environment}}: {{context}}", parameterDefaults: { environment: "staging" }, concurrencyLimit: 2, executionTargetId: "exe-1", trigger: { kind: "schedule", config: { cron: "0 * * * *", timezone: "UTC" } } });
-    expect(job.trigger.kind).toBe("schedule");
+    const job = jobInputSchema.parse({ name: "Deploy", promptTemplate: "Deploy {{environment}}: {{context}}", parameterDefaults: { environment: "staging" }, concurrencyLimit: 2, executionTargetId: "exe-1", triggers: [{ kind: "schedule", config: { cron: "0 * * * *", timezone: "UTC" } }, { kind: "jobLifecycle", config: { sourceJobIds: ["worker"], states: ["succeeded", "failed"] } }] });
+    expect(job.triggers.map(trigger => trigger.kind)).toEqual(["schedule", "jobLifecycle"]);
     expect(() => jobInputSchema.parse({ ...job, apiToken: "secret" })).toThrow();
     expect(() => jobInputSchema.parse({ ...job, parameterDefaults: { context: "wrong" } })).toThrow();
     expect(() => manualInvocationSchema.parse({ parameters: { context: "wrong" } })).toThrow();

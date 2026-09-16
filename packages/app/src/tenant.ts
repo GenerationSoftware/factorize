@@ -90,6 +90,37 @@ export class Tenant extends DurableObject<Env> {
     this.ensureColumn("runs", "destination_url", "TEXT");
     for (const [column, definition] of Object.entries({ herdr_server_namespace: "TEXT NOT NULL DEFAULT 'default'", worktree_path: "TEXT", ownership_lease: "TEXT", ownership_generation: "INTEGER NOT NULL DEFAULT 0", agent_session_generation: "INTEGER NOT NULL DEFAULT 0", output_captured: "INTEGER NOT NULL DEFAULT 0", claim_released: "INTEGER NOT NULL DEFAULT 0", pane_collected: "INTEGER NOT NULL DEFAULT 0", worktree_disposition: "TEXT" })) this.ensureColumn("runs", column, definition);
     for (const [column, definition] of Object.entries({ herdr_workspace_id: "TEXT", herdr_pane_id: "TEXT", herdr_terminal_id: "TEXT", agent_session_source: "TEXT", agent_session_kind: "TEXT", agent_session_value: "TEXT", herdr_cwd: "TEXT", last_agent_status: "TEXT", recovery_attempt: "INTEGER NOT NULL DEFAULT 0", recovery_reason: "TEXT", recovery_started_at: "TEXT", recovery_last_action: "TEXT", recovery_next_at: "INTEGER", recovery_comment_started: "INTEGER NOT NULL DEFAULT 0", recovery_comment_finished: "INTEGER NOT NULL DEFAULT 0", prompt_accepted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_attempted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_accepted: "INTEGER NOT NULL DEFAULT 0" })) this.ensureColumn("runs", column, definition);
+    this.migrateSingularJobTriggers();
+  }
+
+  /** Rebuild v1 Job tables because SQLite cannot drop UNIQUE/CHECK constraints in place. */
+  private migrateSingularJobTriggers(): void {
+    const table = this.one("SELECT sql FROM sqlite_master WHERE type='table' AND name='triggers'") as Row | undefined;
+    if (!String(table?.sql ?? "").includes("job_id TEXT NOT NULL UNIQUE")) return;
+    this.ctx.storage.sql.exec(`
+      DROP TABLE IF EXISTS lifecycle_deliveries;
+      DROP TABLE IF EXISTS automatic_wakes;
+      ALTER TABLE schedule_state RENAME TO schedule_state_v1;
+      ALTER TABLE job_runs RENAME TO job_runs_v1;
+      ALTER TABLE invocations RENAME TO invocations_v1;
+      ALTER TABLE triggers RENAME TO triggers_v1;
+      ${JOB_SCHEMA}
+      INSERT INTO triggers(id,job_id,kind,enabled,config,created_at,updated_at)
+        SELECT id,job_id,kind,1,config,created_at,updated_at FROM triggers_v1 WHERE kind IN ('schedule','webhook');
+      INSERT INTO invocations(id,job_id,source,claim_key,context,parameters,occurrence,created_at)
+        SELECT id,job_id,source,claim_key,context,parameters,occurrence,created_at FROM invocations_v1;
+      INSERT INTO job_runs(id,job_id,invocation_id,state,encrypted_prompt,created_at,updated_at,started_at)
+        SELECT id,job_id,invocation_id,CASE state WHEN 'cancelled' THEN 'stopped' ELSE state END,encrypted_prompt,created_at,updated_at,started_at FROM job_runs_v1;
+      INSERT INTO schedule_state(trigger_id,job_id,next_run_at,last_triggered_at)
+        SELECT s.trigger_id,s.job_id,s.next_run_at,s.last_triggered_at FROM schedule_state_v1 s JOIN triggers t ON t.id=s.trigger_id;
+      DROP TABLE schedule_state_v1;
+      DROP TABLE job_runs_v1;
+      DROP TABLE invocations_v1;
+      DROP TABLE triggers_v1;
+      CREATE INDEX IF NOT EXISTS job_runs_queue ON job_runs(state, created_at);
+      CREATE INDEX IF NOT EXISTS job_runs_active ON job_runs(job_id, state);
+      CREATE INDEX IF NOT EXISTS schedules_due ON schedule_state(next_run_at);
+    `);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -305,7 +336,7 @@ export class Tenant extends DurableObject<Env> {
     })), ...ampConnections.map(connection => ({ id: `amp:${connection.connectionId}`, kind: "amp", name: `Amp · ${connection.project}`, workspace: connection.project, cwd: "Cloud orb", agentKind: "Amp", capabilities: ["stop"] }))]);
   }
 
-  private triggerFor(jobId: unknown): Row | undefined { return this.one("SELECT * FROM triggers WHERE job_id = ?", jobId) as Row | undefined; }
+  private triggersFor(jobId: unknown): Row[] { return this.rows("SELECT * FROM triggers WHERE job_id = ? ORDER BY created_at,id", jobId); }
 
   private executionConfig(value: unknown): Row | undefined {
     const pipe = this.one("SELECT * FROM pipes WHERE id = ?", value) as Row | undefined;
@@ -318,23 +349,26 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async publicJob(row: Row): Promise<Record<string, unknown>> {
-    const trigger = this.triggerFor(row.id);
-    let parameterDefaults: Record<string, string> = {}, executionTarget: Record<string, unknown> = {}, triggerConfig: Record<string, unknown> = {};
+    const triggers = this.triggersFor(row.id);
+    let parameterDefaults: Record<string, string> = {}, executionTarget: Record<string, unknown> = {};
     try { parameterDefaults = JSON.parse(String(row.parameter_defaults)); } catch { /* malformed internal state is presented safely */ }
     try { executionTarget = JSON.parse(String(row.execution_target)); } catch { /* malformed internal state is presented safely */ }
-    try { triggerConfig = JSON.parse(String(trigger?.config ?? "{}")); } catch { /* malformed internal state is presented safely */ }
-    if (trigger?.kind === "webhook") {
-      const rawConfig = triggerConfig as WebhookTriggerConfig;
-      triggerConfig = publicWebhookConfig(rawConfig);
-    }
     const activity = this.one("SELECT count(*) AS count,max(received_at) AS last_received_at FROM job_events WHERE job_id=?", row.id) as Row | undefined;
+    const publicTriggers = triggers.map(trigger => {
+      let config: Record<string, unknown> = {};
+      try { config = JSON.parse(String(trigger.config)); } catch { /* present malformed state safely */ }
+      if (trigger.kind === "webhook") config = publicWebhookConfig(config as WebhookTriggerConfig);
+      const runtime = trigger.kind === "schedule" ? this.one("SELECT next_run_at,last_triggered_at FROM schedule_state WHERE trigger_id=?", trigger.id) as Row | undefined : undefined;
+      return { id: trigger.id, kind: trigger.kind, enabled: Boolean(trigger.enabled), config, createdAt: trigger.created_at, updatedAt: trigger.updated_at,
+        activity: { count: Number(activity?.count ?? 0), lastReceivedAt: activity?.last_received_at ?? null },
+        ...(runtime ? { nextRunAt: runtime.next_run_at == null ? null : new Date(Number(runtime.next_run_at)).toISOString(), lastTriggeredAt: runtime.last_triggered_at ?? null } : {}) };
+    });
     return {
       id: row.id, name: row.name,
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
       parameterDefaults, concurrencyLimit: Number(row.concurrency_limit),
       executionTargetId: `${executionTarget.backendKind === "amp" ? "amp:" : ""}${String(executionTarget.connectionId ?? "")}`,
-      trigger: { kind: String(trigger?.kind ?? "manual"), config: triggerConfig, activity: { count: Number(activity?.count ?? 0), lastReceivedAt: activity?.last_received_at ?? null },
-        ...(trigger?.kind === "schedule" ? (() => { const state = this.one("SELECT next_run_at,last_triggered_at FROM schedule_state WHERE job_id=?", row.id) as Row | undefined; return { nextRunAt: state?.next_run_at == null ? null : new Date(Number(state.next_run_at)).toISOString(), lastTriggeredAt: state?.last_triggered_at ?? null }; })() : {}) },
+      triggers: publicTriggers,
       enabled: Boolean(row.enabled), createdAt: row.created_at, updatedAt: row.updated_at,
     };
   }
@@ -353,29 +387,32 @@ export class Tenant extends DurableObject<Env> {
 
   private validateJobInput(input: any): void {
     if (!input?.name || !input.promptTemplate) throw new Error("Job name and prompt template are required");
-    if (!input.trigger || !["manual", "schedule", "webhook"].includes(input.trigger.kind)) throw new Error("Job trigger is invalid");
+    if (!Array.isArray(input.triggers) || input.triggers.some((trigger: any) => !["schedule", "webhook", "jobLifecycle"].includes(trigger?.kind))) throw new Error("Job triggers are invalid");
     if (Object.prototype.hasOwnProperty.call(input.parameterDefaults ?? {}, "context")) throw new Error("context is reserved and cannot be a job parameter");
     Mustache.parse(input.promptTemplate);
-    if (input.trigger.kind === "schedule") validateScheduleConfig(input.trigger.config);
+    for (const trigger of input.triggers) if (trigger.kind === "schedule") validateScheduleConfig(trigger.config);
   }
 
-  private async resetSchedule(jobId: string): Promise<void> {
-    const job = this.one("SELECT j.enabled,t.id AS trigger_id,t.kind,t.config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.id=?", jobId) as Row | undefined;
-    if (!job || job.kind !== "schedule") { this.ctx.storage.sql.exec("DELETE FROM schedule_state WHERE job_id=?", jobId); return; }
-    const config = validateScheduleConfig(JSON.parse(String(job.config)));
-    const next = Boolean(job.enabled) ? nextOccurrence(config, new Date()).getTime() : null;
-    this.ctx.storage.sql.exec("INSERT INTO schedule_state(trigger_id,job_id,next_run_at) VALUES(?,?,?) ON CONFLICT(job_id) DO UPDATE SET trigger_id=excluded.trigger_id,next_run_at=excluded.next_run_at", job.trigger_id, jobId, next);
-    if (next === null) return;
-    const alarm = await this.ctx.storage.getAlarm();
-    if (alarm === null || next < alarm) await this.ctx.storage.setAlarm(next);
+  private async resetSchedules(jobId: string): Promise<void> {
+    const job = this.one("SELECT enabled FROM jobs WHERE id=?", jobId) as Row | undefined;
+    const schedules = this.rows("SELECT id,enabled,config FROM triggers WHERE job_id=? AND kind='schedule'", jobId);
+    this.ctx.storage.sql.exec("DELETE FROM schedule_state WHERE job_id=? AND trigger_id NOT IN (SELECT id FROM triggers WHERE job_id=? AND kind='schedule')", jobId, jobId);
+    for (const trigger of schedules) {
+      const config = validateScheduleConfig(JSON.parse(String(trigger.config)));
+      const next = Boolean(job?.enabled) && Boolean(trigger.enabled) ? nextOccurrence(config, new Date()).getTime() : null;
+      this.ctx.storage.sql.exec("INSERT INTO schedule_state(trigger_id,job_id,next_run_at) VALUES(?,?,?) ON CONFLICT(trigger_id) DO UPDATE SET next_run_at=excluded.next_run_at", trigger.id, jobId, next);
+      const alarm = await this.ctx.storage.getAlarm();
+      if (next !== null && (alarm === null || next < alarm)) await this.ctx.storage.setAlarm(next);
+    }
   }
 
   private async createJob(input: any): Promise<Response> {
     this.validateJobInput(input);
-    const target = await this.jobTarget(input.executionTargetId), jobId = id(), triggerId = id(), timestamp = now();
+    const target = await this.jobTarget(input.executionTargetId), jobId = id(), timestamp = now();
+    this.validateLifecycleGraph(jobId, input.triggers);
     this.ctx.storage.sql.exec("INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?)", jobId, input.name, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(input.parameterDefaults ?? {}), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
-    this.ctx.storage.sql.exec("INSERT INTO triggers VALUES (?,?,?,?,?,?)", triggerId, jobId, input.trigger.kind, JSON.stringify(input.trigger.config ?? {}), timestamp, timestamp);
-    await this.resetSchedule(jobId);
+    for (const trigger of input.triggers) this.ctx.storage.sql.exec("INSERT INTO triggers (id,job_id,kind,enabled,config,created_at,updated_at) VALUES (?,?,?,?,?,?,?)", trigger.id ?? id(), jobId, trigger.kind, trigger.enabled === false ? 0 : 1, JSON.stringify(trigger.config ?? {}), timestamp, timestamp);
+    await this.resetSchedules(jobId);
     return json(await this.publicJob(this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row));
   }
 
@@ -387,18 +424,43 @@ export class Tenant extends DurableObject<Env> {
   private async updateJob(jobId: string, input: any): Promise<Response> {
     if (!this.one("SELECT id FROM jobs WHERE id = ?", jobId)) return new Response("Not found", { status: 404 });
     this.validateJobInput(input);
+    this.validateLifecycleGraph(jobId, input.triggers);
     const target = await this.jobTarget(input.executionTargetId), timestamp = now();
     this.ctx.storage.sql.exec("UPDATE jobs SET name=?,encrypted_prompt_template=?,parameter_defaults=?,execution_target=?,concurrency_limit=?,updated_at=? WHERE id=?", input.name, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(input.parameterDefaults ?? {}), JSON.stringify(target), input.concurrencyLimit, timestamp, jobId);
-    this.ctx.storage.sql.exec("UPDATE triggers SET kind=?,config=?,updated_at=? WHERE job_id=?", input.trigger.kind, JSON.stringify(input.trigger.config ?? {}), timestamp, jobId);
-    await this.resetSchedule(jobId);
+    const existing = new Map(this.triggersFor(jobId).map(trigger => [String(trigger.id), trigger]));
+    const retained = new Set<string>();
+    for (const trigger of input.triggers) {
+      const triggerId = typeof trigger.id === "string" && existing.has(trigger.id) ? trigger.id : id(); retained.add(triggerId);
+      if (existing.has(triggerId)) this.ctx.storage.sql.exec("UPDATE triggers SET kind=?,enabled=?,config=?,updated_at=? WHERE id=? AND job_id=?", trigger.kind, trigger.enabled === false ? 0 : 1, JSON.stringify(trigger.config ?? {}), timestamp, triggerId, jobId);
+      else this.ctx.storage.sql.exec("INSERT INTO triggers (id,job_id,kind,enabled,config,created_at,updated_at) VALUES (?,?,?,?,?,?,?)", triggerId, jobId, trigger.kind, trigger.enabled === false ? 0 : 1, JSON.stringify(trigger.config ?? {}), timestamp, timestamp);
+    }
+    for (const triggerId of existing.keys()) if (!retained.has(triggerId)) this.ctx.storage.sql.exec("DELETE FROM triggers WHERE id=? AND job_id=?", triggerId, jobId);
+    await this.resetSchedules(jobId);
     return json(await this.publicJob(this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row));
   }
 
   private async setJobEnabled(jobId: string, enabled: boolean): Promise<Response> {
     if (!this.one("SELECT id FROM jobs WHERE id = ?", jobId)) return new Response("Not found", { status: 404 });
     this.ctx.storage.sql.exec("UPDATE jobs SET enabled=?,updated_at=? WHERE id=?", enabled ? 1 : 0, now(), jobId);
-    await this.resetSchedule(jobId);
+    await this.resetSchedules(jobId);
     return json({ id: jobId, enabled });
+  }
+
+  private validateLifecycleGraph(jobId: string, proposed: any[]): void {
+    const graph = new Map<string, string[]>();
+    for (const job of this.rows("SELECT id FROM jobs")) graph.set(String(job.id), []);
+    graph.set(jobId, []);
+    for (const trigger of this.rows("SELECT job_id,config FROM triggers WHERE kind='jobLifecycle'")) {
+      if (String(trigger.job_id) === jobId) continue;
+      try { graph.set(String(trigger.job_id), [...(graph.get(String(trigger.job_id)) ?? []), ...JSON.parse(String(trigger.config)).sourceJobIds]); } catch { /* invalid old state cannot add an edge */ }
+    }
+    const sources = proposed.filter(trigger => trigger.kind === "jobLifecycle").flatMap(trigger => trigger.config.sourceJobIds as string[]);
+    if (sources.includes(jobId)) throw new Error("A job cannot subscribe to itself");
+    for (const source of sources) if (!graph.has(source)) throw new Error(`Lifecycle source job not found: ${source}`);
+    graph.set(jobId, sources);
+    const visiting = new Set<string>(), visited = new Set<string>();
+    const visit = (node: string): boolean => { if (visiting.has(node)) return true; if (visited.has(node)) return false; visiting.add(node); for (const next of graph.get(node) ?? []) if (visit(next)) return true; visiting.delete(node); visited.add(node); return false; };
+    for (const node of graph.keys()) if (visit(node)) throw new Error("Job lifecycle subscriptions cannot contain cycles");
   }
 
   private deleteJob(jobId: string): Response {
@@ -418,8 +480,8 @@ export class Tenant extends DurableObject<Env> {
     return json(result);
   }
 
-  /** Single persistence boundary used by manual, schedule, and webhook adapters. */
-  private async invokeCanonicalJob(jobId: string, source: "manual" | "schedule" | "webhook", claimKey: string, context?: string, parameters: Record<string, string> = {}, occurrence?: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  /** Single persistence boundary used by manual and every automatic trigger adapter. */
+  private async invokeCanonicalJob(jobId: string, source: "manual" | "schedule" | "webhook" | "jobLifecycle", claimKey: string, context?: string, parameters: Record<string, string> = {}, occurrence?: Record<string, unknown>): Promise<Record<string, unknown> | null> {
     const row = this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row | undefined;
     if (!row || !Boolean(row.enabled)) return null;
     const existing = this.one("SELECT i.id AS invocation_id,r.id AS run_id,r.state FROM invocations i JOIN job_runs r ON r.invocation_id=i.id WHERE i.job_id=? AND i.claim_key=?", jobId, claimKey) as Row | undefined;
@@ -444,21 +506,56 @@ export class Tenant extends DurableObject<Env> {
     return { invocationId, runId, state: "queued", duplicate: false };
   }
 
+  private async signalAutomaticJob(jobId: string, source: "schedule" | "webhook" | "jobLifecycle", claimKey: string, context?: string, parameters: Record<string, string> = {}, occurrence?: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    const existing = this.one("SELECT i.id AS invocation_id,r.id AS run_id,r.state FROM invocations i LEFT JOIN job_runs r ON r.invocation_id=i.id WHERE i.job_id=? AND i.claim_key=?", jobId, claimKey) as Row | undefined;
+    if (existing) return { invocationId: existing.invocation_id, runId: existing.run_id ?? null, state: existing.state ?? "coalesced", duplicate: true };
+    const active = this.one("SELECT id,state FROM job_runs WHERE job_id=? AND state IN ('queued','running') ORDER BY created_at LIMIT 1", jobId) as Row | undefined;
+    if (!active) return this.invokeCanonicalJob(jobId, source, claimKey, context, parameters, occurrence);
+    const timestamp = now(), invocationId = id();
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO invocations (id,job_id,source,claim_key,context,parameters,occurrence,created_at) VALUES (?,?,?,?,?,?,?,?)", invocationId, jobId, source, claimKey, context ?? null, JSON.stringify(parameters), occurrence ? JSON.stringify(occurrence) : null, timestamp);
+    let summary: any = { counts: {}, latest: {} };
+    const prior = this.one("SELECT summary FROM automatic_wakes WHERE job_id=?", jobId) as Row | undefined;
+    try { if (prior) summary = JSON.parse(String(prior.summary)); } catch { /* reset malformed summary */ }
+    summary.counts[source] = Math.min(1_000_000, Number(summary.counts[source] ?? 0) + 1);
+    summary.latest[source] = { claimKey: claimKey.slice(-200), occurredAt: (occurrence as any)?.occurredAt ?? timestamp, externalId: String((occurrence as any)?.externalId ?? "").slice(-200) };
+    this.ctx.storage.sql.exec("INSERT INTO automatic_wakes(job_id,trailing,summary,updated_at) VALUES(?,1,?,?) ON CONFLICT(job_id) DO UPDATE SET trailing=1,summary=excluded.summary,updated_at=excluded.updated_at", jobId, JSON.stringify(summary), timestamp);
+    return { invocationId, runId: active.id, state: active.state, duplicate: false, coalesced: true };
+  }
+
+  private async afterJobTerminal(jobId: string, sourceRunId: string, terminalState: "succeeded" | "failed" | "stopped", transitionedAt = now()): Promise<void> {
+    const wake = this.one("SELECT summary FROM automatic_wakes WHERE job_id=? AND trailing=1", jobId) as Row | undefined;
+    if (wake) {
+      this.ctx.storage.sql.exec("UPDATE automatic_wakes SET trailing=0,summary='{}',updated_at=? WHERE job_id=? AND trailing=1", transitionedAt, jobId);
+      await this.invokeCanonicalJob(jobId, "jobLifecycle", `trailing:${sourceRunId}:${transitionedAt}`, `Automatic wake summary: ${String(wake.summary).slice(0,4000)}`, {}, { occurredAt: transitionedAt, metadata: { coalesced: true } });
+    }
+    const subscribers = this.rows("SELECT t.id,t.job_id,t.config FROM triggers t JOIN jobs j ON j.id=t.job_id WHERE t.kind='jobLifecycle' AND t.enabled=1 AND j.enabled=1");
+    for (const trigger of subscribers) {
+      let config: any; try { config = JSON.parse(String(trigger.config)); } catch { continue; }
+      if (!config.sourceJobIds?.includes(jobId) || !config.states?.includes(terminalState)) continue;
+      this.ctx.storage.sql.exec("INSERT OR IGNORE INTO lifecycle_deliveries(trigger_id,source_run_id,terminal_state,created_at) VALUES(?,?,?,?)", trigger.id, sourceRunId, terminalState, transitionedAt);
+      const claimed = this.one("SELECT changes() AS count") as Row;
+      if (!Number(claimed.count)) continue;
+      const destination = `job:${String(trigger.job_id)}`;
+      const context = JSON.stringify({ sourceJobId: jobId, sourceRunId, finalState: terminalState, transitionedAt, observationDestination: destination });
+      await this.signalAutomaticJob(String(trigger.job_id), "jobLifecycle", `lifecycle:${trigger.id}:${sourceRunId}:${terminalState}`, context, {}, { occurredAt: transitionedAt, externalId: sourceRunId, metadata: { triggerId: trigger.id, sourceJobId: jobId, finalState: terminalState, observationDestination: destination } });
+    }
+  }
+
   private async processDueSchedules(): Promise<void> {
     const wake = Date.now();
-    const due = this.rows("SELECT s.job_id,s.next_run_at,t.config FROM schedule_state s JOIN jobs j ON j.id=s.job_id JOIN triggers t ON t.id=s.trigger_id WHERE j.enabled=1 AND t.kind='schedule' AND s.next_run_at<=? ORDER BY s.next_run_at LIMIT 100", wake);
+    const due = this.rows("SELECT s.job_id,s.trigger_id,s.next_run_at,t.config FROM schedule_state s JOIN jobs j ON j.id=s.job_id JOIN triggers t ON t.id=s.trigger_id WHERE j.enabled=1 AND t.enabled=1 AND t.kind='schedule' AND s.next_run_at<=? ORDER BY s.next_run_at LIMIT 100", wake);
     for (const row of due) {
       const config = validateScheduleConfig(JSON.parse(String(row.config))) as ScheduleConfig;
       const catchUp = catchUpOccurrence(config, new Date(Number(row.next_run_at)), new Date(wake));
       if (!catchUp) continue;
       const occurredAt = catchUp.occurredAt.toISOString();
-      await this.enqueueScheduledJob(String(row.job_id), occurredAt, config);
-      this.ctx.storage.sql.exec("UPDATE schedule_state SET next_run_at=?,last_triggered_at=? WHERE job_id=? AND next_run_at=?", catchUp.nextRunAt.getTime(), occurredAt, row.job_id, row.next_run_at);
+      await this.enqueueScheduledJob(String(row.job_id), String(row.trigger_id), occurredAt, config);
+      this.ctx.storage.sql.exec("UPDATE schedule_state SET next_run_at=?,last_triggered_at=? WHERE trigger_id=? AND next_run_at=?", catchUp.nextRunAt.getTime(), occurredAt, row.trigger_id, row.next_run_at);
     }
   }
 
-  private async enqueueScheduledJob(jobId: string, occurredAt: string, config: ScheduleConfig): Promise<void> {
-    await this.invokeCanonicalJob(jobId, "schedule", `schedule:${occurredAt}`, config.context, config.parameters ?? {}, { occurredAt });
+  private async enqueueScheduledJob(jobId: string, triggerId: string, occurredAt: string, config: ScheduleConfig): Promise<void> {
+    await this.signalAutomaticJob(jobId, "schedule", `schedule:${triggerId}:${occurredAt}`, config.context, config.parameters ?? {}, { occurredAt, metadata: { triggerId } });
   }
 
   private deletePipe(pipeId: string): Response {
@@ -652,8 +749,9 @@ export class Tenant extends DurableObject<Env> {
       }
     }
     this.ctx.storage.sql.exec("UPDATE runs SET state = 'stopped', result = ?, updated_at = ? WHERE id = ?", await encrypt("Stopped by user", this.env.CREDENTIAL_ENCRYPTION_KEY), now(), runId);
-    this.ctx.storage.sql.exec("UPDATE job_runs SET state='cancelled',updated_at=? WHERE id=?", now(), runId);
+    this.ctx.storage.sql.exec("UPDATE job_runs SET state='stopped',updated_at=? WHERE id=?", now(), runId);
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id = ?", runId);
+    await this.afterJobTerminal(String(run.pipe_id), runId, "stopped");
     return json({ id: runId, state: "stopped", stopped: true });
   }
 
@@ -675,9 +773,9 @@ export class Tenant extends DurableObject<Env> {
     return json({ statuses: statusData.workflowStates.nodes, users: userData.users.nodes, labels: labelData.issueLabels.nodes });
   }
 
-  private webhookJobs(provider: WebhookProvider): Array<{ job: Row; config: WebhookTriggerConfig }> {
-    return this.rows("SELECT j.*,t.config AS trigger_config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.enabled=1 AND t.kind='webhook'")
-      .flatMap(job => { try { const config = JSON.parse(String(job.trigger_config)) as WebhookTriggerConfig; return config.provider === provider ? [{ job, config }] : []; } catch { return []; } });
+  private webhookJobs(provider: WebhookProvider): Array<{ job: Row; triggerId: string; config: WebhookTriggerConfig }> {
+    return this.rows("SELECT j.*,t.id AS trigger_id,t.config AS trigger_config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.enabled=1 AND t.enabled=1 AND t.kind='webhook'")
+      .flatMap(job => { try { const config = JSON.parse(String(job.trigger_config)) as WebhookTriggerConfig; return config.provider === provider ? [{ job, triggerId: String(job.trigger_id), config }] : []; } catch { return []; } });
   }
 
   private recordJobEvent(jobId: string, provider: string, deliveryId: string, outcome: string, detail: string): void {
@@ -685,10 +783,10 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async invokeWebhookJobs(provider: WebhookProvider, deliveryId: string, payload: Record<string, any>, eventName?: string): Promise<void> {
-    for (const { job, config } of this.webhookJobs(provider)) {
+    for (const { job, triggerId, config } of this.webhookJobs(provider)) {
       const invocation = adaptWebhook(config, provider, deliveryId, payload, eventName);
       if (!invocation) { this.recordJobEvent(String(job.id), provider, deliveryId, "ignored", "Webhook did not match this job trigger."); continue; }
-      const result = await this.invokeCanonicalJob(String(job.id), "webhook", invocation.claimKey, invocation.context, invocation.parameters, invocation.occurrence);
+      const result = await this.signalAutomaticJob(String(job.id), "webhook", `webhook:${triggerId}:${invocation.claimKey}`, invocation.context, invocation.parameters, { ...invocation.occurrence, metadata: { ...invocation.occurrence?.metadata, triggerId } });
       this.recordJobEvent(String(job.id), provider, deliveryId, result?.duplicate ? "duplicate" : result ? "accepted" : "ignored", result?.duplicate ? "Webhook occurrence was already claimed." : result ? "Webhook occurrence queued through canonical job invocation." : "Job was unavailable.");
     }
   }
@@ -879,7 +977,7 @@ export class Tenant extends DurableObject<Env> {
     const delays = [0, 5_000, 15_000, 30_000, 60_000];
     for (const verification of pending) {
       const pipe = this.one("SELECT * FROM pipes WHERE id=?", verification.flow_id) as Row | undefined;
-      const job = pipe ? undefined : this.one("SELECT j.*,t.config AS trigger_config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.id=? AND j.enabled=1 AND t.kind='webhook'", verification.flow_id) as Row | undefined;
+      const job = pipe ? undefined : this.one("SELECT j.*,t.id AS trigger_id,t.config AS trigger_config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.id=? AND j.enabled=1 AND t.enabled=1 AND t.kind='webhook' ORDER BY t.created_at LIMIT 1", verification.flow_id) as Row | undefined;
       const target = pipe ?? job;
       if (!target) { this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id); continue; }
       const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", verification.installation_id) as Row | undefined;
@@ -901,7 +999,7 @@ export class Tenant extends DurableObject<Env> {
           const payload = { ...saved, pull_request: { ...saved.pull_request, ...pull } };
           const invocation = adaptWebhook(config, "github", String(verification.delivery_id), payload, "pull_request");
           this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id);
-          if (invocation) await this.invokeCanonicalJob(String(job.id), "webhook", invocation.claimKey, invocation.context, invocation.parameters, invocation.occurrence);
+          if (invocation) await this.signalAutomaticJob(String(job.id), "webhook", `webhook:${String(job.trigger_id)}:${invocation.claimKey}`, invocation.context, invocation.parameters, invocation.occurrence);
           this.recordJobEvent(String(job.id), "github", String(verification.delivery_id), invocation ? "accepted" : "ignored", invocation ? "Verified webhook queued through canonical job invocation." : "Job trigger changed while verification was pending.");
           continue;
         }
@@ -987,8 +1085,9 @@ export class Tenant extends DurableObject<Env> {
       if (observation.state === "failed") return this.finishRun(run, "failed", observation.detail ?? "Amp run failed.");
       if (observation.state === "stopped") {
         this.ctx.storage.sql.exec("UPDATE runs SET state='stopped',updated_at=? WHERE id=?", now(), run.id);
-        this.ctx.storage.sql.exec("UPDATE job_runs SET state='cancelled',updated_at=? WHERE id=?", now(), run.id);
+        this.ctx.storage.sql.exec("UPDATE job_runs SET state='stopped',updated_at=? WHERE id=?", now(), run.id);
         this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id=?", run.id);
+        await this.afterJobTerminal(String(run.pipe_id), String(run.id), "stopped");
         return;
       }
       this.ctx.storage.sql.exec("UPDATE runs SET state=?,updated_at=? WHERE id=?", observation.state, now(), run.id);
@@ -1125,11 +1224,13 @@ export class Tenant extends DurableObject<Env> {
   private async finishRecovery(run: Row, state: "running" | "failed", action: string, live?: HerdrIdentity): Promise<void> { this.activity(run.id, state === "running" ? "recovery_succeeded" : "recovery_failed", action); if (live) this.persistIdentity(run.id, live, state); this.ctx.storage.sql.exec("UPDATE runs SET state=?,recovery_attempt=0,recovery_reason=NULL,recovery_started_at=NULL,recovery_last_action=?,recovery_next_at=NULL,recovery_comment_finished=1,updated_at=? WHERE id=?", state, action, now(), run.id); if (!Number(run.recovery_comment_finished) && String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize automatic recovery ${state === "running" ? "succeeded" : "permanently failed"} for run \`${run.id}\`: ${action}`); if (state === "failed") { const encrypted = await encrypt(action, this.env.CREDENTIAL_ENCRYPTION_KEY); this.ctx.storage.sql.exec("UPDATE runs SET result=? WHERE id=?", encrypted, run.id); this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id=? AND issue_id=?", run.pipe_id, run.claim_key || run.issue_id); this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id); } }
 
   private async finishRun(run: Row, state: Extract<RunState, "done" | "failed">, result: string, outputCaptured = false): Promise<void> {
+    const transitionedAt = now();
     const encryptedResult = await encrypt(result, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    this.ctx.storage.sql.exec("UPDATE runs SET state = ?, result = ?, output_captured=?, updated_at = ? WHERE id = ?", state, encryptedResult, outputCaptured ? 1 : Number(run.output_captured || 0), now(), run.id);
-    this.ctx.storage.sql.exec("UPDATE job_runs SET state=?,updated_at=? WHERE id=?", state === "done" ? "succeeded" : "failed", now(), run.id);
+    this.ctx.storage.sql.exec("UPDATE runs SET state = ?, result = ?, output_captured=?, updated_at = ? WHERE id = ?", state, encryptedResult, outputCaptured ? 1 : Number(run.output_captured || 0), transitionedAt, run.id);
+    this.ctx.storage.sql.exec("UPDATE job_runs SET state=?,updated_at=? WHERE id=?", state === "done" ? "succeeded" : "failed", transitionedAt, run.id);
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id = ? AND issue_id = ?", run.pipe_id, run.claim_key || run.issue_id);
     this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id);
+    await this.afterJobTerminal(String(run.pipe_id), String(run.id), state === "done" ? "succeeded" : "failed", transitionedAt);
     await this.collectRunPane({ ...run, state, output_captured: outputCaptured ? 1 : Number(run.output_captured || 0), claim_released: 1 });
     const heading = state === "done" ? "Factorize completed the agent run." : "Factorize could not complete the agent run.";
     if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `${heading}\n\nRun ID: \`${run.id}\`. Review the Herdr session on the configured VM for details.`);

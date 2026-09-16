@@ -50,9 +50,11 @@ export class FlowService {
   }
 
   private publicJob(value: any) {
-    const provider = value?.trigger?.kind === "webhook" ? value.trigger.config?.provider : undefined;
-    if (provider === "cloudflareTail") value.trigger.config.destination = `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(value.id)}`;
-    if (provider === "custom") value.trigger.config.destination = `${this.env.APP_ORIGIN}/webhooks/custom/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(value.id)}`;
+    for (const trigger of value?.triggers ?? []) {
+      const provider = trigger.kind === "webhook" ? trigger.config?.provider : undefined;
+      if (provider === "cloudflareTail") trigger.config.destination = `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(value.id)}`;
+      if (provider === "custom") trigger.config.destination = `${this.env.APP_ORIGIN}/webhooks/custom/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(value.id)}`;
+    }
     return value;
   }
 
