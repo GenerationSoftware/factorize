@@ -1,6 +1,6 @@
 export type FilterType = "owner" | "creator" | "status" | "label" | "assignee";
 export interface MatchRule { type: FilterType; targetId: string; }
-export type RunState = "queued" | "starting" | "running" | "recovering" | "done" | "blocked" | "failed" | "ignored";
+export type RunState = "queued" | "starting" | "running" | "recovering" | "done" | "blocked" | "failed" | "ignored" | "stopping" | "stopped" | "succeeded";
 
 export interface Env {
   TENANTS: DurableObjectNamespace;

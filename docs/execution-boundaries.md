@@ -9,10 +9,16 @@ provider webhook -> SourceAdapter -> WorkItem -> prompt renderer
 Durable Object orchestrator -> ExecutionBackend -> external execution system
 ```
 
-`SourceAdapter` owns provider payload normalization. It must not know about VMs,
-Herdr, or a coding harness. `ExecutionBackend` owns launch, prompt delivery,
-inspection, output, and stopping. The orchestrator owns durable queue, claim,
-concurrency, and delivery state, but does not construct backend commands.
+`SourceAdapter` owns provider payload normalization. It must not know about VMs
+or a coding harness. `ExecutionBackend` owns launch, inspection, and stopping.
+Prompt delivery, output retrieval, and recovery are declared capabilities, not
+requirements. The orchestrator persists the backend kind, its opaque handle,
+capabilities, and observation destination URL; it never interprets the handle.
+
+Backends map their native lifecycle into `queued`, `starting`, `running`,
+`blocked`, `stopping`, `stopped`, `succeeded`, or `failed`. Historical `done`,
+`recovering`, and `cancelled` rows are presented as `succeeded`, `starting`, and
+`stopped` respectively, avoiding a risky rewrite of durable history.
 
 The current `ExeHerdrBackend` is one implementation. exe.dev supplies command
 transport and VM wake-up, Herdr supplies workspace and agent supervision, and

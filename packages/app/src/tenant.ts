@@ -15,6 +15,7 @@ import { ExeHerdrBackend } from "./exe-herdr-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 import { renderSourcePrompt } from "./source-lifecycle";
 import { JOB_SCHEMA } from "./job-domain";
+import { normalizeExecutionState, type RunHandle } from "./execution";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -80,6 +81,10 @@ export class Tenant extends DurableObject<Env> {
     this.ensureColumn("flow_events", "provider", "TEXT NOT NULL DEFAULT 'linear'");
     this.ensureColumn("runs", "provider", "TEXT NOT NULL DEFAULT 'linear'");
     this.ensureColumn("runs", "claim_key", "TEXT");
+    this.ensureColumn("runs", "execution_backend_kind", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("runs", "execution_handle", "TEXT");
+    this.ensureColumn("runs", "execution_capabilities", "TEXT NOT NULL DEFAULT '[]'");
+    this.ensureColumn("runs", "destination_url", "TEXT");
     for (const [column, definition] of Object.entries({ herdr_server_namespace: "TEXT NOT NULL DEFAULT 'default'", worktree_path: "TEXT", ownership_lease: "TEXT", ownership_generation: "INTEGER NOT NULL DEFAULT 0", agent_session_generation: "INTEGER NOT NULL DEFAULT 0", output_captured: "INTEGER NOT NULL DEFAULT 0", claim_released: "INTEGER NOT NULL DEFAULT 0", pane_collected: "INTEGER NOT NULL DEFAULT 0", worktree_disposition: "TEXT" })) this.ensureColumn("runs", column, definition);
     for (const [column, definition] of Object.entries({ herdr_workspace_id: "TEXT", herdr_pane_id: "TEXT", herdr_terminal_id: "TEXT", agent_session_source: "TEXT", agent_session_kind: "TEXT", agent_session_value: "TEXT", herdr_cwd: "TEXT", last_agent_status: "TEXT", recovery_attempt: "INTEGER NOT NULL DEFAULT 0", recovery_reason: "TEXT", recovery_started_at: "TEXT", recovery_last_action: "TEXT", recovery_next_at: "INTEGER", recovery_comment_started: "INTEGER NOT NULL DEFAULT 0", recovery_comment_finished: "INTEGER NOT NULL DEFAULT 0", prompt_accepted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_attempted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_accepted: "INTEGER NOT NULL DEFAULT 0" })) this.ensureColumn("runs", column, definition);
   }
@@ -333,22 +338,43 @@ export class Tenant extends DurableObject<Env> {
     return btoa(JSON.stringify({ at: String(row[atKey]), id: String(row.id) })).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
   }
 
+  private executionHandle(run: Row, fallbackKind: string): RunHandle {
+    try {
+      const parsed = JSON.parse(String(run.execution_handle || ""));
+      if (parsed && typeof parsed.backendKind === "string" && typeof parsed.id === "string") return parsed;
+    } catch { /* Legacy runs derive the adapter-owned handle once. */ }
+    return { backendKind: String(run.execution_backend_kind || fallbackKind), id: String(run.agent_name) };
+  }
+
+  private presentExecution(run: Row): void {
+    run.state = normalizeExecutionState(run.state);
+    run.backend_kind = String(run.backend_kind || "exe-herdr");
+    try { run.capabilities = JSON.parse(String(run.capabilities || "[]")); } catch { run.capabilities = []; }
+    if (!Array.isArray(run.capabilities) || run.capabilities.length === 0) run.capabilities = ["output", "prompt-delivery", "recovery"];
+    run.destination_url = String(run.destination_url || "https://exe.dev/");
+  }
+
   private listRuns(url: URL): Response {
     const limit = this.pageSize(url), cursor = this.cursor(url), flowId = url.searchParams.get("flowId"), state = url.searchParams.get("state");
     const clauses: string[] = [], args: unknown[] = [];
     if (flowId) { clauses.push("pipe_id = ?"); args.push(flowId); }
-    if (state) { clauses.push("state = ?"); args.push(state); }
+    if (state === "succeeded") { clauses.push("state IN ('succeeded','done')"); }
+    else if (state === "stopped") { clauses.push("state IN ('stopped','cancelled')"); }
+    else if (state === "starting") { clauses.push("state IN ('starting','recovering')"); }
+    else if (state) { clauses.push("state = ?"); args.push(state); }
     if (cursor) { clauses.push("(created_at < ? OR (created_at = ? AND id < ?))"); args.push(cursor.at, cursor.at, cursor.id); }
-    const rows = this.rows(`SELECT id, pipe_id AS flow_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, created_at, updated_at FROM runs ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?`, ...args, limit + 1);
+    const rows = this.rows(`SELECT id, pipe_id AS flow_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, execution_backend_kind AS backend_kind, execution_capabilities AS capabilities, destination_url, created_at, updated_at FROM runs ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?`, ...args, limit + 1);
     const hasMore = rows.length > limit, items = rows.slice(0, limit);
+    for (const item of items) this.presentExecution(item);
     return json({ items, nextCursor: hasMore ? this.nextCursor(items.at(-1), "created_at") : null });
   }
 
   private async getRun(runId: string): Promise<Response> {
-    const run = this.one("SELECT id, pipe_id AS flow_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, result, exec_status, exec_exit_code, recovery_last_action, created_at, updated_at FROM runs WHERE id = ?", runId);
+    const run = this.one("SELECT id, pipe_id AS flow_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, execution_backend_kind AS backend_kind, execution_capabilities AS capabilities, destination_url, result, exec_status, exec_exit_code, recovery_last_action, created_at, updated_at FROM runs WHERE id = ?", runId);
     if (!run) return new Response("Not found", { status: 404 });
     if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     run.activity = this.rows("SELECT action, detail, created_at FROM run_activity WHERE run_id = ? ORDER BY created_at, id", runId);
+    this.presentExecution(run);
     return json(run);
   }
 
@@ -365,21 +391,22 @@ export class Tenant extends DurableObject<Env> {
   private async stopRun(runId: string): Promise<Response> {
     const run = this.one("SELECT * FROM runs WHERE id = ?", runId);
     if (!run) return new Response("Not found", { status: 404 });
-    if (!["starting", "running", "recovering"].includes(String(run.state))) return Response.json({ error: "Run is not active" }, { status: 409 });
-    if (["starting", "running", "recovering"].includes(String(run.state))) {
+    if (!["starting", "running", "blocked", "recovering"].includes(String(run.state))) return Response.json({ error: "Run is not active" }, { status: 409 });
+    if (["starting", "running", "blocked", "recovering"].includes(String(run.state))) {
       const pipe = this.one("SELECT * FROM pipes WHERE id = ?", run.pipe_id) as Row | undefined;
       if (pipe) {
         const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
         if (connection && run.agent_name) {
           const backend = new ExeHerdrBackend(connection);
-          const stopped = await backend.stop({ backend: backend.kind, agentName: String(run.agent_name) });
-          if (!stopped.ok) return Response.json({ error: "Could not stop the active agent" }, { status: 502 });
+          this.ctx.storage.sql.exec("UPDATE runs SET state='stopping',updated_at=? WHERE id=?", now(), runId);
+          const stopped = await backend.stop(this.executionHandle(run, backend.kind));
+          if (stopped.state !== "stopped") return Response.json({ error: "Could not stop the active agent" }, { status: 502 });
         }
       }
     }
-    this.ctx.storage.sql.exec("UPDATE runs SET state = 'failed', result = ?, updated_at = ? WHERE id = ?", await encrypt("Stopped by user", this.env.CREDENTIAL_ENCRYPTION_KEY), now(), runId);
+    this.ctx.storage.sql.exec("UPDATE runs SET state = 'stopped', result = ?, updated_at = ? WHERE id = ?", await encrypt("Stopped by user", this.env.CREDENTIAL_ENCRYPTION_KEY), now(), runId);
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id = ?", runId);
-    return json({ id: runId, state: "failed", stopped: true });
+    return json({ id: runId, state: "stopped", stopped: true });
   }
 
   private async linearProjects(): Promise<Response> {
@@ -506,7 +533,7 @@ export class Tenant extends DurableObject<Env> {
     try { this.ctx.storage.sql.exec("INSERT INTO active_claims (pipe_id,issue_id,run_id) VALUES (?,?,?)", pipe.id, workItem.claimKey, runId); }
     catch { this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, "duplicate", "An active or queued run already owns this work item.", workItem.provider); return; }
     const prompt = await encrypt(plaintextPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.title, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, "pending", workItem.provider, now(), now());
+    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.title, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, "pending", workItem.provider, "exe-herdr", JSON.stringify(["output", "prompt-delivery", "recovery"]), "https://exe.dev/", now(), now());
     const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id=? AND state IN ('starting','running','blocked','recovering')", pipe.id) as Row;
     this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, Number(active.count) < Number(pipe.max_concurrency) ? "accepted" : "queued_capacity", Number(active.count) < Number(pipe.max_concurrency) ? "Handler accepted delivery; agent queued to start." : "Handler accepted delivery; queued for capacity.", workItem.provider);
   }
@@ -595,26 +622,26 @@ export class Tenant extends DurableObject<Env> {
     const worktreePath = `${connection.cwd.replace(/\/$/, "")}/.factorize-runs/${String(run.id)}`;
     this.ctx.storage.sql.exec("UPDATE runs SET herdr_server_namespace='default',worktree_path=?,ownership_lease=?,ownership_generation=ownership_generation+1,agent_session_generation=1,updated_at=? WHERE id=?", worktreePath, lease, now(), run.id);
     if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize started **${connection.agentKind}** on ${connection.vmName} in Herdr workspace \`${workspaceName}\` for this issue.`);
-    const backend = new ExeHerdrBackend(connection);
+    const backend = new ExeHerdrBackend(connection, { agentName: String(run.agent_name), workspaceName, runPath: worktreePath, lease });
     const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='submitting',updated_at=? WHERE id=?", now(), run.id);
-    const launched = await backend.launch({ runId: String(run.id), agentName: String(run.agent_name), workspaceName, runPath: worktreePath, lease, prompt });
-    const result = launched.command;
+    const launched = await backend.launch({ runId: String(run.id), prompt });
+    const result = launched.command!;
+    this.ctx.storage.sql.exec("UPDATE runs SET execution_backend_kind=?,execution_handle=?,execution_capabilities=?,destination_url=?,updated_at=? WHERE id=?", backend.kind, JSON.stringify(launched.handle), JSON.stringify(launched.capabilities), launched.destinationUrl, now(), run.id);
     const execRequest = await encrypt(result.requestBody, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const execResponse = await encrypt(result.body, this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET exec_request = ?, exec_response = ?, exec_status = ?, exec_exit_code = ?, updated_at = ? WHERE id = ?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
     this.commandActivity(run.id, "initial agent start", result);
     if (!result.ok || (result.exitCode !== null && result.exitCode !== 0)) return this.finishRun(run, "failed", `Unable to start Herdr agent (exe.dev HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}): ${result.body.slice(0, 800)}`);
-    const verification = await backend.inspect(launched.handle);
+    const observed = await backend.inspect(launched.handle), verification = observed.command!;
     this.commandActivity(run.id, "initial agent verification", verification);
     if (!verification.ok || (verification.exitCode !== null && verification.exitCode !== 0) || !herdrAgentStatus(verification.body)) {
       return this.beginRecovery(run, pipe, connection, `agent start succeeded but verification was ambiguous (exe.dev HTTP ${verification.status}, VM exit ${verification.exitCode ?? "not reported"})`);
     }
     const identity = parseAgent(verification.body);
     if (!identity) return this.beginRecovery(run, pipe, connection, "agent start succeeded but its structured identity was inconsistent");
-    const startupOutput = await backend.readOutput(launched.handle);
-    this.commandActivity(run.id, "initial agent readiness", startupOutput);
-    if (startupOutput.ok && agentStartupBlocked(startupOutput.body)) {
+    const startupOutput = backend.readOutput ? await backend.readOutput(launched.handle) : null;
+    if (startupOutput && agentStartupBlocked(startupOutput)) {
       return this.finishRun(run, "failed", "The agent process started but stopped at an interactive startup permission prompt.");
     }
     this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='accepted',prompt_delivery_request=?,prompt_delivery_response=?,prompt_delivery_status=?,prompt_delivery_exit_code=?,prompt_accepted=1,updated_at=? WHERE id=?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
@@ -628,8 +655,8 @@ export class Tenant extends DurableObject<Env> {
     const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "exe.dev connection is unavailable.");
     if (String(run.state) === "recovering") return this.recoverRun(run, pipe, connection);
-    const backend = new ExeHerdrBackend(connection), handle = { backend: "exe-herdr", agentName: String(run.agent_name) };
-    const status = await backend.inspect(handle);
+    const backend = new ExeHerdrBackend(connection), handle = this.executionHandle(run, backend.kind);
+    const observation = await backend.inspect(handle), status = observation.command!;
     if (!status.ok && (status.exitCode === null || status.exitCode === 0)) return; // transient exe.dev/API failure
     if (!status.ok || (status.exitCode !== null && status.exitCode !== 0)) return this.beginRecovery(run, pipe, connection, `expected Herdr agent is no longer resolvable (VM exit ${status.exitCode ?? "unknown"})`);
     const live = parseAgent(status.body);
@@ -642,14 +669,13 @@ export class Tenant extends DurableObject<Env> {
     }
     if (run.herdr_terminal_id && !terminalOwned) return this.beginRecovery(run, pipe, connection, "Herdr alias resolved to a different terminal owner");
     if (!terminalOwned) this.persistIdentity(run.id, live, String(run.state));
-    const agentStatus = herdrAgentStatus(status.body);
-    if (agentStatus === "blocked") {
+    if (observation.state === "blocked") {
       this.ctx.storage.sql.exec("UPDATE runs SET state = 'blocked', updated_at = ? WHERE id = ?", now(), run.id);
       return;
     }
-    if (agentStatus !== "done" && agentStatus !== "idle") return;
-    const output = await backend.readOutput(handle);
-    await this.finishRun(run, "done", output.ok ? output.body : "Agent completed; terminal output could not be read.", output.ok);
+    if (observation.state !== "succeeded") return;
+    const output = backend.readOutput ? await backend.readOutput(handle) : null;
+    await this.finishRun(run, "done", output ?? "Agent completed; terminal output is not available from this backend.", output !== null);
   }
 
   private savedIdentity(run: Row): Partial<HerdrIdentity> { return { name: String(run.agent_name || ""), kind: String(run.agent_kind || ""), workspaceId: String(run.herdr_workspace_id || ""), paneId: String(run.herdr_pane_id || ""), terminalId: String(run.herdr_terminal_id || ""), cwd: String(run.herdr_cwd || ""), sessionSource: String(run.agent_session_source || ""), sessionKind: String(run.agent_session_kind || ""), sessionValue: String(run.agent_session_value || "") }; }
