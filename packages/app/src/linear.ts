@@ -10,6 +10,17 @@ export const LINEAR_OPTION_QUERIES = {
   labels: "query { issueLabels(first: 100) { nodes { id name } } }",
 } as const;
 
+type LinearError = { message?: string; extensions?: { code?: string } };
+
+export const isLinearAuthenticationError = (status: number, errors: LinearError[] | undefined): boolean => {
+  if (status === 401) return true;
+  return Boolean(errors?.some(error => {
+    const code = error.extensions?.code?.toUpperCase();
+    if (code === "UNAUTHENTICATED" || code === "AUTHENTICATION_ERROR") return true;
+    return /authentication required|not authenticated|access token.*(?:invalid|expired)|(?:invalid|expired).*access token/i.test(error.message ?? "");
+  }));
+};
+
 export const refreshLinearToken = async (refreshToken: string, clientId: string, clientSecret: string): Promise<{ access_token: string; refresh_token?: string }> => {
   const response = await fetch("https://api.linear.app/oauth/token", {
     method: "POST",
