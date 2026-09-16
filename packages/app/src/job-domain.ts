@@ -1,8 +1,8 @@
 import Mustache from "mustache";
 
-export type TriggerKind = "manual" | "schedule" | "webhook";
-export type InvocationSource = TriggerKind;
-export type JobRunState = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type TriggerKind = "schedule" | "webhook" | "jobLifecycle";
+export type InvocationSource = "manual" | TriggerKind;
+export type JobRunState = "queued" | "running" | "succeeded" | "failed" | "stopped";
 
 export interface ExecutionTarget {
   connectionId: string;
@@ -15,6 +15,7 @@ export interface Trigger {
   id: string;
   jobId: string;
   kind: TriggerKind;
+  enabled: boolean;
   config: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -28,7 +29,7 @@ export interface Job {
   executionTarget: ExecutionTarget;
   concurrencyLimit: number;
   enabled: boolean;
-  trigger: Trigger;
+  triggers: Trigger[];
   createdAt: string;
   updatedAt: string;
 }
@@ -112,7 +113,7 @@ export class InvocationService {
 
   async invoke(jobId: string, input: InvocationRequest): Promise<InvocationResult> {
     if (!input.claimKey?.trim()) throw new InvocationError("invalid_invocation", "An invocation claim key is required.");
-    if (!(["manual", "schedule", "webhook"] as const).includes(input.source)) throw new InvocationError("invalid_invocation", "Invocation source is invalid.");
+    if (!(["manual", "schedule", "webhook", "jobLifecycle"] as const).includes(input.source)) throw new InvocationError("invalid_invocation", "Invocation source is invalid.");
     const job = await this.repository.getJob(jobId);
     if (!job) throw new InvocationError("job_not_found", "Job not found.");
     if (!job.enabled) throw new InvocationError("job_disabled", "Job is disabled.");
@@ -149,20 +150,20 @@ export const JOB_SCHEMA = `
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS triggers (
-    id TEXT PRIMARY KEY, job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK (kind IN ('manual','schedule','webhook')), config TEXT NOT NULL,
+    id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('schedule','webhook','jobLifecycle')), enabled INTEGER NOT NULL DEFAULT 1, config TEXT NOT NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS invocations (
     id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    source TEXT NOT NULL CHECK (source IN ('manual','schedule','webhook')), claim_key TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('manual','schedule','webhook','jobLifecycle')), claim_key TEXT NOT NULL,
     context TEXT, parameters TEXT NOT NULL, occurrence TEXT, created_at TEXT NOT NULL,
     UNIQUE(job_id, claim_key)
   );
   CREATE TABLE IF NOT EXISTS job_runs (
     id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     invocation_id TEXT NOT NULL UNIQUE REFERENCES invocations(id) ON DELETE CASCADE,
-    state TEXT NOT NULL CHECK (state IN ('queued','running','succeeded','failed','cancelled')),
+    state TEXT NOT NULL CHECK (state IN ('queued','running','succeeded','failed','stopped')),
     encrypted_prompt TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, started_at TEXT
   );
   CREATE INDEX IF NOT EXISTS job_runs_queue ON job_runs(state, created_at);
@@ -175,8 +176,17 @@ export const JOB_SCHEMA = `
   CREATE INDEX IF NOT EXISTS job_events_by_job ON job_events(job_id, received_at DESC);
   CREATE TABLE IF NOT EXISTS schedule_state (
     trigger_id TEXT PRIMARY KEY REFERENCES triggers(id) ON DELETE CASCADE,
-    job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
+    job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     next_run_at INTEGER, last_triggered_at TEXT
   );
   CREATE INDEX IF NOT EXISTS schedules_due ON schedule_state(next_run_at);
+  CREATE TABLE IF NOT EXISTS automatic_wakes (
+    job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+    trailing INTEGER NOT NULL DEFAULT 0, summary TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS lifecycle_deliveries (
+    trigger_id TEXT NOT NULL REFERENCES triggers(id) ON DELETE CASCADE,
+    source_run_id TEXT NOT NULL, terminal_state TEXT NOT NULL, created_at TEXT NOT NULL,
+    PRIMARY KEY(trigger_id,source_run_id,terminal_state)
+  );
 `;

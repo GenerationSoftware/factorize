@@ -6,7 +6,7 @@ const job = (overrides: Partial<Job> = {}): Job => ({
   parameterDefaults: { greeting: "Hello", name: "world" },
   executionTarget: { connectionId: "exe-1", workspace: "triage", cwd: "/repo", agentKind: "codex" },
   concurrencyLimit: 1, enabled: true,
-  trigger: { id: "trigger-1", jobId: "job-1", kind: "manual", config: {}, createdAt: "now", updatedAt: "now" },
+  triggers: [],
   createdAt: "now", updatedAt: "now", ...overrides,
 });
 
@@ -44,10 +44,13 @@ describe("job invocation domain", () => {
     expect(await service.startIfCapacity(second.run)).toBeNull();
   });
 
-  it("defines exactly one trigger per job and durable claims in the clean schema", () => {
-    expect(JOB_SCHEMA).toContain("job_id TEXT NOT NULL UNIQUE");
+  it("defines multiple triggers, per-trigger schedules, lifecycle claims, and coalescing state", () => {
+    expect(JOB_SCHEMA).toContain("kind IN ('schedule','webhook','jobLifecycle')");
+    expect(JOB_SCHEMA).not.toContain("job_id TEXT NOT NULL UNIQUE REFERENCES jobs");
     expect(JOB_SCHEMA).toContain("UNIQUE(job_id, claim_key)");
     expect(JOB_SCHEMA).toContain("CREATE TABLE IF NOT EXISTS schedule_state");
+    expect(JOB_SCHEMA).toContain("CREATE TABLE IF NOT EXISTS automatic_wakes");
+    expect(JOB_SCHEMA).toContain("PRIMARY KEY(trigger_id,source_run_id,terminal_state)");
     expect(JOB_SCHEMA).not.toContain("pipes");
   });
 });

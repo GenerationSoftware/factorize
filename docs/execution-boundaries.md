@@ -36,16 +36,20 @@ state and request/response receipt.
 ## Job invocation boundary
 
 A `Job` owns a Mustache prompt template, string parameter defaults, an execution
-target, a positive concurrency limit, enabled state, and exactly one `Trigger`.
-Triggers have one of three domain kinds: `manual`, `schedule`, or `webhook`.
+target, a positive concurrency limit, enabled state, and a collection of
+`Trigger` records. Stored triggers are `schedule`, `webhook`, or `jobLifecycle`;
+manual invocation is an operation available to every enabled Job.
 
 Trigger adapters do only source-specific authentication and normalization. They
 then call the same `InvocationService.invoke(jobId, request)` operation. Its
 canonical request carries the source, optional reserved `context`, string
 parameter overrides, a durable claim key, and optional occurrence metadata.
 The invocation boundary validates and renders the prompt, applies defaults,
-encrypts the rendered prompt, and atomically persists an `Invocation` plus its
-queued `JobRun`. The `(job_id, claim_key)` constraint makes retries idempotent.
+encrypts the rendered prompt, and persists the durable occurrence claim. An
+automatic signal creates a queued `JobRun` only when the Job has no pending or
+active automatic run; otherwise it marks one bounded trailing wake. The
+`(job_id, claim_key)` constraint keeps every source retry idempotent and
+lifecycle delivery also claims `(trigger_id, source_run_id, terminal_state)`.
 
 Queue consumers call `startIfCapacity`; concurrency is counted by job, never by
 trigger source. Provider adapters must not render prompts, insert runs, claim

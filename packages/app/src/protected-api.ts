@@ -85,7 +85,7 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     tool("list_projects", "List Linear projects", z.object({}), () => service.listProjects());
     tool("list_flow_options", "List match-rule options", z.object({}), () => service.listFlowOptions());
     tool("list_exe_connections", "List safe metadata for saved exe.dev connections. Select a connectionId before creating or updating a flow; API tokens are never returned.", z.object({}), () => service.listExeConnections());
-    tool("list_runs", "List and filter job runs by job ID, state, and an optional case-insensitive literal substring of the exact triggered context. Context matches include only a bounded excerpt.", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
+    tool("list_runs", "List authoritative job runs by job ID, state, and an optional case-insensitive literal substring of triggered context. Automatic webhook, schedule, and lifecycle signals coalesce, so query runs and the provider API for authoritative work. Context matches include only a bounded excerpt.", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
     tool("get_run", "Get a run with its full triggered context, invocation metadata, execution metadata, output, and activity", runIdSchema, ({ runId }: any) => service.getRun(runId));
     tool("list_flow_events", "List webhook activity for a flow", listEventsSchema, (input: any) => service.listFlowEvents(queryOf(input)));
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
@@ -96,7 +96,7 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     tool("delete_job", "Delete a job and its queued invocation history", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));
     tool("enable_job", "Enable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, true));
     tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
-    tool("invoke_job", "Manually invoke any enabled job, overriding string parameters and optional reserved context", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
+    tool("invoke_job", "Explicitly invoke any enabled job, overriding string parameters and optional reserved context. Manual invocations are never coalesced with automatic wakes.", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
     tool("list_job_webhook_activity", "List matching, rejected, duplicate, and accepted webhook activity for a job", z.object({ jobId: z.string().min(1), limit: z.number().int().min(1).max(100).default(50) }), ({ jobId, limit }: any) => service.listJobEvents(jobId, limit));
     tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
