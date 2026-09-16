@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flowDetailPage, flowPage, flowWebhooksPage, flowsPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, runDetailPage, settingsPage } from "../src/ui";
+import { apiKeysSettingsPage, flowDetailPage, flowPage, flowWebhooksPage, flowsPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, runDetailPage, settingsPage } from "../src/ui";
 
 describe("pages", () => {
   const expectInlineScriptsToParse = (html: string) => {
@@ -182,6 +182,16 @@ describe("pages", () => {
     const settings = settingsPage({ email: "owner@example.com" });
     expect(settings).toContain('<main class="mx-auto max-w-6xl px-5 py-12 lg:px-8">');
     expect(settings).not.toContain('<main class="mx-auto max-w-4xl');
+  });
+
+  it("renders accessible settings subpage navigation", () => {
+    const integrations = settingsPage({ email: "owner@example.com" });
+    const apiKeys = apiKeysSettingsPage({ email: "owner@example.com" });
+    expect(integrations).toContain('nav aria-label="Settings"');
+    expect(integrations).toContain('href="/settings/integrations" aria-current="page"');
+    expect(integrations).toContain('href="/settings/api-keys"');
+    expect(apiKeys).toContain('href="/settings/api-keys" aria-current="page"');
+    expect(apiKeys).toContain("API key management is coming soon");
   });
 
   it("separates available providers from installed integration management", () => {
