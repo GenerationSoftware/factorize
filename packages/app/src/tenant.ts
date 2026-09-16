@@ -17,6 +17,7 @@ import { renderSourcePrompt } from "./source-lifecycle";
 import { JOB_SCHEMA, renderJobPrompt } from "./job-domain";
 import { normalizeExecutionState, type RunHandle } from "./execution";
 import { catchUpOccurrence, nextOccurrence, validateScheduleConfig, type ScheduleConfig } from "./schedule";
+import { adaptWebhook, publicWebhookConfig, type WebhookProvider, type WebhookTriggerConfig } from "./webhook-trigger";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -115,6 +116,8 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "GET" && jobMatch) return await this.getJobV1(decodeURIComponent(jobMatch[1]));
       if (request.method === "PUT" && jobMatch) return await this.updateJob(decodeURIComponent(jobMatch[1]), await request.json());
       if (request.method === "DELETE" && jobMatch) return this.deleteJob(decodeURIComponent(jobMatch[1]));
+      const jobEventsMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/events$/);
+      if (request.method === "GET" && jobEventsMatch) return this.listJobEvents(decodeURIComponent(jobEventsMatch[1]), url);
       if (request.method === "GET" && /^\/v1\/flows\/[^/]+$/.test(url.pathname)) return this.getFlow(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/connections/status") return await this.connectionStatus();
       if (request.method === "POST" && url.pathname === "/members") return await this.upsertMember(await request.json());
@@ -130,6 +133,8 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "DELETE" && url.pathname.startsWith("/pipes/")) return this.deletePipe(url.pathname.split("/")[2] ?? "");
       if (request.method === "POST" && url.pathname === "/webhook/linear") return await this.acceptLinearWebhook(await request.json() as Record<string, any>, request.headers.get("linear-delivery"));
       if (request.method === "POST" && url.pathname === "/webhook/github") return await this.acceptGitHubWebhook(await request.json() as Record<string, any>, request.headers.get("github-delivery"), request.headers.get("github-event"));
+      const customJobMatch = url.pathname.match(/^\/webhook\/custom\/([^/]+)$/);
+      if (request.method === "POST" && customJobMatch) return await this.acceptCustomJobWebhook(decodeURIComponent(customJobMatch[1]), await request.text(), request.headers);
       const tailMatch = url.pathname.match(/^\/webhook\/cloudflare\/([^/]+)$/);
       if (request.method === "POST" && tailMatch) return await this.acceptCloudflareTail(decodeURIComponent(tailMatch[1]), await request.text(), request.headers);
       const tailTestMatch = url.pathname.match(/^\/cloudflare-tail\/([^/]+)\/test$/);
@@ -295,12 +300,17 @@ export class Tenant extends DurableObject<Env> {
     try { parameterDefaults = JSON.parse(String(row.parameter_defaults)); } catch { /* malformed internal state is presented safely */ }
     try { executionTarget = JSON.parse(String(row.execution_target)); } catch { /* malformed internal state is presented safely */ }
     try { triggerConfig = JSON.parse(String(trigger?.config ?? "{}")); } catch { /* malformed internal state is presented safely */ }
+    if (trigger?.kind === "webhook") {
+      const rawConfig = triggerConfig as WebhookTriggerConfig;
+      triggerConfig = publicWebhookConfig(rawConfig);
+    }
+    const activity = this.one("SELECT count(*) AS count,max(received_at) AS last_received_at FROM job_events WHERE job_id=?", row.id) as Row | undefined;
     return {
       id: row.id, name: row.name,
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
       parameterDefaults, concurrencyLimit: Number(row.concurrency_limit),
       executionTargetId: String(executionTarget.connectionId ?? ""),
-      trigger: { kind: String(trigger?.kind ?? "manual"), config: triggerConfig,
+      trigger: { kind: String(trigger?.kind ?? "manual"), config: triggerConfig, activity: { count: Number(activity?.count ?? 0), lastReceivedAt: activity?.last_received_at ?? null },
         ...(trigger?.kind === "schedule" ? (() => { const state = this.one("SELECT next_run_at,last_triggered_at FROM schedule_state WHERE job_id=?", row.id) as Row | undefined; return { nextRunAt: state?.next_run_at == null ? null : new Date(Number(state.next_run_at)).toISOString(), lastTriggeredAt: state?.last_triggered_at ?? null }; })() : {}) },
       enabled: Boolean(row.enabled), createdAt: row.created_at, updatedAt: row.updated_at,
     };
@@ -372,28 +382,37 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async invokeJob(jobId: string, input: any): Promise<Response> {
+    const job = this.one("SELECT enabled FROM jobs WHERE id=?", jobId) as Row | undefined;
+    if (!job) return new Response("Not found", { status: 404 });
+    if (!Boolean(job.enabled)) return Response.json({ error: "Job is disabled" }, { status: 409 });
+    const result = await this.invokeCanonicalJob(jobId, "manual", input.idempotencyKey ? `manual:${input.idempotencyKey}` : `manual:${id()}`, input.context, object(input.parameters));
+    if (!result) return Response.json({ error: "Job is disabled" }, { status: 409 });
+    return json(result);
+  }
+
+  /** Single persistence boundary used by manual, schedule, and webhook adapters. */
+  private async invokeCanonicalJob(jobId: string, source: "manual" | "schedule" | "webhook", claimKey: string, context?: string, parameters: Record<string, string> = {}, occurrence?: Record<string, unknown>): Promise<Record<string, unknown> | null> {
     const row = this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row | undefined;
-    if (!row) return new Response("Not found", { status: 404 });
-    if (!Boolean(row.enabled)) return Response.json({ error: "Job is disabled" }, { status: 409 });
-    const claimKey = input.idempotencyKey ? `manual:${input.idempotencyKey}` : `manual:${id()}`;
+    if (!row || !Boolean(row.enabled)) return null;
     const existing = this.one("SELECT i.id AS invocation_id,r.id AS run_id,r.state FROM invocations i JOIN job_runs r ON r.invocation_id=i.id WHERE i.job_id=? AND i.claim_key=?", jobId, claimKey) as Row | undefined;
-    if (existing) return json({ invocationId: existing.invocation_id, runId: existing.run_id, state: existing.state, duplicate: true });
-    const job = await this.publicJob(row), parameters = object(input.parameters);
-    const prompt = renderJobPrompt({ promptTemplate: String(job.promptTemplate), parameterDefaults: job.parameterDefaults as Record<string, string> }, { context: input.context, parameters });
+    if (existing) return { invocationId: existing.invocation_id, runId: existing.run_id, state: existing.state, duplicate: true };
+    const job = await this.publicJob(row);
+    const prompt = renderJobPrompt({ promptTemplate: String(job.promptTemplate), parameterDefaults: job.parameterDefaults as Record<string, string> }, { context, parameters });
     const invocationId = id(), runId = id(), timestamp = now();
-    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO invocations (id,job_id,source,claim_key,context,parameters,created_at) VALUES (?,?,?,?,?,?,?)", invocationId, jobId, "manual", claimKey, input.context ?? null, JSON.stringify(parameters), timestamp);
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO invocations (id,job_id,source,claim_key,context,parameters,occurrence,created_at) VALUES (?,?,?,?,?,?,?,?)", invocationId, jobId, source, claimKey, context ?? null, JSON.stringify(parameters), occurrence ? JSON.stringify(occurrence) : null, timestamp);
     const winner = this.one("SELECT id FROM invocations WHERE job_id=? AND claim_key=?", jobId, claimKey) as Row;
     if (winner.id !== invocationId) {
       const duplicate = this.one("SELECT id,state FROM job_runs WHERE invocation_id=?", winner.id) as Row;
-      return json({ invocationId: winner.id, runId: duplicate.id, state: duplicate.state, duplicate: true });
+      return { invocationId: winner.id, runId: duplicate.id, state: duplicate.state, duplicate: true };
     }
     const encryptedPrompt = await encrypt(prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("INSERT INTO job_runs (id,job_id,invocation_id,state,encrypted_prompt,created_at,updated_at) VALUES (?,?,?,?,?,?,?)", runId, jobId, invocationId, "queued", encryptedPrompt, timestamp, timestamp);
     let target: Record<string, unknown> = {};
     try { target = JSON.parse(String(row.execution_target)); } catch { /* validated when the job is saved */ }
-    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", "manual", "exe-herdr", JSON.stringify(["output", "prompt-delivery", "recovery", "stop"]), "https://exe.dev/", timestamp, timestamp);
+    const provider = source === "webhook" ? String((occurrence as any)?.metadata?.provider ?? "webhook") : source;
+    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", provider, "exe-herdr", JSON.stringify(["output", "prompt-delivery", "recovery", "stop"]), "https://exe.dev/", timestamp, timestamp);
     await this.ctx.storage.setAlarm(Date.now());
-    return json({ invocationId, runId, state: "queued", duplicate: false });
+    return { invocationId, runId, state: "queued", duplicate: false };
   }
 
   private async processDueSchedules(): Promise<void> {
@@ -410,20 +429,7 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async enqueueScheduledJob(jobId: string, occurredAt: string, config: ScheduleConfig): Promise<void> {
-    const row = this.one("SELECT * FROM jobs WHERE id=? AND enabled=1", jobId) as Row | undefined;
-    if (!row) return;
-    const claimKey = `schedule:${occurredAt}`;
-    if (this.one("SELECT id FROM invocations WHERE job_id=? AND claim_key=?", jobId, claimKey)) return;
-    const job = await this.publicJob(row), parameters = config.parameters ?? {};
-    const prompt = renderJobPrompt({ promptTemplate: String(job.promptTemplate), parameterDefaults: job.parameterDefaults as Record<string, string> }, { context: config.context, parameters });
-    const invocationId = id(), runId = id(), timestamp = now(), occurrence = JSON.stringify({ occurredAt });
-    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO invocations (id,job_id,source,claim_key,context,parameters,occurrence,created_at) VALUES (?,?,?,?,?,?,?,?)", invocationId, jobId, "schedule", claimKey, config.context ?? null, JSON.stringify(parameters), occurrence, timestamp);
-    const winner = this.one("SELECT id FROM invocations WHERE job_id=? AND claim_key=?", jobId, claimKey) as Row;
-    if (winner.id !== invocationId) return;
-    const encryptedPrompt = await encrypt(prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    this.ctx.storage.sql.exec("INSERT INTO job_runs (id,job_id,invocation_id,state,encrypted_prompt,created_at,updated_at) VALUES (?,?,?,?,?,?,?)", runId, jobId, invocationId, "queued", encryptedPrompt, timestamp, timestamp);
-    let target: Record<string, unknown> = {}; try { target = JSON.parse(String(row.execution_target)); } catch {}
-    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", "schedule", "exe-herdr", JSON.stringify(["output", "prompt-delivery", "recovery", "stop"]), "https://exe.dev/", timestamp, timestamp);
+    await this.invokeCanonicalJob(jobId, "schedule", `schedule:${occurredAt}`, config.context, config.parameters ?? {}, { occurredAt });
   }
 
   private deletePipe(pipeId: string): Response {
@@ -606,6 +612,30 @@ export class Tenant extends DurableObject<Env> {
     return json({ statuses: statusData.workflowStates.nodes, users: userData.users.nodes, labels: labelData.issueLabels.nodes });
   }
 
+  private webhookJobs(provider: WebhookProvider): Array<{ job: Row; config: WebhookTriggerConfig }> {
+    return this.rows("SELECT j.*,t.config AS trigger_config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.enabled=1 AND t.kind='webhook'")
+      .flatMap(job => { try { const config = JSON.parse(String(job.trigger_config)) as WebhookTriggerConfig; return config.provider === provider ? [{ job, config }] : []; } catch { return []; } });
+  }
+
+  private recordJobEvent(jobId: string, provider: string, deliveryId: string, outcome: string, detail: string): void {
+    this.ctx.storage.sql.exec("INSERT INTO job_events VALUES (?,?,?,?,?,?)", id(), jobId, provider, deliveryId, outcome, detail, now());
+  }
+
+  private async invokeWebhookJobs(provider: WebhookProvider, deliveryId: string, payload: Record<string, any>, eventName?: string): Promise<void> {
+    for (const { job, config } of this.webhookJobs(provider)) {
+      const invocation = adaptWebhook(config, provider, deliveryId, payload, eventName);
+      if (!invocation) { this.recordJobEvent(String(job.id), provider, deliveryId, "ignored", "Webhook did not match this job trigger."); continue; }
+      const result = await this.invokeCanonicalJob(String(job.id), "webhook", invocation.claimKey, invocation.context, invocation.parameters, invocation.occurrence);
+      this.recordJobEvent(String(job.id), provider, deliveryId, result?.duplicate ? "duplicate" : result ? "accepted" : "ignored", result?.duplicate ? "Webhook occurrence was already claimed." : result ? "Webhook occurrence queued through canonical job invocation." : "Job was unavailable.");
+    }
+  }
+
+  private listJobEvents(jobId: string, url: URL): Response {
+    if (!this.one("SELECT id FROM jobs WHERE id=?", jobId)) return new Response("Not found", { status: 404 });
+    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") ?? 50)));
+    return json(this.rows("SELECT id,provider,delivery_id AS deliveryId,outcome,detail,received_at AS receivedAt FROM job_events WHERE job_id=? ORDER BY received_at DESC,id DESC LIMIT ?", jobId, limit));
+  }
+
   private async acceptLinearWebhook(event: Record<string, any>, deliveryId: string | null): Promise<Response> {
     if (!deliveryId) return new Response("Missing delivery ID", { status: 400 });
     if (this.one("SELECT id FROM deliveries WHERE id = ?", deliveryId)) return new Response(null, { status: 200 });
@@ -629,6 +659,7 @@ export class Tenant extends DurableObject<Env> {
         matchingEvent = { ...matchingEvent, data };
       }
     }
+    await this.invokeWebhookJobs("linear", deliveryId, matchingEvent);
 
     for (const pipe of pipes) {
       if (projectId !== pipe.project_id) continue;
@@ -651,9 +682,16 @@ export class Tenant extends DurableObject<Env> {
     this.ctx.storage.sql.exec("INSERT INTO deliveries (id,pipe_id,received_at) VALUES (?,?,?)", deliveryId, "github-app", now());
     const custom = this.rows("SELECT * FROM pipes WHERE enabled=1 AND source_kind='custom'");
     await Promise.all(custom.map((pipe) => this.evaluateCustom(pipe, "github", deliveryId, event)));
+    if (eventName !== "pull_request" || event.action !== "dequeued") await this.invokeWebhookJobs("github", deliveryId, event, eventName);
     if (eventName !== "pull_request" || event.action !== "dequeued") { await this.ctx.storage.setAlarm(Date.now()); return new Response(null, { status: 202 }); }
     const installationId = event.installation?.id, repositoryId = event.repository?.id, pull = event.pull_request;
     if (!Number.isSafeInteger(installationId) || !Number.isSafeInteger(repositoryId) || !Number.isSafeInteger(pull?.number)) return new Response(null, { status: 202 });
+    for (const { job, config } of this.webhookJobs("github")) {
+      if (config.installationId !== installationId || config.repositoryId !== repositoryId || (config.event ?? "pull_request") !== eventName || (config.action ?? "dequeued") !== event.action || pull.state !== "open" || pull.base?.ref !== "main") continue;
+      const minimal = { installation: { id: installationId }, repository: { id: repositoryId }, pull_request: { number: pull.number, url: pull.html_url, title: pull.title ?? "", body: pull.body ?? "", base: { ref: pull.base.ref } }, action: event.action };
+      this.ctx.storage.sql.exec("INSERT INTO pending_verifications VALUES (?,?,?,?,?,?,?,?,?,?,?)", id(), job.id, deliveryId, installationId, repositoryId, event.repository.owner?.login ?? "", event.repository.name ?? "", pull.number, 0, Date.now(), JSON.stringify(minimal));
+      this.recordJobEvent(String(job.id), "github", deliveryId, "candidate", "Candidate received; waiting for GitHub mergeability verification.");
+    }
     const pipes = this.rows("SELECT * FROM pipes WHERE enabled=1 AND source_kind='github'");
     for (const pipe of pipes) {
       const source = this.sourceFor(pipe);
@@ -668,7 +706,18 @@ export class Tenant extends DurableObject<Env> {
 
   private async acceptCloudflareTail(flowId: string, raw: string, headers: Headers): Promise<Response> {
     const pipe = this.one("SELECT * FROM pipes WHERE id=? AND enabled=1", flowId) as Row | undefined;
-    if (!pipe) return new Response("Not found", { status: 404 });
+    if (!pipe) {
+      const item = this.webhookJobs("cloudflareTail").find(({ job }) => job.id === flowId);
+      if (!item?.config.signingSecret) return new Response("Not found", { status: 404 });
+      const timestamp = headers.get("x-factorize-timestamp") ?? "", delivery = headers.get("x-factorize-delivery") ?? "", signature = headers.get("x-factorize-signature") ?? "";
+      if (!timestamp || !delivery || !signature) return new Response("Missing delivery metadata", { status: 400 });
+      const verification = await verifyTailDelivery(item.config.signingSecret, timestamp, delivery, raw, signature);
+      if (verification !== "valid") { this.recordJobEvent(flowId, "cloudflareTail", delivery, verification, "Tail delivery verification failed."); return new Response(verification === "stale" ? "Stale delivery" : "Invalid signature", { status: 401 }); }
+      let payload: Record<string, any>; try { payload = sanitizeTailEvent(JSON.parse(raw)) as Record<string, any>; } catch { return new Response("Invalid JSON", { status: 400 }); }
+      if (suppressTailEvent(payload)) { this.recordJobEvent(flowId, "cloudflareTail", delivery, "rejected", "Tail delivery was suppressed to prevent an ingestion loop."); return new Response(null, { status: 202 }); }
+      await this.invokeWebhookJobs("cloudflareTail", delivery, payload, "tail");
+      return new Response(null, { status: 202 });
+    }
     const source = this.sourceFor(pipe);
     if (source.kind !== "custom" || source.origin !== "cloudflare" || !source.tail?.signingSecret) return new Response("Not found", { status: 404 });
     const timestamp = headers.get("x-factorize-timestamp") ?? "", delivery = headers.get("x-factorize-delivery") ?? "", signature = headers.get("x-factorize-signature") ?? "";
@@ -688,6 +737,17 @@ export class Tenant extends DurableObject<Env> {
     else this.ctx.storage.sql.exec("UPDATE tail_fingerprints SET count=count+1 WHERE flow_id=? AND fingerprint=?", pipe.id, fingerprint);
     await this.evaluateCustom(pipe, "cloudflare", delivery, event);
     await this.ctx.storage.setAlarm(Date.now());
+    return new Response(null, { status: 202 });
+  }
+
+  private async acceptCustomJobWebhook(jobId: string, raw: string, headers: Headers): Promise<Response> {
+    const item = this.webhookJobs("custom").find(({ job }) => job.id === jobId);
+    if (!item) return new Response("Not found", { status: 404 });
+    if (item.config.secret && headers.get("x-factorize-secret") !== item.config.secret) { this.recordJobEvent(jobId, "custom", "unknown", "invalid", "Custom webhook secret was invalid."); return new Response("Invalid secret", { status: 401 }); }
+    let payload: Record<string, any>; try { payload = JSON.parse(raw); } catch { return new Response("Invalid JSON", { status: 400 }); }
+    let delivery = headers.get("x-factorize-delivery");
+    if (delivery === null) delivery = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw)).then(value => [...new Uint8Array(value)].map(byte => byte.toString(16).padStart(2, "0")).join(""));
+    await this.invokeWebhookJobs("custom", delivery!, payload, headers.get("x-factorize-event") ?? undefined);
     return new Response(null, { status: 202 });
   }
 
@@ -756,41 +816,56 @@ export class Tenant extends DurableObject<Env> {
     const delays = [0, 5_000, 15_000, 30_000, 60_000];
     for (const verification of pending) {
       const pipe = this.one("SELECT * FROM pipes WHERE id=?", verification.flow_id) as Row | undefined;
-      if (!pipe) { this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id); continue; }
+      const job = pipe ? undefined : this.one("SELECT j.*,t.config AS trigger_config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.id=? AND j.enabled=1 AND t.kind='webhook'", verification.flow_id) as Row | undefined;
+      const target = pipe ?? job;
+      if (!target) { this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id); continue; }
       const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", verification.installation_id) as Row | undefined;
-      if (installation?.state !== "active") { this.finishVerification(verification, pipe, "verification_failed", "GitHub installation is disconnected."); continue; }
+      if (installation?.state !== "active") { this.finishVerification(verification, target, "verification_failed", "GitHub installation is disconnected.", Boolean(job)); continue; }
       try {
         const token = await installationToken(this.env, Number(verification.installation_id));
         const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(String(verification.repository_owner))}/${encodeURIComponent(String(verification.repository_name))}/pulls/${verification.pull_number}`, { headers: githubHeaders(token) });
-        if (response.status === 404) { this.finishVerification(verification, pipe, "ignored", "Pull request no longer exists or is inaccessible."); continue; }
+        if (response.status === 404) { this.finishVerification(verification, target, "ignored", "Pull request no longer exists or is inaccessible.", Boolean(job)); continue; }
         const rateLimited = response.status === 429 || (response.status === 403 && (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after")));
-        if (response.status === 401 || (response.status === 403 && !rateLimited)) { this.finishVerification(verification, pipe, "verification_failed", `GitHub access failed permanently (${response.status}).`); continue; }
-        if (!response.ok) { await this.retryVerification(verification, pipe, delays, `Transient GitHub API failure (${response.status}).`, rateLimited ? Number(response.headers.get("retry-after")) * 1000 : undefined); continue; }
+        if (response.status === 401 || (response.status === 403 && !rateLimited)) { this.finishVerification(verification, target, "verification_failed", `GitHub access failed permanently (${response.status}).`, Boolean(job)); continue; }
+        if (!response.ok) { await this.retryVerification(verification, target, delays, `Transient GitHub API failure (${response.status}).`, rateLimited ? Number(response.headers.get("retry-after")) * 1000 : undefined, Boolean(job)); continue; }
         const pull = await response.json() as any;
-        if (pull.state !== "open" || pull.base?.ref !== "main") { this.finishVerification(verification, pipe, "ignored", "Pull request is closed or no longer targets main."); continue; }
-        if (pull.mergeable === null) { await this.retryVerification(verification, pipe, delays, "GitHub is still calculating mergeability."); continue; }
-        if (pull.mergeable === true) { this.finishVerification(verification, pipe, "ignored", "GitHub reports that the pull request is mergeable."); continue; }
-        const source = this.sourceFor(pipe);
-        if (source.kind !== "github" || source.repositoryId !== Number(verification.repository_id)) { this.finishVerification(verification, pipe, "ignored", "Flow source changed while verification was pending."); continue; }
+        if (pull.state !== "open" || pull.base?.ref !== "main") { this.finishVerification(verification, target, "ignored", "Pull request is closed or no longer targets main.", Boolean(job)); continue; }
+        if (pull.mergeable === null) { await this.retryVerification(verification, target, delays, "GitHub is still calculating mergeability.", undefined, Boolean(job)); continue; }
+        if (pull.mergeable === true) { this.finishVerification(verification, target, "ignored", "GitHub reports that the pull request is mergeable.", Boolean(job)); continue; }
+        if (job) {
+          const config = JSON.parse(String(job.trigger_config)) as WebhookTriggerConfig;
+          const saved = JSON.parse(String(verification.payload));
+          const payload = { ...saved, pull_request: { ...saved.pull_request, ...pull } };
+          const invocation = adaptWebhook(config, "github", String(verification.delivery_id), payload, "pull_request");
+          this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id);
+          if (invocation) await this.invokeCanonicalJob(String(job.id), "webhook", invocation.claimKey, invocation.context, invocation.parameters, invocation.occurrence);
+          this.recordJobEvent(String(job.id), "github", String(verification.delivery_id), invocation ? "accepted" : "ignored", invocation ? "Verified webhook queued through canonical job invocation." : "Job trigger changed while verification was pending.");
+          continue;
+        }
+        const legacyPipe = pipe!;
+        const source = this.sourceFor(legacyPipe);
+        if (source.kind !== "github" || source.repositoryId !== Number(verification.repository_id)) { this.finishVerification(verification, legacyPipe, "ignored", "Flow source changed while verification was pending."); continue; }
         const saved = JSON.parse(String(verification.payload));
         const workItem: WorkItem = { provider: "github", claimKey: githubClaimKey(source.repositoryId, pull.number), identifier: `${source.repositoryFullName}#${pull.number}`, title: pull.title ?? saved.title, description: pull.body ?? saved.body, url: pull.html_url, event: { type: "pull_request", name: "pull_request", action: "dequeued", delivery: verification.delivery_id }, repository: { id: source.repositoryId, owner: source.repositoryOwner, name: source.repositoryName, fullName: source.repositoryFullName }, pullRequest: { number: pull.number, url: pull.html_url, title: pull.title ?? "", body: pull.body ?? "", author: pull.user?.login ?? "", base: { ref: pull.base.ref, sha: pull.base.sha }, head: { ref: pull.head?.ref ?? "", sha: pull.head?.sha ?? "", repository: pull.head?.repo?.full_name ?? "" } } };
         this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id);
-        await this.queueWorkItem(pipe, String(verification.delivery_id), workItem, renderGitHubPrompt(workItem, { id: String(pipe.id), name: String(pipe.name) }));
-      } catch (error) { await this.retryVerification(verification, pipe, delays, error instanceof Error ? error.message : "GitHub verification failed."); }
+        await this.queueWorkItem(legacyPipe, String(verification.delivery_id), workItem, renderGitHubPrompt(workItem, { id: String(legacyPipe.id), name: String(legacyPipe.name) }));
+      } catch (error) { await this.retryVerification(verification, target, delays, error instanceof Error ? error.message : "GitHub verification failed.", undefined, Boolean(job)); }
     }
   }
 
-  private async retryVerification(verification: Row, pipe: Row, delays: number[], detail: string, overrideDelay?: number): Promise<void> {
+  private async retryVerification(verification: Row, pipe: Row, delays: number[], detail: string, overrideDelay?: number, isJob = false): Promise<void> {
     const nextAttempt = Number(verification.attempt) + 1;
-    if (nextAttempt >= delays.length) { this.finishVerification(verification, pipe, "verification_failed", `Verification retries exhausted: ${detail}`); return; }
+    if (nextAttempt >= delays.length) { this.finishVerification(verification, pipe, "verification_failed", `Verification retries exhausted: ${detail}`, isJob); return; }
     const delay = Math.max(delays[nextAttempt]!, Number.isFinite(overrideDelay) ? overrideDelay! : 0);
     this.ctx.storage.sql.exec("UPDATE pending_verifications SET attempt=?,next_attempt_at=? WHERE id=?", nextAttempt, Date.now() + delay, verification.id);
-    this.recordFlowEvent(pipe, String(verification.delivery_id), githubClaimKey(Number(verification.repository_id), Number(verification.pull_number)), null, { type: "pull_request", action: "dequeued" }, "waiting", detail, "github");
+    if (isJob) this.recordJobEvent(String(pipe.id), "github", String(verification.delivery_id), "waiting", detail);
+    else this.recordFlowEvent(pipe, String(verification.delivery_id), githubClaimKey(Number(verification.repository_id), Number(verification.pull_number)), null, { type: "pull_request", action: "dequeued" }, "waiting", detail, "github");
   }
 
-  private finishVerification(verification: Row, pipe: Row, outcome: string, detail: string): void {
+  private finishVerification(verification: Row, pipe: Row, outcome: string, detail: string, isJob = false): void {
     this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id);
-    this.recordFlowEvent(pipe, String(verification.delivery_id), githubClaimKey(Number(verification.repository_id), Number(verification.pull_number)), null, { type: "pull_request", action: "dequeued" }, outcome, detail, "github");
+    if (isJob) this.recordJobEvent(String(pipe.id), "github", String(verification.delivery_id), outcome, detail);
+    else this.recordFlowEvent(pipe, String(verification.delivery_id), githubClaimKey(Number(verification.repository_id), Number(verification.pull_number)), null, { type: "pull_request", action: "dequeued" }, outcome, detail, "github");
   }
 
   private async startRun(run: Row, pipe: Row): Promise<void> {

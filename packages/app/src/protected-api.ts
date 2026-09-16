@@ -53,6 +53,8 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
       if (request.method === "POST" && path === "/api/v1/jobs") return Response.json(await service.createJob(jobInputSchema.parse(await request.json())), { status: 201 });
       const invocationMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)\/invocations$/);
       if (invocationMatch && request.method === "POST") return Response.json(await service.invokeJob(decodeURIComponent(invocationMatch[1]), manualInvocationSchema.parse(await request.json())), { status: 202 });
+      const jobEventsMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)\/events$/);
+      if (jobEventsMatch && request.method === "GET") return Response.json(await service.listJobEvents(decodeURIComponent(jobEventsMatch[1]), z.coerce.number().int().min(1).max(100).default(50).parse(url.searchParams.get("limit") ?? 50)));
       const enabledMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)\/(enable|disable)$/);
       if (enabledMatch && request.method === "POST") return Response.json(await service.setJobEnabled(decodeURIComponent(enabledMatch[1]), enabledMatch[2] === "enable"));
       const jobMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)$/);
@@ -95,6 +97,7 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     tool("enable_job", "Enable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, true));
     tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
     tool("invoke_job", "Manually invoke any enabled job, overriding string parameters and optional reserved context", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
+    tool("list_job_webhook_activity", "List matching, rejected, duplicate, and accepted webhook activity for a job", z.object({ jobId: z.string().min(1), limit: z.number().int().min(1).max(100).default(50) }), ({ jobId, limit }: any) => service.listJobEvents(jobId, limit));
     tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);

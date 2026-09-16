@@ -49,6 +49,13 @@ export class FlowService {
     };
   }
 
+  private publicJob(value: any) {
+    const provider = value?.trigger?.kind === "webhook" ? value.trigger.config?.provider : undefined;
+    if (provider === "cloudflareTail") value.trigger.config.destination = `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(value.id)}`;
+    if (provider === "custom") value.trigger.config.destination = `${this.env.APP_ORIGIN}/webhooks/custom/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(value.id)}`;
+    return value;
+  }
+
   async listFlows() { return (await this.call("flows:read", "/pipes") as any[]).map(row => this.publicFlow(row)); }
   async getFlow(flowId: string) {
     const value = await this.call("flows:read", `/v1/flows/${encodeURIComponent(flowId)}`) as any;
@@ -76,10 +83,11 @@ export class FlowService {
   getRun(runId: string) { return this.call("runs:read", `/v1/runs/${encodeURIComponent(runId)}`); }
   listFlowEvents(query: URLSearchParams) { return this.call("runs:read", `/v1/events?${query}`); }
   stopRun(runId: string) { return this.call("runs:write", `/v1/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" }); }
-  listJobs() { return this.call("flows:read", "/v1/jobs"); }
-  getJob(jobId: string) { return this.call("flows:read", `/v1/jobs/${encodeURIComponent(jobId)}`); }
-  createJob(input: JobInput) { return this.call("flows:write", "/v1/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
-  updateJob(jobId: string, input: JobInput) { return this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
+  async listJobs() { return (await this.call("flows:read", "/v1/jobs") as any[]).map(value => this.publicJob(value)); }
+  async getJob(jobId: string) { return this.publicJob(await this.call("flows:read", `/v1/jobs/${encodeURIComponent(jobId)}`)); }
+  listJobEvents(jobId: string, limit = 50) { return this.call("runs:read", `/v1/jobs/${encodeURIComponent(jobId)}/events?limit=${limit}`); }
+  async createJob(input: JobInput) { return this.publicJob(await this.call("flows:write", "/v1/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) })); }
+  async updateJob(jobId: string, input: JobInput) { return this.publicJob(await this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) })); }
   deleteJob(jobId: string) { return this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" }); }
   setJobEnabled(jobId: string, enabled: boolean) { return this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}/${enabled ? "enable" : "disable"}`, { method: "POST" }); }
   invokeJob(jobId: string, input: ManualInvocationInput) { return this.call("runs:write", `/v1/jobs/${encodeURIComponent(jobId)}/invocations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }

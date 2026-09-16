@@ -262,6 +262,10 @@ app.post("/webhooks/cloudflare/:tenantId/:flowId", async (c) => {
   });
 });
 
+app.post("/webhooks/custom/:tenantId/:jobId", async (c) => {
+  return tenant(c, c.req.param("tenantId")).fetch(`https://tenant/webhook/custom/${encodeURIComponent(c.req.param("jobId"))}`, { method: "POST", headers: c.req.raw.headers, body: await c.req.text() });
+});
+
 app.post("/webhooks/linear", async (c) => {
   if (!c.env.LINEAR_WEBHOOK_SIGNING_SECRET) return c.text("Webhook verification is not configured", 503);
   const raw = await c.req.text();
