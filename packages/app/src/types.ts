@@ -59,7 +59,7 @@ export interface PipeInput {
   name: string;
   /** Optional stable, machine-friendly identifier; defaults from the name. */
   flowId?: string;
-  projectId: string;
+  projectId?: string;
   /** At least one rule is required. All rules must match the issue. */
   matchRules?: MatchRule[];
   /** Legacy single-rule input, retained so existing API clients keep working. */

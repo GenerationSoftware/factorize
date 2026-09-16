@@ -1,5 +1,7 @@
 import type { Env, OAuthProps } from "./types";
 import type { FlowInput } from "./flow-schemas";
+import { preparePublicSource, publicSource, resolveContextTemplate } from "./source-lifecycle";
+import type { FlowSource } from "./types";
 
 export class ServiceError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -35,12 +37,14 @@ export class FlowService {
     let matchRules: unknown = undefined;
     try { source = typeof row.source_config === "string" ? JSON.parse(row.source_config) : undefined; } catch { /* omit malformed internal config */ }
     try { matchRules = typeof row.match_rules === "string" ? JSON.parse(row.match_rules) : undefined; } catch { /* omit malformed internal config */ }
-    if (source?.kind === "custom") source = { kind: "custom", origin: source.origin, handlerName: source.handlerName, deploymentState: source.handlerDeployment?.state };
+    if (source) source = publicSource(source);
     return {
       id: row.id, name: row.name, projectId: row.project_id, source,
       matchRules,
       maxConcurrency: row.max_concurrency, workspaceName: row.workspace_name,
       agentKind: row.agent_kind, cwd: row.cwd, contextTemplate: row.context_template,
+      exeConnectionId: row.exe_connection_id,
+      ...(source?.kind === "cloudflareTail" ? { cloudflareTail: { destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(row.id)}` } } : {}),
       enabled: Boolean(row.enabled), createdAt: row.created_at,
     };
   }
@@ -50,11 +54,24 @@ export class FlowService {
     const value = await this.call("flows:read", `/v1/flows/${encodeURIComponent(flowId)}`) as any;
     return this.publicFlow(value);
   }
-  createFlow(input: FlowInput) { return this.call("flows:write", "/pipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
-  updateFlow(flowId: string, input: FlowInput) { return this.call("flows:write", `/pipes/${encodeURIComponent(flowId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
+  async createFlow(input: FlowInput) {
+    const pipeId = crypto.randomUUID();
+    const source = await preparePublicSource(this.auth.tenantId, pipeId, input.source);
+    await this.call("flows:write", "/pipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, pipeId, projectId: input.source.kind === "linear" ? input.source.projectId : "", matchRules: input.source.kind === "linear" ? input.source.matchRules : [], source, contextTemplate: resolveContextTemplate(input.source, input.contextTemplate) }) });
+    return this.publicFlow(await this.call("flows:write", `/v1/flows/${encodeURIComponent(pipeId)}`));
+  }
+  async updateFlow(flowId: string, input: FlowInput) {
+    const current = await this.call("flows:write", `/v1/flows/${encodeURIComponent(flowId)}`) as any;
+    let previous: FlowSource | undefined;
+    try { previous = JSON.parse(current.source_config); } catch { /* validation below will fail safely */ }
+    const source = await preparePublicSource(this.auth.tenantId, flowId, input.source, previous);
+    await this.call("flows:write", `/pipes/${encodeURIComponent(flowId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, projectId: input.source.kind === "linear" ? input.source.projectId : "", matchRules: input.source.kind === "linear" ? input.source.matchRules : [], source, contextTemplate: resolveContextTemplate(input.source, input.contextTemplate) }) });
+    return this.publicFlow(await this.call("flows:write", `/v1/flows/${encodeURIComponent(flowId)}`));
+  }
   deleteFlow(flowId: string) { return this.call("flows:write", `/pipes/${encodeURIComponent(flowId)}`, { method: "DELETE" }); }
   listProjects() { return this.call("flows:read", "/linear/projects"); }
   listFlowOptions() { return this.call("flows:read", "/linear/options"); }
+  listExeConnections() { return this.call("flows:read", "/connections/status").then((value: any) => value.exeConnections ?? []); }
   listRuns(query: URLSearchParams) { return this.call("runs:read", `/v1/runs?${query}`); }
   getRun(runId: string) { return this.call("runs:read", `/v1/runs/${encodeURIComponent(runId)}`); }
   listFlowEvents(query: URLSearchParams) { return this.call("runs:read", `/v1/events?${query}`); }

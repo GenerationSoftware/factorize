@@ -29,7 +29,7 @@ describe("FlowService", () => {
       if (new URL(request.url).pathname === "/pipes" && request.method === "POST") mutated = true;
       return Response.json({ role: "owner", session_version: 4 });
     }), auth);
-    await expect(service.createFlow({ name: "Triage", projectId: "p", matchRules: [{ type: "label", targetId: "l" }], maxConcurrency: 3 })).rejects.toMatchObject({ status: 403, code: "insufficient_scope" } satisfies Partial<ServiceError>);
+    await expect(service.createFlow({ name: "Triage", source: { kind: "linear", projectId: "p", matchRules: [{ type: "label", targetId: "l" }] }, exeConnectionId: "exe-1", maxConcurrency: 3 })).rejects.toMatchObject({ status: 403, code: "insufficient_scope" } satisfies Partial<ServiceError>);
     expect(mutated).toBe(false);
   });
 
@@ -41,7 +41,9 @@ describe("FlowService", () => {
 
 describe("shared API schemas", () => {
   it("rejects credential and unknown fields", () => {
-    expect(() => flowInputSchema.parse({ name: "Triage", projectId: "p", matchRules: [{ type: "label", targetId: "l" }], maxConcurrency: 3, apiToken: "secret" })).toThrow();
+    expect(() => flowInputSchema.parse({ name: "Triage", source: { kind: "linear", projectId: "p", matchRules: [{ type: "label", targetId: "l" }] }, exeConnectionId: "exe-1", maxConcurrency: 3, apiToken: "secret" })).toThrow();
+    expect(flowInputSchema.parse({ name: "Tail", source: { kind: "cloudflareTail" }, exeConnectionId: "exe-1" }).source.kind).toBe("cloudflareTail");
+    expect(() => flowInputSchema.parse({ name: "Tail", source: { kind: "cloudflareTail", signingSecret: "nope" }, exeConnectionId: "exe-1" })).toThrow();
   });
 
   it("bounds pagination and run states", () => {

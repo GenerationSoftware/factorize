@@ -9,6 +9,7 @@ import { flowDetailPage, flowPage, flowWebhooksPage, flowsPage, landingPage, run
 import type { Env } from "./types";
 import type { CustomSource, PipeInput } from "./types";
 import { invokeCustomHandler, prepareCustomHandler, validateCustomHandler } from "./custom-handler";
+import { preparePublicSource, resolveContextTemplate } from "./source-lifecycle";
 import { generateTailSecret } from "./cloudflare-tail";
 
 const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string } }>();
@@ -110,7 +111,11 @@ app.get("/api/pipes/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   const url = new URL(`https://tenant/pipes/${encodeURIComponent(c.req.param("id"))}`);
   for (const key of ["view", "page"]) { const value = c.req.query(key); if (value) url.searchParams.set(key, value); }
-  return tenant(c, session.tenantId).fetch(url);
+  const response = await tenant(c, session.tenantId).fetch(url);
+  if (!response.ok) return response;
+  const result = await response.json() as any;
+  let source: CustomSource | undefined; try { const parsed = JSON.parse(result.flow?.source_config ?? "{}"); if (parsed.kind === "custom" && parsed.origin === "cloudflare") source = parsed; } catch {}
+  return c.json({ ...result, ...(source ? { cloudflareTail: { destination: `${c.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(session.tenantId)}/${encodeURIComponent(c.req.param("id"))}`, signingSecret: source.tail?.signingSecret } } : {}) });
 });
 app.get("/api/runs", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
@@ -184,8 +189,14 @@ app.post("/api/connections/exe/test", async (c) => {
 });
 app.post("/api/pipes", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const input = await c.req.json() as PipeInput;
-  if (input.source?.kind === "custom") {
+  const input = await c.req.json() as PipeInput & { source?: any };
+  if (input.source?.kind === "cloudflareTail") {
+    if (c.env.CUSTOM_SOURCES_ENABLED !== "true") return c.json({ error: "Custom sources are not enabled." }, 404);
+    const pipeId = crypto.randomUUID(); input.pipeId = pipeId;
+    input.contextTemplate = resolveContextTemplate(input.source, input.contextTemplate);
+    input.source = await preparePublicSource(session.tenantId, pipeId, input.source);
+  }
+  else if (input.source?.kind === "custom") {
     if (c.env.CUSTOM_SOURCES_ENABLED !== "true") return c.json({ error: "Custom sources are not enabled." }, 404);
     const valid = validateCustomHandler(input.source.origin, input.source.handlerName, input.source.handlerCode);
     const pipeId = crypto.randomUUID();
@@ -199,8 +210,18 @@ app.post("/api/pipes", async (c) => {
 });
 app.put("/api/pipes/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const pipeId = c.req.param("id"), input = await c.req.json() as PipeInput;
-  if (input.source?.kind === "custom") {
+  const pipeId = c.req.param("id"), input = await c.req.json() as PipeInput & { source?: any; tailSigningSecret?: string };
+  if (input.source?.kind === "cloudflareTail") {
+    if (c.env.CUSTOM_SOURCES_ENABLED !== "true") return c.json({ error: "Custom sources are not enabled." }, 404);
+    const currentResponse = await tenant(c, session.tenantId).fetch(`https://tenant/v1/flows/${encodeURIComponent(pipeId)}`);
+    if (!currentResponse.ok) return currentResponse;
+    const current = await currentResponse.json() as { source_config?: string };
+    let previous: CustomSource | undefined; try { const parsed = JSON.parse(current.source_config ?? "{}"); if (parsed.kind === "custom") previous = parsed; } catch {}
+    input.contextTemplate = resolveContextTemplate(input.source, input.contextTemplate);
+    input.source = await preparePublicSource(session.tenantId, pipeId, input.source, previous, input.tailSigningSecret);
+    delete input.tailSigningSecret;
+  }
+  else if (input.source?.kind === "custom") {
     if (c.env.CUSTOM_SOURCES_ENABLED !== "true") return c.json({ error: "Custom sources are not enabled." }, 404);
     const currentResponse = await tenant(c, session.tenantId).fetch(`https://tenant/pipes/${encodeURIComponent(pipeId)}`);
     if (!currentResponse.ok) return currentResponse;
