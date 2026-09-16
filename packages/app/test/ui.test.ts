@@ -163,9 +163,12 @@ describe("pages", () => {
     expect(settings).toContain('aria-label="Set up Linear"');
     expect(settings).toContain('aria-label="Set up GitHub"');
     expect(settings).toContain('aria-label="Set up Cloudflare Tail"');
-    expect(settings).toContain("min-h-36 flex-col items-center");
-    expect(settings).toContain('class="flex h-8 w-8 items-center justify-center text-slate-800 dark:text-slate-100"');
-    expect(settings).not.toContain("min-h-48 flex-col items-center");
+    expect(settings).toContain("min-h-32 flex-col items-center rounded-lg");
+    expect(settings).toContain('class="flex h-7 w-7 items-center justify-center text-slate-800 dark:text-slate-100"');
+    expect(settings).toContain('class="mt-1.5 text-sm font-semibold"');
+    expect(settings).toContain("h-6 w-6 items-center justify-center rounded-md");
+    expect(settings).toContain('<path d="M8 3v10M3 8h10" stroke-linecap="round"/>');
+    expect(settings).not.toContain("min-h-36 flex-col items-center");
     expect(settings).not.toContain("View setup");
     expect(settings.match(/<svg aria-hidden="true"/g)?.length).toBeGreaterThanOrEqual(5);
     expect(settings).toContain('<dialog id="linear-setup"');
