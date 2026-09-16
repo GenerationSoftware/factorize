@@ -151,6 +151,23 @@ describe("pages", () => {
     expectInlineScriptsToParse(html);
   });
 
+  it("organizes create and edit job fields into the same four-step sequence", () => {
+    for (const html of [jobPage({ email: "owner@example.com" }), jobPage({ email: "owner@example.com" }, "job-1")]) {
+      const basics = html.indexOf('id="job-basics-title"');
+      const triggers = html.indexOf('id="job-triggers-title"');
+      const prompt = html.indexOf('id="job-prompt-title"');
+      const target = html.indexOf('id="job-target-title"');
+      expect(basics).toBeGreaterThan(-1);
+      expect(basics).toBeLessThan(triggers);
+      expect(triggers).toBeLessThan(prompt);
+      expect(prompt).toBeLessThan(target);
+      expect(html).toContain("Name this job and set how many runs it can process at once.");
+      expect(html).toContain("Choose the events that start this job and expose prompt context.");
+      expect(html).toContain("Write the instructions for each run using context supplied by your triggers.");
+      expect(html).toContain("Select the connected environment that will run this job.");
+    }
+  });
+
   it("renders accessible icon actions for editing and removing triggers", () => {
     const editor = jobPage({ email: "owner@example.com" }, "job-1");
     expect(editor).toContain('aria-label="Edit trigger" title="Edit trigger"');
