@@ -90,6 +90,19 @@ describe("pages", () => {
     }
   });
 
+  it("shows synchronized wildcard trigger hints while retaining detailed autocomplete", () => {
+    const html = jobPage({ email: "owner@example.com" }, "job-1");
+    expect(html).toContain("const triggerHints=()=>triggers.map");
+    expect(html).toContain("path:t.slug+'.*'");
+    expect(html).toContain('data-context-hint="');
+    expect(html).toContain("insertHint(hint.dataset.contextHint)");
+    expect(html).toContain("reflection(t).filter(x=>x.path!=='*')");
+    expect(html).not.toContain("paths.slice(0,6)");
+    expect(html).toContain("context suggestions available");
+    expect(html).toContain("+' inserted.'");
+    expectInlineScriptsToParse(html);
+  });
+
   it("renders accessible icon actions for editing and removing triggers", () => {
     const editor = jobPage({ email: "owner@example.com" }, "job-1");
     expect(editor).toContain('aria-label="Edit trigger" title="Edit trigger"');
