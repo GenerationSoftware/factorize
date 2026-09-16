@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import Mustache from "mustache";
 import { decrypt, encrypt } from "./crypto";
-import { agentListCommand, agentOutputCommand, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, garbageCollectPaneCommand, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, validateWorktreeLeaseCommand, type ExeConnection } from "./exe";
+import { agentListCommand, agentOutputCommand, agentStartupBlocked, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, garbageCollectPaneCommand, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, validateWorktreeLeaseCommand, type ExeConnection } from "./exe";
 import { findOwnedAgent, ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY } from "./linear";
 import { matchingIssue } from "./matcher";
@@ -607,6 +607,11 @@ export class Tenant extends DurableObject<Env> {
     }
     const identity = parseAgent(verification.body);
     if (!identity) return this.beginRecovery(run, pipe, connection, "agent start succeeded but its structured identity was inconsistent");
+    const startupOutput = await backend.readOutput(launched.handle);
+    this.commandActivity(run.id, "initial agent readiness", startupOutput);
+    if (startupOutput.ok && agentStartupBlocked(startupOutput.body)) {
+      return this.finishRun(run, "failed", "The agent process started but stopped at an interactive startup permission prompt.");
+    }
     this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='accepted',prompt_delivery_request=?,prompt_delivery_response=?,prompt_delivery_status=?,prompt_delivery_exit_code=?,prompt_accepted=1,updated_at=? WHERE id=?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
     this.activity(run.id, "prompt_delivered_at_launch", "The initial prompt was passed as a positional harness argument in the successful Herdr launch command.");
     this.persistIdentity(run.id, identity, "running");
