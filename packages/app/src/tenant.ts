@@ -3,7 +3,7 @@ import Mustache from "mustache";
 import { decrypt, encrypt } from "./crypto";
 import { agentListCommand, agentOutputCommand, agentStartupBlocked, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, garbageCollectPaneCommand, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, validateWorktreeLeaseCommand, type ExeConnection } from "./exe";
 import { findOwnedAgent, ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
-import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY } from "./linear";
+import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, refreshLinearToken } from "./linear";
 import { matchingIssue } from "./matcher";
 import type { Env, ExeConnectionInput, FilterType, MatchRule, PipeInput, RunState } from "./types";
 import { workingDirectoryFor, workspaceNameFor } from "./workspace";
@@ -27,6 +27,8 @@ const text = (value: unknown): string => typeof value === "string" ? value : "";
 const linearSource = new LinearSourceAdapter();
 
 export class Tenant extends DurableObject<Env> {
+  private linearRefresh?: Promise<string>;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.ctx.storage.sql.exec(`
@@ -780,10 +782,41 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async linear(token: string, query: string, variables: Record<string, unknown>): Promise<any> {
-    const response = await fetch("https://api.linear.app/graphql", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ query, variables }) });
-    const payload = await response.json() as any;
-    if (!response.ok || payload.errors?.length) throw new Error(payload.errors?.[0]?.message ?? `Linear request failed (${response.status})`);
-    return payload.data;
+    const request = async (accessToken: string) => {
+      const response = await fetch("https://api.linear.app/graphql", { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ query, variables }) });
+      const payload = await response.json() as any;
+      return { response, payload };
+    };
+    let result = await request(token);
+    const message = result.payload.errors?.[0]?.message;
+    if ((result.response.status === 401 || /authentication required|not authenticated/i.test(message ?? ""))) {
+      const refreshed = await this.refreshLinearAccessToken(token);
+      result = await request(refreshed);
+    }
+    if (!result.response.ok || result.payload.errors?.length) throw new Error(result.payload.errors?.[0]?.message ?? `Linear request failed (${result.response.status})`);
+    return result.payload.data;
+  }
+
+  private async refreshLinearAccessToken(staleToken: string): Promise<string> {
+    if (this.linearRefresh) return this.linearRefresh;
+    this.linearRefresh = (async () => {
+      const linear = await this.connection<{ accessToken: string; refreshToken: string; organizationId: string; organizationName?: string }>("linear");
+      if (!linear?.refreshToken) throw new Error("Reconnect Linear to continue.");
+      // Another request may have refreshed the rotating token while this one was in flight.
+      if (linear.accessToken !== staleToken) return linear.accessToken;
+      const tokens = await refreshLinearToken(linear.refreshToken, this.env.LINEAR_CLIENT_ID, this.env.LINEAR_CLIENT_SECRET);
+      await this.putConnection("linear", {
+        ...linear,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? linear.refreshToken,
+      });
+      return tokens.access_token;
+    })();
+    try {
+      return await this.linearRefresh;
+    } finally {
+      this.linearRefresh = undefined;
+    }
   }
 
   private async putConnection(kind: string, value: unknown): Promise<void> {
