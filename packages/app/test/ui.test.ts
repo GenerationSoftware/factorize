@@ -111,7 +111,17 @@ describe("pages", () => {
     expect(integrations).toContain('href="/settings/integrations" aria-current="page"');
     expect(integrations).toContain('href="/settings/api-keys"');
     expect(apiKeys).toContain('href="/settings/api-keys" aria-current="page"');
-    expect(apiKeys).toContain("API key management is coming soon");
+    expect(apiKeys).toContain("Authorized clients");
+    expect(apiKeys).toContain("Access Tokens");
+    expect(apiKeys).toContain("Read only");
+    expect(apiKeys).toContain("Read and write");
+    expect(apiKeys).toContain("7 days");
+    expect(apiKeys).toContain("90 days");
+    expect(apiKeys).toContain("cannot be retrieved again");
+    expect(apiKeys).toContain("Authorization: Bearer &lt;token&gt;");
+    expect(apiKeys).toContain("All of its tokens will stop working immediately");
+    expect(apiKeys).toContain("/api/access-tokens");
+    expectInlineScriptsToParse(apiKeys);
   });
 
   it("separates available providers from installed integration management", () => {
