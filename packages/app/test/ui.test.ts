@@ -160,6 +160,11 @@ describe("pages", () => {
     expect(settings).toContain('id="installed-empty"');
     expect(settings).toContain('data-open-setup="exe"');
     expect(settings).toContain('aria-haspopup="dialog"');
+    expect(settings).toContain('aria-label="Set up Linear"');
+    expect(settings).toContain('aria-label="Set up GitHub"');
+    expect(settings).toContain('aria-label="Set up Cloudflare Tail"');
+    expect(settings).not.toContain("View setup");
+    expect(settings.match(/<svg aria-hidden="true"/g)?.length).toBeGreaterThanOrEqual(5);
     expect(settings).toContain('<dialog id="linear-setup"');
     expect(settings).toContain('<dialog id="github-setup"');
     expect(settings).toContain('<dialog id="tail-setup"');
@@ -169,6 +174,11 @@ describe("pages", () => {
     expect(settings).toContain('data-disconnect-github=');
     expect(settings).toContain("Reconnect");
     expect(settings).toContain("Configure");
+    expect(settings).toContain('<table class="w-full text-left">');
+    expect(settings).toContain('<th scope="col" class="px-5 py-3">Integration</th>');
+    expect(settings).toContain('<tbody id="installed-integrations"');
+    expect(settings).toContain('<th scope="row"');
+    expect(settings).toContain("sm:table-row");
   });
 
   it("renders the complete jobs dashboard experience", () => {
