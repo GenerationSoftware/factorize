@@ -31,7 +31,7 @@ export const listEventsSchema = z.object({
   flowId: z.string().min(1), limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().min(1).optional(),
 });
 
-const webhookCommonSchema = z.object({});
+const webhookCommonSchema = z.object({ handlerCode: z.string().max(16_384).optional() });
 export const webhookTriggerConfigSchema = z.discriminatedUnion("provider", [
   webhookCommonSchema.extend({ provider: z.literal("linear"), projectId: z.string().min(1), matchRules: z.array(matchRuleSchema).min(1) }).strict(),
   webhookCommonSchema.extend({ provider: z.literal("github"), installationId: z.number().int().positive(), repositoryId: z.number().int().positive(), event: z.string().min(1).default("pull_request"), action: z.string().min(1).default("dequeued") }).strict(),
@@ -59,6 +59,9 @@ export const jobIdSchema = z.object({ jobId: z.string().min(1) });
 export const manualInvocationSchema = z.object({
   prompt: z.string().max(50_000).default(""),
   idempotencyKey: z.string().trim().min(1).max(200).optional(),
+}).strict();
+export const jobHandlerTestSchema = z.object({
+  handlerCode: z.string().max(16_384), payload: z.record(z.string(), z.unknown()),
 }).strict();
 
 export type FlowInput = z.infer<typeof flowInputSchema>;

@@ -32,10 +32,11 @@ describe("custom handlers", () => {
     expect(first).not.toContain("tenant");
   });
 
-  it("pins an adapter that rejects thenables and non-booleans without exposing errors", () => {
+  it("pins an adapter that rejects thenables and invalid return types without exposing errors", () => {
     const module = userWorkerModule("function handler(webhook) { return true; }");
     expect(module).toContain('typeof result.then === "function"');
-    expect(module).toContain('typeof result !== "boolean"');
+    expect(module).toContain('typeof result === "boolean"');
+    expect(module).toContain("Array.isArray(result)");
     expect(module).not.toContain("error.stack");
   });
 
@@ -71,6 +72,12 @@ describe("custom handlers", () => {
     await expect(runAdapter("return 1;")).resolves.toEqual({ ok: false, category: "invalid_return" });
     await expect(runAdapter("return Promise.resolve(true);")).resolves.toEqual({ ok: false, category: "invalid_return" });
     await expect(runAdapter("return { then() {} };")).resolves.toEqual({ ok: false, category: "invalid_return" });
+    await expect(runAdapter("return { issue: { id: 'i1' } };")).resolves.toEqual({ ok: true, decision: { issue: { id: "i1" } } });
+    await expect(runAdapter("return [1, 2];")).resolves.toEqual({ ok: false, category: "invalid_return" });
+    await expect(runAdapter("return null;")).resolves.toEqual({ ok: false, category: "invalid_return" });
+    await expect(runAdapter("return { missing: undefined };")).resolves.toEqual({ ok: false, category: "invalid_return" });
+    await expect(runAdapter("return { value: NaN };")).resolves.toEqual({ ok: false, category: "invalid_return" });
+    await expect(runAdapter("return { value: 1n };")).resolves.toEqual({ ok: false, category: "invalid_return" });
     await expect(runAdapter("throw new Error('secret');")).resolves.toEqual({ ok: false, category: "handler_error" });
   });
 });

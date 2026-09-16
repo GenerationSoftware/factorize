@@ -88,6 +88,7 @@ export class FlowService {
   async listJobs() { return (await this.call("flows:read", "/v1/jobs") as any[]).map(value => this.publicJob(value)); }
   async getJob(jobId: string) { return this.publicJob(await this.call("flows:read", `/v1/jobs/${encodeURIComponent(jobId)}`)); }
   listJobEvents(jobId: string, limit = 50) { return this.call("runs:read", `/v1/jobs/${encodeURIComponent(jobId)}/events?limit=${limit}`); }
+  testJobHandler(input: { handlerCode: string; payload: Record<string, unknown> }) { return this.call("flows:write", "/v1/job-handlers/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
   async createJob(input: JobInput) { return this.publicJob(await this.call("flows:write", "/v1/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) })); }
   async updateJob(jobId: string, input: JobInput) { return this.publicJob(await this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) })); }
   deleteJob(jobId: string) { return this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" }); }
