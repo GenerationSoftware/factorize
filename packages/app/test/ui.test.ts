@@ -113,6 +113,27 @@ describe("pages", () => {
     expect(html).toContain("&lt;script&gt;");
   });
 
+  it("keeps Settings in the accessible profile menu and Jobs in primary navigation", () => {
+    const html = jobsPage({ email: "owner@example.com" });
+    const header = html.match(/<header[\s\S]*?<\/header>/)?.[0] ?? "";
+    const profileMenu = header.match(/<details[\s\S]*?<\/details>/)?.[0] ?? "";
+    expect(header).toContain('href="/jobs" data-navigation="jobs"');
+    expect(header).not.toMatch(/<a href="\/settings"[^>]*>Settings<\/a><details/);
+    expect(profileMenu).toContain('aria-label="Open profile menu"');
+    expect(profileMenu).toContain('h-11 w-11');
+    expect(profileMenu).toContain('href="/settings" data-navigation="settings"');
+    expect(profileMenu.indexOf("owner@example.com")).toBeLessThan(profileMenu.indexOf(">Settings</a>"));
+    expect(profileMenu.indexOf(">Settings</a>")).toBeLessThan(profileMenu.indexOf(">Log out</button>"));
+    expect(profileMenu).toContain("border-t");
+    expect(html).toContain("setAttribute('aria-current','page')");
+  });
+
+  it("aligns Settings with the Jobs page width and gutters", () => {
+    const settings = settingsPage({ email: "owner@example.com" });
+    expect(settings).toContain('<main class="mx-auto max-w-6xl px-5 py-12 lg:px-8">');
+    expect(settings).not.toContain('<main class="mx-auto max-w-4xl');
+  });
+
   it("renders the complete jobs dashboard experience", () => {
     const list = jobsPage({ email: "owner@example.com" });
     const editor = jobPage({ email: "owner@example.com" }, "job-1");
