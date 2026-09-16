@@ -62,8 +62,16 @@ export function launchAgentCommand(agentName: string, connection: ExeConnection,
     `workspace_id=$(printf '%s' "$workspaces" | jq -r --arg label ${shellAtom(workspaceName)} '.result.workspaces[]? | select(.label == $label) | .workspace_id' | head -n1)`,
     `if [ -z "$workspace_id" ]; then created=$(${herdr} workspace create --cwd ${shellAtom(runPath)} --label ${shellAtom(workspaceName)} --no-focus) && workspace_id=$(printf '%s' "$created" | jq -er '.result.workspace.workspace_id') && tab_id=$(printf '%s' "$created" | jq -er '.result.tab.tab_id') && pane=$(printf '%s' "$created" | jq -er '.result.root_pane.pane_id') && ${herdr} tab rename "$tab_id" ${shellAtom(name)} >/dev/null; else tabs=$(${herdr} tab list --workspace "$workspace_id") && tab_id=$(printf '%s' "$tabs" | jq -r --arg label ${shellAtom(name)} '.result.tabs[]? | select(.label == $label) | .tab_id' | head -n1); if [ -z "$tab_id" ]; then created=$(${herdr} tab create --workspace "$workspace_id" --cwd ${shellAtom(runPath)} --label ${shellAtom(name)} --no-focus) && tab_id=$(printf '%s' "$created" | jq -er '.result.tab.tab_id') && pane=$(printf '%s' "$created" | jq -er '.result.root_pane.pane_id'); else panes=$(${herdr} pane list --workspace "$workspace_id") && pane=$(printf '%s' "$panes" | jq -r --arg tab "$tab_id" '.result.panes[]? | select(.tab_id == $tab) | .pane_id' | head -n1); test -n "$pane"; extras=$(printf '%s' "$panes" | jq -r --arg tab "$tab_id" --arg keep "$pane" '.result.panes[]? | select(.tab_id == $tab and .pane_id != $keep) | .pane_id'); for extra in $extras; do ${herdr} pane close "$extra" >/dev/null; done; fi; fi`,
     `existing=$(${herdr} agent get ${shellAtom(name)} 2>/dev/null || true)`,
-    `if [ -n "$existing" ]; then printf '%s\\n' "$existing"; else ${herdr} agent start ${shellAtom(name)} --kind ${shellAtom(connection.agentKind)} --pane "$pane"${agentCommand(connection, launchInstruction, runPath)} && ${herdr} agent get ${shellAtom(name)}; fi`,
+    `if [ -n "$existing" ]; then printf '%s\\n' "$existing"; else ${herdr} agent start ${shellAtom(name)} --kind ${shellAtom(connection.agentKind)} --pane "$pane"${agentCommand(connection, launchInstruction, runPath)}${startupTrustCommand(connection, name)} && ${herdr} agent get ${shellAtom(name)}; fi`,
   ].join(" && ");
+}
+
+/** Codex evaluates directory trust before applying CLI project config overrides.
+ * Herdr reports the chooser as interactive-ready, so automation must answer it in the pane. */
+function startupTrustCommand(connection: ExeConnection, agentName: string): string {
+  if (connection.agentKind !== "codex") return "";
+  const herdr = herdrBinary(connection), name = shellAtom(agentName);
+  return ` && startup_output=$(${herdr} agent read ${name} --source recent --format text) && case "$startup_output" in *"Do you trust the contents of this directory?"*) ${herdr} agent prompt ${name} '1' --wait --until working --until idle --timeout 15000 >/dev/null ;; esac`;
 }
 
 export function promptAgentCommand(connection: ExeConnection, agentName: string, prompt: string): string {

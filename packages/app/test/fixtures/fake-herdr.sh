@@ -33,14 +33,26 @@ case "${1:-} ${2:-}" in
     printf working > "$state_dir/status"
     agent_json
     ;;
+  "agent read")
+    if [ "${FAKE_HERDR_TRUST_PROMPT:-}" = 1 ] && [ ! -f "$state_dir/trusted" ]; then
+      printf 'Do you trust the contents of this directory? 1. Yes, continue 2. No, quit\n'
+    else
+      printf 'Agent ready\n'
+    fi
+    ;;
   "agent wait")
     test "$(cat "$state_dir/status")" = idle
     agent_json
     ;;
   "agent prompt")
-    test "$(cat "$state_dir/status")" = idle
-    printf '%s' "${4-}" > "$state_dir/prompt"
-    printf working > "$state_dir/status"
+    if [ "${FAKE_HERDR_TRUST_PROMPT:-}" = 1 ] && [ ! -f "$state_dir/trusted" ]; then
+      test "${4-}" = 1
+      : > "$state_dir/trusted"
+    else
+      test "$(cat "$state_dir/status")" = idle
+      printf '%s' "${4-}" > "$state_dir/prompt"
+      printf working > "$state_dir/status"
+    fi
     agent_json
     ;;
   *)
