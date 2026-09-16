@@ -20,27 +20,30 @@ jobs:
     timeout-minutes: 5
     steps:
       # This workflow intentionally does not check out or execute PR code.
+      - name: Check whether the author has write access
+        id: author-permission
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          can_push=$(gh api \
+            "repos/$GITHUB_REPOSITORY/collaborators/$PR_AUTHOR/permission" \
+            --jq '.user.permissions.push')
+
+          echo "can-push=$can_push" >> "$GITHUB_OUTPUT"
+          if [ "$can_push" != "true" ]; then
+            echo "Skipping pull request: $PR_AUTHOR does not have write access."
+          fi
+
       - name: Merge after required checks pass
+        if: >-
+          github.event.pull_request.draft == false &&
+          steps.author-permission.outputs.can-push == 'true'
         env:
           # A fine-grained PAT or GitHub App token is required here. The built-in
           # GITHUB_TOKEN cannot add PRs to a merge queue and can suppress
           # downstream push-triggered workflows such as production deployment.
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_DRAFT: ${{ github.event.pull_request.draft }}
-          EVENT_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
         run: |
-          echo "Event author association: $EVENT_AUTHOR_ASSOCIATION"
-          if [ "$PR_DRAFT" = "true" ]; then
-            echo "Skipping draft pull request."
-            exit 0
-          fi
-
-          permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$PR_AUTHOR/permission" --jq '.user.permissions | .admin or .maintain or .push')
-          if [ "$permission" != "true" ]; then
-            echo "Skipping pull request from an author without write permission."
-            exit 0
-          fi
-
           gh pr merge --auto --merge "$PR_URL"
