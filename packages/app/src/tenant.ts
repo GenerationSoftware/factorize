@@ -39,7 +39,7 @@ type FlowSource =
   | { kind: "custom"; origin: "linear" | "github" | "cloudflare"; handlerName: string; handlerCode: string; handlerDeployment: { scriptName: string; codeDigest: string; state: "deploying" | "ready" | "failed" }; tail?: { signingSecret: string } };
 type PipeInput = { pipeId?: string; name: string; flowId?: string; projectId?: string; matchRules: MatchRule[]; maxConcurrency: number; contextTemplate?: string; exeConnectionId?: string; cwd?: string; source?: FlowSource };
 
-export class Tenant extends DurableObject<Env> {
+export class TenantV2 extends DurableObject<Env> {
   private linearRefresh?: Promise<string>;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -1623,3 +1623,6 @@ export class Tenant extends DurableObject<Env> {
   private rows(query: string, ...params: unknown[]): Row[] { return [...this.ctx.storage.sql.exec(query, ...params)] as Row[]; }
   private one(query: string, ...params: unknown[]): Row | undefined { return this.rows(query, ...params)[0]; }
 }
+
+/** @deprecated Retained only until the Phase 2 namespace-retirement deployment. */
+export class Tenant extends DurableObject<Env> {}

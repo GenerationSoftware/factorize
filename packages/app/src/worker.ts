@@ -73,7 +73,7 @@ function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
 }; }
 function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)); }
 
-export { Tenant, GitHubInstallationRegistry } from "./index";
+export { TenantV2, Tenant, GitHubInstallationRegistryV2, GitHubInstallationRegistry } from "./index";
 export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   const oauth = provider(env);
   const url = new URL(request.url);

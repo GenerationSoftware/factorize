@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { parse } from "hono/utils/cookie";
 import { equalHmac, hmac } from "./crypto";
-import { Tenant } from "./tenant";
-import { GitHubInstallationRegistry } from "./github-registry";
+import { Tenant, TenantV2 } from "./tenant";
+import { GitHubInstallationRegistry, GitHubInstallationRegistryV2 } from "./github-registry";
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
 import { apiKeysSettingsPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, settingsPage } from "./ui";
 import type { Env } from "./types";
@@ -313,5 +313,7 @@ app.get("/settings", async (c) => { const session = await owner(c); return sessi
 app.get("/settings/integrations", async (c) => { const session = await owner(c); return session ? c.html(render(settingsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
 app.get("/settings/api-keys", async (c) => { const session = await owner(c); return session ? c.html(render(apiKeysSettingsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
 
-export { Tenant, GitHubInstallationRegistry };
+// Keep the legacy export names available until the follow-up retirement deployment.
+// Worker traffic is bound exclusively to the fresh V2 namespaces below.
+export { TenantV2, Tenant, GitHubInstallationRegistryV2, GitHubInstallationRegistry };
 export default app;
