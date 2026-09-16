@@ -16,9 +16,6 @@ permissions:
 jobs:
   enable:
     name: Enable auto-merge
-    if: >
-      github.event.pull_request.draft == false &&
-      contains(fromJSON('["OWNER", "MEMBER"]'), github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -30,4 +27,20 @@ jobs:
           # downstream push-triggered workflows such as production deployment.
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr merge --auto --squash "$PR_URL"
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          EVENT_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+        run: |
+          echo "Event author association: $EVENT_AUTHOR_ASSOCIATION"
+          if [ "$PR_DRAFT" = "true" ]; then
+            echo "Skipping draft pull request."
+            exit 0
+          fi
+
+          permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$PR_AUTHOR/permission" --jq '.user.permissions | .admin or .maintain or .push')
+          if [ "$permission" != "true" ]; then
+            echo "Skipping pull request from an author without write permission."
+            exit 0
+          fi
+
+          gh pr merge --auto --merge "$PR_URL"
