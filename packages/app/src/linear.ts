@@ -9,3 +9,14 @@ export const LINEAR_OPTION_QUERIES = {
   users: "query { users(first: 100) { nodes { id name } } }",
   labels: "query { issueLabels(first: 100) { nodes { id name } } }",
 } as const;
+
+export const refreshLinearToken = async (refreshToken: string, clientId: string, clientSecret: string): Promise<{ access_token: string; refresh_token?: string }> => {
+  const response = await fetch("https://api.linear.app/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId, client_secret: clientSecret }),
+  });
+  const tokens = await response.json() as { access_token?: string; refresh_token?: string };
+  if (!response.ok || !tokens.access_token) throw new Error("Your Linear connection expired. Reconnect Linear to continue.");
+  return { access_token: tokens.access_token, refresh_token: tokens.refresh_token };
+};

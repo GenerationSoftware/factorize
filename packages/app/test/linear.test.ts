@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY } from "../src/linear";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, refreshLinearToken } from "../src/linear";
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("Linear queries", () => {
   it("keeps the projects lookup small and unnested", () => {
@@ -15,5 +17,18 @@ describe("Linear queries", () => {
       expect(query.match(/first:/g)).toHaveLength(1);
       expect(query).not.toContain("projects");
     }
+  });
+
+  it("exchanges a refresh token for a fresh Linear token pair", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ access_token: "access-new", refresh_token: "refresh-new" }));
+
+    await expect(refreshLinearToken("refresh-old", "client-id", "client-secret")).resolves.toEqual({ access_token: "access-new", refresh_token: "refresh-new" });
+    const [, init] = request.mock.calls[0];
+    expect(String(init?.body)).toBe("grant_type=refresh_token&refresh_token=refresh-old&client_id=client-id&client_secret=client-secret");
+  });
+
+  it("asks the user to reconnect when Linear rejects the refresh token", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ error: "invalid_grant" }, { status: 401 }));
+    await expect(refreshLinearToken("expired", "client-id", "client-secret")).rejects.toThrow("Reconnect Linear");
   });
 });
