@@ -13,6 +13,7 @@ import { invokeCustomHandler, validateCustomHandler } from "./custom-handler";
 import { sanitizeTailEvent, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
 import { ExeHerdrBackend } from "./exe-herdr-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
+import { renderSourcePrompt } from "./source-lifecycle";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -199,7 +200,7 @@ export class Tenant extends DurableObject<Env> {
     if (!linear) throw new Error("Connect Linear first");
     const exe = await this.exeConnection(input.exeConnectionId);
     if (!exe) throw new Error("Connect Herdr first");
-    const cwd = this.cwdTemplate(input.cwd, flowId);
+    const cwd = this.cwdTemplate(input.cwd ?? exe.cwd, flowId);
     const workspaceName = flowId;
     // These legacy fields are retained for compatibility with the v1 Durable Object schema.
     // App-wide webhook verification is performed at the Worker edge before reaching this object.
@@ -221,7 +222,7 @@ export class Tenant extends DurableObject<Env> {
     const workspaceName = flowId;
     const exe = await this.exeConnection(input.exeConnectionId);
     if (!exe) throw new Error("Choose an exe.dev connection.");
-    const cwd = this.cwdTemplate(input.cwd, flowId);
+    const cwd = this.cwdTemplate(input.cwd ?? exe.cwd, flowId);
     this.ctx.storage.sql.exec(
       "UPDATE pipes SET name=?, project_id=?, filter_type=?, filter_target_id=?, max_concurrency=?, workspace_name=?, agent_kind=?, context_template=?, match_rules=?, exe_connection_id=?, cwd=?, source_kind=?, source_config=?, trigger_kind=?, trigger_config=? WHERE id=?",
       input.name, source.kind === "linear" ? source.projectId : "", rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe.agentKind, source.kind !== "github" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : source.kind === "custom" ? "custom_handler" : "linear_match", "{}", pipeId,
@@ -306,7 +307,7 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private getFlow(flowId: string): Response {
-    const flow = this.one("SELECT id, name, project_id, match_rules, source_kind, source_config, max_concurrency, workspace_name, agent_kind, cwd, COALESCE(NULLIF(context_template, ''), ?) AS context_template, enabled, created_at FROM pipes WHERE id = ?", DEFAULT_CONTEXT_TEMPLATE, flowId);
+    const flow = this.one("SELECT id, name, project_id, match_rules, source_kind, source_config, max_concurrency, workspace_name, agent_kind, exe_connection_id, cwd, COALESCE(NULLIF(context_template, ''), ?) AS context_template, enabled, created_at FROM pipes WHERE id = ?", DEFAULT_CONTEXT_TEMPLATE, flowId);
     return flow ? json(flow) : new Response("Not found", { status: 404 });
   }
 
@@ -526,7 +527,7 @@ export class Tenant extends DurableObject<Env> {
       return;
     }
     const workItem: WorkItem = { provider: origin, claimKey: deliveryId, identifier: deliveryId, title: source.handlerName, description: "", url: "", event: payload };
-    const prompt = origin === "cloudflare" ? `---\npipe: "${String(pipe.name).replaceAll('"', "'")}"\nsource: "Cloudflare Tail"\ndelivery: "${deliveryId}"\n---\n\n# Cloudflare Worker Tail event\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\`` : renderContextTemplate(String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), payload, String(pipe.name));
+    const prompt = renderSourcePrompt(source, String(pipe.context_template || DEFAULT_CONTEXT_TEMPLATE), payload, String(pipe.name), deliveryId);
     await this.queueWorkItem(pipe, deliveryId, workItem, prompt);
   }
 

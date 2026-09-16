@@ -47,6 +47,7 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
       if (flowMatch && request.method === "DELETE") return Response.json(await service.deleteFlow(decodeURIComponent(flowMatch[1])));
       if (request.method === "GET" && path === "/api/v1/projects") return Response.json(await service.listProjects());
       if (request.method === "GET" && path === "/api/v1/flow-options") return Response.json(await service.listFlowOptions());
+      if (request.method === "GET" && path === "/api/v1/exe-connections") return Response.json(await service.listExeConnections());
       if (request.method === "GET" && path === "/api/v1/runs") { const q = listRunsSchema.parse(queryInput(url)); return Response.json(await service.listRuns(queryOf(q))); }
       const runMatch = path.match(/^\/api\/v1\/runs\/([^/]+)$/);
       if (runMatch && request.method === "GET") return Response.json(await service.getRun(decodeURIComponent(runMatch[1])));
@@ -65,11 +66,12 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     });
     tool("list_flows", "List Factorize flows", z.object({}), () => service.listFlows());
     tool("get_flow", "Get a flow", flowIdSchema, ({ flowId }: any) => service.getFlow(flowId));
-    tool("create_flow", "Create a flow", flowInputSchema, (input: any) => service.createFlow(input));
-    tool("update_flow", "Update a flow", flowInputSchema.extend({ flowId: z.string().min(1) }), ({ flowId, ...input }: any) => service.updateFlow(flowId, input));
+    tool("create_flow", "Create a flow. First call list_exe_connections, then select its connectionId. Cloudflare Tail returns a relay destination but never its signing secret.", flowInputSchema, (input: any) => service.createFlow(input));
+    tool("update_flow", "Update a flow using a saved exe.dev connection ID. Cloudflare Tail secrets are preserved and cannot be submitted or returned.", flowInputSchema.extend({ flowId: z.string().min(1) }), ({ flowId, ...input }: any) => service.updateFlow(flowId, input));
     tool("delete_flow", "Delete a flow", flowIdSchema, ({ flowId }: any) => service.deleteFlow(flowId));
     tool("list_projects", "List Linear projects", z.object({}), () => service.listProjects());
     tool("list_flow_options", "List match-rule options", z.object({}), () => service.listFlowOptions());
+    tool("list_exe_connections", "List safe metadata for saved exe.dev connections. Select a connectionId before creating or updating a flow; API tokens are never returned.", z.object({}), () => service.listExeConnections());
     tool("list_runs", "List and filter flow runs", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
     tool("get_run", "Get a run and its current output", runIdSchema, ({ runId }: any) => service.getRun(runId));
     tool("list_flow_events", "List webhook activity for a flow", listEventsSchema, (input: any) => service.listFlowEvents(queryOf(input)));

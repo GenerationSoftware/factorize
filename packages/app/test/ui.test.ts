@@ -55,6 +55,12 @@ describe("pages", () => {
     expect(html).toContain("Connection successful");
     expect(html).toContain("Connection failed");
     expect(html).toContain("r.ok&&body.ok");
+    expect(html).toContain("Cloudflare Tail credentials");
+    expect(html).toContain("Generate new secret");
+    expect(html).toContain("FACTORIZE_TAIL_SECRET");
+    expect(html).toContain("navigator.clipboard.writeText");
+    expect(html).toContain("crypto.getRandomValues(new Uint8Array(32))");
+    expect(html).toContain("tailSigningSecret");
   });
 
   it("renders paginated agent runs with links to run and webhook pages", () => {
