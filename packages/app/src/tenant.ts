@@ -5,12 +5,12 @@ import { agentListCommand, agentOutputCommand, agentStartupBlocked, agentStatusC
 import { findOwnedAgent, ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, isLinearAuthenticationError, refreshLinearToken } from "./linear";
 import { matchingIssue } from "./matcher";
-import type { AmpConnectionInput, Env, ExeConnectionInput, FilterType, MatchRule, RunState } from "./types";
+import type { AmpConnectionInput, Env, ExeConnectionInput, FilterType, MatchRule, RunState, TailIntegrationInput } from "./types";
 import { workingDirectoryFor, workspaceNameFor } from "./workspace";
 import { githubClaimKey, githubHeaders, installationToken, normalizeRepository, renderGitHubPrompt } from "./github";
 import type { WorkItem } from "./types";
 import { invokeCustomHandler } from "./custom-handler";
-import { sanitizeTailEvent, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
+import { generateTailSecret, sanitizeTailEvent, signTailDelivery, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
 import { ExeHerdrBackend } from "./exe-herdr-backend";
 import { AmpBackend, type AmpConnection } from "./amp-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
@@ -209,6 +209,13 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "POST" && url.pathname === "/connections/exe/test") return await this.testExe(await request.json());
       if (request.method === "PUT" && url.pathname === "/connections/amp") return await this.saveAmp(await request.json());
       if (request.method === "POST" && url.pathname === "/connections/amp/test") return await this.testAmp(await request.json());
+      if (request.method === "GET" && url.pathname === "/connections/cloudflare-tail") return json(await this.tailIntegrationStatus());
+      if (request.method === "POST" && url.pathname === "/connections/cloudflare-tail") return await this.saveTailIntegration(await request.json());
+      const tailConnectionMatch = url.pathname.match(/^\/connections\/cloudflare-tail\/([^/]+)$/);
+      if (request.method === "PUT" && tailConnectionMatch) return await this.saveTailIntegration({ ...await request.json() as object, integrationId: decodeURIComponent(tailConnectionMatch[1]) });
+      if (request.method === "DELETE" && tailConnectionMatch) return this.disconnectTailIntegration(decodeURIComponent(tailConnectionMatch[1]));
+      const tailTestMatch = url.pathname.match(/^\/connections\/cloudflare-tail\/([^/]+)\/test$/);
+      if (request.method === "POST" && tailTestMatch) return await this.testTailIntegration(decodeURIComponent(tailTestMatch[1]));
       if (request.method === "POST" && url.pathname === "/webhook/linear") return await this.acceptLinearWebhook(await request.json() as Record<string, any>, request.headers.get("linear-delivery"));
       if (request.method === "POST" && url.pathname === "/webhook/github") return await this.acceptGitHubWebhook(await request.json() as Record<string, any>, request.headers.get("github-delivery"), request.headers.get("github-event"));
       const tailMatch = url.pathname.match(/^\/webhook\/cloudflare\/([^/]+)$/);
@@ -306,6 +313,46 @@ export class Tenant extends DurableObject<Env> {
     return json({ ok: await new AmpBackend(connection).test() });
   }
 
+  private async tailIntegrations(): Promise<Array<{ integrationId: string; name: string; signingSecret: string; createdAt: string; updatedAt: string }>> {
+    const rows = this.rows("SELECT kind,value FROM connections WHERE kind LIKE 'cloudflare-tail:%' ORDER BY updated_at DESC");
+    return Promise.all(rows.map(async row => ({ ...(JSON.parse(await decrypt(String(row.value), this.env.CREDENTIAL_ENCRYPTION_KEY)) as any), integrationId: String(row.kind).slice(16) })));
+  }
+
+  private async tailIntegrationStatus(): Promise<Array<Record<string, unknown>>> {
+    const installations = await this.tailIntegrations();
+    return installations.map(({ signingSecret: _secret, ...installation }) => ({ ...installation, status: "connected", secretConfigured: true,
+      referencedJobCount: Number((this.one("SELECT count(DISTINCT job_id) AS count FROM triggers WHERE kind='webhook' AND json_extract(config,'$.provider')='cloudflareTail' AND json_extract(config,'$.integrationId')=?", installation.integrationId) as Row)?.count ?? 0) }));
+  }
+
+  private async saveTailIntegration(input: unknown): Promise<Response> {
+    const value = input as TailIntegrationInput;
+    const name = String(value.name ?? "").trim();
+    if (!name || name.length > 120) throw new Error("A Tail installation name is required");
+    const existing = value.integrationId ? await this.connection<any>(`cloudflare-tail:${value.integrationId}`) : null;
+    const supplied = String(value.signingSecret ?? "");
+    if (supplied && supplied.length < 16) throw new Error("Tail signing secrets must be at least 16 characters");
+    const signingSecret = supplied || (value.generateSecret ? generateTailSecret() : existing?.signingSecret);
+    if (!signingSecret) throw new Error("Paste a signing secret or request a generated secret");
+    const integrationId = value.integrationId || id(), timestamp = now();
+    await this.putConnection(`cloudflare-tail:${integrationId}`, { name, signingSecret, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp });
+    return Response.json({ integrationId, name, status: "connected", secretConfigured: true, ...(value.generateSecret ? { generatedSecret: signingSecret } : {}) }, { status: existing ? 200 : 201 });
+  }
+
+  private disconnectTailIntegration(integrationId: string): Response {
+    const referenced = this.one("SELECT count(*) AS count FROM triggers WHERE kind='webhook' AND json_extract(config,'$.provider')='cloudflareTail' AND json_extract(config,'$.integrationId')=?", integrationId) as Row;
+    if (Number(referenced?.count ?? 0)) return Response.json({ error: "Disable or remove Jobs that reference this Tail installation before disconnecting it." }, { status: 409 });
+    const result = this.ctx.storage.sql.exec("DELETE FROM connections WHERE kind=?", `cloudflare-tail:${integrationId}`);
+    return Number(result.rowsWritten) ? new Response(null, { status: 204 }) : new Response("Not found", { status: 404 });
+  }
+
+  private async testTailIntegration(integrationId: string): Promise<Response> {
+    const installation = await this.connection<{ signingSecret: string }>(`cloudflare-tail:${integrationId}`);
+    if (!installation) return new Response("Not found", { status: 404 });
+    const timestamp = String(Date.now()), delivery = `test-${id()}`, body = "{}";
+    const signature = await signTailDelivery(installation.signingSecret, timestamp, delivery, body);
+    return json({ ok: await verifyTailDelivery(installation.signingSecret, timestamp, delivery, body, signature) === "valid" });
+  }
+
   private async createPipe(input: PipeInput): Promise<Response> {
     const source = await this.validateSource(input);
     const rules = source.kind === "linear" ? source.matchRules : [{ type: "status", targetId: source.kind } as MatchRule];
@@ -359,6 +406,7 @@ export class Tenant extends DurableObject<Env> {
       exe: exe ? { vmName: exe.vmName, agentKind: exe.agentKind, cwd: exe.cwd, herdrCommand: exe.herdrCommand ?? "herdr", agentCommand: exe.agentCommand ?? defaultAgentCommand(exe.agentKind) } : null,
       exeConnections: connections.map(({ apiToken, ...connection }) => connection),
       ampConnections: ampConnections.map(({ accessToken, ...connection }) => connection),
+      cloudflareTail: { count: (await this.tailIntegrations()).length, installations: await this.tailIntegrationStatus() },
     });
   }
 
@@ -448,6 +496,13 @@ export class Tenant extends DurableObject<Env> {
     });
   }
 
+  private async validateTailIntegrations(triggers: any[]): Promise<void> {
+    for (const trigger of triggers) {
+      if (trigger.kind !== "webhook" || trigger.config?.provider !== "cloudflareTail") continue;
+      if (!await this.connection(`cloudflare-tail:${trigger.config.integrationId}`)) throw new Error("Choose a connected Cloudflare Tail installation");
+    }
+  }
+
   private async resetSchedules(jobId: string): Promise<void> {
     const job = this.one("SELECT enabled FROM jobs WHERE id=?", jobId) as Row | undefined;
     const schedules = this.rows("SELECT id,enabled,config FROM triggers WHERE job_id=? AND kind='schedule'", jobId);
@@ -470,15 +525,12 @@ export class Tenant extends DurableObject<Env> {
       if (!config.signingSecret && prior.signingSecret) config.signingSecret = prior.signingSecret;
       if (!config.secret && prior.secret) config.secret = prior.secret;
     }
-    if (config.provider === "cloudflareTail" && !config.signingSecret) {
-      const bytes = crypto.getRandomValues(new Uint8Array(32));
-      config.signingSecret = [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("");
-    }
     return config;
   }
 
   private async createJob(input: any): Promise<Response> {
     this.validateJobInput(input);
+    await this.validateTailIntegrations(input.triggers);
     const target = await this.jobTarget(input.executionTargetId), jobId = id(), timestamp = now();
     const triggers = this.normalizedTriggers(input.triggers);
     this.validateLifecycleGraph(jobId, triggers);
@@ -496,6 +548,7 @@ export class Tenant extends DurableObject<Env> {
   private async updateJob(jobId: string, input: any): Promise<Response> {
     if (!this.one("SELECT id FROM jobs WHERE id = ?", jobId)) return new Response("Not found", { status: 404 });
     this.validateJobInput(input);
+    await this.validateTailIntegrations(input.triggers);
     const existing = new Map(this.triggersFor(jobId).map(trigger => [String(trigger.id), trigger]));
     const triggers = this.normalizedTriggers(input.triggers, existing);
     this.validateLifecycleGraph(jobId, triggers);
@@ -919,10 +972,12 @@ export class Tenant extends DurableObject<Env> {
 
   private async acceptCloudflareTail(jobId: string, raw: string, headers: Headers): Promise<Response> {
       const item = this.webhookJobs("cloudflareTail").find(({ job }) => job.id === jobId);
-      if (!item?.config.signingSecret) return new Response("Not found", { status: 404 });
+      if (!item?.config.integrationId) return new Response("Not found", { status: 404 });
+      const installation = await this.connection<{ signingSecret: string }>(`cloudflare-tail:${item.config.integrationId}`);
+      if (!installation?.signingSecret) { this.recordJobEvent(jobId, "cloudflareTail", headers.get("x-factorize-delivery") ?? "unknown", "disconnected", "Tail installation is unavailable; delivery rejected."); return new Response("Tail installation disconnected", { status: 503 }); }
       const timestamp = headers.get("x-factorize-timestamp") ?? "", delivery = headers.get("x-factorize-delivery") ?? "", signature = headers.get("x-factorize-signature") ?? "";
       if (!timestamp || !delivery || !signature) return new Response("Missing delivery metadata", { status: 400 });
-      const verification = await verifyTailDelivery(item.config.signingSecret, timestamp, delivery, raw, signature);
+      const verification = await verifyTailDelivery(installation.signingSecret, timestamp, delivery, raw, signature);
       if (verification !== "valid") { this.recordJobEvent(jobId, "cloudflareTail", delivery, verification, "Tail delivery verification failed."); return new Response(verification === "stale" ? "Stale delivery" : "Invalid signature", { status: 401 }); }
       let payload: Record<string, any>; try { payload = sanitizeTailEvent(JSON.parse(raw)) as Record<string, any>; } catch { return new Response("Invalid JSON", { status: 400 }); }
       if (suppressTailEvent(payload)) { this.recordJobEvent(jobId, "cloudflareTail", delivery, "rejected", "Tail delivery was suppressed to prevent an ingestion loop."); return new Response(null, { status: 202 }); }

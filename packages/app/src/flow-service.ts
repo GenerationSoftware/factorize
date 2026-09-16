@@ -43,6 +43,7 @@ export class ApiService {
   }
 
   listExeConnections() { return this.call("flows:read", "/connections/status").then((value: any) => value.exeConnections ?? []); }
+  listTailIntegrations() { return this.call("flows:read", "/connections/cloudflare-tail"); }
   listRuns(query: URLSearchParams) { return this.call("runs:read", `/v1/runs?${query}`); }
   getRun(runId: string) { return this.call("runs:read", `/v1/runs/${encodeURIComponent(runId)}`); }
   stopRun(runId: string) { return this.call("runs:write", `/v1/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" }); }

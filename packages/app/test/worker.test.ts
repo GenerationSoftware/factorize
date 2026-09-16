@@ -102,6 +102,14 @@ describe("Worker routes", () => {
     expect(JSON.stringify(body)).not.toContain("refreshToken");
   });
 
+  it("routes secret-free Cloudflare Tail installation management through the owner boundary", async () => {
+    const installation = { integrationId: "tail-1", name: "Production", status: "connected", secretConfigured: true, referencedJobCount: 2 };
+    const response = await app.request("https://factorize.test/api/connections/cloudflare-tail", { headers: { cookie: await sessionCookie() } }, testEnv(ownerHandler({ "/connections/cloudflare-tail": Response.json([installation]) })));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual([installation]);
+    expect(JSON.stringify(installation)).not.toContain("signingSecret");
+  });
+
   it("fails closed for removed Flow and generic webhook routes", async () => {
     const env = testEnv(ownerHandler({}));
     for (const path of ["/api/pipes", "/api/pipes/old", "/api/runs/old", "/flows", "/flows/old", "/webhooks/custom/tenant/job"]) {

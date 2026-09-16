@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeTailEvent, signTailDelivery, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "../src/cloudflare-tail";
+import { generateTailSecret, sanitizeTailEvent, signTailDelivery, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "../src/cloudflare-tail";
 
 describe("Cloudflare Tail ingestion", () => {
+  it("generates independent strong URL-safe installation secrets", () => {
+    const first = generateTailSecret(), second = generateTailSecret();
+    expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(second).not.toBe(first);
+  });
   it("signs the timestamp, delivery ID, and exact body and rejects tampering or stale requests", async () => {
     const body = JSON.stringify({ outcome: "exception" }), timestamp = String(Date.now()), delivery = "delivery-1", secret = "s".repeat(43);
     const signature = await signTailDelivery(secret, timestamp, delivery, body);

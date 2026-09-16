@@ -4,10 +4,11 @@ Cloudflare Tail is an authenticated Factorize Job trigger for native uncaught Wo
 
 ## Configure the job and relay
 
-1. Create a Job, add a **Cloudflare Tail** trigger, and save it. Copy its relay destination and signing secret.
-2. From the repository root, run `npm ci` and set `FACTORIZE_TAIL_DESTINATION` as a Wrangler variable in `packages/tail-relay/wrangler.jsonc`.
-3. Authenticate Wrangler to the producer Workers' Cloudflare account, then run `npm exec --workspace=factorize-tail-relay -- wrangler secret put FACTORIZE_TAIL_SECRET` and `npm run deploy:tail-relay`. Keep the relay name `factorize-tail-relay`; Factorize excludes its own relay traces to prevent loops.
-4. Add the relay to every producer Worker. One relay can consume multiple producers and forwards each event with its `scriptName`:
+1. In **Settings → Integrations**, install Cloudflare Tail. Give the installation a name and either paste a signing secret or generate one. Generated secrets are returned only once, so copy it during setup.
+2. Create a Job, add a **Cloudflare Tail** trigger, select the installation, and save it. Copy the Job's relay destination.
+3. From the repository root, run `npm ci` and set `FACTORIZE_TAIL_DESTINATION` as a Wrangler variable in `packages/tail-relay/wrangler.jsonc`.
+4. Authenticate Wrangler to the producer Workers' Cloudflare account, then run `npm exec --workspace=factorize-tail-relay -- wrangler secret put FACTORIZE_TAIL_SECRET` and `npm run deploy:tail-relay`. Use the selected installation's secret. Keep the relay name `factorize-tail-relay`; Factorize excludes its own relay traces to prevent loops.
+5. Add the relay to every producer Worker. One relay can consume multiple producers and forwards each event with its `scriptName`:
 
 ```jsonc
 {
@@ -17,7 +18,7 @@ Cloudflare Tail is an authenticated Factorize Job trigger for native uncaught Wo
 
 Deploy each producer after changing `tail_consumers`.
 
-MCP clients create or update a Job with a `cloudflareTail` webhook trigger and an execution target returned by `list_execution_targets`. Protected REST and MCP never return the signing secret. After rotating it, update `FACTORIZE_TAIL_SECRET` in Wrangler and redeploy the relay.
+Jobs refer to the installation by `integrationId`; secrets are encrypted and are never included in list, status, Job, REST, or MCP responses. Rotating an installation updates every Job that selects it after the relay secret is updated and redeployed. Factorize refuses to disconnect installations still referenced by Jobs, so a missing installation can never turn into unsigned ingestion.
 
 The relay redacts sensitive key names (authorization, cookies, tokens, secrets, credentials, prompts, and bodies), truncates oversized structures, signs the exact body with HMAC-SHA256, and aborts delivery after three seconds. Factorize sanitizes again before activity or agent context, rejects deliveries older than 60 seconds, deduplicates delivery IDs, and rate-limits repeated event fingerprints.
 
