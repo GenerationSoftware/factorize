@@ -138,7 +138,15 @@ describe("pages", () => {
     expect(detail).toContain("Run now");
     expect(run).toContain("destination_url");
     expect(run).toContain("caps.includes('output')");
-    expect(settings).toContain("Save / rotate connection");
+    expect(settings).toContain("Connect every provider used by your Jobs");
+    expect(settings).toContain("Linear");
+    expect(settings).toContain("GitHub App");
+    expect(settings).toContain("Exe.dev execution");
+    expect(settings).toContain("Amp cloud execution");
+    expect(settings).toContain("Not connected");
+    expect(settings).toContain("Action required");
+    expect(settings).toContain("Unavailable");
+    expect(settings).toContain("write-only");
     for (const [name, html] of Object.entries({ list, editor, detail, run, settings })) {
       try { expectInlineScriptsToParse(html); } catch (error) { throw new Error(`${name}: ${error}`); }
     }

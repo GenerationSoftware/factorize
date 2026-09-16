@@ -260,7 +260,7 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async saveLinear(input: unknown): Promise<Response> {
-    const value = input as { accessToken?: string; refreshToken?: string; organizationId?: string; organizationName?: string };
+    const value = input as { accessToken?: string; refreshToken?: string; organizationId?: string; organizationName?: string; viewerId?: string; viewerEmail?: string };
     if (!value.accessToken || !value.refreshToken || !value.organizationId) throw new Error("Linear tokens and organization are required");
     await this.putConnection("linear", value);
     return json({ ok: true });
@@ -352,12 +352,12 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async connectionStatus(): Promise<Response> {
-    const linear = await this.connection<{ organizationName?: string }>("linear");
+    const linear = await this.connection<{ organizationName?: string; viewerEmail?: string }>("linear");
     const connections = await this.exeConnections();
     const exe = await this.connection<ExeConnectionInput>("exe");
     const ampConnections = await this.ampConnections();
     return json({
-      linear: linear ? { organizationName: linear.organizationName ?? null } : null,
+      linear: linear ? { organizationName: linear.organizationName ?? null, viewerEmail: linear.viewerEmail ?? null } : null,
       exe: exe ? { vmName: exe.vmName, agentKind: exe.agentKind, cwd: exe.cwd, herdrCommand: exe.herdrCommand ?? "herdr", agentCommand: exe.agentCommand ?? defaultAgentCommand(exe.agentKind) } : null,
       exeConnections: connections.map(({ apiToken, ...connection }) => connection),
       ampConnections: ampConnections.map(({ accessToken, ...connection }) => connection),

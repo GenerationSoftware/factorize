@@ -91,7 +91,7 @@ app.get("/auth/linear/callback", async (c) => {
   const memberResponse = await stub.fetch("https://tenant/members", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: viewer.id, email: viewer.email }) });
   const member = await memberResponse.json() as { role: string; session_version: number };
   if (member.role !== "owner") return c.text("This Factorize tenant requires an owner invitation.", 403);
-  await stub.fetch("https://tenant/connections/linear", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accessToken: tokens.access_token, refreshToken: tokens.refresh_token, organizationId: organization.id, organizationName: organization.name }) });
+  await stub.fetch("https://tenant/connections/linear", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accessToken: tokens.access_token, refreshToken: tokens.refresh_token, organizationId: organization.id, organizationName: organization.name, viewerId: viewer.id, viewerEmail: viewer.email }) });
   const lifetime = 60 * 60 * 24 * 7;
   setCookie(c, "factorize_session", await signSession({ tenantId: organization.id, userId: viewer.id, email: viewer.email, exp: Math.floor(Date.now() / 1000) + lifetime, sessionVersion: member.session_version }, c.env.SESSION_SIGNING_SECRET), { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: lifetime });
   const oauthReturn = getCookie(c, "factorize_oauth_return");

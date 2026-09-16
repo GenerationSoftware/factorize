@@ -85,6 +85,23 @@ describe("Worker routes", () => {
     await expect(response.json()).resolves.toEqual(projects);
   });
 
+  it("returns secret-free integration status through the owner boundary", async () => {
+    const status = {
+      linear: { organizationName: "Generation", viewerEmail: "owner@example.com" },
+      exeConnections: [{ connectionId: "exe-1", vmName: "exedev@workbox", cwd: "/repo", agentKind: "codex" }],
+      ampConnections: [{ connectionId: "amp-1", project: "generation/factorize", apiBaseUrl: "https://ampcode.com/api/cloud/v1" }],
+    };
+    const response = await app.request("https://factorize.test/api/connections/status", {
+      headers: { cookie: await sessionCookie() },
+    }, testEnv(ownerHandler({ "/connections/status": Response.json(status) })));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual(status);
+    expect(JSON.stringify(body)).not.toContain("apiToken");
+    expect(JSON.stringify(body)).not.toContain("accessToken");
+    expect(JSON.stringify(body)).not.toContain("refreshToken");
+  });
+
   it("returns flow activity through the authenticated Durable Object boundary", async () => {
     const activity = { flow: { id: "flow-1", name: "Bugs" }, events: [], runs: [] };
     const response = await app.request("https://factorize.test/api/pipes/flow-1", {
