@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { FlowService, ServiceError } from "../src/flow-service";
-import { flowInputSchema, jobInputSchema, listRunsSchema, manualInvocationSchema } from "../src/flow-schemas";
+import { ApiService, ServiceError } from "../src/flow-service";
+import { jobInputSchema, listRunsSchema, manualInvocationSchema } from "../src/flow-schemas";
 import type { Env, OAuthProps } from "../src/types";
 
 function environment(handler: (request: Request) => Response | Promise<Response>): Env {
@@ -10,37 +10,15 @@ function environment(handler: (request: Request) => Response | Promise<Response>
 
 const auth: OAuthProps = { tenantId: "tenant-a", userId: "owner-a", sessionVersion: 4, scopes: ["flows:read", "runs:read"] };
 
-describe("FlowService", () => {
-  it("checks current owner membership on every call", async () => {
-    let membershipChecks = 0;
-    const service = new FlowService(environment(request => {
-      const path = new URL(request.url).pathname;
-      if (path === "/members/owner-a") { membershipChecks++; return Response.json({ role: "owner", session_version: 4 }); }
-      if (path === "/pipes") return Response.json([{ id: "flow-1", name: "Triage" }]);
-      return new Response("Not found", { status: 404 });
-    }), auth);
-    await service.listFlows(); await service.listFlows();
-    expect(membershipChecks).toBe(2);
-  });
-
-  it("rejects missing mutation scopes before touching flow storage", async () => {
-    let mutated = false;
-    const service = new FlowService(environment(request => {
-      if (new URL(request.url).pathname === "/pipes" && request.method === "POST") mutated = true;
-      return Response.json({ role: "owner", session_version: 4 });
-    }), auth);
-    await expect(service.createFlow({ name: "Triage", source: { kind: "linear", projectId: "p", matchRules: [{ type: "label", targetId: "l" }] }, exeConnectionId: "exe-1", maxConcurrency: 3 })).rejects.toMatchObject({ status: 403, code: "insufficient_scope" } satisfies Partial<ServiceError>);
-    expect(mutated).toBe(false);
-  });
-
+describe("ApiService", () => {
   it("invalidates tokens when the owner session version changes", async () => {
-    const service = new FlowService(environment(() => Response.json({ role: "owner", session_version: 5 })), auth);
-    await expect(service.listFlows()).rejects.toMatchObject({ status: 401, code: "invalid_token" });
+    const service = new ApiService(environment(() => Response.json({ role: "owner", session_version: 5 })), auth);
+    await expect(service.listJobs()).rejects.toMatchObject({ status: 401, code: "invalid_token" });
   });
 
   it("uses flow scopes for job management and run scopes for invocation", async () => {
     const requests: string[] = [];
-    const service = new FlowService(environment(request => {
+    const service = new ApiService(environment(request => {
       const path = new URL(request.url).pathname;
       if (path === "/members/owner-a") return Response.json({ role: "owner", session_version: 4 });
       requests.push(`${request.method} ${path}`);
@@ -53,12 +31,6 @@ describe("FlowService", () => {
 });
 
 describe("shared API schemas", () => {
-  it("rejects credential and unknown fields", () => {
-    expect(() => flowInputSchema.parse({ name: "Triage", source: { kind: "linear", projectId: "p", matchRules: [{ type: "label", targetId: "l" }] }, exeConnectionId: "exe-1", maxConcurrency: 3, apiToken: "secret" })).toThrow();
-    expect(flowInputSchema.parse({ name: "Tail", source: { kind: "cloudflareTail" }, exeConnectionId: "exe-1" }).source.kind).toBe("cloudflareTail");
-    expect(() => flowInputSchema.parse({ name: "Tail", source: { kind: "cloudflareTail", signingSecret: "nope" }, exeConnectionId: "exe-1" })).toThrow();
-  });
-
   it("bounds pagination and run states", () => {
     expect(listRunsSchema.parse({ limit: "100", state: "running", contextQuery: "literal.*text" })).toMatchObject({ limit: 100, state: "running", contextQuery: "literal.*text" });
     expect(() => listRunsSchema.parse({ limit: "101" })).toThrow();

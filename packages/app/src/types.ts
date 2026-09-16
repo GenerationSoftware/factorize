@@ -17,7 +17,6 @@ export interface Env {
   GITHUB_APP_SLUG?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
   GITHUB_WEBHOOK_SECRET?: string;
-  CUSTOM_SOURCES_ENABLED?: string;
   CUSTOM_HANDLER_LOADER?: WorkerLoader;
   RECOVERY_TIMEOUT_MS?: string;
   RECOVERY_MAX_ATTEMPTS?: string;
@@ -33,14 +32,6 @@ export type OAuthProps = {
   accessTokenId?: string;
 };
 
-export type CustomOrigin = "linear" | "github" | "cloudflare";
-export type CustomSource = { kind: "custom"; origin: CustomOrigin; handlerName: string; handlerCode: string; handlerDeployment: { scriptName: string; codeDigest: string; state: "deploying" | "ready" | "failed"; lastError?: string }; tail?: { signingSecret: string } };
-
-export type FlowSource =
-  | { kind: "linear"; projectId: string; matchRules: MatchRule[] }
-  | { kind: "github"; installationId: number; repositoryId: number; repositoryOwner?: string; repositoryName?: string; repositoryFullName?: string; baseRef: "main"; trigger: "merge_queue_conflict" }
-  | CustomSource;
-
 export interface WorkItem {
   provider: "linear" | "github" | "cloudflare";
   claimKey: string;
@@ -51,26 +42,6 @@ export interface WorkItem {
   event: Record<string, unknown>;
   repository?: Record<string, unknown>;
   pullRequest?: Record<string, unknown>;
-}
-
-export interface PipeInput {
-  /** Edge-generated immutable identifier; never accepted from browser callers. */
-  pipeId?: string;
-  name: string;
-  /** Optional stable, machine-friendly identifier; defaults from the name. */
-  flowId?: string;
-  projectId?: string;
-  /** At least one rule is required. All rules must match the issue. */
-  matchRules: MatchRule[];
-  maxConcurrency: number;
-  workspaceName?: string;
-  /** Mustache template rendered with the Linear webhook payload for each run. */
-  contextTemplate?: string;
-  /** Saved exe.dev connection selected for this flow. */
-  exeConnectionId?: string;
-  /** Mustache template for the working directory; receives `flowId`. */
-  cwd?: string;
-  source?: FlowSource;
 }
 
 export interface ExeConnectionInput {

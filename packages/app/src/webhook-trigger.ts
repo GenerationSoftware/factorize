@@ -2,7 +2,7 @@ import { matchingIssue } from "./matcher";
 import type { MatchRule } from "./types";
 import { validateHandlerCode } from "./custom-handler";
 
-export type WebhookProvider = "linear" | "github" | "cloudflareTail" | "custom";
+export type WebhookProvider = "linear" | "github" | "cloudflareTail";
 export type WebhookTriggerConfig = {
   provider: WebhookProvider;
   projectId?: string; matchRules?: MatchRule[]; installationId?: number; repositoryId?: number;

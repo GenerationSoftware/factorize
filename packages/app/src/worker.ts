@@ -69,7 +69,7 @@ function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
   scopesSupported: scopes, allowImplicitFlow: false, allowPlainPKCE: false,
   accessTokenTTL: 3600, refreshTokenTTL: 2_592_000,
   clientIdMetadataDocumentEnabled: true,
-  resourceMetadata: { resource: `${env.APP_ORIGIN}/mcp`, authorization_servers: [env.APP_ORIGIN], scopes_supported: scopes, bearer_methods_supported: ["header"], resource_name: "Factorize flows" },
+  resourceMetadata: { resource: `${env.APP_ORIGIN}/mcp`, authorization_servers: [env.APP_ORIGIN], scopes_supported: scopes, bearer_methods_supported: ["header"], resource_name: "Factorize jobs" },
 }; }
 function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)); }
 

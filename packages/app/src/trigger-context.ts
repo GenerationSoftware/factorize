@@ -42,7 +42,6 @@ export const triggerContextCatalog: Record<string, ContextPath[]> = {
     { path: "logs", type: "array", description: "Sanitized console log records." },
     { path: "exceptions", type: "array", description: "Sanitized exception records." },
   ],
-  custom: [...commonWebhook, { path: "*", type: "unknown", description: "Additional submitted JSON fields are dynamic and may be nested." }],
   jobLifecycle: [
     { path: "source_job_id", type: "string", description: "Job whose run reached a final state." },
     { path: "source_run_id", type: "string", description: "Run that reached a final state." },
@@ -53,10 +52,10 @@ export const triggerContextCatalog: Record<string, ContextPath[]> = {
 };
 
 export function reflectTriggerContext(trigger: { slug?: unknown; kind?: unknown; config?: any }): TriggerContextReflection {
-  const kind = String(trigger.kind ?? ""), provider = kind === "webhook" ? String(trigger.config?.provider ?? "custom") : undefined;
+  const kind = String(trigger.kind ?? ""), provider = kind === "webhook" ? String(trigger.config?.provider ?? "") : undefined;
   const key = provider ?? kind, handler = kind === "webhook" && typeof trigger.config?.handlerCode === "string" && trigger.config.handlerCode.trim().length > 0;
   return {
-    slug: String(trigger.slug ?? ""), kind, ...(provider ? { provider } : {}), dynamic: key === "custom" || handler,
-    paths: handler ? [{ path: "*", type: "unknown", description: "The custom handler replaces context with a dynamic JSON object; inspect the handler contract." }] : (triggerContextCatalog[key] ?? [{ path: "*", type: "unknown", description: "Context shape is not known." }]),
+    slug: String(trigger.slug ?? ""), kind, ...(provider ? { provider } : {}), dynamic: handler,
+    paths: handler ? [{ path: "*", type: "unknown", description: "The provider handler replaces context with a dynamic JSON object; inspect the handler contract." }] : (triggerContextCatalog[key] ?? [{ path: "*", type: "unknown", description: "Context shape is not known." }]),
   };
 }

@@ -102,35 +102,12 @@ describe("Worker routes", () => {
     expect(JSON.stringify(body)).not.toContain("refreshToken");
   });
 
-  it("returns flow activity through the authenticated Durable Object boundary", async () => {
-    const activity = { flow: { id: "flow-1", name: "Bugs" }, events: [], runs: [] };
-    const response = await app.request("https://factorize.test/api/pipes/flow-1", {
-      headers: { cookie: await sessionCookie() },
-    }, testEnv(ownerHandler({ "/pipes/flow-1": Response.json(activity) })));
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(activity);
-  });
-
-  it("forwards flow activity pagination to the Durable Object", async () => {
-    let forwarded: URL | undefined;
-    const response = await app.request("https://factorize.test/api/pipes/flow-1?view=events&page=3", {
-      headers: { cookie: await sessionCookie() },
-    }, testEnv(request => {
-      if (new URL(request.url).pathname === "/members/user-1") return Response.json({ role: "owner", session_version: 1 });
-      forwarded = new URL(request.url);
-      return Response.json({ flow: {}, events: [], runs: [], pagination: { page: 3, hasNext: false } });
-    }));
-    expect(response.status).toBe(200);
-    expect(forwarded?.search).toBe("?view=events&page=3");
-  });
-
-  it("returns an agent run through the authenticated Durable Object boundary", async () => {
-    const run = { id: "run-1", issue_title: "Fix the thing" };
-    const response = await app.request("https://factorize.test/api/runs/run-1", {
-      headers: { cookie: await sessionCookie() },
-    }, testEnv(ownerHandler({ "/runs/run-1": Response.json(run) })));
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(run);
+  it("fails closed for removed Flow and generic webhook routes", async () => {
+    const env = testEnv(ownerHandler({}));
+    for (const path of ["/api/pipes", "/api/pipes/old", "/api/runs/old", "/flows", "/flows/old", "/webhooks/custom/tenant/job"]) {
+      const response = await app.request(`https://factorize.test${path}`, { headers: { cookie: await sessionCookie() } }, env);
+      expect(response.status, path).toBe(404);
+    }
   });
 
   it("preserves a useful upstream GraphQL error instead of turning it into a 500", async () => {
@@ -161,58 +138,8 @@ describe("Worker routes", () => {
     await expect(forwarded!.text()).resolves.toBe('{"scriptName":"producer"}');
   });
 
-  it("forwards flow creation with its JSON body", async () => {
-    let forwarded: { method: string; body: unknown } | undefined;
-    const env = testEnv(async (request) => {
-      const path = new URL(request.url).pathname;
-      if (path === "/members/user-1") return Response.json({ role: "owner", session_version: 1 });
-      if (path === "/pipes") {
-        forwarded = { method: request.method, body: await request.json() };
-        return Response.json({ id: "flow-1" }, { status: 201 });
-      }
-      return new Response("Not found", { status: 404 });
-    });
-    const flow = { name: "Bugs", projectId: "project-1", matchRules: [{ type: "label", targetId: "label-1" }], maxConcurrency: 3 };
-    const response = await app.request("https://factorize.test/api/pipes", {
-      method: "POST",
-      headers: { cookie: await sessionCookie(), "content-type": "application/json" },
-      body: JSON.stringify(flow),
-    }, env);
-    expect(response.status).toBe(201);
-    expect(forwarded).toEqual({ method: "POST", body: flow });
-  });
-
-  it("forwards flow edits through the authenticated Durable Object boundary", async () => {
-    let forwarded: { method: string; body: unknown } | undefined;
-    const env = testEnv(async (request) => {
-      const path = new URL(request.url).pathname;
-      if (path === "/members/user-1") return Response.json({ role: "owner", session_version: 1 });
-      if (path === "/pipes/flow-1") { forwarded = { method: request.method, body: await request.json() }; return Response.json({ ok: true }); }
-      return new Response("Not found", { status: 404 });
-    });
-    const flow = { name: "Bugs", projectId: "project-1", matchRules: [{ type: "label", targetId: "label-1" }], workspaceName: "bugs", maxConcurrency: 3 };
-    const response = await app.request("https://factorize.test/api/pipes/flow-1", { method: "PUT", headers: { cookie: await sessionCookie(), "content-type": "application/json" }, body: JSON.stringify(flow) }, env);
-    expect(response.status).toBe(200);
-    expect(forwarded).toEqual({ method: "PUT", body: flow });
-  });
-
-  it("serves an authenticated flow edit page", async () => {
-    const response = await app.request("https://factorize.test/flows/flow-1/edit", {
-      headers: { cookie: await sessionCookie() },
-    }, testEnv(ownerHandler({})));
-    expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toContain("Edit flow");
-  });
-
-  it("forwards flow deletion and clears the session on logout", async () => {
-    let deleted = false;
-    const env = testEnv(ownerHandler({ "/pipes/flow-1": () => { deleted = true; return Response.json({ ok: true }); } }));
-    const response = await app.request("https://factorize.test/api/pipes/flow-1", {
-      method: "DELETE", headers: { cookie: await sessionCookie() },
-    }, env);
-    expect(response.status).toBe(200);
-    expect(deleted).toBe(true);
-
+  it("clears the session on logout", async () => {
+    const env = testEnv(ownerHandler({}));
     const logout = await app.request("https://factorize.test/auth/logout", { method: "POST", headers: { cookie: await sessionCookie() } }, env);
     expect(logout.status).toBe(302);
     expect(logout.headers.get("set-cookie")).toContain("factorize_session=");

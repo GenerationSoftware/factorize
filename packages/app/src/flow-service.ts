@@ -1,7 +1,5 @@
 import type { Env, OAuthProps } from "./types";
-import type { FlowInput, JobInput, ManualInvocationInput } from "./flow-schemas";
-import { preparePublicSource, publicSource, resolveContextTemplate } from "./source-lifecycle";
-import type { FlowSource } from "./types";
+import type { JobInput, ManualInvocationInput } from "./flow-schemas";
 
 export class ServiceError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -9,7 +7,7 @@ export class ServiceError extends Error {
 
 type Scope = "flows:read" | "flows:write" | "runs:read" | "runs:write";
 
-export class FlowService {
+export class ApiService {
   constructor(private env: Env, private auth: OAuthProps) {}
 
   private stub() { return this.env.TENANTS.get(this.env.TENANTS.idFromName(`tenant:${this.auth.tenantId}`)); }
@@ -36,58 +34,17 @@ export class FlowService {
     return body;
   }
 
-  private publicFlow(row: any) {
-    let source: any = undefined;
-    let matchRules: unknown = undefined;
-    try { source = typeof row.source_config === "string" ? JSON.parse(row.source_config) : undefined; } catch { /* omit malformed internal config */ }
-    try { matchRules = typeof row.match_rules === "string" ? JSON.parse(row.match_rules) : undefined; } catch { /* omit malformed internal config */ }
-    if (source) source = publicSource(source);
-    return {
-      id: row.id, name: row.name, projectId: row.project_id, source,
-      matchRules,
-      maxConcurrency: row.max_concurrency, workspaceName: row.workspace_name,
-      agentKind: row.agent_kind, cwd: row.cwd, contextTemplate: row.context_template,
-      exeConnectionId: row.exe_connection_id,
-      ...(source?.kind === "cloudflareTail" ? { cloudflareTail: { destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(row.id)}` } } : {}),
-      enabled: Boolean(row.enabled), createdAt: row.created_at,
-    };
-  }
-
   private publicJob(value: any) {
     for (const trigger of value?.triggers ?? []) {
       const provider = trigger.kind === "webhook" ? trigger.config?.provider : undefined;
       if (provider === "cloudflareTail") trigger.config.destination = `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(value.id)}`;
-      if (provider === "custom") trigger.config.destination = `${this.env.APP_ORIGIN}/webhooks/custom/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(value.id)}`;
     }
     return value;
   }
 
-  async listFlows() { return (await this.call("flows:read", "/pipes") as any[]).map(row => this.publicFlow(row)); }
-  async getFlow(flowId: string) {
-    const value = await this.call("flows:read", `/v1/flows/${encodeURIComponent(flowId)}`) as any;
-    return this.publicFlow(value);
-  }
-  async createFlow(input: FlowInput) {
-    const pipeId = crypto.randomUUID();
-    const source = await preparePublicSource(this.auth.tenantId, pipeId, input.source);
-    await this.call("flows:write", "/pipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, pipeId, projectId: input.source.kind === "linear" ? input.source.projectId : "", matchRules: input.source.kind === "linear" ? input.source.matchRules : [], source, contextTemplate: resolveContextTemplate(input.source, input.contextTemplate) }) });
-    return this.publicFlow(await this.call("flows:write", `/v1/flows/${encodeURIComponent(pipeId)}`));
-  }
-  async updateFlow(flowId: string, input: FlowInput) {
-    const current = await this.call("flows:write", `/v1/flows/${encodeURIComponent(flowId)}`) as any;
-    let previous: FlowSource | undefined;
-    try { previous = JSON.parse(current.source_config); } catch { /* validation below will fail safely */ }
-    const source = await preparePublicSource(this.auth.tenantId, flowId, input.source, previous);
-    await this.call("flows:write", `/pipes/${encodeURIComponent(flowId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, projectId: input.source.kind === "linear" ? input.source.projectId : "", matchRules: input.source.kind === "linear" ? input.source.matchRules : [], source, contextTemplate: resolveContextTemplate(input.source, input.contextTemplate) }) });
-    return this.publicFlow(await this.call("flows:write", `/v1/flows/${encodeURIComponent(flowId)}`));
-  }
-  deleteFlow(flowId: string) { return this.call("flows:write", `/pipes/${encodeURIComponent(flowId)}`, { method: "DELETE" }); }
-  listProjects() { return this.call("flows:read", "/linear/projects"); }
-  listFlowOptions() { return this.call("flows:read", "/linear/options"); }
   listExeConnections() { return this.call("flows:read", "/connections/status").then((value: any) => value.exeConnections ?? []); }
   listRuns(query: URLSearchParams) { return this.call("runs:read", `/v1/runs?${query}`); }
   getRun(runId: string) { return this.call("runs:read", `/v1/runs/${encodeURIComponent(runId)}`); }
-  listFlowEvents(query: URLSearchParams) { return this.call("runs:read", `/v1/events?${query}`); }
   stopRun(runId: string) { return this.call("runs:write", `/v1/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" }); }
   async listJobs() { return (await this.call("flows:read", "/v1/jobs") as any[]).map(value => this.publicJob(value)); }
   async getJob(jobId: string) { return this.publicJob(await this.call("flows:read", `/v1/jobs/${encodeURIComponent(jobId)}`)); }
