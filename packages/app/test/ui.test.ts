@@ -151,6 +151,16 @@ describe("pages", () => {
     expectInlineScriptsToParse(html);
   });
 
+  it("renders accessible icon actions for editing and removing triggers", () => {
+    const editor = jobPage({ email: "owner@example.com" }, "job-1");
+    expect(editor).toContain('aria-label="Edit trigger" title="Edit trigger"');
+    expect(editor).toContain('aria-label="Remove trigger" title="Remove trigger"');
+    expect(editor).toContain('focus-visible:ring-factorize-500');
+    expect(editor).toContain('focus-visible:ring-red-500');
+    expect(editor).toContain('<svg aria-hidden="true"');
+    expect(editor).not.toContain('>Edit</button>');
+  });
+
   it("aligns Settings with the Jobs page width and gutters", () => {
     const settings = settingsPage({ email: "owner@example.com" });
     expect(settings).toContain('<main class="mx-auto max-w-6xl px-5 py-12 lg:px-8">');
