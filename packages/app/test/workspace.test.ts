@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentStatusCommand, connectionCheckCommand, defaultAgentCommand, garbageCollectPaneCommand, herdrAgentStatus, launchAgentCommand, promptAgentCommand, replaceForegroundCommand, shellAtom, startAgentCommand } from "../src/exe";
+import { agentStartupBlocked, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, garbageCollectPaneCommand, herdrAgentStatus, launchAgentCommand, promptAgentCommand, replaceForegroundCommand, shellAtom, startAgentCommand } from "../src/exe";
 import { workingDirectoryFor, workspaceNameFor } from "../src/workspace";
 
 describe("flow workspaces", () => {
@@ -43,6 +43,7 @@ describe("flow workspaces", () => {
     expect(launch).toContain("/tmp/factorize-prompts/factorize-1/prompt.md");
     expect(launch).toContain("Read and follow the complete task instructions in");
     expect(launch).toContain("--dangerously-bypass-hook-trust");
+    expect(launch).toContain("--cd '/repo/.factorize-runs/run'");
     expect(launch).toContain('projects."/repo/.factorize-runs/run".trust_level="trusted"');
     expect(launch).not.toContain("agent prompt");
     expect(delivery).toContain("agent prompt 'factorize-1'");
@@ -92,6 +93,11 @@ describe("flow workspaces", () => {
   it("reads Herdr's current agent_status response field", () => {
     expect(herdrAgentStatus('{"result":{"agent":{"agent_status":"working"}}}')).toBe("working");
     expect(herdrAgentStatus('{"result":{"agent":{"state":"idle"}}}')).toBe("idle");
+  });
+
+  it("detects an interactive Codex trust screen as a blocked startup", () => {
+    expect(agentStartupBlocked("Do you trust the contents of this directory? 1. Yes, continue 2. No, quit Press enter to continue")).toBe(true);
+    expect(agentStartupBlocked('{"result":{"agent":{"agent_status":"working"}}}')).toBe(false);
   });
 
   it("revalidates exact pane and process identities before bounded escalation", () => {

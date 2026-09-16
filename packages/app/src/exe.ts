@@ -107,6 +107,13 @@ export function herdrAgentStatus(body: string): string | null {
   return match?.[1].toLowerCase() ?? null;
 }
 
+/** Codex can be alive in the pane while still waiting for an interactive startup decision. */
+export function agentStartupBlocked(body: string): boolean {
+  const normalized = body.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, " ").replace(/\s+/g, " ").toLowerCase();
+  return normalized.includes("do you trust the contents of this directory?")
+    || normalized.includes("press enter to continue") && normalized.includes("yes, continue") && normalized.includes("no, quit");
+}
+
 export function agentOutputCommand(connection: ExeConnection, agentName: string): string {
   return `${herdrPrefix(connection)} && ${herdrBinary(connection)} agent read ${shellAtom(agentName)} --source recent --format text`;
 }
@@ -144,7 +151,7 @@ function herdrBinary(connection: ExeConnection): string {
 function agentCommand(connection: ExeConnection, prompt?: string, cwd?: string): string {
   const command = connection.agentCommand?.trim() || defaultAgentCommand(connection.agentKind);
   const args = command ? shellWords(command).map(shellAtom) : [];
-  if (connection.agentKind === "codex" && cwd) args.push("--dangerously-bypass-hook-trust", "-c", shellAtom(`projects.${JSON.stringify(cwd)}.trust_level="trusted"`));
+  if (connection.agentKind === "codex" && cwd) args.push("--dangerously-bypass-hook-trust", "--cd", shellAtom(cwd), "-c", shellAtom(`projects.${JSON.stringify(cwd)}.trust_level="trusted"`));
   if (prompt !== undefined) args.push("--", shellAtom(prompt));
   return args.length ? ` -- ${args.join(" ")}` : "";
 }
