@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { catchUpOccurrence, nextOccurrence, validateScheduleConfig } from "../src/schedule";
+import { catchUpOccurrence, nextOccurrence, simpleIntervalFromSchedule, simpleIntervalToCron, validateScheduleConfig } from "../src/schedule";
 
 describe("durable schedules", () => {
   it("calculates occurrences in the configured IANA timezone", () => {
@@ -24,5 +24,26 @@ describe("durable schedules", () => {
     const result = catchUpOccurrence(config, new Date("2026-09-16T10:00:00Z"), new Date("2026-09-16T11:02:00Z"));
     expect(result?.occurredAt.toISOString()).toBe("2026-09-16T10:00:00.000Z");
     expect(result?.nextRunAt.toISOString()).toBe("2026-09-16T11:05:00.000Z");
+  });
+
+  it("converts simple interval boundaries to UTC cron forms", () => {
+    expect(simpleIntervalToCron({ unit: "minutes", value: 1 })).toBe("*/1 * * * *");
+    expect(simpleIntervalToCron({ unit: "minutes", value: 59 })).toBe("*/59 * * * *");
+    expect(simpleIntervalToCron({ unit: "hours", value: 1 })).toBe("0 */1 * * *");
+    expect(simpleIntervalToCron({ unit: "hours", value: 23 })).toBe("0 */23 * * *");
+    expect(() => simpleIntervalToCron({ unit: "minutes", value: 60 })).toThrow(/1 and 59/);
+    expect(() => simpleIntervalToCron({ unit: "hours", value: 24 })).toThrow(/1 and 23/);
+  });
+
+  it("recognizes only supported UTC interval schedules", () => {
+    expect(simpleIntervalFromSchedule({ cron: "*/15 * * * *", timezone: "UTC" })).toEqual({ unit: "minutes", value: 15 });
+    expect(simpleIntervalFromSchedule({ cron: "0 */6 * * *", timezone: "UTC" })).toEqual({ unit: "hours", value: 6 });
+    expect(simpleIntervalFromSchedule({ cron: "0 9 * * *", timezone: "UTC" })).toBeNull();
+    expect(simpleIntervalFromSchedule({ cron: "*/15 * * * *", timezone: "America/New_York" })).toBeNull();
+  });
+
+  it("previews converted simple intervals with existing occurrence logic", () => {
+    const config = { cron: simpleIntervalToCron({ unit: "hours", value: 3 }), timezone: "UTC" };
+    expect(nextOccurrence(config, new Date("2026-09-16T10:01:00Z")).toISOString()).toBe("2026-09-16T12:00:00.000Z");
   });
 });

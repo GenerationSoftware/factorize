@@ -73,6 +73,20 @@ describe("pages", () => {
     expectInlineScriptsToParse(html);
   });
 
+  it("offers simple UTC schedule intervals while preserving advanced schedules", () => {
+    const html = jobPage({ email: "owner@example.com" });
+    expect(html).toContain('name="scheduleMode" value="simple" checked');
+    expect(html).toContain('name="intervalValue" value="5" min="1" max="59"');
+    expect(html).toContain('value="minutes">minutes');
+    expect(html).toContain('value="hours">hours');
+    expect(html).toContain("simple=c?simpleSchedule(c):{unit:'minutes',value:5}");
+    expect(html).toContain("triggerForm.elements.scheduleMode.value=simple?'simple':'advanced'");
+    expect(html).toContain("triggerForm.elements.timezone.value='UTC'");
+    expect(html).toContain("aligned to UTC clock boundaries");
+    expect(html).toContain("previewSchedule()");
+    expectInlineScriptsToParse(html);
+  });
+
   it("organizes create and edit job fields into the same four-step sequence", () => {
     for (const html of [jobPage({ email: "owner@example.com" }), jobPage({ email: "owner@example.com" }, "job-1")]) {
       const basics = html.indexOf('id="job-basics-title"');

@@ -5,6 +5,24 @@ export interface ScheduleConfig {
   timezone: string;
 }
 
+export type SimpleScheduleInterval = { unit: "minutes" | "hours"; value: number };
+
+export function simpleIntervalToCron(interval: SimpleScheduleInterval): string {
+  const maximum = interval.unit === "minutes" ? 59 : 23;
+  if (!Number.isInteger(interval.value) || interval.value < 1 || interval.value > maximum) throw new Error(`Schedule interval must be between 1 and ${maximum} ${interval.unit}`);
+  return interval.unit === "minutes" ? `*/${interval.value} * * * *` : `0 */${interval.value} * * *`;
+}
+
+export function simpleIntervalFromSchedule(config: ScheduleConfig): SimpleScheduleInterval | null {
+  if (config.timezone !== "UTC") return null;
+  const cron = config.cron.trim(), minutes = cron.match(/^\*\/(\d+) \* \* \* \*$/), hours = cron.match(/^0 \*\/(\d+) \* \* \*$/);
+  if (cron === "* * * * *") return { unit: "minutes", value: 1 };
+  if (cron === "0 * * * *") return { unit: "hours", value: 1 };
+  if (minutes && Number(minutes[1]) >= 1 && Number(minutes[1]) <= 59) return { unit: "minutes", value: Number(minutes[1]) };
+  if (hours && Number(hours[1]) >= 1 && Number(hours[1]) <= 23) return { unit: "hours", value: Number(hours[1]) };
+  return null;
+}
+
 export function validateScheduleConfig(value: unknown): ScheduleConfig {
   const config = value as ScheduleConfig;
   if (!config || typeof config.cron !== "string" || typeof config.timezone !== "string") throw new Error("Schedule cron and timezone are required");
