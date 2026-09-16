@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./types";
 
-export class GitHubInstallationRegistry extends DurableObject<Env> {
+export class GitHubInstallationRegistryV2 extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS installations (installation_id INTEGER PRIMARY KEY, tenant_id TEXT NOT NULL, account_login TEXT NOT NULL, account_type TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL)`);
@@ -23,3 +23,6 @@ export class GitHubInstallationRegistry extends DurableObject<Env> {
     return new Response("Not found", { status: 404 });
   }
 }
+
+/** @deprecated Retained only until the Phase 2 namespace-retirement deployment. */
+export class GitHubInstallationRegistry extends DurableObject<Env> {}

@@ -2,17 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 
-import { Tenant } from "../src/tenant";
+import { TenantV2 } from "../src/tenant";
 
-function tenantWithRows(rows: (query: string, ...params: unknown[]) => Record<string, unknown>[]): Tenant {
-  const tenant = Object.create(Tenant.prototype) as Tenant;
+function tenantWithRows(rows: (query: string, ...params: unknown[]) => Record<string, unknown>[]): TenantV2 {
+  const tenant = Object.create(TenantV2.prototype) as TenantV2;
   (tenant as any).rows = rows;
   return tenant;
 }
 
 describe("run invocation inspection", () => {
   it("preserves trigger slugs across edits and reordering", () => {
-    const tenant = Object.create(Tenant.prototype) as Tenant;
+    const tenant = Object.create(TenantV2.prototype) as TenantV2;
     const existing = new Map([
       ["manual", { id: "manual", slug: "trigger-1" }],
       ["schedule", { id: "schedule", slug: "trigger-2" }],
