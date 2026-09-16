@@ -162,24 +162,21 @@ app.get("/api/linear/options", async (c) => {
 });
 app.get("/api/github/installations", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  if (c.env.GITHUB_INTEGRATION_ENABLED !== "true") return c.json({ error: "GitHub integration is not enabled" }, 404);
   return tenant(c, session.tenantId).fetch("https://tenant/github/installations");
 });
 app.get("/api/github/installations/:id/repositories", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  if (c.env.GITHUB_INTEGRATION_ENABLED !== "true") return c.json({ error: "GitHub integration is not enabled" }, 404);
   return tenant(c, session.tenantId).fetch(`https://tenant/github/installations/${encodeURIComponent(c.req.param("id"))}/repositories`);
 });
 app.delete("/api/github/installations/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  if (c.env.GITHUB_INTEGRATION_ENABLED !== "true") return c.json({ error: "GitHub integration is not enabled" }, 404);
   const response = await tenant(c, session.tenantId).fetch(`https://tenant/github/installations/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
   if (response.ok) await githubRegistry(c).fetch(`https://registry/installations/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
   return response;
 });
 app.get("/auth/github/install", async (c) => {
   const session = await owner(c); if (!session) return c.redirect("/auth/linear");
-  if (c.env.GITHUB_INTEGRATION_ENABLED !== "true" || !c.env.GITHUB_APP_SLUG) return c.text("GitHub integration is not enabled", 404);
+  if (!c.env.GITHUB_APP_SLUG) return c.text("GitHub App is not configured", 503);
   const nonce = crypto.randomUUID();
   const state = await signSetupState({ tenantId: session.tenantId, userId: session.userId, nonce, exp: Math.floor(Date.now() / 1000) + 600 }, c.env.SESSION_SIGNING_SECRET);
   await tenant(c, session.tenantId).fetch("https://tenant/github/setup-state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce, exp: Math.floor(Date.now() / 1000) + 600 }) });
@@ -313,7 +310,6 @@ app.post("/webhooks/linear", async (c) => {
 });
 
 app.post("/webhooks/github", async (c) => {
-  if (c.env.GITHUB_INTEGRATION_ENABLED !== "true") return c.text("Not found", 404);
   if (!c.env.GITHUB_WEBHOOK_SECRET) return c.text("Webhook verification is not configured", 503);
   const raw = await c.req.text();
   const signature = c.req.header("X-Hub-Signature-256") ?? "";

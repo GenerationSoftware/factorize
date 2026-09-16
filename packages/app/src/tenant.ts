@@ -1512,7 +1512,6 @@ export class Tenant extends DurableObject<Env> {
       if (valid.origin === "cloudflare" && (!source.tail?.signingSecret || source.tail.signingSecret.length < 32)) throw new Error("Cloudflare Tail signing is not configured.");
       return { kind: "custom", ...valid, handlerDeployment: source.handlerDeployment, ...(valid.origin === "cloudflare" ? { tail: source.tail } : {}) };
     }
-    if (this.env.GITHUB_INTEGRATION_ENABLED !== "true") throw new Error("GitHub integration is not enabled");
     if (source.baseRef !== "main" || source.trigger !== "merge_queue_conflict" || !Number.isSafeInteger(source.installationId) || !Number.isSafeInteger(source.repositoryId)) throw new Error("Invalid GitHub source");
     const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", source.installationId) as Row | undefined;
     if (!installation || installation.state !== "active") throw new Error("GitHub installation is disconnected");

@@ -17,7 +17,6 @@ export interface Env {
   GITHUB_APP_SLUG?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
   GITHUB_WEBHOOK_SECRET?: string;
-  GITHUB_INTEGRATION_ENABLED?: string;
   CUSTOM_SOURCES_ENABLED?: string;
   CUSTOM_HANDLER_LOADER?: WorkerLoader;
   RECOVERY_TIMEOUT_MS?: string;
