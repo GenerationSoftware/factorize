@@ -11,6 +11,21 @@ function tenantWithRows(rows: (query: string, ...params: unknown[]) => Record<st
 }
 
 describe("run invocation inspection", () => {
+  it("preserves trigger slugs across edits and reordering", () => {
+    const tenant = Object.create(Tenant.prototype) as Tenant;
+    const existing = new Map([
+      ["manual", { id: "manual", slug: "trigger-1" }],
+      ["schedule", { id: "schedule", slug: "trigger-2" }],
+      ["webhook", { id: "webhook", slug: "trigger-3" }],
+    ]);
+    const triggers = (tenant as any).normalizedTriggers([
+      { id: "webhook", kind: "webhook", config: { provider: "custom" } },
+      { id: "manual", kind: "manual", config: {} },
+      { kind: "schedule", config: { cron: "0 * * * *", timezone: "UTC" } },
+    ], existing);
+    expect(triggers.map((trigger: any) => trigger.slug)).toEqual(["trigger-3", "trigger-1", "trigger-4"]);
+  });
+
   it("combines literal context search with run filters and returns only a bounded excerpt", async () => {
     let statement = "";
     let bindings: unknown[] = [];
@@ -38,15 +53,15 @@ describe("run invocation inspection", () => {
   it("returns full canonical invocation metadata and nulls for a legacy run", async () => {
     const canonical = tenantWithRows((query) => query.includes("FROM runs r") ? [{
       id: "run-1", job_id: "job-1", state: "queued", backend_kind: "amp", capabilities: "[]", result: null,
-      context: "Exact Triggered Context", invocation_id: "inv-1", invocation_job_id: "job-1", invocation_source: "schedule",
-      invocation_claim_key: "schedule:occurrence-1", invocation_parameters: '{"region":"west"}',
+      context: '{"trigger-2":{"scheduled_at":"2026-09-16T12:00:00Z"}}', invocation_id: "inv-1", invocation_job_id: "job-1", invocation_source: "schedule", invocation_trigger_id: "schedule-1",
+      invocation_claim_key: "schedule:occurrence-1",
       invocation_occurrence: '{"occurredAt":"2026-09-16T12:00:00Z"}', invocation_created_at: "2026-09-16T12:00:01Z",
     }] : []);
     const canonicalBody = await ((canonical as any).getRun("run-1") as Promise<Response>).then((response: Response) => response.json()) as any;
-    expect(canonicalBody.context).toBe("Exact Triggered Context");
+    expect(canonicalBody.context).toEqual({ "trigger-2": { scheduled_at: "2026-09-16T12:00:00Z" } });
     expect(canonicalBody.invocation).toEqual({
-      id: "inv-1", job_id: "job-1", source: "schedule", claim_key: "schedule:occurrence-1",
-      parameters: { region: "west" }, occurrence: { occurredAt: "2026-09-16T12:00:00Z" }, created_at: "2026-09-16T12:00:01Z",
+      id: "inv-1", job_id: "job-1", source: "schedule", trigger_id: "schedule-1", claim_key: "schedule:occurrence-1",
+      context: { "trigger-2": { scheduled_at: "2026-09-16T12:00:00Z" } }, occurrence: { occurredAt: "2026-09-16T12:00:00Z" }, created_at: "2026-09-16T12:00:01Z",
     });
 
     const legacy = tenantWithRows((query) => query.includes("FROM runs r") ? [{ id: "legacy-1", job_id: "flow-1", state: "done", backend_kind: "exe-herdr", capabilities: "[]", result: null }] : []);

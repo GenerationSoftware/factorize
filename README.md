@@ -150,7 +150,7 @@ curl -X POST -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
   https://app.factorize.sh/api/v1/runs/RUN_ID/stop
 ```
 
-Flow CRUD is available at `/flows` and `/flows/:id`; supporting collections are `/projects`, `/flow-options`, `/runs`, and `/flow-events`. Run and event collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Runs can be filtered by `jobId`, `state`, and `contextQuery`; context queries use case-insensitive literal substring matching and matching items contain a bounded `context_excerpt`, never the full context. `GET /runs/:runId` returns the full triggered `context` and its invocation metadata (`source`, parameters, schedule occurrence, claim key, and timestamp). Legacy runs return `null` for `context` and `invocation`. Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
+Flow CRUD is available at `/flows` and `/flows/:id`; supporting collections are `/projects`, `/flow-options`, `/runs`, and `/flow-events`. Run and event collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Runs can be filtered by `jobId`, `state`, and `contextQuery`; context queries use case-insensitive literal substring matching and matching items contain a bounded `context_excerpt`, never the full context. `GET /runs/:runId` returns the complete structured trigger `context` and invocation metadata, including the firing `trigger_id`. Legacy runs return `null` for `context` and `invocation`. The canonical Job prompt contract is documented in [docs/job-trigger-context.md](docs/job-trigger-context.md). Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
 
 ## MCP clients
 

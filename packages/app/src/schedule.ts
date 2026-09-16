@@ -3,8 +3,6 @@ import { CronExpressionParser } from "cron-parser";
 export interface ScheduleConfig {
   cron: string;
   timezone: string;
-  context?: string;
-  parameters?: Record<string, string>;
 }
 
 export function validateScheduleConfig(value: unknown): ScheduleConfig {

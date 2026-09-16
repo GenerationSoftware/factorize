@@ -46,8 +46,8 @@ describe("FlowService", () => {
       requests.push(`${request.method} ${path}`);
       return Response.json({ ok: true });
     }), { ...auth, scopes: ["flows:read", "flows:write", "runs:write"] });
-    await service.createJob({ name: "Manual", promptTemplate: "{{context}}", parameterDefaults: {}, concurrencyLimit: 1, executionTargetId: "target-1", triggers: [] });
-    await service.invokeJob("job-1", { parameters: {}, idempotencyKey: "client-1" });
+    await service.createJob({ name: "Manual", promptTemplate: "{{trigger-1.prompt}}", concurrencyLimit: 1, executionTargetId: "target-1", triggers: [] });
+    await service.invokeJob("job-1", { prompt: "go", idempotencyKey: "client-1" });
     expect(requests).toEqual(["POST /v1/jobs", "POST /v1/jobs/job-1/invocations"]);
   });
 });
@@ -66,11 +66,11 @@ describe("shared API schemas", () => {
   });
 
   it("validates job configuration and reserved invocation context", () => {
-    const job = jobInputSchema.parse({ name: "Deploy", promptTemplate: "Deploy {{environment}}: {{context}}", parameterDefaults: { environment: "staging" }, concurrencyLimit: 2, executionTargetId: "exe-1", triggers: [{ kind: "schedule", config: { cron: "0 * * * *", timezone: "UTC" } }, { kind: "jobLifecycle", config: { sourceJobIds: ["worker"], states: ["succeeded", "failed"] } }] });
+    const job = jobInputSchema.parse({ name: "Deploy", promptTemplate: "Deploy {{trigger-1.prompt}}", concurrencyLimit: 2, executionTargetId: "exe-1", triggers: [{ kind: "schedule", config: { cron: "0 * * * *", timezone: "UTC" } }, { kind: "jobLifecycle", config: { sourceJobIds: ["worker"], states: ["succeeded", "failed"] } }] });
     expect(job.triggers.map(trigger => trigger.kind)).toEqual(["schedule", "jobLifecycle"]);
     expect(() => jobInputSchema.parse({ ...job, apiToken: "secret" })).toThrow();
-    expect(() => jobInputSchema.parse({ ...job, parameterDefaults: { context: "wrong" } })).toThrow();
-    expect(() => manualInvocationSchema.parse({ parameters: { context: "wrong" } })).toThrow();
-    expect(manualInvocationSchema.parse({ context: "ticket", parameters: { environment: "prod" } })).toMatchObject({ context: "ticket" });
+    expect(() => jobInputSchema.parse({ ...job, parameterDefaults: {} })).toThrow();
+    expect(() => manualInvocationSchema.parse({ parameters: {} })).toThrow();
+    expect(manualInvocationSchema.parse({ prompt: "ticket" })).toMatchObject({ prompt: "ticket" });
   });
 });

@@ -1,6 +1,6 @@
 import Mustache from "mustache";
 
-export type TriggerKind = "schedule" | "webhook" | "jobLifecycle";
+export type TriggerKind = "manual" | "schedule" | "webhook" | "jobLifecycle";
 export type InvocationSource = "manual" | TriggerKind;
 export type JobRunState = "queued" | "running" | "succeeded" | "failed" | "stopped";
 
@@ -15,6 +15,7 @@ export interface Trigger {
   id: string;
   jobId: string;
   kind: TriggerKind;
+  slug: string;
   enabled: boolean;
   config: Record<string, unknown>;
   createdAt: string;
@@ -25,7 +26,6 @@ export interface Job {
   id: string;
   name: string;
   promptTemplate: string;
-  parameterDefaults: Record<string, string>;
   executionTarget: ExecutionTarget;
   concurrencyLimit: number;
   enabled: boolean;
@@ -36,8 +36,8 @@ export interface Job {
 
 export interface InvocationRequest {
   source: InvocationSource;
-  context?: string;
-  parameters?: Record<string, string>;
+  triggerId: string;
+  context: Record<string, unknown>;
   /** Stable, source-owned key used to claim this occurrence exactly once. */
   claimKey: string;
   occurrence?: { occurredAt?: string; externalId?: string; metadata?: Record<string, unknown> };
@@ -48,8 +48,8 @@ export interface Invocation {
   jobId: string;
   source: InvocationSource;
   claimKey: string;
-  context?: string;
-  parameters: Record<string, string>;
+  triggerId: string;
+  context: Record<string, unknown>;
   occurrence?: InvocationRequest["occurrence"];
   createdAt: string;
 }
@@ -80,22 +80,10 @@ export class InvocationError extends Error {
   constructor(public code: "job_not_found" | "job_disabled" | "invalid_invocation" | "invalid_template", message: string) { super(message); }
 }
 
-const recordOfStrings = (value: unknown, name: string): Record<string, string> => {
-  if (value === undefined) return {};
-  if (!value || typeof value !== "object" || Array.isArray(value) || Object.values(value).some(item => typeof item !== "string")) {
-    throw new InvocationError("invalid_invocation", `${name} must contain only string values.`);
-  }
-  return value as Record<string, string>;
-};
-
-export function renderJobPrompt(job: Pick<Job, "promptTemplate" | "parameterDefaults">, request: Pick<InvocationRequest, "context" | "parameters">): string {
-  const defaults = recordOfStrings(job.parameterDefaults, "Job parameter defaults");
-  if (Object.prototype.hasOwnProperty.call(defaults, "context")) throw new InvocationError("invalid_template", "context is reserved and cannot be a job parameter.");
-  const overrides = recordOfStrings(request.parameters, "Invocation parameters");
-  if (Object.prototype.hasOwnProperty.call(overrides, "context")) throw new InvocationError("invalid_invocation", "context is reserved and must be supplied through the context field.");
+export function renderJobPrompt(job: Pick<Job, "promptTemplate">, context: Record<string, unknown>): string {
   try {
     Mustache.parse(job.promptTemplate);
-    return Mustache.render(job.promptTemplate, { ...defaults, ...overrides, context: request.context ?? "" });
+    return Mustache.render(job.promptTemplate, context);
   } catch (error) {
     if (error instanceof InvocationError) throw error;
     throw new InvocationError("invalid_template", "The job prompt is not valid Mustache.");
@@ -121,10 +109,10 @@ export class InvocationService {
     const existing = await this.repository.findInvocation(jobId, input.claimKey);
     if (existing) return { ...existing, duplicate: true };
 
-    const parameters = recordOfStrings(input.parameters, "Invocation parameters");
+    if (!input.triggerId || !input.context || typeof input.context !== "object" || Array.isArray(input.context)) throw new InvocationError("invalid_invocation", "A trigger and structured context are required.");
     const createdAt = this.clock();
-    const invocation: Invocation = { id: this.makeId(), jobId, source: input.source, claimKey: input.claimKey, ...(input.context === undefined ? {} : { context: input.context }), parameters, ...(input.occurrence ? { occurrence: input.occurrence } : {}), createdAt };
-    const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input)), createdAt, updatedAt: createdAt };
+    const invocation: Invocation = { id: this.makeId(), jobId, source: input.source, claimKey: input.claimKey, triggerId: input.triggerId, context: input.context, ...(input.occurrence ? { occurrence: input.occurrence } : {}), createdAt };
+    const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input.context)), createdAt, updatedAt: createdAt };
     if (!await this.repository.insertInvocationAndRun(invocation, run)) {
       const winner = await this.repository.findInvocation(jobId, input.claimKey);
       if (!winner) throw new Error("Invocation claim was lost without a persisted winner.");
@@ -145,19 +133,20 @@ export class InvocationService {
 export const JOB_SCHEMA = `
   CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, encrypted_prompt_template TEXT NOT NULL,
-    parameter_defaults TEXT NOT NULL, execution_target TEXT NOT NULL,
+    execution_target TEXT NOT NULL,
     concurrency_limit INTEGER NOT NULL CHECK (concurrency_limit >= 1), enabled INTEGER NOT NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS triggers (
     id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK (kind IN ('schedule','webhook','jobLifecycle')), enabled INTEGER NOT NULL DEFAULT 1, config TEXT NOT NULL,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    kind TEXT NOT NULL CHECK (kind IN ('manual','schedule','webhook','jobLifecycle')), slug TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, config TEXT NOT NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    UNIQUE(job_id, slug)
   );
   CREATE TABLE IF NOT EXISTS invocations (
     id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     source TEXT NOT NULL CHECK (source IN ('manual','schedule','webhook','jobLifecycle')), claim_key TEXT NOT NULL,
-    context TEXT, parameters TEXT NOT NULL, occurrence TEXT, created_at TEXT NOT NULL,
+    trigger_id TEXT NOT NULL, context TEXT NOT NULL, occurrence TEXT, created_at TEXT NOT NULL,
     UNIQUE(job_id, claim_key)
   );
   CREATE TABLE IF NOT EXISTS job_runs (

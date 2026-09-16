@@ -3,9 +3,9 @@ import { adaptWebhook, publicWebhookConfig } from "../src/webhook-trigger";
 
 describe("webhook Job trigger adapters", () => {
   it("matches Linear and derives a stable claim plus string invocation inputs", () => {
-    const config = { provider: "linear" as const, projectId: "p1", matchRules: [{ type: "status" as const, targetId: "done" }], parameters: { mode: "fix" } };
+    const config = { provider: "linear" as const, projectId: "p1", matchRules: [{ type: "status" as const, targetId: "done" }] };
     const payload = { type: "Issue", action: "update", data: { id: "i1", project: { id: "p1" }, state: { id: "done" } }, updatedFrom: { stateId: "todo" } };
-    expect(adaptWebhook(config, "linear", "linear:d1", payload)).toMatchObject({ claimKey: "webhook:linear:linear:d1", parameters: { mode: "fix", provider: "linear", deliveryId: "linear:d1" }, occurrence: { externalId: "linear:d1" } });
+    expect(adaptWebhook(config, "linear", "linear:d1", payload)).toMatchObject({ claimKey: "webhook:linear:linear:d1", payload: { data: { id: "i1" }, provider: "linear", delivery_id: "linear:d1" }, occurrence: { externalId: "linear:d1" } });
   });
 
   it("matches GitHub installation, repository, event, and action", () => {

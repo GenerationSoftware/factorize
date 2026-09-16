@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import { InvocationService, JOB_SCHEMA, renderJobPrompt, type Invocation, type Job, type JobRepository, type JobRun } from "../src/job-domain";
 
 const job = (overrides: Partial<Job> = {}): Job => ({
-  id: "job-1", name: "Triage", promptTemplate: "{{greeting}}, {{name}}!\n{{context}}",
-  parameterDefaults: { greeting: "Hello", name: "world" },
+  id: "job-1", name: "Triage", promptTemplate: "{{trigger-1.prompt}} · {{trigger-2.issue.title}}",
   executionTarget: { connectionId: "exe-1", workspace: "triage", cwd: "/repo", agentKind: "codex" },
   concurrencyLimit: 1, enabled: true,
   triggers: [],
@@ -20,32 +19,32 @@ class MemoryRepository implements JobRepository {
 }
 
 describe("job invocation domain", () => {
-  it("applies defaults, overrides, and the reserved context", () => {
-    expect(renderJobPrompt(job(), { parameters: { name: "Ada" }, context: "Fix GEN-2000" })).toBe("Hello, Ada!\nFix GEN-2000");
-    expect(() => renderJobPrompt(job({ parameterDefaults: { context: "not allowed" } }), {})).toThrow(/reserved/);
-    expect(() => renderJobPrompt(job(), { parameters: { context: "not allowed" } })).toThrow(/reserved/);
+  it("renders structured trigger paths and empty missing values", () => {
+    expect(renderJobPrompt(job(), { "trigger-1": { prompt: "Fix it" }, "trigger-2": { issue: { title: "Bug" } } })).toBe("Fix it · Bug");
+    expect(renderJobPrompt(job(), { "trigger-1": { prompt: "Fix it" } })).toBe("Fix it · ");
   });
 
   it("queues one encrypted run for a claim regardless of source retries", async () => {
     const repository = new MemoryRepository(); let ids = 0;
     const service = new InvocationService(repository, async value => `encrypted:${value}`, () => `id-${++ids}`, () => "2026-09-16T00:00:00.000Z");
-    const request = { source: "webhook" as const, claimKey: "delivery-7", context: "Issue payload", parameters: { greeting: "Hi" }, occurrence: { externalId: "evt-7", metadata: { provider: "linear" } } };
+    const request = { source: "webhook" as const, triggerId: "webhook-1", claimKey: "delivery-7", context: { "trigger-2": { issue: { title: "Issue payload" } } }, occurrence: { externalId: "evt-7", metadata: { provider: "linear" } } };
     const first = await service.invoke("job-1", request), retry = await service.invoke("job-1", request);
     expect(first.duplicate).toBe(false); expect(retry.duplicate).toBe(true);
-    expect(retry.run.id).toBe(first.run.id); expect(first.run.encryptedPrompt).toBe("encrypted:Hi, world!\nIssue payload");
+    expect(retry.run.id).toBe(first.run.id); expect(first.run.encryptedPrompt).toBe("encrypted: · Issue payload");
     expect(JSON.stringify(first)).not.toContain('"prompt":"Hi');
   });
 
   it("starts queued runs only while the job has capacity", async () => {
     const repository = new MemoryRepository(); const service = new InvocationService(repository, async value => value, undefined, () => "then");
-    const first = await service.invoke("job-1", { source: "manual", claimKey: "one" });
-    const second = await service.invoke("job-1", { source: "schedule", claimKey: "two", occurrence: { occurredAt: "2026-09-16T01:00:00Z" } });
+    const first = await service.invoke("job-1", { source: "manual", triggerId: "manual-1", claimKey: "one", context: { "trigger-1": { prompt: "go" } } });
+    const second = await service.invoke("job-1", { source: "schedule", triggerId: "schedule-1", claimKey: "two", context: { "trigger-3": { scheduled_at: "2026-09-16T01:00:00Z" } }, occurrence: { occurredAt: "2026-09-16T01:00:00Z" } });
     expect((await service.startIfCapacity(first.run))?.state).toBe("running");
     expect(await service.startIfCapacity(second.run)).toBeNull();
   });
 
   it("defines multiple triggers, per-trigger schedules, lifecycle claims, and coalescing state", () => {
-    expect(JOB_SCHEMA).toContain("kind IN ('schedule','webhook','jobLifecycle')");
+    expect(JOB_SCHEMA).toContain("kind IN ('manual','schedule','webhook','jobLifecycle')");
+    expect(JOB_SCHEMA).toContain("UNIQUE(job_id, slug)");
     expect(JOB_SCHEMA).not.toContain("job_id TEXT NOT NULL UNIQUE REFERENCES jobs");
     expect(JOB_SCHEMA).toContain("UNIQUE(job_id, claim_key)");
     expect(JOB_SCHEMA).toContain("CREATE TABLE IF NOT EXISTS schedule_state");
