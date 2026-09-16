@@ -60,8 +60,9 @@ describe("shared API schemas", () => {
   });
 
   it("bounds pagination and run states", () => {
-    expect(listRunsSchema.parse({ limit: "100", state: "running" })).toMatchObject({ limit: 100, state: "running" });
+    expect(listRunsSchema.parse({ limit: "100", state: "running", contextQuery: "literal.*text" })).toMatchObject({ limit: 100, state: "running", contextQuery: "literal.*text" });
     expect(() => listRunsSchema.parse({ limit: "101" })).toThrow();
+    expect(() => listRunsSchema.parse({ contextQuery: "" })).toThrow();
   });
 
   it("validates job configuration and reserved invocation context", () => {

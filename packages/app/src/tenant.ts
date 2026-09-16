@@ -568,23 +568,48 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private listRuns(url: URL): Response {
-    const limit = this.pageSize(url), cursor = this.cursor(url), jobId = url.searchParams.get("jobId"), state = url.searchParams.get("state");
-    const clauses: string[] = [], args: unknown[] = [];
-    if (jobId) { clauses.push("pipe_id = ?"); args.push(jobId); }
-    if (state === "succeeded") { clauses.push("state IN ('succeeded','done')"); }
-    else if (state === "stopped") { clauses.push("state IN ('stopped','cancelled')"); }
-    else if (state === "starting") { clauses.push("state IN ('starting','recovering')"); }
-    else if (state) { clauses.push("state = ?"); args.push(state); }
-    if (cursor) { clauses.push("(created_at < ? OR (created_at = ? AND id < ?))"); args.push(cursor.at, cursor.at, cursor.id); }
-    const rows = this.rows(`SELECT id, pipe_id AS job_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, execution_backend_kind AS backend_kind, execution_capabilities AS capabilities, destination_url, created_at, updated_at FROM runs ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?`, ...args, limit + 1);
+    const limit = this.pageSize(url), cursor = this.cursor(url), jobId = url.searchParams.get("jobId"), state = url.searchParams.get("state"), contextQuery = url.searchParams.get("contextQuery");
+    const clauses: string[] = [], selectArgs: unknown[] = [], args: unknown[] = [];
+    if (jobId) { clauses.push("r.pipe_id = ?"); args.push(jobId); }
+    if (state === "succeeded") { clauses.push("r.state IN ('succeeded','done')"); }
+    else if (state === "stopped") { clauses.push("r.state IN ('stopped','cancelled')"); }
+    else if (state === "starting") { clauses.push("r.state IN ('starting','recovering')"); }
+    else if (state) { clauses.push("r.state = ?"); args.push(state); }
+    if (contextQuery) { clauses.push("instr(lower(i.context), lower(?)) > 0"); args.push(contextQuery); selectArgs.push(contextQuery, contextQuery); }
+    if (cursor) { clauses.push("(r.created_at < ? OR (r.created_at = ? AND r.id < ?))"); args.push(cursor.at, cursor.at, cursor.id); }
+    const excerpt = contextQuery
+      ? ", instr(lower(i.context), lower(?)) AS context_match_index, length(i.context) AS context_length, substr(i.context, max(instr(lower(i.context), lower(?)) - 80, 1), 200) AS context_excerpt"
+      : ", NULL AS context_excerpt";
+    const rows = this.rows(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_capabilities AS capabilities, r.destination_url, r.created_at, r.updated_at${excerpt} FROM runs r LEFT JOIN job_runs jr ON jr.id = r.id LEFT JOIN invocations i ON i.id = jr.invocation_id ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY r.created_at DESC, r.id DESC LIMIT ?`, ...selectArgs, ...args, limit + 1);
     const hasMore = rows.length > limit, items = rows.slice(0, limit);
-    for (const item of items) this.presentExecution(item);
+    for (const item of items) {
+      if (contextQuery) {
+        const matchIndex = Number(item.context_match_index), contextLength = Number(item.context_length), excerptValue = String(item.context_excerpt ?? "");
+        const excerptStart = Math.max(matchIndex - 80, 1);
+        item.context_excerpt = `${excerptStart > 1 ? "…" : ""}${excerptValue}${excerptStart - 1 + excerptValue.length < contextLength ? "…" : ""}`;
+        delete item.context_match_index;
+        delete item.context_length;
+      }
+      this.presentExecution(item);
+    }
     return json({ items, nextCursor: hasMore ? this.nextCursor(items.at(-1), "created_at") : null });
   }
 
   private async getRun(runId: string): Promise<Response> {
-    const run = this.one("SELECT id, pipe_id AS job_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, execution_backend_kind AS backend_kind, execution_capabilities AS capabilities, destination_url, result, exec_status, exec_exit_code, recovery_last_action, created_at, updated_at FROM runs WHERE id = ?", runId);
+    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_capabilities AS capabilities, r.destination_url, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
+      i.id AS invocation_id, i.job_id AS invocation_job_id, i.source AS invocation_source, i.claim_key AS invocation_claim_key, i.context, i.parameters AS invocation_parameters, i.occurrence AS invocation_occurrence, i.created_at AS invocation_created_at
+      FROM runs r LEFT JOIN job_runs jr ON jr.id = r.id LEFT JOIN invocations i ON i.id = jr.invocation_id WHERE r.id = ?`, runId);
     if (!run) return new Response("Not found", { status: 404 });
+    if (run.invocation_id) {
+      let parameters: unknown = {}, occurrence: unknown = null;
+      try { parameters = JSON.parse(String(run.invocation_parameters || "{}")); } catch { /* Persisted invocation remains readable if metadata is malformed. */ }
+      try { occurrence = run.invocation_occurrence == null ? null : JSON.parse(String(run.invocation_occurrence)); } catch { /* Persisted invocation remains readable if metadata is malformed. */ }
+      run.invocation = { id: run.invocation_id, job_id: run.invocation_job_id, source: run.invocation_source, claim_key: run.invocation_claim_key, parameters, occurrence, created_at: run.invocation_created_at };
+    } else {
+      run.context = null;
+      run.invocation = null;
+    }
+    for (const key of ["invocation_id", "invocation_job_id", "invocation_source", "invocation_claim_key", "invocation_parameters", "invocation_occurrence", "invocation_created_at"]) delete run[key];
     if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     run.activity = this.rows("SELECT action, detail, created_at FROM run_activity WHERE run_id = ? ORDER BY created_at, id", runId);
     this.presentExecution(run);
