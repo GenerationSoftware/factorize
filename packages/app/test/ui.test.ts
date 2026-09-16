@@ -163,6 +163,9 @@ describe("pages", () => {
     expect(settings).toContain('aria-label="Set up Linear"');
     expect(settings).toContain('aria-label="Set up GitHub"');
     expect(settings).toContain('aria-label="Set up Cloudflare Tail"');
+    expect(settings).toContain("min-h-36 flex-col items-center");
+    expect(settings).toContain('class="flex h-8 w-8 items-center justify-center text-slate-800 dark:text-slate-100"');
+    expect(settings).not.toContain("min-h-48 flex-col items-center");
     expect(settings).not.toContain("View setup");
     expect(settings.match(/<svg aria-hidden="true"/g)?.length).toBeGreaterThanOrEqual(5);
     expect(settings).toContain('<dialog id="linear-setup"');
@@ -179,6 +182,8 @@ describe("pages", () => {
     expect(settings).toContain('<tbody id="installed-integrations"');
     expect(settings).toContain('<th scope="row"');
     expect(settings).toContain("sm:table-row");
+    expect(settings).toContain("const form=e.currentTarget,d=new FormData(form)");
+    expect(settings).not.toContain("e.currentTarget.reset()");
   });
 
   it("renders the complete jobs dashboard experience", () => {
