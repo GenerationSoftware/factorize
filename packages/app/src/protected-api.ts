@@ -71,7 +71,7 @@ async function mcp(request: Request, service: ApiService, env: Env, ctx: Executi
     });
     tool("list_exe_connections", "List safe metadata for saved exe.dev connections. API tokens are never returned.", z.object({}), () => service.listExeConnections());
     tool("list_runs", "List authoritative job runs by job ID, state, and an optional case-insensitive literal substring of triggered context. Automatic webhook, schedule, and lifecycle signals coalesce, so query runs and the provider API for authoritative work. Context matches include only a bounded excerpt.", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
-    tool("get_run", "Get a run with its full triggered context, invocation metadata, execution metadata, output, and activity", runIdSchema, ({ runId }: any) => service.getRun(runId));
+    tool("get_run", "Get a run with its full triggered context, invocation metadata, execution metadata, output, and activity. For manual invocations, invocation.idempotency_key is the client-reusable value; invocation.claim_key is internal.", runIdSchema, ({ runId }: any) => service.getRun(runId));
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
     tool("list_jobs", "List jobs", z.object({}), () => service.listJobs());
     tool("get_job", "Get a job", jobIdSchema, ({ jobId }: any) => service.getJob(jobId));
@@ -80,7 +80,7 @@ async function mcp(request: Request, service: ApiService, env: Env, ctx: Executi
     tool("delete_job", "Delete a job and its queued invocation history", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));
     tool("enable_job", "Enable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, true));
     tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
-    tool("invoke_job", "Invoke a job's manual trigger with a prompt exposed beneath that trigger's stable slug. Manual invocations are never coalesced.", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
+    tool("invoke_job", "Invoke a job's manual trigger with a prompt exposed beneath that trigger's stable slug. Manual invocations are never coalesced. idempotencyKey is a client value and must not include the internal manual: claim-key prefix; reuse invocation.idempotency_key from get_run.", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
     tool("list_job_webhook_activity", "List matching, rejected, duplicate, and accepted webhook activity for a job", z.object({ jobId: z.string().min(1), limit: z.number().int().min(1).max(100).default(50) }), ({ jobId, limit }: any) => service.listJobEvents(jobId, limit));
     tool("test_job_webhook_handler", "Test an isolated synchronous Job webhook handler without creating a run. Returns the decision and never accepts credentials.", jobHandlerTestSchema, (input: any) => service.testJobHandler(input));
     tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());

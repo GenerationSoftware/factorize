@@ -639,6 +639,9 @@ export class TenantV2 extends DurableObject<Env> {
   }
 
   private async invokeJob(jobId: string, input: any): Promise<Response> {
+    if (typeof input.idempotencyKey === "string" && input.idempotencyKey.trim().startsWith("manual:")) {
+      return Response.json({ error: "idempotencyKey must not include the reserved manual: claim-key prefix" }, { status: 400 });
+    }
     const job = this.one("SELECT enabled FROM jobs WHERE id=?", jobId) as Row | undefined;
     if (!job) return new Response("Not found", { status: 404 });
     if (!Boolean(job.enabled)) return Response.json({ error: "Job is disabled" }, { status: 409 });
@@ -872,7 +875,10 @@ export class TenantV2 extends DurableObject<Env> {
       try { context = JSON.parse(String(run.context || "{}")); } catch { context = { legacy: String(run.context ?? "") }; }
       try { occurrence = run.invocation_occurrence == null ? null : JSON.parse(String(run.invocation_occurrence)); } catch { /* Persisted invocation remains readable if metadata is malformed. */ }
       run.context = context;
-      run.invocation = { id: run.invocation_id, job_id: run.invocation_job_id, source: run.invocation_source, trigger_id: run.invocation_trigger_id, claim_key: run.invocation_claim_key, context, occurrence, created_at: run.invocation_created_at };
+      const claimKey = String(run.invocation_claim_key);
+      const invocation: Record<string, unknown> = { id: run.invocation_id, job_id: run.invocation_job_id, source: run.invocation_source, trigger_id: run.invocation_trigger_id, claim_key: claimKey, context, occurrence, created_at: run.invocation_created_at };
+      if (run.invocation_source === "manual" && claimKey.startsWith("manual:")) invocation.idempotency_key = claimKey.slice("manual:".length);
+      run.invocation = invocation;
     } else {
       run.context = null;
       run.invocation = null;

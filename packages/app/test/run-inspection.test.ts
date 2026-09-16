@@ -68,4 +68,25 @@ describe("run invocation inspection", () => {
     const legacyBody = await ((legacy as any).getRun("legacy-1") as Promise<Response>).then((response: Response) => response.json()) as any;
     expect(legacyBody).toMatchObject({ context: null, invocation: null });
   });
+
+  it("exposes the reusable idempotency key for manual invocations", async () => {
+    const tenant = tenantWithRows((query) => query.includes("FROM runs r") ? [{
+      id: "run-1", job_id: "job-1", state: "queued", backend_kind: "amp", capabilities: "[]", result: null,
+      context: '{"trigger-1":{"prompt":"go"}}', invocation_id: "inv-1", invocation_job_id: "job-1", invocation_source: "manual", invocation_trigger_id: "manual-1",
+      invocation_claim_key: "manual:dev-dispatch-gen-2032", invocation_occurrence: null, invocation_created_at: "2026-09-16T12:00:01Z",
+    }] : []);
+
+    const body = await ((tenant as any).getRun("run-1") as Promise<Response>).then((response: Response) => response.json()) as any;
+    expect(body.invocation).toMatchObject({
+      claim_key: "manual:dev-dispatch-gen-2032",
+      idempotency_key: "dev-dispatch-gen-2032",
+    });
+  });
+
+  it("rejects an internal manual claim key before creating an invocation", async () => {
+    const tenant = Object.create(TenantV2.prototype) as TenantV2;
+    const response = await (tenant as any).invokeJob("job-1", { idempotencyKey: "manual:dev-dispatch-gen-2032" }) as Response;
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "idempotencyKey must not include the reserved manual: claim-key prefix" });
+  });
 });
