@@ -170,7 +170,9 @@ describe("pages", () => {
     expect(editor).toContain("Custom webhook");
     expect(editor).toContain("Job lifecycle");
     expect(editor).toContain("Test handler");
-    expect(editor).toContain("data-up");
+    expect(editor).not.toContain("data-up");
+    expect(editor).not.toContain("data-down");
+    expect(editor).not.toContain("Order rows");
     expect(editor).toContain("multiple size=\"4\"");
     expect(editor).toContain("Available context");
     expect(editor).not.toContain("Additional triggers (JSON array)");
