@@ -58,6 +58,7 @@ export class Tenant extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS tail_fingerprints (flow_id TEXT NOT NULL, fingerprint TEXT NOT NULL, window_started INTEGER NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(flow_id,fingerprint));
     `);
     this.ensureColumn("pipes", "workspace_name", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("triggers", "position", "INTEGER NOT NULL DEFAULT 0");
     this.ensureColumn("pipes", "agent_kind", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("pipes", "context_template", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("pipes", "match_rules", "TEXT NOT NULL DEFAULT '[]'");
@@ -377,7 +378,7 @@ export class Tenant extends DurableObject<Env> {
     })), ...ampConnections.map(connection => ({ id: `amp:${connection.connectionId}`, kind: "amp", name: `Amp · ${connection.project}`, workspace: connection.project, cwd: "Cloud orb", agentKind: "Amp", capabilities: ["stop"] }))]);
   }
 
-  private triggersFor(jobId: unknown): Row[] { return this.rows("SELECT * FROM triggers WHERE job_id = ? ORDER BY created_at,id", jobId); }
+  private triggersFor(jobId: unknown): Row[] { return this.rows("SELECT * FROM triggers WHERE job_id = ? ORDER BY position,created_at,id", jobId); }
 
   private executionConfig(value: unknown): Row | undefined {
     const pipe = this.one("SELECT * FROM pipes WHERE id = ?", value) as Row | undefined;
@@ -433,18 +434,21 @@ export class Tenant extends DurableObject<Env> {
       if (trigger.kind === "schedule") validateScheduleConfig(trigger.config);
       if (trigger.kind === "webhook") validateWebhookHandler(trigger.config);
     }
+    if (input.triggers.filter((trigger: any) => trigger.kind === "manual").length > 1) throw new Error("Only one Manual trigger can be configured");
+    const signatures = input.triggers.map((trigger: any) => `${trigger.kind}:${JSON.stringify(trigger.config ?? {})}`);
+    if (new Set(signatures).size !== signatures.length) throw new Error("Duplicate trigger configurations are not allowed");
   }
 
   private normalizedTriggers(input: any[], existing: Map<string, Row> = new Map()): any[] {
     const triggers = input.some(trigger => trigger.kind === "manual") ? [...input] : [{ kind: "manual", enabled: true, config: {} }, ...input];
     const used = new Set([...existing.values()].map(row => String(row.slug || "")).filter(Boolean));
     let next = 1;
-    return triggers.map(trigger => {
+    return triggers.map((trigger, position) => {
       const prior = typeof trigger.id === "string" ? existing.get(trigger.id) : undefined;
-      if (prior?.slug) return { ...trigger, slug: String(prior.slug) };
+      if (prior?.slug) return { ...trigger, slug: String(prior.slug), position };
       while (used.has(`trigger-${next}`)) next++;
       const slug = `trigger-${next++}`; used.add(slug);
-      return { ...trigger, slug };
+      return { ...trigger, slug, position };
     });
   }
 
@@ -461,13 +465,29 @@ export class Tenant extends DurableObject<Env> {
     }
   }
 
+  private persistedTriggerConfig(trigger: any, previous?: Row): Record<string, unknown> {
+    const config = { ...(trigger.config ?? {}) } as WebhookTriggerConfig;
+    if (trigger.kind !== "webhook") return config;
+    let prior: WebhookTriggerConfig | undefined;
+    try { prior = previous ? JSON.parse(String(previous.config)) : undefined; } catch { /* invalid old credentials are not reused */ }
+    if (prior?.provider === config.provider) {
+      if (!config.signingSecret && prior.signingSecret) config.signingSecret = prior.signingSecret;
+      if (!config.secret && prior.secret) config.secret = prior.secret;
+    }
+    if (config.provider === "cloudflareTail" && !config.signingSecret) {
+      const bytes = crypto.getRandomValues(new Uint8Array(32));
+      config.signingSecret = [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    }
+    return config;
+  }
+
   private async createJob(input: any): Promise<Response> {
     this.validateJobInput(input);
     const target = await this.jobTarget(input.executionTargetId), jobId = id(), timestamp = now();
     const triggers = this.normalizedTriggers(input.triggers);
     this.validateLifecycleGraph(jobId, triggers);
     this.ctx.storage.sql.exec("INSERT INTO jobs (id,name,encrypted_prompt_template,execution_target,concurrency_limit,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)", jobId, input.name, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
-    for (const trigger of triggers) this.ctx.storage.sql.exec("INSERT INTO triggers (id,job_id,kind,slug,enabled,config,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)", trigger.id ?? id(), jobId, trigger.kind, trigger.slug, trigger.enabled === false ? 0 : 1, JSON.stringify(trigger.config ?? {}), timestamp, timestamp);
+    for (const trigger of triggers) this.ctx.storage.sql.exec("INSERT INTO triggers (id,job_id,kind,slug,enabled,config,position,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", trigger.id ?? id(), jobId, trigger.kind, trigger.slug, trigger.enabled === false ? 0 : 1, JSON.stringify(this.persistedTriggerConfig(trigger)), trigger.position, timestamp, timestamp);
     await this.resetSchedules(jobId);
     return json(await this.publicJob(this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row));
   }
@@ -488,8 +508,9 @@ export class Tenant extends DurableObject<Env> {
     const retained = new Set<string>();
     for (const trigger of triggers) {
       const triggerId = typeof trigger.id === "string" && existing.has(trigger.id) ? trigger.id : id(); retained.add(triggerId);
-      if (existing.has(triggerId)) this.ctx.storage.sql.exec("UPDATE triggers SET kind=?,enabled=?,config=?,updated_at=? WHERE id=? AND job_id=?", trigger.kind, trigger.enabled === false ? 0 : 1, JSON.stringify(trigger.config ?? {}), timestamp, triggerId, jobId);
-      else this.ctx.storage.sql.exec("INSERT INTO triggers (id,job_id,kind,slug,enabled,config,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)", triggerId, jobId, trigger.kind, trigger.slug, trigger.enabled === false ? 0 : 1, JSON.stringify(trigger.config ?? {}), timestamp, timestamp);
+      const config = this.persistedTriggerConfig(trigger, existing.get(triggerId));
+      if (existing.has(triggerId)) this.ctx.storage.sql.exec("UPDATE triggers SET kind=?,enabled=?,config=?,position=?,updated_at=? WHERE id=? AND job_id=?", trigger.kind, trigger.enabled === false ? 0 : 1, JSON.stringify(config), trigger.position, timestamp, triggerId, jobId);
+      else this.ctx.storage.sql.exec("INSERT INTO triggers (id,job_id,kind,slug,enabled,config,position,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", triggerId, jobId, trigger.kind, trigger.slug, trigger.enabled === false ? 0 : 1, JSON.stringify(config), trigger.position, timestamp, timestamp);
     }
     for (const triggerId of existing.keys()) if (!retained.has(triggerId)) this.ctx.storage.sql.exec("DELETE FROM triggers WHERE id=? AND job_id=?", triggerId, jobId);
     await this.resetSchedules(jobId);

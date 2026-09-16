@@ -138,6 +138,7 @@ app.delete("/api/jobs/:id", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.p
 app.post("/api/jobs/:id/enable", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}/enable`, { method: "POST" }));
 app.post("/api/jobs/:id/disable", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}/disable`, { method: "POST" }));
 app.post("/api/jobs/:id/invocations", async (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}/invocations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() }));
+app.post("/api/job-handlers/test", async (c) => jobApi(c, "/job-handlers/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() }));
 app.get("/api/job-runs", (c) => jobApi(c, `/runs?${new URL(c.req.url).searchParams.toString()}`));
 app.get("/api/job-runs/:id", (c) => jobApi(c, `/runs/${encodeURIComponent(c.req.param("id"))}`));
 app.post("/api/job-runs/:id/stop", (c) => jobApi(c, `/runs/${encodeURIComponent(c.req.param("id"))}/stop`, { method: "POST" }));
