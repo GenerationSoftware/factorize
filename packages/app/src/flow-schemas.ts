@@ -31,10 +31,7 @@ export const listEventsSchema = z.object({
   flowId: z.string().min(1), limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().min(1).optional(),
 });
 
-const stringRecordSchema = z.record(z.string(), z.string());
-const webhookCommonSchema = z.object({
-  context: z.string().max(50_000).optional(), parameters: stringRecordSchema.default({}),
-});
+const webhookCommonSchema = z.object({});
 export const webhookTriggerConfigSchema = z.discriminatedUnion("provider", [
   webhookCommonSchema.extend({ provider: z.literal("linear"), projectId: z.string().min(1), matchRules: z.array(matchRuleSchema).min(1) }).strict(),
   webhookCommonSchema.extend({ provider: z.literal("github"), installationId: z.number().int().positive(), repositoryId: z.number().int().positive(), event: z.string().min(1).default("pull_request"), action: z.string().min(1).default("dequeued") }).strict(),
@@ -42,33 +39,27 @@ export const webhookTriggerConfigSchema = z.discriminatedUnion("provider", [
   webhookCommonSchema.extend({ provider: z.literal("custom"), secret: z.string().min(16).optional() }).strict(),
 ]);
 export const triggerSchema = z.discriminatedUnion("kind", [
-  z.object({ id: z.string().min(1).optional(), kind: z.literal("schedule"), enabled: z.boolean().default(true), config: z.object({
+  z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^trigger-[1-9][0-9]*$/).optional(), kind: z.literal("manual"), enabled: z.boolean().default(true), config: z.object({}).strict().default({}) }).strict(),
+  z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^trigger-[1-9][0-9]*$/).optional(), kind: z.literal("schedule"), enabled: z.boolean().default(true), config: z.object({
     cron: z.string().trim().min(1), timezone: z.string().trim().min(1),
-    context: z.string().max(50_000).optional(), parameters: stringRecordSchema.default({}),
   }).strict() }).strict(),
-  z.object({ id: z.string().min(1).optional(), kind: z.literal("webhook"), enabled: z.boolean().default(true), config: webhookTriggerConfigSchema }).strict(),
-  z.object({ id: z.string().min(1).optional(), kind: z.literal("jobLifecycle"), enabled: z.boolean().default(true), config: z.object({
+  z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^trigger-[1-9][0-9]*$/).optional(), kind: z.literal("webhook"), enabled: z.boolean().default(true), config: webhookTriggerConfigSchema }).strict(),
+  z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^trigger-[1-9][0-9]*$/).optional(), kind: z.literal("jobLifecycle"), enabled: z.boolean().default(true), config: z.object({
     sourceJobIds: z.array(z.string().min(1)).min(1), states: z.array(z.enum(["succeeded", "failed", "stopped"])).min(1),
   }).strict() }).strict(),
 ]);
 export const jobInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   promptTemplate: z.string().min(1).max(50_000),
-  parameterDefaults: stringRecordSchema.default({}),
   concurrencyLimit: z.number().int().min(1).max(50).default(1),
   executionTargetId: z.string().min(1),
   triggers: z.array(triggerSchema).max(50).default([]),
-}).strict().superRefine((value, ctx) => {
-  if (Object.prototype.hasOwnProperty.call(value.parameterDefaults, "context")) ctx.addIssue({ code: "custom", path: ["parameterDefaults", "context"], message: "context is reserved" });
-});
+}).strict();
 export const jobIdSchema = z.object({ jobId: z.string().min(1) });
 export const manualInvocationSchema = z.object({
-  context: z.string().max(50_000).optional(),
-  parameters: stringRecordSchema.default({}),
+  prompt: z.string().max(50_000).default(""),
   idempotencyKey: z.string().trim().min(1).max(200).optional(),
-}).strict().superRefine((value, ctx) => {
-  if (Object.prototype.hasOwnProperty.call(value.parameters, "context")) ctx.addIssue({ code: "custom", path: ["parameters", "context"], message: "context must use the reserved context field" });
-});
+}).strict();
 
 export type FlowInput = z.infer<typeof flowInputSchema>;
 export type JobInput = z.infer<typeof jobInputSchema>;

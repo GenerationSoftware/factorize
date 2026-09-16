@@ -96,7 +96,7 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     tool("delete_job", "Delete a job and its queued invocation history", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));
     tool("enable_job", "Enable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, true));
     tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
-    tool("invoke_job", "Explicitly invoke any enabled job, overriding string parameters and optional reserved context. Manual invocations are never coalesced with automatic wakes.", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
+    tool("invoke_job", "Invoke a job's manual trigger with a prompt exposed beneath that trigger's stable slug. Manual invocations are never coalesced.", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
     tool("list_job_webhook_activity", "List matching, rejected, duplicate, and accepted webhook activity for a job", z.object({ jobId: z.string().min(1), limit: z.number().int().min(1).max(100).default(50) }), ({ jobId, limit }: any) => service.listJobEvents(jobId, limit));
     tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });

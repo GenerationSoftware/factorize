@@ -3,17 +3,14 @@ import type { MatchRule } from "./types";
 
 export type WebhookProvider = "linear" | "github" | "cloudflareTail" | "custom";
 export type WebhookTriggerConfig = {
-  provider: WebhookProvider; context?: string; parameters?: Record<string, string>;
+  provider: WebhookProvider;
   projectId?: string; matchRules?: MatchRule[]; installationId?: number; repositoryId?: number;
   event?: string; action?: string; signingSecret?: string; secret?: string; handlerCode?: string;
 };
 export interface WebhookInvocation {
-  claimKey: string; context: string; parameters: Record<string, string>;
+  claimKey: string; payload: Record<string, unknown>;
   occurrence: { externalId: string; metadata: Record<string, unknown> };
 }
-
-const strings = (value: unknown): Record<string, string> => value && typeof value === "object" && !Array.isArray(value)
-  ? Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string")) : {};
 
 /** Pure provider adapter: matching and normalization only; it never launches execution. */
 export function adaptWebhook(config: WebhookTriggerConfig, provider: WebhookProvider, deliveryId: string, payload: Record<string, any>, eventName?: string): WebhookInvocation | null {
@@ -27,10 +24,12 @@ export function adaptWebhook(config: WebhookTriggerConfig, provider: WebhookProv
     if ((eventName ?? "") !== (config.event ?? "pull_request") || payload.action !== (config.action ?? "dequeued")) return null;
   }
   const normalizedProvider = provider === "cloudflareTail" ? "cloudflare" : provider;
+  const providerAliases = provider === "linear"
+    ? { issue: payload.data?.issue ?? (payload.type === "Issue" ? payload.data : undefined) }
+    : {};
   return {
     claimKey: `webhook:${normalizedProvider}:${deliveryId}`,
-    context: config.context ?? JSON.stringify(payload),
-    parameters: { ...strings(config.parameters), provider: normalizedProvider, event: eventName ?? String(payload.type ?? "webhook"), deliveryId },
+    payload: { ...payload, ...providerAliases, provider: normalizedProvider, event: eventName ?? payload.type ?? "webhook", delivery_id: deliveryId },
     occurrence: { externalId: deliveryId, metadata: { provider: normalizedProvider, event: eventName ?? payload.type ?? "webhook", action: payload.action ?? null } },
   };
 }
