@@ -20,6 +20,10 @@ export class FlowService {
     if (!response.ok) throw new ServiceError(401, "invalid_token", "The resource owner is no longer a member.");
     const member = await response.json() as { role?: string; session_version?: number };
     if (member.role !== "owner" || member.session_version !== this.auth.sessionVersion) throw new ServiceError(401, "invalid_token", "The resource owner's session has been revoked.");
+    if (this.auth.accessTokenId) {
+      const token = await this.stub().fetch(`https://tenant/access-tokens/${encodeURIComponent(this.auth.accessTokenId)}/active`);
+      if (!token.ok) throw new ServiceError(401, "invalid_token", "The access token has expired or been revoked.");
+    }
   }
 
   private async call(scope: Scope, path: string, init?: RequestInit): Promise<unknown> {

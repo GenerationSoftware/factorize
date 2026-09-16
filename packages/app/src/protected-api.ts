@@ -33,11 +33,10 @@ function structured(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(output) }], structuredContent: output };
 }
 
-export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
-  async fetch(request: Request): Promise<Response> {
+export async function protectedApiFetch(request: Request, env: Env, auth: OAuthProps, ctx: ExecutionContext): Promise<Response> {
     try {
-      const url = new URL(request.url), path = url.pathname, service = new FlowService(this.env, this.ctx.props);
-      if (path === "/mcp") return this.mcp(request, service);
+      const url = new URL(request.url), path = url.pathname, service = new FlowService(env, auth);
+      if (path === "/mcp") return mcp(request, service, env, ctx);
       if (!path.startsWith("/api/v1")) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
       if (request.method === "GET" && path === "/api/v1/flows") return Response.json(await service.listFlows());
       if (request.method === "POST" && path === "/api/v1/flows") return Response.json(await service.createFlow(flowInputSchema.parse(await request.json())), { status: 201 });
@@ -70,9 +69,9 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
       if (request.method === "GET" && path === "/api/v1/flow-events") { const q = listEventsSchema.parse(queryInput(url)); return Response.json(await service.listFlowEvents(queryOf(q))); }
       return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
     } catch (error) { return errorResponse(error); }
-  }
+}
 
-  private async mcp(request: Request, service: FlowService): Promise<Response> {
+async function mcp(request: Request, service: FlowService, env: Env, ctx: ExecutionContext): Promise<Response> {
     const server = new McpServer({ name: "factorize", version: "1.0.0" });
     const tool = <T>(name: string, description: string, schema: any, action: (input: T) => Promise<unknown>) => server.registerTool(name, { description, inputSchema: schema }, async (input: T) => {
       try { return structured(await action(input)); }
@@ -103,9 +102,12 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
-    const appHostname = new URL(this.env.APP_ORIGIN).hostname;
+    const appHostname = new URL(env.APP_ORIGIN).hostname;
     const mcpApp = createMcpHonoApp({ host: appHostname, allowedHosts: [appHostname], allowedOrigins: [appHostname] });
     mcpApp.all("/mcp", c => transport.handleRequest(c.req.raw, { parsedBody: (c as any).get("parsedBody") }));
-    return mcpApp.fetch(request, this.env, this.ctx);
+    return mcpApp.fetch(request, env, ctx);
   }
+
+export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
+  fetch(request: Request): Promise<Response> { return protectedApiFetch(request, this.env, this.ctx.props, this.ctx); }
 }

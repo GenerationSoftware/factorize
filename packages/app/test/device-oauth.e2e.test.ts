@@ -102,5 +102,43 @@ describe("OAuth device flow", () => {
     });
     const apiBody = await apiResponse.text();
     expect(apiResponse.status, apiBody).toBe(200);
+
+    const clientsResponse = await SELF.fetch(`${origin}/api/access/authorized-clients`, { headers: { cookie } });
+    expect(clientsResponse.status).toBe(200);
+    await expect(clientsResponse.json()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ clientId: registration.client_id, clientName: "Device E2E", scopes: ["runs:read", "flows:read"] })]));
+    expect((await SELF.fetch(`${origin}/api/access/authorized-clients/${encodeURIComponent(registration.client_id)}`, { method: "DELETE", headers: { cookie } })).status).toBe(200);
+    expect((await SELF.fetch(`${origin}/api/v1/runs`, { headers: { authorization: `Bearer ${token.access_token}` } })).status).toBe(401);
+  });
+});
+
+describe("manually issued access tokens", () => {
+  it("hashes, scopes, tracks, expires, discloses once, and revokes bearer tokens", async () => {
+    const tenantId = "access-token-e2e-tenant", userId = "access-token-e2e-owner";
+    const tenant = env.TENANTS.get(env.TENANTS.idFromName(`tenant:${tenantId}`));
+    await tenant.fetch("https://tenant/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, email: "owner@example.com" }) });
+    const session = await signSession({ tenantId, userId, email: "owner@example.com", exp: Math.floor(Date.now() / 1000) + 60, sessionVersion: 1 }, "e2e-session-secret");
+    const cookie = `factorize_session=${session}`;
+
+    const createdResponse = await SELF.fetch(`${origin}/api/access-tokens`, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ name: "Read runs", scopes: ["runs:read"], expiryDays: 7 }) });
+    expect(createdResponse.status).toBe(201);
+    const created = await createdResponse.json<{ id: string; token: string }>();
+    expect(created.token).toMatch(/^fzt_/);
+
+    const listedText = await (await SELF.fetch(`${origin}/api/access-tokens`, { headers: { cookie } })).text();
+    expect(listedText).not.toContain(created.token);
+    expect(listedText).not.toContain("digest");
+
+    const scoped = await SELF.fetch(`${origin}/api/v1/flows`, { headers: { authorization: `Bearer ${created.token}` } });
+    expect(scoped.status).toBe(403);
+    const tracked = await (await SELF.fetch(`${origin}/api/access-tokens`, { headers: { cookie } })).json<Array<{ id: string; last_used_at?: string }>>();
+    expect(tracked.find(token => token.id === created.id)?.last_used_at).toBeTruthy();
+
+    expect((await SELF.fetch(`${origin}/api/access-tokens/${created.id}`, { method: "DELETE", headers: { cookie } })).status).toBe(200);
+    expect((await SELF.fetch(`${origin}/api/v1/runs`, { headers: { authorization: `Bearer ${created.token}` } })).status).toBe(401);
+
+    const expiredRaw = `fzt_${btoa(tenantId).replaceAll("=", "")}_${"a".repeat(43)}`;
+    const { accessTokenDigest } = await import("../src/access-tokens");
+    await tenant.fetch("https://tenant/access-tokens", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Expired", digest: await accessTokenDigest(expiredRaw), userId, sessionVersion: 1, scopes: ["runs:read"], expiresAt: new Date(Date.now() - 1000).toISOString() }) });
+    expect((await SELF.fetch(`${origin}/api/v1/runs`, { headers: { authorization: `Bearer ${expiredRaw}` } })).status).toBe(401);
   });
 });

@@ -1,9 +1,10 @@
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import app, { readSession, requestCookie } from "./index";
-import { ProtectedApiHandler } from "./protected-api";
+import { ProtectedApiHandler, protectedApiFetch } from "./protected-api";
 import { hmac } from "./crypto";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceLoginRedirect, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
+import { authenticateAccessToken } from "./access-tokens";
 
 const scopes = ["flows:read", "flows:write", "runs:read", "runs:write"];
 const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -76,6 +77,11 @@ export { Tenant, GitHubInstallationRegistry } from "./index";
 export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   const oauth = provider(env);
   const url = new URL(request.url);
+  if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1")) && request.headers.get("Authorization")?.startsWith("Bearer fzt_")) {
+    const auth = await authenticateAccessToken(request, env);
+    if (!auth) return Response.json({ error: { code: "invalid_token", message: "The access token is invalid, expired, or revoked." } }, { status: 401, headers: { "WWW-Authenticate": "Bearer error=\"invalid_token\"" } });
+    return protectedApiFetch(request, env, auth, ctx);
+  }
   if (url.pathname === "/oauth/device_authorization") return deviceAuthorization(request, env, getOAuthApi(providerOptions(env), env), scopes);
   if (url.pathname === "/oauth/register") return deviceClientRegistration(request, env, oauth, ctx);
   if (url.pathname === "/oauth/token" && request.method === "POST") {

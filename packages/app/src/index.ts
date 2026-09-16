@@ -12,6 +12,7 @@ import { invokeCustomHandler, prepareCustomHandler, validateCustomHandler } from
 import { preparePublicSource, resolveContextTemplate } from "./source-lifecycle";
 import { generateTailSecret } from "./cloudflare-tail";
 import { nextOccurrence, validateScheduleConfig } from "./schedule";
+import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
 
 const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string } }>();
 
@@ -63,6 +64,47 @@ async function owner(c: any): Promise<Session | null> {
 
 app.get("/api/health", (c) => c.json({ ok: true }));
 app.get("/styles.css", (c) => c.env.ASSETS.fetch(c.req.raw));
+
+app.get("/api/access/authorized-clients", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  if (!c.env.OAUTH_PROVIDER) return c.json({ error: "OAuth management unavailable" }, 503);
+  const grants: any[] = []; let cursor: string | undefined;
+  do { const page = await c.env.OAUTH_PROVIDER.listUserGrants(session.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => !grant.expiresAt || grant.expiresAt > Math.floor(Date.now() / 1000))); cursor = page.cursor; } while (cursor);
+  const clients = await Promise.all([...new Set(grants.map(grant => grant.clientId))].map(async clientId => [clientId, await c.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const));
+  const byId = new Map(clients);
+  return c.json(grants.map(grant => ({ grantId: grant.id, clientId: grant.clientId, clientName: byId.get(grant.clientId)?.clientName ?? grant.clientId, scopes: grant.scope, authorizationDate: new Date(grant.createdAt * 1000).toISOString(), expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null })));
+});
+
+app.delete("/api/access/authorized-clients/:clientId", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  if (!c.env.OAUTH_PROVIDER) return c.json({ error: "OAuth management unavailable" }, 503);
+  const clientId = c.req.param("clientId"), grants: any[] = []; let cursor: string | undefined;
+  do { const page = await c.env.OAUTH_PROVIDER.listUserGrants(session.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => grant.clientId === clientId)); cursor = page.cursor; } while (cursor);
+  await Promise.all(grants.map(grant => c.env.OAUTH_PROVIDER!.revokeGrant(grant.id, session.userId)));
+  return c.json({ revoked: grants.length });
+});
+
+app.get("/api/access-tokens", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch("https://tenant/access-tokens");
+});
+
+app.post("/api/access-tokens", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  const input = await c.req.json().catch(() => null) as any, name = typeof input?.name === "string" ? input.name.trim() : "";
+  const requested = Array.isArray(input?.scopes) ? [...new Set(input.scopes)] : [], expiryDays = Number(input?.expiryDays);
+  if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any)) || ![7, 30, 90].includes(expiryDays)) return c.json({ error: "A name, supported scopes, and expiryDays of 7, 30, or 90 are required." }, 400);
+  const token = issueAccessToken(session.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString();
+  const response = await tenant(c, session.tenantId).fetch("https://tenant/access-tokens", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, scopes: requested, expiresAt, digest: await accessTokenDigest(token), userId: session.userId, sessionVersion: session.sessionVersion }) });
+  const metadata = await response.json() as Record<string, unknown>;
+  if (!response.ok) return c.json(metadata, response.status as any);
+  return c.json({ ...metadata, token }, response.status as any);
+});
+
+app.delete("/api/access-tokens/:id", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch(`https://tenant/access-tokens/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
+});
 
 app.get("/auth/linear", async (c) => {
   const state = crypto.randomUUID();

@@ -42,6 +42,7 @@ export class Tenant extends DurableObject<Env> {
       ${JOB_SCHEMA}
       CREATE TABLE IF NOT EXISTS connections (kind TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS members (user_id TEXT PRIMARY KEY, email TEXT NOT NULL, role TEXT NOT NULL, session_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS access_tokens (id TEXT PRIMARY KEY, name TEXT NOT NULL, digest TEXT NOT NULL UNIQUE, user_id TEXT NOT NULL, session_version INTEGER NOT NULL, scopes TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, last_used_at TEXT, revoked_at TEXT);
       CREATE TABLE IF NOT EXISTS pipes (id TEXT PRIMARY KEY, name TEXT NOT NULL, project_id TEXT NOT NULL, team_id TEXT NOT NULL,
         filter_type TEXT NOT NULL, filter_target_id TEXT NOT NULL, max_concurrency INTEGER NOT NULL, capability TEXT NOT NULL,
         webhook_id TEXT, signing_secret TEXT NOT NULL, workspace_name TEXT NOT NULL DEFAULT '', agent_kind TEXT NOT NULL DEFAULT '', context_template TEXT NOT NULL DEFAULT '', match_rules TEXT NOT NULL DEFAULT '[]', enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
@@ -198,6 +199,13 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "POST" && url.pathname === "/members") return await this.upsertMember(await request.json());
       if (request.method === "GET" && url.pathname.startsWith("/members/")) return this.getMember(url.pathname.split("/")[2] ?? "");
       if (request.method === "POST" && url.pathname.startsWith("/members/") && url.pathname.endsWith("/revoke")) return this.revokeMember(url.pathname.split("/")[2] ?? "");
+      if (request.method === "GET" && url.pathname === "/access-tokens") return json(this.rows("SELECT id,name,scopes,created_at,expires_at,last_used_at,revoked_at FROM access_tokens ORDER BY created_at DESC").map(row => ({ ...row, scopes: JSON.parse(String(row.scopes)) })));
+      if (request.method === "POST" && url.pathname === "/access-tokens") return this.createAccessToken(await request.json());
+      if (request.method === "POST" && url.pathname === "/access-tokens/authenticate") return this.authenticateAccessToken(await request.json());
+      const tokenActive = url.pathname.match(/^\/access-tokens\/([^/]+)\/active$/);
+      if (request.method === "GET" && tokenActive) return this.activeAccessToken(decodeURIComponent(tokenActive[1]));
+      const accessToken = url.pathname.match(/^\/access-tokens\/([^/]+)$/);
+      if (request.method === "DELETE" && accessToken) return this.revokeAccessToken(decodeURIComponent(accessToken[1]));
       if (request.method === "GET" && url.pathname === "/linear/projects") return await this.linearProjects();
       if (request.method === "GET" && url.pathname === "/linear/options") return await this.linearOptions();
       if (request.method === "PUT" && url.pathname === "/connections/linear") return await this.saveLinear(await request.json());
@@ -1537,6 +1545,34 @@ export class Tenant extends DurableObject<Env> {
   private revokeMember(userId: string): Response {
     this.ctx.storage.sql.exec("UPDATE members SET session_version = session_version + 1 WHERE user_id = ?", userId);
     return json({ ok: true });
+  }
+
+  private createAccessToken(input: unknown): Response {
+    const value = object(input), name = text(value.name).trim(), digest = text(value.digest), userId = text(value.userId);
+    const scopes = Array.isArray(value.scopes) ? [...new Set(value.scopes.filter((scope: unknown) => typeof scope === "string"))] : [];
+    const expiresAt = text(value.expiresAt), sessionVersion = Number(value.sessionVersion);
+    const supported = new Set(["flows:read", "flows:write", "runs:read", "runs:write"]);
+    if (!name || name.length > 100 || !digest || !userId || !scopes.length || scopes.some(scope => !supported.has(scope)) || !Number.isInteger(sessionVersion) || !Number.isFinite(Date.parse(expiresAt))) return Response.json({ error: "Invalid access token metadata" }, { status: 400 });
+    const tokenId = id(), createdAt = now();
+    this.ctx.storage.sql.exec("INSERT INTO access_tokens(id,name,digest,user_id,session_version,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)", tokenId, name, digest, userId, sessionVersion, JSON.stringify(scopes), createdAt, expiresAt);
+    return Response.json({ id: tokenId, name, scopes, created_at: createdAt, expires_at: expiresAt }, { status: 201 });
+  }
+
+  private authenticateAccessToken(input: unknown): Response {
+    const digest = text(object(input).digest), usedAt = now();
+    const token = this.one("SELECT id,user_id,session_version,scopes FROM access_tokens WHERE digest=? AND revoked_at IS NULL AND expires_at>?", digest, usedAt);
+    if (!token) return Response.json({ error: "Invalid token" }, { status: 401 });
+    this.ctx.storage.sql.exec("UPDATE access_tokens SET last_used_at=? WHERE id=?", usedAt, token.id);
+    return json({ tenantId: text(object(input).tenantId), userId: token.user_id, sessionVersion: token.session_version, scopes: JSON.parse(String(token.scopes)), accessTokenId: token.id });
+  }
+
+  private activeAccessToken(tokenId: string): Response {
+    return this.one("SELECT id FROM access_tokens WHERE id=? AND revoked_at IS NULL AND expires_at>?", tokenId, now()) ? json({ active: true }) : Response.json({ error: "Invalid token" }, { status: 401 });
+  }
+
+  private revokeAccessToken(tokenId: string): Response {
+    const result = this.ctx.storage.sql.exec("UPDATE access_tokens SET revoked_at=COALESCE(revoked_at,?) WHERE id=?", now(), tokenId);
+    return result.rowsWritten ? json({ revoked: true }) : Response.json({ error: "Access token not found" }, { status: 404 });
   }
 
   private availableWorkspaceName(value: string): string {
