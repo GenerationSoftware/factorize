@@ -1,6 +1,6 @@
 # Execution boundaries
 
-Factorize separates an incoming event from the system that executes its task:
+Factorize separates an incoming trigger from the system that executes its job:
 
 ```text
 provider webhook -> SourceAdapter -> WorkItem -> prompt renderer
@@ -24,3 +24,21 @@ Launch and prompt delivery are deliberately separate operations. An existing
 harness proves only that launch reconciliation succeeded. It never proves that
 the run's prompt was accepted. Prompt delivery therefore has its own persisted
 state and request/response receipt.
+
+## Job invocation boundary
+
+A `Job` owns a Mustache prompt template, string parameter defaults, an execution
+target, a positive concurrency limit, enabled state, and exactly one `Trigger`.
+Triggers have one of three domain kinds: `manual`, `schedule`, or `webhook`.
+
+Trigger adapters do only source-specific authentication and normalization. They
+then call the same `InvocationService.invoke(jobId, request)` operation. Its
+canonical request carries the source, optional reserved `context`, string
+parameter overrides, a durable claim key, and optional occurrence metadata.
+The invocation boundary validates and renders the prompt, applies defaults,
+encrypts the rendered prompt, and atomically persists an `Invocation` plus its
+queued `JobRun`. The `(job_id, claim_key)` constraint makes retries idempotent.
+
+Queue consumers call `startIfCapacity`; concurrency is counted by job, never by
+trigger source. Provider adapters must not render prompts, insert runs, claim
+capacity, or launch execution backends themselves.

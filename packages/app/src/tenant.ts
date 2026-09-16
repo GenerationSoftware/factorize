@@ -14,6 +14,7 @@ import { sanitizeTailEvent, suppressTailEvent, tailFingerprint, verifyTailDelive
 import { ExeHerdrBackend } from "./exe-herdr-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 import { renderSourcePrompt } from "./source-lifecycle";
+import { JOB_SCHEMA } from "./job-domain";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -33,6 +34,7 @@ export class Tenant extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.ctx.storage.sql.exec(`
+      ${JOB_SCHEMA}
       CREATE TABLE IF NOT EXISTS connections (kind TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS members (user_id TEXT PRIMARY KEY, email TEXT NOT NULL, role TEXT NOT NULL, session_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS pipes (id TEXT PRIMARY KEY, name TEXT NOT NULL, project_id TEXT NOT NULL, team_id TEXT NOT NULL,
