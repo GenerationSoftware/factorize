@@ -28,6 +28,7 @@ describe("fresh TenantV2 namespace", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name: "Manual prompt",
+        slug: "manual-prompt",
         promptTemplate: "{{trigger-1.prompt}}",
         concurrencyLimit: 1,
         executionTargetId: "amp:execution-1",
@@ -38,6 +39,7 @@ describe("fresh TenantV2 namespace", () => {
     expect(created.status, await created.clone().text()).toBe(200);
     await expect(created.json()).resolves.toMatchObject({
       name: "Manual prompt",
+      slug: "manual-prompt",
       promptTemplate: "{{trigger-1.prompt}}",
       executionTargetId: "amp:execution-1",
       triggers: [{ kind: "manual", slug: "trigger-1" }],

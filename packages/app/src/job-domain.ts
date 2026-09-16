@@ -25,6 +25,7 @@ export interface Trigger {
 export interface Job {
   id: string;
   name: string;
+  slug: string;
   promptTemplate: string;
   executionTarget: ExecutionTarget;
   concurrencyLimit: number;
@@ -132,7 +133,7 @@ export class InvocationService {
 /** Fresh v2 Durable Object schema. There are deliberately no legacy Flow migrations. */
 export const JOB_SCHEMA = `
   CREATE TABLE IF NOT EXISTS jobs (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, encrypted_prompt_template TEXT NOT NULL,
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, encrypted_prompt_template TEXT NOT NULL,
     execution_target TEXT NOT NULL,
     concurrency_limit INTEGER NOT NULL CHECK (concurrency_limit >= 1), enabled INTEGER NOT NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
