@@ -196,6 +196,8 @@ describe("pages", () => {
     expect(editor).toContain("Add trigger");
     expect(editor).toContain('id="trigger-rows"');
     expect(editor).toContain("Context slug");
+    expect(editor).toContain('name="slug"');
+    expect(editor).toContain("jobSlug(form.name.value)");
     expect(editor).not.toContain("Custom webhook");
     expect(editor).toContain("Job lifecycle");
     expect(editor).toContain("Test handler");

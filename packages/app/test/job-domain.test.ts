@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { InvocationService, JOB_SCHEMA, renderJobPrompt, type Invocation, type Job, type JobRepository, type JobRun } from "../src/job-domain";
 
 const job = (overrides: Partial<Job> = {}): Job => ({
-  id: "job-1", name: "Triage", promptTemplate: "{{trigger-1.prompt}} · {{trigger-2.issue.title}}",
+  id: "job-1", name: "Triage", slug: "triage", promptTemplate: "{{trigger-1.prompt}} · {{trigger-2.issue.title}}",
   executionTarget: { connectionId: "exe-1", workspace: "triage", cwd: "/repo", agentKind: "codex" },
   concurrencyLimit: 1, enabled: true,
   triggers: [],

@@ -28,6 +28,7 @@ const json = (value: unknown) => Response.json(value);
 const now = () => new Date().toISOString();
 const id = () => crypto.randomUUID();
 const HERDR_FLOW_NAME = /^[a-z][a-z0-9_-]{0,29}$/;
+const JOB_SLUG = /^[a-z][a-z0-9_-]{0,29}$/;
 
 const object = (value: unknown): Record<string, any> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 const text = (value: unknown): string => typeof value === "string" ? value : "";
@@ -100,6 +101,15 @@ export class TenantV2 extends DurableObject<Env> {
     for (const [column, definition] of Object.entries({ herdr_server_namespace: "TEXT NOT NULL DEFAULT 'default'", worktree_path: "TEXT", ownership_lease: "TEXT", ownership_generation: "INTEGER NOT NULL DEFAULT 0", agent_session_generation: "INTEGER NOT NULL DEFAULT 0", output_captured: "INTEGER NOT NULL DEFAULT 0", claim_released: "INTEGER NOT NULL DEFAULT 0", pane_collected: "INTEGER NOT NULL DEFAULT 0", worktree_disposition: "TEXT" })) this.ensureColumn("runs", column, definition);
     for (const [column, definition] of Object.entries({ herdr_workspace_id: "TEXT", herdr_pane_id: "TEXT", herdr_terminal_id: "TEXT", agent_session_source: "TEXT", agent_session_kind: "TEXT", agent_session_value: "TEXT", herdr_cwd: "TEXT", last_agent_status: "TEXT", recovery_attempt: "INTEGER NOT NULL DEFAULT 0", recovery_reason: "TEXT", recovery_started_at: "TEXT", recovery_last_action: "TEXT", recovery_next_at: "INTEGER", recovery_comment_started: "INTEGER NOT NULL DEFAULT 0", recovery_comment_finished: "INTEGER NOT NULL DEFAULT 0", prompt_accepted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_attempted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_accepted: "INTEGER NOT NULL DEFAULT 0" })) this.ensureColumn("runs", column, definition);
     this.ensureColumn("triggers", "slug", "TEXT");
+    this.ensureColumn("jobs", "slug", "TEXT");
+    for (const job of this.rows("SELECT id,name,slug FROM jobs ORDER BY created_at,id")) {
+      if (job.slug) continue;
+      const base = workspaceNameFor(String(job.name)).slice(0, 30);
+      let candidate = base, suffix = 2;
+      while (this.one("SELECT id FROM jobs WHERE slug=?", candidate)) candidate = `${base.slice(0, 30 - String(suffix).length - 1)}-${suffix++}`;
+      this.ctx.storage.sql.exec("UPDATE jobs SET slug=? WHERE id=?", candidate, job.id);
+    }
+    this.ctx.storage.sql.exec("CREATE UNIQUE INDEX IF NOT EXISTS jobs_slug_unique ON jobs(slug)");
     this.ensureColumn("invocations", "trigger_id", "TEXT");
     for (const job of this.rows("SELECT id FROM jobs")) {
       let index = 1;
@@ -431,7 +441,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (!job) return undefined;
     let target: Record<string, unknown> = {};
     try { target = JSON.parse(String(job.execution_target)); } catch { return undefined; }
-    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: target.workspace, agent_kind: target.agentKind, cwd: target.cwd, execution_backend_kind: target.backendKind ?? "exe-herdr", execution_connection_id: target.connectionId, exe_connection_id: target.connectionId, enabled: job.enabled };
+    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: job.slug, agent_kind: target.agentKind, cwd: target.cwd, execution_backend_kind: target.backendKind ?? "exe-herdr", execution_connection_id: target.connectionId, exe_connection_id: target.connectionId, enabled: job.enabled };
   }
 
   private async publicJob(row: Row): Promise<Record<string, unknown>> {
@@ -451,7 +461,7 @@ export class TenantV2 extends DurableObject<Env> {
         ...(runtime ? { nextRunAt: runtime.next_run_at == null ? null : new Date(Number(runtime.next_run_at)).toISOString(), lastTriggeredAt: runtime.last_triggered_at ?? null } : {}) };
     }));
     return {
-      id: row.id, name: row.name,
+      id: row.id, name: row.name, slug: row.slug,
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
       concurrencyLimit: Number(row.concurrency_limit),
       executionTargetId: `${executionTarget.backendKind === "amp" ? "amp:" : ""}${String(executionTarget.connectionId ?? "")}`,
@@ -474,6 +484,7 @@ export class TenantV2 extends DurableObject<Env> {
 
   private validateJobInput(input: any): void {
     if (!input?.name || !input.promptTemplate) throw new Error("Job name and prompt template are required");
+    if (!JOB_SLUG.test(String(input.slug ?? ""))) throw new Error("Job slug must start with a lowercase letter and contain only lowercase letters, digits, hyphens, or underscores (30 characters maximum).");
     if (!Array.isArray(input.triggers) || input.triggers.some((trigger: any) => !["manual", "schedule", "webhook", "jobLifecycle"].includes(trigger?.kind))) throw new Error("Job triggers are invalid");
     Mustache.parse(input.promptTemplate);
     for (const trigger of input.triggers) {
@@ -557,11 +568,12 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async createJob(input: any): Promise<Response> {
     this.validateJobInput(input);
+    if (this.one("SELECT id FROM jobs WHERE slug=?", input.slug)) throw new Error("Job slug is already in use");
     await this.validateProviderIntegrations(input.triggers);
     const target = await this.jobTarget(input.executionTargetId), jobId = id(), timestamp = now();
     const triggers = this.normalizedTriggers(input.triggers);
     this.validateLifecycleGraph(jobId, triggers);
-    this.ctx.storage.sql.exec("INSERT INTO jobs (id,name,encrypted_prompt_template,execution_target,concurrency_limit,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)", jobId, input.name, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
+    this.ctx.storage.sql.exec("INSERT INTO jobs (id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", jobId, input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
     for (const trigger of triggers) this.ctx.storage.sql.exec("INSERT INTO triggers (id,job_id,kind,slug,enabled,config,position,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", trigger.id ?? id(), jobId, trigger.kind, trigger.slug, trigger.enabled === false ? 0 : 1, JSON.stringify(this.persistedTriggerConfig(trigger)), trigger.position, timestamp, timestamp);
     await this.resetSchedules(jobId);
     return json(await this.publicJob(this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row));
@@ -575,12 +587,13 @@ export class TenantV2 extends DurableObject<Env> {
   private async updateJob(jobId: string, input: any): Promise<Response> {
     if (!this.one("SELECT id FROM jobs WHERE id = ?", jobId)) return new Response("Not found", { status: 404 });
     this.validateJobInput(input);
+    if (this.one("SELECT id FROM jobs WHERE slug=? AND id!=?", input.slug, jobId)) throw new Error("Job slug is already in use");
     const existing = new Map(this.triggersFor(jobId).map(trigger => [String(trigger.id), trigger]));
     await this.validateProviderIntegrations(input.triggers, existing);
     const triggers = this.normalizedTriggers(input.triggers, existing);
     this.validateLifecycleGraph(jobId, triggers);
     const target = await this.jobTarget(input.executionTargetId), timestamp = now();
-    this.ctx.storage.sql.exec("UPDATE jobs SET name=?,encrypted_prompt_template=?,execution_target=?,concurrency_limit=?,updated_at=? WHERE id=?", input.name, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, timestamp, jobId);
+    this.ctx.storage.sql.exec("UPDATE jobs SET name=?,slug=?,encrypted_prompt_template=?,execution_target=?,concurrency_limit=?,updated_at=? WHERE id=?", input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, timestamp, jobId);
     const retained = new Set<string>();
     for (const trigger of triggers) {
       const triggerId = typeof trigger.id === "string" && existing.has(trigger.id) ? trigger.id : id(); retained.add(triggerId);
