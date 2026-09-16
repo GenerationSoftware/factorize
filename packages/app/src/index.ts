@@ -168,6 +168,26 @@ app.get("/api/connections/status", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/connections/status");
 });
+app.get("/api/connections/cloudflare-tail", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch("https://tenant/connections/cloudflare-tail");
+});
+app.post("/api/connections/cloudflare-tail", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch("https://tenant/connections/cloudflare-tail", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+});
+app.put("/api/connections/cloudflare-tail/:id", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch(`https://tenant/connections/cloudflare-tail/${encodeURIComponent(c.req.param("id"))}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+});
+app.post("/api/connections/cloudflare-tail/:id/test", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch(`https://tenant/connections/cloudflare-tail/${encodeURIComponent(c.req.param("id"))}/test`, { method: "POST" });
+});
+app.delete("/api/connections/cloudflare-tail/:id", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch(`https://tenant/connections/cloudflare-tail/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
+});
 app.get("/api/linear/projects", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/linear/projects");

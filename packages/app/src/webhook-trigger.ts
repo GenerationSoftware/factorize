@@ -6,7 +6,7 @@ export type WebhookProvider = "linear" | "github" | "cloudflareTail";
 export type WebhookTriggerConfig = {
   provider: WebhookProvider;
   projectId?: string; matchRules?: MatchRule[]; installationId?: number; repositoryId?: number;
-  event?: string; action?: string; signingSecret?: string; secret?: string; handlerCode?: string;
+  event?: string; action?: string; integrationId?: string; signingSecret?: string; secret?: string; handlerCode?: string;
 };
 export interface WebhookInvocation {
   claimKey: string; payload: Record<string, unknown>;

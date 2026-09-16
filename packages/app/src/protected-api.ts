@@ -40,6 +40,7 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       if (!path.startsWith("/api/v1")) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
       if (request.method === "GET" && path === "/api/v1/exe-connections") return Response.json(await service.listExeConnections());
       if (request.method === "GET" && path === "/api/v1/execution-targets") return Response.json(await service.listExecutionTargets());
+      if (request.method === "GET" && path === "/api/v1/integrations/cloudflare-tail") return Response.json(await service.listTailIntegrations());
       if (request.method === "GET" && path === "/api/v1/jobs") return Response.json(await service.listJobs());
       if (request.method === "POST" && path === "/api/v1/jobs") return Response.json(await service.createJob(jobInputSchema.parse(await request.json())), { status: 201 });
       if (request.method === "POST" && path === "/api/v1/job-handlers/test") return Response.json(await service.testJobHandler(jobHandlerTestSchema.parse(await request.json())));
@@ -83,6 +84,7 @@ async function mcp(request: Request, service: ApiService, env: Env, ctx: Executi
     tool("list_job_webhook_activity", "List matching, rejected, duplicate, and accepted webhook activity for a job", z.object({ jobId: z.string().min(1), limit: z.number().int().min(1).max(100).default(50) }), ({ jobId, limit }: any) => service.listJobEvents(jobId, limit));
     tool("test_job_webhook_handler", "Test an isolated synchronous Job webhook handler without creating a run. Returns the decision and never accepts credentials.", jobHandlerTestSchema, (input: any) => service.testJobHandler(input));
     tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
+    tool("list_cloudflare_tail_integrations", "List installed Cloudflare Tail integrations and reference counts. Signing secrets are never returned.", z.object({}), () => service.listTailIntegrations());
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
     const appHostname = new URL(env.APP_ORIGIN).hostname;
