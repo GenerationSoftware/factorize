@@ -44,5 +44,7 @@ describe("shared API schemas", () => {
     expect(() => jobInputSchema.parse({ ...job, parameterDefaults: {} })).toThrow();
     expect(() => manualInvocationSchema.parse({ parameters: {} })).toThrow();
     expect(manualInvocationSchema.parse({ prompt: "ticket" })).toMatchObject({ prompt: "ticket" });
+    expect(manualInvocationSchema.parse({ idempotencyKey: "dev-dispatch-gen-2032" })).toMatchObject({ idempotencyKey: "dev-dispatch-gen-2032" });
+    expect(() => manualInvocationSchema.parse({ idempotencyKey: "manual:dev-dispatch-gen-2032" })).toThrow(/reserved manual: claim-key prefix/);
   });
 });

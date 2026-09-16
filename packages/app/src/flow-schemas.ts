@@ -40,7 +40,9 @@ export const jobInputSchema = z.object({
 export const jobIdSchema = z.object({ jobId: z.string().min(1) });
 export const manualInvocationSchema = z.object({
   prompt: z.string().max(50_000).default(""),
-  idempotencyKey: z.string().trim().min(1).max(200).optional(),
+  idempotencyKey: z.string().trim().min(1).max(200).refine(key => !key.startsWith("manual:"), {
+    message: "idempotencyKey must not include the reserved manual: claim-key prefix",
+  }).optional(),
 }).strict();
 export const jobHandlerTestSchema = z.object({
   handlerCode: z.string().max(16_384), payload: z.record(z.string(), z.unknown()),
