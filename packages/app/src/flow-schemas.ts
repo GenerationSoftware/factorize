@@ -23,6 +23,7 @@ export const flowInputSchema = z.object({
 export const flowIdSchema = z.object({ flowId: z.string().min(1) });
 export const listRunsSchema = z.object({
   jobId: z.string().min(1).optional(), state: runStateSchema.optional(),
+  contextQuery: z.string().min(1).max(50_000).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().min(1).optional(),
 });
 export const runIdSchema = z.object({ runId: z.string().min(1) });

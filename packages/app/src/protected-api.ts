@@ -85,8 +85,8 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     tool("list_projects", "List Linear projects", z.object({}), () => service.listProjects());
     tool("list_flow_options", "List match-rule options", z.object({}), () => service.listFlowOptions());
     tool("list_exe_connections", "List safe metadata for saved exe.dev connections. Select a connectionId before creating or updating a flow; API tokens are never returned.", z.object({}), () => service.listExeConnections());
-    tool("list_runs", "List and filter job runs", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
-    tool("get_run", "Get a run and its current output", runIdSchema, ({ runId }: any) => service.getRun(runId));
+    tool("list_runs", "List and filter job runs by job ID, state, and an optional case-insensitive literal substring of the exact triggered context. Context matches include only a bounded excerpt.", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
+    tool("get_run", "Get a run with its full triggered context, invocation metadata, execution metadata, output, and activity", runIdSchema, ({ runId }: any) => service.getRun(runId));
     tool("list_flow_events", "List webhook activity for a flow", listEventsSchema, (input: any) => service.listFlowEvents(queryOf(input)));
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
     tool("list_jobs", "List jobs", z.object({}), () => service.listJobs());

@@ -141,13 +141,16 @@ curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
   https://app.factorize.sh/api/v1/flows
 
 curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
-  'https://app.factorize.sh/api/v1/runs?flowId=FLOW_ID&state=running&limit=25'
+  'https://app.factorize.sh/api/v1/runs?jobId=JOB_ID&state=running&contextQuery=customer%20impact&limit=25'
+
+curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
+  https://app.factorize.sh/api/v1/runs/RUN_ID
 
 curl -X POST -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
   https://app.factorize.sh/api/v1/runs/RUN_ID/stop
 ```
 
-Flow CRUD is available at `/flows` and `/flows/:id`; supporting collections are `/projects`, `/flow-options`, `/runs`, and `/flow-events`. Run and event collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
+Flow CRUD is available at `/flows` and `/flows/:id`; supporting collections are `/projects`, `/flow-options`, `/runs`, and `/flow-events`. Run and event collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Runs can be filtered by `jobId`, `state`, and `contextQuery`; context queries use case-insensitive literal substring matching and matching items contain a bounded `context_excerpt`, never the full context. `GET /runs/:runId` returns the full triggered `context` and its invocation metadata (`source`, parameters, schedule occurrence, claim key, and timestamp). Legacy runs return `null` for `context` and `invocation`. Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
 
 ## MCP clients
 
