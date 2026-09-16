@@ -1,4 +1,4 @@
-import type { FilterType, MatchRule } from "./types";
+import type { MatchRule } from "./types";
 
 type IssueReference = { id?: string; project?: { id?: string }; state?: { id?: string }; assignee?: { id?: string }; creator?: { id?: string }; owner?: { id?: string }; labels?: Array<{ id?: string }> };
 type EventData = {
@@ -16,11 +16,7 @@ type EventData = {
 };
 type LinearEvent = { type?: string; action?: string; data?: EventData; updatedFrom?: { stateId?: string; assigneeId?: string; creatorId?: string; ownerId?: string; labelIds?: string[]; [key: string]: unknown } };
 
-export type FlowMatcher = { projectId: string; matchRules?: MatchRule[]; filterType?: FilterType; filterTargetId?: string };
-
-const rulesFor = (flow: FlowMatcher): MatchRule[] => flow.matchRules?.length
-  ? flow.matchRules
-  : flow.filterType && flow.filterTargetId ? [{ type: flow.filterType, targetId: flow.filterTargetId }] : [];
+export type FlowMatcher = { projectId: string; matchRules: MatchRule[] };
 
 /** Returns the issue to enqueue only when a webhook is relevant to a flow. */
 export function matchingIssue(event: LinearEvent, flow: FlowMatcher): string | null {
@@ -29,7 +25,7 @@ export function matchingIssue(event: LinearEvent, flow: FlowMatcher): string | n
   const data = { ...(event.data?.issue ?? {}), ...(event.data ?? {}) } as EventData;
   const issueId = data.issueId ?? data.issue?.id ?? (event.type === "Issue" ? data.id : undefined);
   const projectId = data.project?.id ?? data.issue?.project?.id;
-  const rules = rulesFor(flow);
+  const rules = flow.matchRules;
   if (!issueId || projectId !== flow.projectId || !rules.length) return null;
 
   // A flow starts on issue creation, or when a rule changes and the issue now

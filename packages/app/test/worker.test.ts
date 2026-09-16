@@ -172,7 +172,7 @@ describe("Worker routes", () => {
       }
       return new Response("Not found", { status: 404 });
     });
-    const flow = { name: "Bugs", projectId: "project-1", filterType: "label", filterTargetId: "label-1", maxConcurrency: 3 };
+    const flow = { name: "Bugs", projectId: "project-1", matchRules: [{ type: "label", targetId: "label-1" }], maxConcurrency: 3 };
     const response = await app.request("https://factorize.test/api/pipes", {
       method: "POST",
       headers: { cookie: await sessionCookie(), "content-type": "application/json" },
@@ -190,7 +190,7 @@ describe("Worker routes", () => {
       if (path === "/pipes/flow-1") { forwarded = { method: request.method, body: await request.json() }; return Response.json({ ok: true }); }
       return new Response("Not found", { status: 404 });
     });
-    const flow = { name: "Bugs", projectId: "project-1", filterType: "label", filterTargetId: "label-1", workspaceName: "bugs", maxConcurrency: 3 };
+    const flow = { name: "Bugs", projectId: "project-1", matchRules: [{ type: "label", targetId: "label-1" }], workspaceName: "bugs", maxConcurrency: 3 };
     const response = await app.request("https://factorize.test/api/pipes/flow-1", { method: "PUT", headers: { cookie: await sessionCookie(), "content-type": "application/json" }, body: JSON.stringify(flow) }, env);
     expect(response.status).toBe(200);
     expect(forwarded).toEqual({ method: "PUT", body: flow });

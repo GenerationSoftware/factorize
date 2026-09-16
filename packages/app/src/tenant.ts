@@ -1579,7 +1579,7 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private matchRules(input: PipeInput): MatchRule[] {
-    const rules = Array.isArray(input.matchRules) && input.matchRules.length ? input.matchRules : input.filterType && input.filterTargetId ? [{ type: input.filterType, targetId: input.filterTargetId }] : [];
+    const rules = input.matchRules;
     const validTypes: FilterType[] = ["owner", "creator", "status", "label", "assignee"];
     if (!rules.length) throw new Error("Configure at least one issue matching rule.");
     if (!rules.every((rule) => rule && validTypes.includes(rule.type) && typeof rule.targetId === "string" && rule.targetId.trim())) throw new Error("Each matching rule needs a supported type and target.");
@@ -1587,11 +1587,7 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private savedMatchRules(pipe: Row): MatchRule[] {
-    try {
-      const parsed = JSON.parse(String(pipe.match_rules || "[]"));
-      if (Array.isArray(parsed) && parsed.length) return this.matchRules({ name: "", projectId: "", matchRules: parsed, maxConcurrency: 1 });
-    } catch { /* Pre-migration flows fall back to their legacy single rule. */ }
-    return this.matchRules({ name: "", projectId: "", filterType: pipe.filter_type as FilterType, filterTargetId: String(pipe.filter_target_id), maxConcurrency: 1 });
+    return this.matchRules({ name: "", projectId: "", matchRules: JSON.parse(String(pipe.match_rules)), maxConcurrency: 1 });
   }
 
   private nextRunSlot(pipe: Row, runId: string): number {
