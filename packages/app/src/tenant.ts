@@ -18,7 +18,7 @@ import { renderSourcePrompt } from "./source-lifecycle";
 import { JOB_SCHEMA, renderJobPrompt } from "./job-domain";
 import { normalizeExecutionState, type RunHandle } from "./execution";
 import { catchUpOccurrence, nextOccurrence, validateScheduleConfig, type ScheduleConfig } from "./schedule";
-import { adaptWebhook, publicWebhookConfig, type WebhookProvider, type WebhookTriggerConfig } from "./webhook-trigger";
+import { adaptWebhook, publicWebhookConfig, validateWebhookHandler, type WebhookProvider, type WebhookTriggerConfig } from "./webhook-trigger";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -190,6 +190,7 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "DELETE" && jobMatch) return this.deleteJob(decodeURIComponent(jobMatch[1]));
       const jobEventsMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/events$/);
       if (request.method === "GET" && jobEventsMatch) return this.listJobEvents(decodeURIComponent(jobEventsMatch[1]), url);
+      if (request.method === "POST" && url.pathname === "/v1/job-handlers/test") return await this.testJobHandler(await request.json());
       if (request.method === "GET" && /^\/v1\/flows\/[^/]+$/.test(url.pathname)) return this.getFlow(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/connections/status") return await this.connectionStatus();
       if (request.method === "POST" && url.pathname === "/members") return await this.upsertMember(await request.json());
@@ -428,7 +429,10 @@ export class Tenant extends DurableObject<Env> {
     if (!input?.name || !input.promptTemplate) throw new Error("Job name and prompt template are required");
     if (!Array.isArray(input.triggers) || input.triggers.some((trigger: any) => !["manual", "schedule", "webhook", "jobLifecycle"].includes(trigger?.kind))) throw new Error("Job triggers are invalid");
     Mustache.parse(input.promptTemplate);
-    for (const trigger of input.triggers) if (trigger.kind === "schedule") validateScheduleConfig(trigger.config);
+    for (const trigger of input.triggers) {
+      if (trigger.kind === "schedule") validateScheduleConfig(trigger.config);
+      if (trigger.kind === "webhook") validateWebhookHandler(trigger.config);
+    }
   }
 
   private normalizedTriggers(input: any[], existing: Map<string, Row> = new Map()): any[] {
@@ -843,9 +847,28 @@ export class Tenant extends DurableObject<Env> {
     for (const { job, triggerId, triggerSlug, config } of this.webhookJobs(provider) as any[]) {
       const invocation = adaptWebhook(config, provider, deliveryId, payload, eventName);
       if (!invocation) { this.recordJobEvent(String(job.id), provider, deliveryId, "ignored", "Webhook did not match this job trigger."); continue; }
-      const result = await this.signalAutomaticJob(String(job.id), "webhook", triggerId, `webhook:${triggerId}:${invocation.claimKey}`, { [triggerSlug]: invocation.payload }, { ...invocation.occurrence, metadata: { ...invocation.occurrence?.metadata, triggerId } });
+      let triggerContext: Record<string, unknown> = invocation.payload;
+      if (config.handlerCode) {
+        if (!this.env.CUSTOM_HANDLER_LOADER) { this.recordJobEvent(String(job.id), provider, deliveryId, "platform_error", "Webhook handler platform is unavailable; no run was created."); continue; }
+        const decision = await invokeCustomHandler(this.env.CUSTOM_HANDLER_LOADER, config as Required<Pick<WebhookTriggerConfig, "handlerCode">>, payload);
+        if (!decision.ok) {
+          const detail = decision.category === "timeout" ? "Handler exceeded its execution deadline; no run was created." : decision.category === "invalid_return" ? "Handler must synchronously return true, false, or a JSON-compatible object; no run was created." : "Handler failed closed; no run was created.";
+          this.recordJobEvent(String(job.id), provider, deliveryId, decision.category, detail); continue;
+        }
+        if (decision.decision === false) { this.recordJobEvent(String(job.id), provider, deliveryId, "rejected", "Handler returned false; no run was created."); continue; }
+        if (decision.decision !== true) triggerContext = decision.decision;
+      }
+      const result = await this.signalAutomaticJob(String(job.id), "webhook", triggerId, `webhook:${triggerId}:${invocation.claimKey}`, { [triggerSlug]: triggerContext }, { ...invocation.occurrence, metadata: { ...invocation.occurrence?.metadata, triggerId } });
       this.recordJobEvent(String(job.id), provider, deliveryId, result?.duplicate ? "duplicate" : result ? "accepted" : "ignored", result?.duplicate ? "Webhook occurrence was already claimed." : result ? "Webhook occurrence queued through canonical job invocation." : "Job was unavailable.");
     }
+  }
+
+  private async testJobHandler(input: { handlerCode?: unknown; payload?: unknown }): Promise<Response> {
+    const config: WebhookTriggerConfig = { provider: "custom", handlerCode: typeof input.handlerCode === "string" ? input.handlerCode : undefined };
+    validateWebhookHandler(config);
+    if (!config.handlerCode) throw new Error("Handler code is required.");
+    if (!this.env.CUSTOM_HANDLER_LOADER) return Response.json({ ok: false, category: "platform_error" }, { status: 503 });
+    return json(await invokeCustomHandler(this.env.CUSTOM_HANDLER_LOADER, { handlerCode: config.handlerCode }, input.payload));
   }
 
   private listJobEvents(jobId: string, url: URL): Response {
@@ -1056,8 +1079,17 @@ export class Tenant extends DurableObject<Env> {
           const payload = { ...saved, pull_request: { ...saved.pull_request, ...pull } };
           const invocation = adaptWebhook(config, "github", String(verification.delivery_id), payload, "pull_request");
           this.ctx.storage.sql.exec("DELETE FROM pending_verifications WHERE id=?", verification.id);
-          if (invocation) await this.signalAutomaticJob(String(job.id), "webhook", String(job.trigger_id), `webhook:${String(job.trigger_id)}:${invocation.claimKey}`, { [String((job as any).trigger_slug)]: invocation.payload }, invocation.occurrence);
-          this.recordJobEvent(String(job.id), "github", String(verification.delivery_id), invocation ? "accepted" : "ignored", invocation ? "Verified webhook queued through canonical job invocation." : "Job trigger changed while verification was pending.");
+          if (!invocation) { this.recordJobEvent(String(job.id), "github", String(verification.delivery_id), "ignored", "Job trigger changed while verification was pending."); continue; }
+          let triggerContext: Record<string, unknown> = invocation.payload;
+          if (config.handlerCode) {
+            if (!this.env.CUSTOM_HANDLER_LOADER) { this.recordJobEvent(String(job.id), "github", String(verification.delivery_id), "platform_error", "Webhook handler platform is unavailable; no run was created."); continue; }
+            const decision = await invokeCustomHandler(this.env.CUSTOM_HANDLER_LOADER, { handlerCode: config.handlerCode }, payload);
+            if (!decision.ok) { this.recordJobEvent(String(job.id), "github", String(verification.delivery_id), decision.category, decision.category === "timeout" ? "Handler exceeded its execution deadline; no run was created." : decision.category === "invalid_return" ? "Handler must synchronously return true, false, or a JSON-compatible object; no run was created." : "Handler failed closed; no run was created."); continue; }
+            if (decision.decision === false) { this.recordJobEvent(String(job.id), "github", String(verification.delivery_id), "rejected", "Handler returned false; no run was created."); continue; }
+            if (decision.decision !== true) triggerContext = decision.decision;
+          }
+          const result = await this.signalAutomaticJob(String(job.id), "webhook", String(job.trigger_id), `webhook:${String(job.trigger_id)}:${invocation.claimKey}`, { [String((job as any).trigger_slug)]: triggerContext }, invocation.occurrence);
+          this.recordJobEvent(String(job.id), "github", String(verification.delivery_id), result?.duplicate ? "duplicate" : result ? "accepted" : "ignored", result?.duplicate ? "Webhook occurrence was already claimed." : result ? "Verified webhook queued through canonical job invocation." : "Job was unavailable.");
           continue;
         }
         const legacyPipe = pipe!;

@@ -1,5 +1,6 @@
 import { matchingIssue } from "./matcher";
 import type { MatchRule } from "./types";
+import { validateHandlerCode } from "./custom-handler";
 
 export type WebhookProvider = "linear" | "github" | "cloudflareTail" | "custom";
 export type WebhookTriggerConfig = {
@@ -37,4 +38,8 @@ export function adaptWebhook(config: WebhookTriggerConfig, provider: WebhookProv
 export function publicWebhookConfig(config: WebhookTriggerConfig): Record<string, unknown> {
   const { signingSecret: _signingSecret, secret: _secret, ...safe } = config;
   return { ...safe, ...(config.signingSecret || config.secret ? { secretConfigured: true } : {}) };
+}
+
+export function validateWebhookHandler(config: WebhookTriggerConfig): void {
+  if (config.handlerCode !== undefined) validateHandlerCode(config.handlerCode);
 }

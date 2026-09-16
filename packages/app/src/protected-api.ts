@@ -3,7 +3,7 @@ import { McpServer, WebStandardStreamableHTTPServerTransport } from "@modelconte
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
 import { FlowService, ServiceError } from "./flow-service";
-import { flowIdSchema, flowInputSchema, jobIdSchema, jobInputSchema, listEventsSchema, listRunsSchema, manualInvocationSchema, runIdSchema } from "./flow-schemas";
+import { flowIdSchema, flowInputSchema, jobHandlerTestSchema, jobIdSchema, jobInputSchema, listEventsSchema, listRunsSchema, manualInvocationSchema, runIdSchema } from "./flow-schemas";
 import type { Env, OAuthProps } from "./types";
 
 function errorResponse(error: unknown): Response {
@@ -51,6 +51,7 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
       if (request.method === "GET" && path === "/api/v1/execution-targets") return Response.json(await service.listExecutionTargets());
       if (request.method === "GET" && path === "/api/v1/jobs") return Response.json(await service.listJobs());
       if (request.method === "POST" && path === "/api/v1/jobs") return Response.json(await service.createJob(jobInputSchema.parse(await request.json())), { status: 201 });
+      if (request.method === "POST" && path === "/api/v1/job-handlers/test") return Response.json(await service.testJobHandler(jobHandlerTestSchema.parse(await request.json())));
       const invocationMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)\/invocations$/);
       if (invocationMatch && request.method === "POST") return Response.json(await service.invokeJob(decodeURIComponent(invocationMatch[1]), manualInvocationSchema.parse(await request.json())), { status: 202 });
       const jobEventsMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)\/events$/);
@@ -98,6 +99,7 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
     tool("invoke_job", "Invoke a job's manual trigger with a prompt exposed beneath that trigger's stable slug. Manual invocations are never coalesced.", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
     tool("list_job_webhook_activity", "List matching, rejected, duplicate, and accepted webhook activity for a job", z.object({ jobId: z.string().min(1), limit: z.number().int().min(1).max(100).default(50) }), ({ jobId, limit }: any) => service.listJobEvents(jobId, limit));
+    tool("test_job_webhook_handler", "Test an isolated synchronous Job webhook handler without creating a run. Returns the decision and never accepts credentials.", jobHandlerTestSchema, (input: any) => service.testJobHandler(input));
     tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
