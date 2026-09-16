@@ -41,10 +41,32 @@ describe("agent launch and prompt delivery", () => {
       await expect(readFile(resolve(promptDirectory, "prompt.md"), "utf8")).resolves.toBe(prompt);
       await expect(readFile(resolve(stateDir, "launch-instruction"), "utf8")).resolves.toBe(`Read and follow the complete task instructions in ${promptDirectory}/prompt.md`);
       await expect(readFile(resolve(stateDir, "status"), "utf8")).resolves.toBe("working");
-      await expect(readFile(resolve(stateDir, "events"), "utf8")).resolves.toBe("workspace list\nworkspace create\ntab rename\nagent get\nagent start\nagent get\n");
+      await expect(readFile(resolve(stateDir, "events"), "utf8")).resolves.toBe("workspace list\nworkspace create\ntab rename\nagent get\nagent start\nagent read\nagent get\n");
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm("/tmp/factorize-prompts/run-e2e", { recursive: true, force: true });
+    }
+  });
+
+  it("accepts Codex's startup trust chooser before declaring launch successful", async () => {
+    const root = await mkdtemp(`${tmpdir()}/factorize-agent-trust-e2e-`);
+    try {
+      const repository = resolve(root, "repo");
+      const runPath = resolve(repository, ".factorize-runs/run-trust-e2e");
+      const stateDir = resolve(root, "fake-herdr-state");
+      await mkdir(repository, { recursive: true });
+      await chmod(fixture, 0o755);
+      const connection: ExeConnection = { vmName: "unused", apiToken: "unused", agentKind: "codex", cwd: repository, herdrCommand: fixture };
+      const environment = { ...process.env, FAKE_HERDR_STATE_DIR: stateDir, FAKE_HERDR_RUN_PATH: runPath, FAKE_HERDR_TRUST_PROMPT: "1" };
+
+      const launched = await runFile("bash", ["-c", launchAgentCommand("run-trust-e2e", connection, "flow-e2e", runPath, "lease-e2e", "Fix permissions")], { env: environment });
+
+      expect(jsonLines(launched.stdout).at(-1)?.result.agent).toMatchObject({ agent_status: "working", interactive_ready: true });
+      await expect(readFile(resolve(stateDir, "trusted"), "utf8")).resolves.toBe("");
+      await expect(readFile(resolve(stateDir, "events"), "utf8")).resolves.toContain("agent read\nagent prompt\nagent get\n");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm("/tmp/factorize-prompts/run-trust-e2e", { recursive: true, force: true });
     }
   });
 });

@@ -45,7 +45,9 @@ describe("flow workspaces", () => {
     expect(launch).toContain("--dangerously-bypass-hook-trust");
     expect(launch).toContain("--cd '/repo/.factorize-runs/run'");
     expect(launch).toContain('projects."/repo/.factorize-runs/run".trust_level="trusted"');
-    expect(launch).not.toContain("agent prompt");
+    expect(launch).toContain("agent read 'factorize-1' --source recent --format text");
+    expect(launch).toContain("agent prompt 'factorize-1' '1' --wait --until working --until idle");
+    expect(launch).not.toContain("agent prompt 'factorize-1' 'fix it'");
     expect(delivery).toContain("agent prompt 'factorize-1'");
     expect(delivery).toContain("agent wait 'factorize-1' --until idle --until done --timeout 15000");
     expect(delivery).toContain("agent prompt 'factorize-1' \"$prompt\" --wait --until working --until blocked --timeout 7000");
@@ -55,7 +57,7 @@ describe("flow workspaces", () => {
 
   it("passes the initial prompt only when starting a new idempotent agent", () => {
     const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
-    expect(command).not.toContain("agent prompt");
+    expect(command).not.toContain("agent prompt 'factorize-1' 'fix it'");
     expect(command).toContain("else herdr agent start 'factorize-1'");
     expect(command).toContain("/tmp/factorize-prompts/factorize-1/prompt.md");
   });

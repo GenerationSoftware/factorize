@@ -16,7 +16,7 @@ describe("ExeHerdrBackend", () => {
     expect(requests[0]).toContain("agent start");
     expect(requests[0]).toContain("ZG8gdGhlIHdvcms=");
     expect(requests[0]).toContain("Read and follow the complete task instructions in /tmp/factorize-prompts/run-1/prompt.md");
-    expect(requests[0]).not.toContain("agent prompt");
+    expect(requests[0]).not.toContain("agent prompt 'run-1' 'do the work'");
     const delivered = await backend.deliverPrompt(launched.handle, "do the work");
     expect(delivered.state).toBe("accepted");
     expect(requests[1]).toContain("agent prompt");
