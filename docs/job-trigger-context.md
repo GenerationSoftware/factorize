@@ -1,6 +1,6 @@
 # Job trigger context
 
-Every Job trigger has a server-generated immutable slug (`trigger-1`, `trigger-2`, …). The slug is returned by REST and MCP and is preserved when a Job is edited, reordered, enabled, or disabled. New triggers receive the next unused number. A manual trigger is created for every Job.
+Every Job trigger has a server-generated immutable slug (`trigger-1`, `trigger-2`, …). The slug is returned by REST and MCP and is preserved when a Job is edited, enabled, or disabled. New triggers receive the next unused number. A manual trigger is created for every Job.
 
 Job prompts are Mustache templates rendered only against the firing trigger's structured context. Missing paths render as an empty string. For example:
 
