@@ -45,6 +45,7 @@ describe("job invocation domain", () => {
   it("defines multiple triggers, per-trigger schedules, lifecycle claims, and coalescing state", () => {
     expect(JOB_SCHEMA).toContain("kind IN ('manual','schedule','webhook','jobLifecycle')");
     expect(JOB_SCHEMA).toContain("UNIQUE(job_id, slug)");
+    expect(JOB_SCHEMA).toContain("position INTEGER NOT NULL DEFAULT 0");
     expect(JOB_SCHEMA).not.toContain("job_id TEXT NOT NULL UNIQUE REFERENCES jobs");
     expect(JOB_SCHEMA).toContain("UNIQUE(job_id, claim_key)");
     expect(JOB_SCHEMA).toContain("CREATE TABLE IF NOT EXISTS schedule_state");

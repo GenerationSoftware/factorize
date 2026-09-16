@@ -120,7 +120,17 @@ describe("pages", () => {
     const run = jobRunPage({ email: "owner@example.com" }, "run-1");
     const settings = settingsPage({ email: "owner@example.com" });
     expect(list).toContain("Manual only");
-    expect(editor).toContain("Exact MCP cron");
+    expect(editor).toContain("Add trigger");
+    expect(editor).toContain('id="trigger-rows"');
+    expect(editor).toContain("Context slug");
+    expect(editor).toContain("Custom webhook");
+    expect(editor).toContain("Job lifecycle");
+    expect(editor).toContain("Test handler");
+    expect(editor).toContain("data-up");
+    expect(editor).toContain("multiple size=\"4\"");
+    expect(editor).toContain("Available context");
+    expect(editor).not.toContain("Additional triggers (JSON array)");
+    expect(editor).not.toContain('name="triggerKind"');
     expect(editor).toContain("/api/schedules/preview");
     expect(editor).toContain("America/New_York");
     expect(editor).toContain("Credentials are managed only");

@@ -139,7 +139,7 @@ export const JOB_SCHEMA = `
   );
   CREATE TABLE IF NOT EXISTS triggers (
     id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK (kind IN ('manual','schedule','webhook','jobLifecycle')), slug TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, config TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('manual','schedule','webhook','jobLifecycle')), slug TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, config TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
     UNIQUE(job_id, slug)
   );
