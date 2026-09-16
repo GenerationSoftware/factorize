@@ -159,6 +159,7 @@ app.get("/api/job-runs", (c) => jobApi(c, `/runs?${new URL(c.req.url).searchPara
 app.get("/api/job-runs/:id", (c) => jobApi(c, `/runs/${encodeURIComponent(c.req.param("id"))}`));
 app.post("/api/job-runs/:id/stop", (c) => jobApi(c, `/runs/${encodeURIComponent(c.req.param("id"))}/stop`, { method: "POST" }));
 app.get("/api/execution-targets", (c) => jobApi(c, "/execution-targets"));
+app.get("/api/job-trigger-availability", (c) => jobApi(c, "/job-trigger-availability"));
 app.post("/api/schedules/preview", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   try { const config = validateScheduleConfig(await c.req.json()); return c.json({ nextRunAt: nextOccurrence(config, new Date()).toISOString() }); }
