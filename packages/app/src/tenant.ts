@@ -16,6 +16,7 @@ import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, rend
 import { renderSourcePrompt } from "./source-lifecycle";
 import { JOB_SCHEMA, renderJobPrompt } from "./job-domain";
 import { normalizeExecutionState, type RunHandle } from "./execution";
+import { catchUpOccurrence, nextOccurrence, validateScheduleConfig, type ScheduleConfig } from "./schedule";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -152,6 +153,7 @@ export class Tenant extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     await this.processGitHubVerifications();
+    await this.processDueSchedules();
     // Release completed slots before looking at the queue, so capacity is used
     // immediately rather than waiting for the next polling alarm.
     const running = this.rows("SELECT * FROM runs WHERE state IN ('running','blocked','recovering') ORDER BY updated_at LIMIT 40");
@@ -171,7 +173,9 @@ export class Tenant extends DurableObject<Env> {
     const pending = this.one("SELECT count(*) AS count FROM runs WHERE state IN ('queued','starting','running','blocked','recovering')") as Row;
     const verification = this.one("SELECT min(next_attempt_at) AS next_attempt_at FROM pending_verifications") as Row;
     const nextVerification = Number(verification?.next_attempt_at || 0);
-    if (Number(pending.count) > 0 || nextVerification) await this.ctx.storage.setAlarm(nextVerification ? Math.min(Date.now() + 15_000, nextVerification) : Date.now() + 15_000);
+    const schedule = this.one("SELECT min(next_run_at) AS next_run_at FROM schedule_state") as Row;
+    const candidates = [Number(pending.count) > 0 ? Date.now() + 15_000 : 0, nextVerification, Number(schedule?.next_run_at || 0)].filter(Boolean);
+    if (candidates.length) await this.ctx.storage.setAlarm(Math.min(...candidates));
   }
 
   private async saveLinear(input: unknown): Promise<Response> {
@@ -296,7 +300,8 @@ export class Tenant extends DurableObject<Env> {
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
       parameterDefaults, concurrencyLimit: Number(row.concurrency_limit),
       executionTargetId: String(executionTarget.connectionId ?? ""),
-      trigger: { kind: String(trigger?.kind ?? "manual"), config: triggerConfig },
+      trigger: { kind: String(trigger?.kind ?? "manual"), config: triggerConfig,
+        ...(trigger?.kind === "schedule" ? (() => { const state = this.one("SELECT next_run_at,last_triggered_at FROM schedule_state WHERE job_id=?", row.id) as Row | undefined; return { nextRunAt: state?.next_run_at == null ? null : new Date(Number(state.next_run_at)).toISOString(), lastTriggeredAt: state?.last_triggered_at ?? null }; })() : {}) },
       enabled: Boolean(row.enabled), createdAt: row.created_at, updatedAt: row.updated_at,
     };
   }
@@ -313,6 +318,18 @@ export class Tenant extends DurableObject<Env> {
     if (!input.trigger || !["manual", "schedule", "webhook"].includes(input.trigger.kind)) throw new Error("Job trigger is invalid");
     if (Object.prototype.hasOwnProperty.call(input.parameterDefaults ?? {}, "context")) throw new Error("context is reserved and cannot be a job parameter");
     Mustache.parse(input.promptTemplate);
+    if (input.trigger.kind === "schedule") validateScheduleConfig(input.trigger.config);
+  }
+
+  private async resetSchedule(jobId: string): Promise<void> {
+    const job = this.one("SELECT j.enabled,t.id AS trigger_id,t.kind,t.config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.id=?", jobId) as Row | undefined;
+    if (!job || job.kind !== "schedule") { this.ctx.storage.sql.exec("DELETE FROM schedule_state WHERE job_id=?", jobId); return; }
+    const config = validateScheduleConfig(JSON.parse(String(job.config)));
+    const next = Boolean(job.enabled) ? nextOccurrence(config, new Date()).getTime() : null;
+    this.ctx.storage.sql.exec("INSERT INTO schedule_state(trigger_id,job_id,next_run_at) VALUES(?,?,?) ON CONFLICT(job_id) DO UPDATE SET trigger_id=excluded.trigger_id,next_run_at=excluded.next_run_at", job.trigger_id, jobId, next);
+    if (next === null) return;
+    const alarm = await this.ctx.storage.getAlarm();
+    if (alarm === null || next < alarm) await this.ctx.storage.setAlarm(next);
   }
 
   private async createJob(input: any): Promise<Response> {
@@ -320,6 +337,7 @@ export class Tenant extends DurableObject<Env> {
     const target = await this.jobTarget(input.executionTargetId), jobId = id(), triggerId = id(), timestamp = now();
     this.ctx.storage.sql.exec("INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?)", jobId, input.name, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(input.parameterDefaults ?? {}), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
     this.ctx.storage.sql.exec("INSERT INTO triggers VALUES (?,?,?,?,?,?)", triggerId, jobId, input.trigger.kind, JSON.stringify(input.trigger.config ?? {}), timestamp, timestamp);
+    await this.resetSchedule(jobId);
     return json(await this.publicJob(this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row));
   }
 
@@ -334,12 +352,14 @@ export class Tenant extends DurableObject<Env> {
     const target = await this.jobTarget(input.executionTargetId), timestamp = now();
     this.ctx.storage.sql.exec("UPDATE jobs SET name=?,encrypted_prompt_template=?,parameter_defaults=?,execution_target=?,concurrency_limit=?,updated_at=? WHERE id=?", input.name, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(input.parameterDefaults ?? {}), JSON.stringify(target), input.concurrencyLimit, timestamp, jobId);
     this.ctx.storage.sql.exec("UPDATE triggers SET kind=?,config=?,updated_at=? WHERE job_id=?", input.trigger.kind, JSON.stringify(input.trigger.config ?? {}), timestamp, jobId);
+    await this.resetSchedule(jobId);
     return json(await this.publicJob(this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row));
   }
 
-  private setJobEnabled(jobId: string, enabled: boolean): Response {
+  private async setJobEnabled(jobId: string, enabled: boolean): Promise<Response> {
     if (!this.one("SELECT id FROM jobs WHERE id = ?", jobId)) return new Response("Not found", { status: 404 });
     this.ctx.storage.sql.exec("UPDATE jobs SET enabled=?,updated_at=? WHERE id=?", enabled ? 1 : 0, now(), jobId);
+    await this.resetSchedule(jobId);
     return json({ id: jobId, enabled });
   }
 
@@ -374,6 +394,36 @@ export class Tenant extends DurableObject<Env> {
     this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", "manual", "exe-herdr", JSON.stringify(["output", "prompt-delivery", "recovery", "stop"]), "https://exe.dev/", timestamp, timestamp);
     await this.ctx.storage.setAlarm(Date.now());
     return json({ invocationId, runId, state: "queued", duplicate: false });
+  }
+
+  private async processDueSchedules(): Promise<void> {
+    const wake = Date.now();
+    const due = this.rows("SELECT s.job_id,s.next_run_at,t.config FROM schedule_state s JOIN jobs j ON j.id=s.job_id JOIN triggers t ON t.id=s.trigger_id WHERE j.enabled=1 AND t.kind='schedule' AND s.next_run_at<=? ORDER BY s.next_run_at LIMIT 100", wake);
+    for (const row of due) {
+      const config = validateScheduleConfig(JSON.parse(String(row.config))) as ScheduleConfig;
+      const catchUp = catchUpOccurrence(config, new Date(Number(row.next_run_at)), new Date(wake));
+      if (!catchUp) continue;
+      const occurredAt = catchUp.occurredAt.toISOString();
+      await this.enqueueScheduledJob(String(row.job_id), occurredAt, config);
+      this.ctx.storage.sql.exec("UPDATE schedule_state SET next_run_at=?,last_triggered_at=? WHERE job_id=? AND next_run_at=?", catchUp.nextRunAt.getTime(), occurredAt, row.job_id, row.next_run_at);
+    }
+  }
+
+  private async enqueueScheduledJob(jobId: string, occurredAt: string, config: ScheduleConfig): Promise<void> {
+    const row = this.one("SELECT * FROM jobs WHERE id=? AND enabled=1", jobId) as Row | undefined;
+    if (!row) return;
+    const claimKey = `schedule:${occurredAt}`;
+    if (this.one("SELECT id FROM invocations WHERE job_id=? AND claim_key=?", jobId, claimKey)) return;
+    const job = await this.publicJob(row), parameters = config.parameters ?? {};
+    const prompt = renderJobPrompt({ promptTemplate: String(job.promptTemplate), parameterDefaults: job.parameterDefaults as Record<string, string> }, { context: config.context, parameters });
+    const invocationId = id(), runId = id(), timestamp = now(), occurrence = JSON.stringify({ occurredAt });
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO invocations (id,job_id,source,claim_key,context,parameters,occurrence,created_at) VALUES (?,?,?,?,?,?,?,?)", invocationId, jobId, "schedule", claimKey, config.context ?? null, JSON.stringify(parameters), occurrence, timestamp);
+    const winner = this.one("SELECT id FROM invocations WHERE job_id=? AND claim_key=?", jobId, claimKey) as Row;
+    if (winner.id !== invocationId) return;
+    const encryptedPrompt = await encrypt(prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    this.ctx.storage.sql.exec("INSERT INTO job_runs (id,job_id,invocation_id,state,encrypted_prompt,created_at,updated_at) VALUES (?,?,?,?,?,?,?)", runId, jobId, invocationId, "queued", encryptedPrompt, timestamp, timestamp);
+    let target: Record<string, unknown> = {}; try { target = JSON.parse(String(row.execution_target)); } catch {}
+    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", "schedule", "exe-herdr", JSON.stringify(["output", "prompt-delivery", "recovery", "stop"]), "https://exe.dev/", timestamp, timestamp);
   }
 
   private deletePipe(pipeId: string): Response {

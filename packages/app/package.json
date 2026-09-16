@@ -15,6 +15,7 @@
     "@cloudflare/workers-oauth-provider": "^0.10.3",
     "@modelcontextprotocol/hono": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
+    "cron-parser": "^5.10.1",
     "hono": "^4.11.4",
     "mustache": "^4.2.0",
     "zod": "^4.6.2"

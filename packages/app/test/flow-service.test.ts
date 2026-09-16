@@ -65,7 +65,7 @@ describe("shared API schemas", () => {
   });
 
   it("validates job configuration and reserved invocation context", () => {
-    const job = jobInputSchema.parse({ name: "Deploy", promptTemplate: "Deploy {{environment}}: {{context}}", parameterDefaults: { environment: "staging" }, concurrencyLimit: 2, executionTargetId: "exe-1", trigger: { kind: "schedule", config: { cron: "0 * * * *" } } });
+    const job = jobInputSchema.parse({ name: "Deploy", promptTemplate: "Deploy {{environment}}: {{context}}", parameterDefaults: { environment: "staging" }, concurrencyLimit: 2, executionTargetId: "exe-1", trigger: { kind: "schedule", config: { cron: "0 * * * *", timezone: "UTC" } } });
     expect(job.trigger.kind).toBe("schedule");
     expect(() => jobInputSchema.parse({ ...job, apiToken: "secret" })).toThrow();
     expect(() => jobInputSchema.parse({ ...job, parameterDefaults: { context: "wrong" } })).toThrow();
