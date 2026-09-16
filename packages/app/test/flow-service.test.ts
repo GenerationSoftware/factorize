@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FlowService, ServiceError } from "../src/flow-service";
-import { flowInputSchema, listRunsSchema } from "../src/flow-schemas";
+import { flowInputSchema, jobInputSchema, listRunsSchema, manualInvocationSchema } from "../src/flow-schemas";
 import type { Env, OAuthProps } from "../src/types";
 
 function environment(handler: (request: Request) => Response | Promise<Response>): Env {
@@ -37,6 +37,19 @@ describe("FlowService", () => {
     const service = new FlowService(environment(() => Response.json({ role: "owner", session_version: 5 })), auth);
     await expect(service.listFlows()).rejects.toMatchObject({ status: 401, code: "invalid_token" });
   });
+
+  it("uses flow scopes for job management and run scopes for invocation", async () => {
+    const requests: string[] = [];
+    const service = new FlowService(environment(request => {
+      const path = new URL(request.url).pathname;
+      if (path === "/members/owner-a") return Response.json({ role: "owner", session_version: 4 });
+      requests.push(`${request.method} ${path}`);
+      return Response.json({ ok: true });
+    }), { ...auth, scopes: ["flows:read", "flows:write", "runs:write"] });
+    await service.createJob({ name: "Manual", promptTemplate: "{{context}}", parameterDefaults: {}, concurrencyLimit: 1, executionTargetId: "target-1", trigger: { kind: "manual", config: {} } });
+    await service.invokeJob("job-1", { parameters: {}, idempotencyKey: "client-1" });
+    expect(requests).toEqual(["POST /v1/jobs", "POST /v1/jobs/job-1/invocations"]);
+  });
 });
 
 describe("shared API schemas", () => {
@@ -49,5 +62,14 @@ describe("shared API schemas", () => {
   it("bounds pagination and run states", () => {
     expect(listRunsSchema.parse({ limit: "100", state: "running" })).toMatchObject({ limit: 100, state: "running" });
     expect(() => listRunsSchema.parse({ limit: "101" })).toThrow();
+  });
+
+  it("validates job configuration and reserved invocation context", () => {
+    const job = jobInputSchema.parse({ name: "Deploy", promptTemplate: "Deploy {{environment}}: {{context}}", parameterDefaults: { environment: "staging" }, concurrencyLimit: 2, executionTargetId: "exe-1", trigger: { kind: "schedule", config: { cron: "0 * * * *" } } });
+    expect(job.trigger.kind).toBe("schedule");
+    expect(() => jobInputSchema.parse({ ...job, apiToken: "secret" })).toThrow();
+    expect(() => jobInputSchema.parse({ ...job, parameterDefaults: { context: "wrong" } })).toThrow();
+    expect(() => manualInvocationSchema.parse({ parameters: { context: "wrong" } })).toThrow();
+    expect(manualInvocationSchema.parse({ context: "ticket", parameters: { environment: "prod" } })).toMatchObject({ context: "ticket" });
   });
 });

@@ -1,5 +1,5 @@
 import type { Env, OAuthProps } from "./types";
-import type { FlowInput } from "./flow-schemas";
+import type { FlowInput, JobInput, ManualInvocationInput } from "./flow-schemas";
 import { preparePublicSource, publicSource, resolveContextTemplate } from "./source-lifecycle";
 import type { FlowSource } from "./types";
 
@@ -76,4 +76,12 @@ export class FlowService {
   getRun(runId: string) { return this.call("runs:read", `/v1/runs/${encodeURIComponent(runId)}`); }
   listFlowEvents(query: URLSearchParams) { return this.call("runs:read", `/v1/events?${query}`); }
   stopRun(runId: string) { return this.call("runs:write", `/v1/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" }); }
+  listJobs() { return this.call("flows:read", "/v1/jobs"); }
+  getJob(jobId: string) { return this.call("flows:read", `/v1/jobs/${encodeURIComponent(jobId)}`); }
+  createJob(input: JobInput) { return this.call("flows:write", "/v1/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
+  updateJob(jobId: string, input: JobInput) { return this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
+  deleteJob(jobId: string) { return this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" }); }
+  setJobEnabled(jobId: string, enabled: boolean) { return this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}/${enabled ? "enable" : "disable"}`, { method: "POST" }); }
+  invokeJob(jobId: string, input: ManualInvocationInput) { return this.call("runs:write", `/v1/jobs/${encodeURIComponent(jobId)}/invocations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
+  listExecutionTargets() { return this.call("flows:read", "/v1/execution-targets"); }
 }

@@ -14,7 +14,7 @@ import { sanitizeTailEvent, suppressTailEvent, tailFingerprint, verifyTailDelive
 import { ExeHerdrBackend } from "./exe-herdr-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 import { renderSourcePrompt } from "./source-lifecycle";
-import { JOB_SCHEMA } from "./job-domain";
+import { JOB_SCHEMA, renderJobPrompt } from "./job-domain";
 import { normalizeExecutionState, type RunHandle } from "./execution";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
@@ -103,6 +103,17 @@ export class Tenant extends DurableObject<Env> {
       if (request.method === "GET" && /^\/v1\/runs\/[^/]+$/.test(url.pathname)) return await this.getRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) return await this.stopRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/v1/events") return this.listEvents(url);
+      if (request.method === "GET" && url.pathname === "/v1/execution-targets") return await this.executionTargets();
+      if (request.method === "GET" && url.pathname === "/v1/jobs") return json(await Promise.all(this.rows("SELECT * FROM jobs ORDER BY created_at DESC").map(row => this.publicJob(row))));
+      if (request.method === "POST" && url.pathname === "/v1/jobs") return await this.createJob(await request.json());
+      const invocationMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/invocations$/);
+      if (request.method === "POST" && invocationMatch) return await this.invokeJob(decodeURIComponent(invocationMatch[1]), await request.json());
+      const enabledMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/(enable|disable)$/);
+      if (request.method === "POST" && enabledMatch) return this.setJobEnabled(decodeURIComponent(enabledMatch[1]), enabledMatch[2] === "enable");
+      const jobMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)$/);
+      if (request.method === "GET" && jobMatch) return await this.getJobV1(decodeURIComponent(jobMatch[1]));
+      if (request.method === "PUT" && jobMatch) return await this.updateJob(decodeURIComponent(jobMatch[1]), await request.json());
+      if (request.method === "DELETE" && jobMatch) return this.deleteJob(decodeURIComponent(jobMatch[1]));
       if (request.method === "GET" && /^\/v1\/flows\/[^/]+$/.test(url.pathname)) return this.getFlow(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/connections/status") return await this.connectionStatus();
       if (request.method === "POST" && url.pathname === "/members") return await this.upsertMember(await request.json());
@@ -147,12 +158,13 @@ export class Tenant extends DurableObject<Env> {
     for (const run of running) await this.pollRun(run);
     const queued = this.rows("SELECT * FROM runs WHERE state = 'queued' ORDER BY created_at LIMIT 20");
     for (const run of queued) {
-      const pipe = this.one("SELECT * FROM pipes WHERE id = ?", run.pipe_id) as Row | undefined;
+      const pipe = this.executionConfig(run.pipe_id);
       if (!pipe) continue;
       const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id = ? AND state IN ('starting','running','blocked','recovering')", pipe.id) as Row;
       if (Number(active.count) >= Number(pipe.max_concurrency)) continue;
       const name = `${String(pipe.workspace_name).slice(0, 20)}-${String(run.id).replaceAll("-", "").slice(0, 8)}`;
       this.ctx.storage.sql.exec("UPDATE runs SET state = 'starting', agent_name = ?, workspace_name = ?, updated_at = ? WHERE id = ? AND state = 'queued'", name, pipe.workspace_name, now(), run.id);
+      this.ctx.storage.sql.exec("UPDATE job_runs SET state='running',started_at=?,updated_at=? WHERE id=? AND state='queued'", now(), now(), run.id);
       await this.startRun({ ...run, agent_name: name, workspace_name: pipe.workspace_name }, pipe);
     }
 
@@ -246,6 +258,122 @@ export class Tenant extends DurableObject<Env> {
       exe: exe ? { vmName: exe.vmName, agentKind: exe.agentKind, cwd: exe.cwd, herdrCommand: exe.herdrCommand ?? "herdr", agentCommand: exe.agentCommand ?? defaultAgentCommand(exe.agentKind) } : null,
       exeConnections: connections.map(({ apiToken, ...connection }) => connection),
     });
+  }
+
+  private async executionTargets(): Promise<Response> {
+    const connections = await this.exeConnections();
+    return json(connections.map(connection => ({
+      id: connection.connectionId,
+      kind: "exe-herdr",
+      name: connection.vmName,
+      workspace: connection.vmName,
+      cwd: connection.cwd,
+      agentKind: connection.agentKind,
+      capabilities: ["output", "prompt-delivery", "recovery", "stop"],
+    })));
+  }
+
+  private triggerFor(jobId: unknown): Row | undefined { return this.one("SELECT * FROM triggers WHERE job_id = ?", jobId) as Row | undefined; }
+
+  private executionConfig(value: unknown): Row | undefined {
+    const pipe = this.one("SELECT * FROM pipes WHERE id = ?", value) as Row | undefined;
+    if (pipe) return pipe;
+    const job = this.one("SELECT * FROM jobs WHERE id = ? AND enabled=1", value) as Row | undefined;
+    if (!job) return undefined;
+    let target: Record<string, unknown> = {};
+    try { target = JSON.parse(String(job.execution_target)); } catch { return undefined; }
+    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: target.workspace, agent_kind: target.agentKind, cwd: target.cwd, exe_connection_id: target.connectionId, enabled: job.enabled };
+  }
+
+  private async publicJob(row: Row): Promise<Record<string, unknown>> {
+    const trigger = this.triggerFor(row.id);
+    let parameterDefaults: Record<string, string> = {}, executionTarget: Record<string, unknown> = {}, triggerConfig: Record<string, unknown> = {};
+    try { parameterDefaults = JSON.parse(String(row.parameter_defaults)); } catch { /* malformed internal state is presented safely */ }
+    try { executionTarget = JSON.parse(String(row.execution_target)); } catch { /* malformed internal state is presented safely */ }
+    try { triggerConfig = JSON.parse(String(trigger?.config ?? "{}")); } catch { /* malformed internal state is presented safely */ }
+    return {
+      id: row.id, name: row.name,
+      promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
+      parameterDefaults, concurrencyLimit: Number(row.concurrency_limit),
+      executionTargetId: String(executionTarget.connectionId ?? ""),
+      trigger: { kind: String(trigger?.kind ?? "manual"), config: triggerConfig },
+      enabled: Boolean(row.enabled), createdAt: row.created_at, updatedAt: row.updated_at,
+    };
+  }
+
+  private async jobTarget(targetId: unknown): Promise<Record<string, string>> {
+    if (typeof targetId !== "string" || !targetId) throw new Error("Execution target is required");
+    const target = (await this.exeConnections()).find(item => item.connectionId === targetId);
+    if (!target) throw new Error("Execution target not found");
+    return { connectionId: target.connectionId, workspace: target.vmName, cwd: target.cwd, agentKind: target.agentKind };
+  }
+
+  private validateJobInput(input: any): void {
+    if (!input?.name || !input.promptTemplate) throw new Error("Job name and prompt template are required");
+    if (!input.trigger || !["manual", "schedule", "webhook"].includes(input.trigger.kind)) throw new Error("Job trigger is invalid");
+    if (Object.prototype.hasOwnProperty.call(input.parameterDefaults ?? {}, "context")) throw new Error("context is reserved and cannot be a job parameter");
+    Mustache.parse(input.promptTemplate);
+  }
+
+  private async createJob(input: any): Promise<Response> {
+    this.validateJobInput(input);
+    const target = await this.jobTarget(input.executionTargetId), jobId = id(), triggerId = id(), timestamp = now();
+    this.ctx.storage.sql.exec("INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?)", jobId, input.name, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(input.parameterDefaults ?? {}), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
+    this.ctx.storage.sql.exec("INSERT INTO triggers VALUES (?,?,?,?,?,?)", triggerId, jobId, input.trigger.kind, JSON.stringify(input.trigger.config ?? {}), timestamp, timestamp);
+    return json(await this.publicJob(this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row));
+  }
+
+  private async getJobV1(jobId: string): Promise<Response> {
+    const row = this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row | undefined;
+    return row ? json(await this.publicJob(row)) : new Response("Not found", { status: 404 });
+  }
+
+  private async updateJob(jobId: string, input: any): Promise<Response> {
+    if (!this.one("SELECT id FROM jobs WHERE id = ?", jobId)) return new Response("Not found", { status: 404 });
+    this.validateJobInput(input);
+    const target = await this.jobTarget(input.executionTargetId), timestamp = now();
+    this.ctx.storage.sql.exec("UPDATE jobs SET name=?,encrypted_prompt_template=?,parameter_defaults=?,execution_target=?,concurrency_limit=?,updated_at=? WHERE id=?", input.name, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(input.parameterDefaults ?? {}), JSON.stringify(target), input.concurrencyLimit, timestamp, jobId);
+    this.ctx.storage.sql.exec("UPDATE triggers SET kind=?,config=?,updated_at=? WHERE job_id=?", input.trigger.kind, JSON.stringify(input.trigger.config ?? {}), timestamp, jobId);
+    return json(await this.publicJob(this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row));
+  }
+
+  private setJobEnabled(jobId: string, enabled: boolean): Response {
+    if (!this.one("SELECT id FROM jobs WHERE id = ?", jobId)) return new Response("Not found", { status: 404 });
+    this.ctx.storage.sql.exec("UPDATE jobs SET enabled=?,updated_at=? WHERE id=?", enabled ? 1 : 0, now(), jobId);
+    return json({ id: jobId, enabled });
+  }
+
+  private deleteJob(jobId: string): Response {
+    if (!this.one("SELECT id FROM jobs WHERE id = ?", jobId)) return new Response("Not found", { status: 404 });
+    this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id = ?", jobId);
+    this.ctx.storage.sql.exec("DELETE FROM runs WHERE pipe_id = ?", jobId);
+    this.ctx.storage.sql.exec("DELETE FROM jobs WHERE id = ?", jobId);
+    return json({ id: jobId, deleted: true });
+  }
+
+  private async invokeJob(jobId: string, input: any): Promise<Response> {
+    const row = this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row | undefined;
+    if (!row) return new Response("Not found", { status: 404 });
+    if (!Boolean(row.enabled)) return Response.json({ error: "Job is disabled" }, { status: 409 });
+    const claimKey = input.idempotencyKey ? `manual:${input.idempotencyKey}` : `manual:${id()}`;
+    const existing = this.one("SELECT i.id AS invocation_id,r.id AS run_id,r.state FROM invocations i JOIN job_runs r ON r.invocation_id=i.id WHERE i.job_id=? AND i.claim_key=?", jobId, claimKey) as Row | undefined;
+    if (existing) return json({ invocationId: existing.invocation_id, runId: existing.run_id, state: existing.state, duplicate: true });
+    const job = await this.publicJob(row), parameters = object(input.parameters);
+    const prompt = renderJobPrompt({ promptTemplate: String(job.promptTemplate), parameterDefaults: job.parameterDefaults as Record<string, string> }, { context: input.context, parameters });
+    const invocationId = id(), runId = id(), timestamp = now();
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO invocations (id,job_id,source,claim_key,context,parameters,created_at) VALUES (?,?,?,?,?,?,?)", invocationId, jobId, "manual", claimKey, input.context ?? null, JSON.stringify(parameters), timestamp);
+    const winner = this.one("SELECT id FROM invocations WHERE job_id=? AND claim_key=?", jobId, claimKey) as Row;
+    if (winner.id !== invocationId) {
+      const duplicate = this.one("SELECT id,state FROM job_runs WHERE invocation_id=?", winner.id) as Row;
+      return json({ invocationId: winner.id, runId: duplicate.id, state: duplicate.state, duplicate: true });
+    }
+    const encryptedPrompt = await encrypt(prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    this.ctx.storage.sql.exec("INSERT INTO job_runs (id,job_id,invocation_id,state,encrypted_prompt,created_at,updated_at) VALUES (?,?,?,?,?,?,?)", runId, jobId, invocationId, "queued", encryptedPrompt, timestamp, timestamp);
+    let target: Record<string, unknown> = {};
+    try { target = JSON.parse(String(row.execution_target)); } catch { /* validated when the job is saved */ }
+    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", "manual", "exe-herdr", JSON.stringify(["output", "prompt-delivery", "recovery", "stop"]), "https://exe.dev/", timestamp, timestamp);
+    await this.ctx.storage.setAlarm(Date.now());
+    return json({ invocationId, runId, state: "queued", duplicate: false });
   }
 
   private deletePipe(pipeId: string): Response {
@@ -355,22 +483,22 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private listRuns(url: URL): Response {
-    const limit = this.pageSize(url), cursor = this.cursor(url), flowId = url.searchParams.get("flowId"), state = url.searchParams.get("state");
+    const limit = this.pageSize(url), cursor = this.cursor(url), jobId = url.searchParams.get("jobId"), state = url.searchParams.get("state");
     const clauses: string[] = [], args: unknown[] = [];
-    if (flowId) { clauses.push("pipe_id = ?"); args.push(flowId); }
+    if (jobId) { clauses.push("pipe_id = ?"); args.push(jobId); }
     if (state === "succeeded") { clauses.push("state IN ('succeeded','done')"); }
     else if (state === "stopped") { clauses.push("state IN ('stopped','cancelled')"); }
     else if (state === "starting") { clauses.push("state IN ('starting','recovering')"); }
     else if (state) { clauses.push("state = ?"); args.push(state); }
     if (cursor) { clauses.push("(created_at < ? OR (created_at = ? AND id < ?))"); args.push(cursor.at, cursor.at, cursor.id); }
-    const rows = this.rows(`SELECT id, pipe_id AS flow_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, execution_backend_kind AS backend_kind, execution_capabilities AS capabilities, destination_url, created_at, updated_at FROM runs ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?`, ...args, limit + 1);
+    const rows = this.rows(`SELECT id, pipe_id AS job_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, execution_backend_kind AS backend_kind, execution_capabilities AS capabilities, destination_url, created_at, updated_at FROM runs ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?`, ...args, limit + 1);
     const hasMore = rows.length > limit, items = rows.slice(0, limit);
     for (const item of items) this.presentExecution(item);
     return json({ items, nextCursor: hasMore ? this.nextCursor(items.at(-1), "created_at") : null });
   }
 
   private async getRun(runId: string): Promise<Response> {
-    const run = this.one("SELECT id, pipe_id AS flow_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, execution_backend_kind AS backend_kind, execution_capabilities AS capabilities, destination_url, result, exec_status, exec_exit_code, recovery_last_action, created_at, updated_at FROM runs WHERE id = ?", runId);
+    const run = this.one("SELECT id, pipe_id AS job_id, issue_id, issue_url, agent_name, workspace_name, agent_kind, state, provider, execution_backend_kind AS backend_kind, execution_capabilities AS capabilities, destination_url, result, exec_status, exec_exit_code, recovery_last_action, created_at, updated_at FROM runs WHERE id = ?", runId);
     if (!run) return new Response("Not found", { status: 404 });
     if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     run.activity = this.rows("SELECT action, detail, created_at FROM run_activity WHERE run_id = ? ORDER BY created_at, id", runId);
@@ -393,7 +521,7 @@ export class Tenant extends DurableObject<Env> {
     if (!run) return new Response("Not found", { status: 404 });
     if (!["starting", "running", "blocked", "recovering"].includes(String(run.state))) return Response.json({ error: "Run is not active" }, { status: 409 });
     if (["starting", "running", "blocked", "recovering"].includes(String(run.state))) {
-      const pipe = this.one("SELECT * FROM pipes WHERE id = ?", run.pipe_id) as Row | undefined;
+      const pipe = this.executionConfig(run.pipe_id);
       if (pipe) {
         const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
         if (connection && run.agent_name) {
@@ -405,6 +533,7 @@ export class Tenant extends DurableObject<Env> {
       }
     }
     this.ctx.storage.sql.exec("UPDATE runs SET state = 'stopped', result = ?, updated_at = ? WHERE id = ?", await encrypt("Stopped by user", this.env.CREDENTIAL_ENCRYPTION_KEY), now(), runId);
+    this.ctx.storage.sql.exec("UPDATE job_runs SET state='cancelled',updated_at=? WHERE id=?", now(), runId);
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id = ?", runId);
     return json({ id: runId, state: "stopped", stopped: true });
   }
@@ -650,8 +779,8 @@ export class Tenant extends DurableObject<Env> {
   }
 
   private async pollRun(run: Row): Promise<void> {
-    const pipe = this.one("SELECT * FROM pipes WHERE id = ?", run.pipe_id) as Row | undefined;
-    if (!pipe) return this.finishRun(run, "failed", "Flow configuration is unavailable.");
+    const pipe = this.executionConfig(run.pipe_id);
+    if (!pipe) return this.finishRun(run, "failed", "Job configuration is unavailable.");
     const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "exe.dev connection is unavailable.");
     if (String(run.state) === "recovering") return this.recoverRun(run, pipe, connection);
@@ -785,6 +914,7 @@ export class Tenant extends DurableObject<Env> {
   private async finishRun(run: Row, state: Extract<RunState, "done" | "failed">, result: string, outputCaptured = false): Promise<void> {
     const encryptedResult = await encrypt(result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET state = ?, result = ?, output_captured=?, updated_at = ? WHERE id = ?", state, encryptedResult, outputCaptured ? 1 : Number(run.output_captured || 0), now(), run.id);
+    this.ctx.storage.sql.exec("UPDATE job_runs SET state=?,updated_at=? WHERE id=?", state === "done" ? "succeeded" : "failed", now(), run.id);
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id = ? AND issue_id = ?", run.pipe_id, run.claim_key || run.issue_id);
     this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id);
     await this.collectRunPane({ ...run, state, output_captured: outputCaptured ? 1 : Number(run.output_captured || 0), claim_released: 1 });
@@ -794,7 +924,7 @@ export class Tenant extends DurableObject<Env> {
 
   private async collectRunPane(run: Row): Promise<void> {
     if (!['done', 'failed', 'cancelled'].includes(String(run.state)) || !Number(run.output_captured) || !Number(run.claim_released) || !run.herdr_pane_id || !run.herdr_terminal_id || !run.worktree_path || !run.ownership_lease) return;
-    const pipe = this.one("SELECT * FROM pipes WHERE id=?", run.pipe_id) as Row | undefined;
+    const pipe = this.executionConfig(run.pipe_id);
     const connection = pipe ? await this.connectionForPipe(pipe) : null;
     if (!connection) return;
     const collected = await exec(connection, garbageCollectPaneCommand(connection, String(run.herdr_pane_id), String(run.herdr_terminal_id), String(run.worktree_path), String(run.ownership_lease)));

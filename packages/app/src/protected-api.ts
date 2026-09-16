@@ -3,7 +3,7 @@ import { McpServer, WebStandardStreamableHTTPServerTransport } from "@modelconte
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
 import { FlowService, ServiceError } from "./flow-service";
-import { flowIdSchema, flowInputSchema, listEventsSchema, listRunsSchema, runIdSchema } from "./flow-schemas";
+import { flowIdSchema, flowInputSchema, jobIdSchema, jobInputSchema, listEventsSchema, listRunsSchema, manualInvocationSchema, runIdSchema } from "./flow-schemas";
 import type { Env, OAuthProps } from "./types";
 
 function errorResponse(error: unknown): Response {
@@ -48,6 +48,17 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
       if (request.method === "GET" && path === "/api/v1/projects") return Response.json(await service.listProjects());
       if (request.method === "GET" && path === "/api/v1/flow-options") return Response.json(await service.listFlowOptions());
       if (request.method === "GET" && path === "/api/v1/exe-connections") return Response.json(await service.listExeConnections());
+      if (request.method === "GET" && path === "/api/v1/execution-targets") return Response.json(await service.listExecutionTargets());
+      if (request.method === "GET" && path === "/api/v1/jobs") return Response.json(await service.listJobs());
+      if (request.method === "POST" && path === "/api/v1/jobs") return Response.json(await service.createJob(jobInputSchema.parse(await request.json())), { status: 201 });
+      const invocationMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)\/invocations$/);
+      if (invocationMatch && request.method === "POST") return Response.json(await service.invokeJob(decodeURIComponent(invocationMatch[1]), manualInvocationSchema.parse(await request.json())), { status: 202 });
+      const enabledMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)\/(enable|disable)$/);
+      if (enabledMatch && request.method === "POST") return Response.json(await service.setJobEnabled(decodeURIComponent(enabledMatch[1]), enabledMatch[2] === "enable"));
+      const jobMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)$/);
+      if (jobMatch && request.method === "GET") return Response.json(await service.getJob(decodeURIComponent(jobMatch[1])));
+      if (jobMatch && request.method === "PUT") return Response.json(await service.updateJob(decodeURIComponent(jobMatch[1]), jobInputSchema.parse(await request.json())));
+      if (jobMatch && request.method === "DELETE") return Response.json(await service.deleteJob(decodeURIComponent(jobMatch[1])));
       if (request.method === "GET" && path === "/api/v1/runs") { const q = listRunsSchema.parse(queryInput(url)); return Response.json(await service.listRuns(queryOf(q))); }
       const runMatch = path.match(/^\/api\/v1\/runs\/([^/]+)$/);
       if (runMatch && request.method === "GET") return Response.json(await service.getRun(decodeURIComponent(runMatch[1])));
@@ -72,10 +83,19 @@ export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
     tool("list_projects", "List Linear projects", z.object({}), () => service.listProjects());
     tool("list_flow_options", "List match-rule options", z.object({}), () => service.listFlowOptions());
     tool("list_exe_connections", "List safe metadata for saved exe.dev connections. Select a connectionId before creating or updating a flow; API tokens are never returned.", z.object({}), () => service.listExeConnections());
-    tool("list_runs", "List and filter flow runs", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
+    tool("list_runs", "List and filter job runs", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
     tool("get_run", "Get a run and its current output", runIdSchema, ({ runId }: any) => service.getRun(runId));
     tool("list_flow_events", "List webhook activity for a flow", listEventsSchema, (input: any) => service.listFlowEvents(queryOf(input)));
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
+    tool("list_jobs", "List jobs", z.object({}), () => service.listJobs());
+    tool("get_job", "Get a job", jobIdSchema, ({ jobId }: any) => service.getJob(jobId));
+    tool("create_job", "Create a job using an executionTargetId returned by list_execution_targets. Credentials are never accepted or returned.", jobInputSchema, (input: any) => service.createJob(input));
+    tool("update_job", "Replace a job configuration. Credentials are never accepted or returned.", jobInputSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.updateJob(jobId, input));
+    tool("delete_job", "Delete a job and its queued invocation history", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));
+    tool("enable_job", "Enable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, true));
+    tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
+    tool("invoke_job", "Manually invoke any enabled job, overriding string parameters and optional reserved context", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
+    tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
     const appHostname = new URL(this.env.APP_ORIGIN).hostname;
