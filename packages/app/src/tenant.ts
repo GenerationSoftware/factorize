@@ -7,7 +7,7 @@ import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUER
 import { matchingIssue } from "./matcher";
 import type { AmpConnectionInput, Env, ExeConnectionInput, FilterType, MatchRule, RunState, TailIntegrationInput } from "./types";
 import { workingDirectoryFor, workspaceNameFor } from "./workspace";
-import { githubClaimKey, githubHeaders, installationToken, normalizeRepository, renderGitHubPrompt } from "./github";
+import { githubClaimKey, githubCollection, githubHeaders, installationToken, normalizeRepository, renderGitHubPrompt } from "./github";
 import type { WorkItem } from "./types";
 import { invokeCustomHandler } from "./custom-handler";
 import { generateTailSecret, sanitizeTailEvent, signTailDelivery, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
@@ -1546,11 +1546,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (!repositoryResponse.ok) return new Response("GitHub repository is unavailable", { status: repositoryResponse.status });
     const repository = await repositoryResponse.json() as { full_name?: string };
     if (!repository.full_name) return new Response("GitHub repository is unavailable", { status: 404 });
-    const load = async (path: string) => {
-      const response = await fetch(`https://api.github.com/repos/${repository.full_name}/${path}?per_page=100`, { headers: githubHeaders(token) });
-      if (!response.ok) throw new Error(`GitHub ${path} could not be loaded`);
-      return await response.json() as Array<{ id: number; name?: string; login?: string }>;
-    };
+    const load = (path: string) => githubCollection<{ id: number; name?: string; login?: string }>(`https://api.github.com/repos/${repository.full_name}/${path}`, token);
     const [labels, assignees] = await Promise.all([load("labels"), load("assignees")]);
     return json({
       statuses: [{ id: "open", name: "Open" }, { id: "closed", name: "Closed" }],
