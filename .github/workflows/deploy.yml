@@ -14,10 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The marketing site is connected to Cloudflare Pages and deploys from main
-  # automatically. This job remains responsible for the stateful app Worker.
   deploy:
-    name: Deploy app Worker
+    name: Deploy app and marketing site
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
@@ -31,6 +29,11 @@ jobs:
       - run: npm run build:css
       - name: Deploy app Worker
         run: npm run deploy:app
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Deploy marketing site
+        run: npm run deploy:marketing
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
