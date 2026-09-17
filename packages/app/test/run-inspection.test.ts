@@ -4,6 +4,7 @@ vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 
 import { TenantV2 } from "../src/tenant";
 import { ExeHerdrBackend } from "../src/exe-herdr-backend";
+import { encrypt } from "../src/crypto";
 
 function tenantWithRows(rows: (query: string, ...params: unknown[]) => Record<string, unknown>[]): TenantV2 {
   const tenant = Object.create(TenantV2.prototype) as TenantV2;
@@ -82,6 +83,24 @@ describe("run invocation inspection", () => {
       claim_key: "manual:dev-dispatch-gen-2032",
       idempotency_key: "dev-dispatch-gen-2032",
     });
+  });
+
+  it("returns the decrypted prompt alongside canonical context", async () => {
+    const encryptionKey = btoa("0123456789abcdef0123456789abcdef");
+    const encryptedPrompt = await encrypt("Rendered prompt sent to the agent", encryptionKey);
+    const tenant = tenantWithRows((query) => query.includes("FROM runs r") ? [{
+      id: "run-1", job_id: "job-1", state: "queued", backend_kind: "amp", capabilities: "[]", result: null,
+      encrypted_prompt: encryptedPrompt, context: '{"trigger-1":{"prompt":"go"}}', invocation_id: "inv-1", invocation_job_id: "job-1",
+      invocation_source: "manual", invocation_trigger_id: "manual-1", invocation_claim_key: "manual:one", invocation_occurrence: null,
+      invocation_created_at: "2026-09-16T12:00:01Z",
+    }] : []);
+    (tenant as any).env = { CREDENTIAL_ENCRYPTION_KEY: encryptionKey };
+
+    const body = await ((tenant as any).getRun("run-1") as Promise<Response>).then((response: Response) => response.json()) as any;
+
+    expect(body.prompt).toBe("Rendered prompt sent to the agent");
+    expect(body.context).toEqual({ "trigger-1": { prompt: "go" } });
+    expect(body).not.toHaveProperty("encrypted_prompt");
   });
 
   it("reads current backend output while an output-capable run is active", async () => {

@@ -299,11 +299,11 @@ describe("pages", () => {
     expect(run).not.toContain("Observation");
     expect(run).toContain("caps.includes('output')");
     expect(run).toContain('data-run-output');
-    expect(run).toContain("Context sent to agent");
-    expect(run).toContain('<details class=');
-    expect(run).toContain('data-run-context');
-    expect(run).toContain("JSON.stringify(r.context,null,2)");
-    expect(run).toContain("Context is not available for this legacy run.");
+    expect(run).toContain('>Prompt</h2>');
+    expect(run).toContain('data-run-prompt');
+    expect(run).toContain("esc(r.prompt||'Prompt is not available for this run.')");
+    expect(run).not.toContain("Context sent to agent");
+    expect(run).not.toContain('data-run-context');
     expect(run).toContain('font-mono text-xs leading-5');
     expect(run).toContain("ansiToHtml(outputText(r))");
     expect(run).toContain("r.live_output??r.result");
