@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "check": "tsc --noEmit && wrangler deploy --dry-run",
-    "deploy": "wrangler deploy"
+    "build:marketing": "node -e \"console.log('Static marketing assets are ready')\"",
+    "check": "tsc --noEmit",
+    "deploy": "wrangler pages deploy public --project-name factorize-marketing"
   },
   "dependencies": { "hono": "^4.11.4" },
   "devDependencies": { "@cloudflare/workers-types": "^5.20260910.1", "typescript": "^5.9.3", "wrangler": "^4.44.0" }

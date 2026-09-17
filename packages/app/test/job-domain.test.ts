@@ -27,6 +27,7 @@ describe("job invocation domain", () => {
   it("renders structured trigger paths and empty missing values", () => {
     expect(renderJobPrompt(job(), { "trigger-1": { prompt: "Fix it" }, "trigger-2": { issue: { title: "Bug" } } })).toBe("Fix it · Bug");
     expect(renderJobPrompt(job(), { "trigger-1": { prompt: "Fix it" } })).toBe("Fix it · ");
+    expect(renderJobPrompt({ promptTemplate: "{{trigger-1.data.name}} ({{trigger-1.data.priority}})" }, { "trigger-1": { prompt: "", data: { name: "Ticket run", priority: 1 } } })).toBe("Ticket run (1)");
   });
 
   it("queues one encrypted run for a claim regardless of source retries", async () => {
