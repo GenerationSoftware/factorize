@@ -1,5 +1,6 @@
 import type { Env, OAuthProps } from "./types";
 import type { JobInput, ManualInvocationInput } from "./flow-schemas";
+import { nextOccurrence, validateScheduleConfig } from "./schedule";
 
 export class ServiceError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -57,4 +58,14 @@ export class ApiService {
   setJobEnabled(jobId: string, enabled: boolean) { return this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}/${enabled ? "enable" : "disable"}`, { method: "POST" }); }
   invokeJob(jobId: string, input: ManualInvocationInput) { return this.call("runs:write", `/v1/jobs/${encodeURIComponent(jobId)}/invocations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
   listExecutionTargets() { return this.call("flows:read", "/v1/execution-targets"); }
+  listJobTriggerAvailability() { return this.call("flows:read", "/v1/job-trigger-availability"); }
+  async previewSchedule(input: unknown) {
+    await this.authorize("flows:read");
+    try {
+      const config = validateScheduleConfig(input);
+      return { nextRunAt: nextOccurrence(config, new Date()).toISOString() };
+    } catch (error) {
+      throw new ServiceError(400, "invalid_request", error instanceof Error ? error.message : "Invalid schedule");
+    }
+  }
 }
