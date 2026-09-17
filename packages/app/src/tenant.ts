@@ -462,7 +462,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (!job) return undefined;
     let target: Record<string, unknown> = {};
     try { target = JSON.parse(String(job.execution_target)); } catch { return undefined; }
-    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: job.slug, agent_kind: target.agentKind, cwd: target.cwd, execution_backend_kind: target.backendKind ?? "exe-herdr", execution_connection_id: target.connectionId, exe_connection_id: target.connectionId, enabled: job.enabled };
+    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: job.slug, agent_kind: target.agentKind, model: target.model ?? "", cwd: target.cwd, execution_backend_kind: target.backendKind ?? "exe-herdr", execution_connection_id: target.connectionId, exe_connection_id: target.connectionId, enabled: job.enabled };
   }
 
   private async publicJob(row: Row): Promise<Record<string, unknown>> {
@@ -485,6 +485,7 @@ export class TenantV2 extends DurableObject<Env> {
     return {
       id: row.id, name: row.name, slug: row.slug,
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
+      model: String(executionTarget.model ?? ""),
       concurrencyLimit: Number(row.concurrency_limit),
       runningCount: Number(runSummary?.running_count ?? 0),
       maxConcurrency: Number(row.concurrency_limit),
@@ -511,6 +512,7 @@ export class TenantV2 extends DurableObject<Env> {
   private validateJobInput(input: any): void {
     if (!input?.name || !input.promptTemplate) throw new Error("Job name and prompt template are required");
     if (!JOB_SLUG.test(String(input.slug ?? ""))) throw new Error("Job slug must start with a lowercase letter and contain only lowercase letters, digits, hyphens, or underscores (30 characters maximum).");
+    if (input.model !== undefined && (typeof input.model !== "string" || input.model.trim().length > 120)) throw new Error("Job model must be a string of 120 characters or fewer");
     if (!Array.isArray(input.triggers) || input.triggers.some((trigger: any) => !["manual", "schedule", "webhook", "jobLifecycle"].includes(trigger?.kind))) throw new Error("Job triggers are invalid");
     Mustache.parse(input.promptTemplate);
     for (const trigger of input.triggers) {
@@ -598,7 +600,7 @@ export class TenantV2 extends DurableObject<Env> {
     this.validateJobInput(input);
     if (this.one("SELECT id FROM jobs WHERE slug=?", input.slug)) throw new Error("Job slug is already in use");
     await this.validateProviderIntegrations(input.triggers);
-    const target = await this.jobTarget(input.executionTargetId), jobId = id(), timestamp = now();
+    const target = { ...await this.jobTarget(input.executionTargetId), model: text(input.model).trim() }, jobId = id(), timestamp = now();
     const triggers = this.normalizedTriggers(input.triggers);
     this.validateLifecycleGraph(jobId, triggers);
     this.ctx.storage.sql.exec("INSERT INTO jobs (id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", jobId, input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
@@ -620,7 +622,7 @@ export class TenantV2 extends DurableObject<Env> {
     await this.validateProviderIntegrations(input.triggers, existing);
     const triggers = this.normalizedTriggers(input.triggers, existing);
     this.validateLifecycleGraph(jobId, triggers);
-    const target = await this.jobTarget(input.executionTargetId), timestamp = now();
+    const target = { ...await this.jobTarget(input.executionTargetId), model: text(input.model).trim() }, timestamp = now();
     this.ctx.storage.sql.exec("UPDATE jobs SET name=?,slug=?,encrypted_prompt_template=?,execution_target=?,concurrency_limit=?,updated_at=? WHERE id=?", input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, timestamp, jobId);
     const retained = new Set<string>();
     for (const trigger of triggers) {
@@ -894,7 +896,7 @@ export class TenantV2 extends DurableObject<Env> {
   }
 
   private async getRun(runId: string): Promise<Response> {
-    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_capabilities AS capabilities, r.destination_url, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
+    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_handle, r.execution_capabilities AS capabilities, r.destination_url, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
       i.id AS invocation_id, i.job_id AS invocation_job_id, i.source AS invocation_source, i.claim_key AS invocation_claim_key, i.trigger_id AS invocation_trigger_id, i.context, i.occurrence AS invocation_occurrence, i.created_at AS invocation_created_at
       FROM runs r LEFT JOIN job_runs jr ON jr.id = r.id LEFT JOIN invocations i ON i.id = jr.invocation_id WHERE r.id = ?`, runId);
     if (!run) return new Response("Not found", { status: 404 });
@@ -915,6 +917,21 @@ export class TenantV2 extends DurableObject<Env> {
     if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     run.activity = this.rows("SELECT action, detail, created_at FROM run_activity WHERE run_id = ? ORDER BY created_at, id", runId);
     this.presentExecution(run);
+    if (["starting", "running", "blocked", "stopping"].includes(String(run.state)) && (run.capabilities as unknown[]).includes("output")) {
+      const pipe = this.executionConfig(run.job_id);
+      if (pipe && String(run.backend_kind) === "exe-herdr") {
+        const connection = await this.connectionForPipe(pipe);
+        if (connection) {
+          try {
+            const output = await new ExeHerdrBackend(connection).readOutput(this.executionHandle(run, "exe-herdr"));
+            if (output !== null) run.live_output = output;
+          } catch {
+            // Run inspection remains available when live output is temporarily unreachable.
+          }
+        }
+      }
+    }
+    delete run.execution_handle;
     return json(run);
   }
 
@@ -1540,7 +1557,8 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async connectionForPipe(pipe: Row): Promise<ExeConnection | null> {
     const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
-    return connection && pipe.cwd ? { ...connection, cwd: workingDirectoryFor(String(pipe.cwd), String(pipe.workspace_name)) } : connection;
+    if (!connection) return null;
+    return { ...connection, ...(pipe.cwd ? { cwd: workingDirectoryFor(String(pipe.cwd), String(pipe.workspace_name)) } : {}), model: String(pipe.model ?? "") };
   }
 
   private async upsertMember(input: unknown): Promise<Response> {

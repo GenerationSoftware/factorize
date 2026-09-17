@@ -51,7 +51,8 @@ describe("shared API schemas", () => {
   });
 
   it("validates job configuration and reserved invocation context", () => {
-    const job = jobInputSchema.parse({ name: "Deploy", slug: "deploy", promptTemplate: "Deploy {{trigger-1.prompt}}", concurrencyLimit: 2, executionTargetId: "exe-1", triggers: [{ kind: "schedule", config: { cron: "0 * * * *", timezone: "UTC" } }, { kind: "jobLifecycle", config: { sourceJobIds: ["worker"], states: ["succeeded", "failed"] } }] });
+    const job = jobInputSchema.parse({ name: "Deploy", slug: "deploy", promptTemplate: "Deploy {{trigger-1.prompt}}", model: "gpt-5.5", concurrencyLimit: 2, executionTargetId: "exe-1", triggers: [{ kind: "schedule", config: { cron: "0 * * * *", timezone: "UTC" } }, { kind: "jobLifecycle", config: { sourceJobIds: ["worker"], states: ["succeeded", "failed"] } }] });
+    expect(job.model).toBe("gpt-5.5");
     expect(job.triggers.map(trigger => trigger.kind)).toEqual(["schedule", "jobLifecycle"]);
     expect(() => jobInputSchema.parse({ ...job, apiToken: "secret" })).toThrow();
     expect(() => jobInputSchema.parse({ ...job, parameterDefaults: {} })).toThrow();

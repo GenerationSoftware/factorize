@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 
 import { TenantV2 } from "../src/tenant";
+import { ExeHerdrBackend } from "../src/exe-herdr-backend";
 
 function tenantWithRows(rows: (query: string, ...params: unknown[]) => Record<string, unknown>[]): TenantV2 {
   const tenant = Object.create(TenantV2.prototype) as TenantV2;
@@ -81,6 +82,24 @@ describe("run invocation inspection", () => {
       claim_key: "manual:dev-dispatch-gen-2032",
       idempotency_key: "dev-dispatch-gen-2032",
     });
+  });
+
+  it("reads current backend output while an output-capable run is active", async () => {
+    const tenant = tenantWithRows((query) => query.includes("FROM runs r") ? [{
+      id: "run-1", job_id: "job-1", state: "running", backend_kind: "exe-herdr",
+      execution_handle: '{"backendKind":"exe-herdr","id":"agent-1"}', capabilities: '["output"]', result: null,
+      created_at: "2026-09-16T12:00:00Z", updated_at: "2026-09-16T12:01:00Z",
+    }] : []);
+    (tenant as any).executionConfig = () => ({ id: "job-1" });
+    (tenant as any).connectionForPipe = async () => ({ vmName: "vm", apiToken: "secret", agentKind: "codex", cwd: "/repo" });
+    const output = vi.spyOn(ExeHerdrBackend.prototype, "readOutput").mockResolvedValue("work in progress");
+
+    const body = await ((tenant as any).getRun("run-1") as Promise<Response>).then((response: Response) => response.json()) as any;
+
+    expect(output).toHaveBeenCalledWith({ backendKind: "exe-herdr", id: "agent-1" });
+    expect(body.live_output).toBe("work in progress");
+    expect(body).not.toHaveProperty("execution_handle");
+    output.mockRestore();
   });
 
   it("rejects an internal manual claim key before creating an invocation", async () => {

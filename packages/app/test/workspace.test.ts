@@ -82,6 +82,11 @@ describe("flow workspaces", () => {
     expect(command).toContain("-- '--model' 'gpt 5'");
   });
 
+  it("passes a per-job model as a safely quoted harness argument", () => {
+    const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo", model: "gpt-5.5 codex" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
+    expect(command).toContain("-- '--dangerously-bypass-approvals-and-sandbox' '--model' 'gpt-5.5 codex'");
+  });
+
   it("garbage collects the pane and run directory only after ownership revalidation", () => {
     const command = garbageCollectPaneCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "w1:p2", "term-7", "/repo/.factorize-runs/run", "lease-7");
     expect(command).toContain(".terminal_id == $terminal");
