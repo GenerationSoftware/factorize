@@ -362,7 +362,8 @@ describe("pages", () => {
     expect(detail).not.toContain("const triggerDetail=");
     expect(detail).not.toContain("esc(t.slug)+' · '+esc(t.kind)");
     expect(detail.indexOf('>Details</summary>')).toBeLessThan(detail.indexOf('Prompt template'));
-    expect(run).toContain('class="mx-auto w-full max-w-6xl');
+    expect(run).toContain('class="mx-auto w-full max-w-6xl min-w-0');
+    expect(run).toContain('id="run-detail" class="min-w-0"');
     expect(run).toContain('<nav aria-label="Breadcrumb">');
     expect(run).toContain("request('/api/v1/jobs/'+encodeURIComponent(r.job_id))");
     expect(run).toContain("esc(j.name)");
@@ -386,6 +387,9 @@ describe("pages", () => {
     expect(run).toContain('data-run-elapsed');
     expect(run).toContain("+'s elapsed'");
     expect(run).toContain('max-h-[calc(100vh-12rem)] overflow-auto');
+    expect(run).toContain('mt-6 min-w-0 overflow-hidden p-6');
+    expect(run).toContain('min-w-0 max-w-full max-h-[calc(100vh-12rem)] overflow-auto whitespace-pre-wrap');
+    expect(run).toContain('block truncate font-medium');
     expect(run).toContain('output.scrollHeight-output.scrollTop-output.clientHeight<24');
     expect(run).toContain('if(follow)output.scrollTop=output.scrollHeight');
     expect(run).not.toContain("__name");
