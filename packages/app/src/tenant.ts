@@ -223,6 +223,7 @@ export class TenantV2 extends DurableObject<Env> {
       if (request.method === "PUT" && url.pathname === "/connections/clickup") return await this.saveClickUp(await request.json());
       if (request.method === "PUT" && url.pathname === "/connections/exe") return await this.saveExe(await request.json());
       if (request.method === "POST" && url.pathname === "/connections/exe/test") return await this.testExe(await request.json());
+      if (request.method === "POST" && url.pathname === "/authorize") return this.authorize(await request.json());
       const exeModelsMatch = url.pathname.match(/^\/connections\/exe\/([^/]+)\/models$/);
       if (request.method === "POST" && exeModelsMatch) return await this.refreshExeModels(decodeURIComponent(exeModelsMatch[1]));
       if (request.method === "PUT" && url.pathname === "/connections/amp") return await this.saveAmp(await request.json());
@@ -1753,6 +1754,18 @@ export class TenantV2 extends DurableObject<Env> {
   private getMember(userId: string): Response {
     const member = this.one("SELECT user_id,email,role,session_version FROM members WHERE user_id = ?", userId);
     return member ? json(member) : new Response("Not found", { status: 404 });
+  }
+
+  private authorize(input: unknown): Response {
+    const value = object(input);
+    const userId = text(value.userId);
+    const sessionVersion = Number(value.sessionVersion);
+    const accessTokenId = text(value.accessTokenId);
+    const member = this.one("SELECT role,session_version FROM members WHERE user_id = ?", userId) as Row | undefined;
+    if (!member) return Response.json({ error: "The resource owner is no longer a member." }, { status: 401 });
+    if (member.role !== "owner" || Number(member.session_version) !== sessionVersion) return Response.json({ error: "The resource owner's session has been revoked." }, { status: 401 });
+    if (accessTokenId && !this.one("SELECT id FROM access_tokens WHERE id=? AND revoked_at IS NULL AND expires_at>?", accessTokenId, now())) return Response.json({ error: "The access token has expired or been revoked." }, { status: 401 });
+    return json({ authorized: true });
   }
 
   private revokeMember(userId: string): Response {
