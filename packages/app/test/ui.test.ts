@@ -281,6 +281,15 @@ describe("pages", () => {
     expect(detail).toContain('<nav aria-label="Breadcrumb">');
     expect(detail).toContain('aria-current="page"');
     expect(detail).toContain("esc(j.name)");
+    expect(detail).toContain('<summary class="w-fit cursor-pointer');
+    expect(detail).toContain('>Details</summary>');
+    expect(detail).toContain('w-full break-words text-3xl');
+    expect(detail).toContain("esc(j.runningCount)+'/'+esc(j.concurrencyLimit)+' Running");
+    expect(detail).toContain('data-run-started=');
+    expect(detail).toContain('setInterval(refreshRunElapsed,1000)');
+    expect(detail).not.toContain("const triggerDetail=");
+    expect(detail).not.toContain("esc(t.slug)+' · '+esc(t.kind)");
+    expect(detail.indexOf('>Details</summary>')).toBeLessThan(detail.indexOf('Prompt template'));
     expect(run).toContain('class="mx-auto max-w-6xl');
     expect(run).toContain('<nav aria-label="Breadcrumb">');
     expect(run).toContain("request('/api/v1/jobs/'+encodeURIComponent(r.job_id))");
@@ -306,6 +315,10 @@ describe("pages", () => {
     expect(run).toContain('output.scrollHeight-output.scrollTop-output.clientHeight<24');
     expect(run).toContain('if(follow)output.scrollTop=output.scrollHeight');
     expect(run).not.toContain("__name");
+    for (const stateClass of ['bg-blue-100', 'bg-amber-100', 'bg-green-100', 'bg-red-100']) {
+      expect(detail).toContain(stateClass);
+      expect(run).toContain(stateClass);
+    }
     expect(settings).toContain("Connect every provider used by your Jobs");
     expect(settings).toContain("Linear");
     expect(settings).toContain("GitHub App");
