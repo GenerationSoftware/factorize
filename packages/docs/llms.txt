@@ -1,0 +1,10 @@
+# Factorize
+
+> Automate coding-agent jobs from provider events on your own exe.dev VM.
+
+- [Quickstart](/quickstart): Configure Factorize and create a first job.
+- [Concepts](/concepts): Jobs, triggers, runs, and the Mustache prompt contract.
+- [REST authentication](/api/authentication): OAuth, scopes, and device authorization.
+- [REST reference](/api/reference): Complete operation inventory and schemas.
+- [MCP](/mcp/overview): Connect a remote MCP client.
+- [MCP tools](/mcp/tools): Complete tool catalog.

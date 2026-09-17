@@ -1,0 +1,39 @@
+---
+title: REST API reference
+description: Complete implementation-accurate operation inventory.
+---
+
+All paths are relative to `APP_ORIGIN` and require a bearer token or browser owner session. Errors use `{ "error": { "code": "...", "message": "..." } }`; malformed JSON/schema input returns `400 invalid_request`, missing resources `404 not_found`, invalid/revoked tokens `401 invalid_token`, and missing scopes `403 insufficient_scope`.
+
+`GET /api/health` is the unauthenticated liveness check and returns `{ "ok": true }`.
+
+## Discovery and read operations
+
+| Method | Path | Scope | Result |
+| --- | --- | --- | --- |
+| GET | `/api/v1/exe-connections` | flows:read | Safe exe connection metadata |
+| GET | `/api/v1/github-installations` | flows:read | GitHub App installations |
+| GET | `/api/v1/execution-targets` | flows:read | Non-secret target metadata/capabilities |
+| GET | `/api/v1/job-trigger-availability` | flows:read | Currently available trigger kinds |
+| GET | `/api/v1/integrations/cloudflare-tail` | flows:read | Tail integrations and reference counts |
+| GET | `/api/v1/jobs` | flows:read | Jobs with `currentRuns`, `maxConcurrency`, triggers |
+| GET | `/api/v1/jobs/{jobId}` | flows:read | One job |
+| GET | `/api/v1/jobs/{jobId}/events?limit=50` | runs:read | Webhook activity; limit 1–100 |
+| GET | `/api/v1/runs/{runId}` | runs:read | Full prompt, context, invocation, execution, output, activity |
+
+## Writes and runs
+
+| Method | Path | Scope | Notes |
+| --- | --- | --- | --- |
+| POST | `/api/v1/jobs` | flows:write | Create; returns `201` |
+| PUT | `/api/v1/jobs/{jobId}` | flows:write | Replace configuration |
+| DELETE | `/api/v1/jobs/{jobId}` | flows:write | Deletes job and queued invocation history |
+| POST | `/api/v1/jobs/{jobId}/enable` | flows:write | Enable |
+| POST | `/api/v1/jobs/{jobId}/disable` | flows:write | Disable |
+| POST | `/api/v1/job-handlers/test` | flows:write | Isolated synchronous test; no run |
+| POST | `/api/v1/jobs/{jobId}/invocations` | runs:write | Manual invocation; returns `202` |
+| GET | `/api/v1/runs?jobId=&state=&contextQuery=&limit=&cursor=` | runs:read | `{items,nextCursor}`; limit 1–100 |
+| POST | `/api/v1/runs/{runId}/stop` | runs:write | Stop an active run |
+| POST | `/api/v1/schedules/preview` | flows:read | `{nextRunAt}` for `{cron,timezone}` |
+
+Job creation requires `name` (1–120), `slug` (lowercase, up to 30), `promptTemplate` (1–50,000), `executionTargetId`, and optional `model`, `effort`, `concurrencyLimit`, and `triggers`. Manual invocation accepts `prompt` (default empty) and an optional unique `idempotencyKey` (1–200; never prefix it with reserved `manual:`). Run states are `queued`, `starting`, `running`, `recovering`, `done`, `blocked`, `failed`, and `ignored`.

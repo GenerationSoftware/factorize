@@ -1,0 +1,12 @@
+---
+title: Remote MCP
+description: Connect an MCP client to Factorize.
+---
+
+Use the single Streamable HTTP URL `APP_ORIGIN/mcp`. The endpoint is OAuth-protected and advertises protected-resource metadata. Compatible clients discover authorization, use PKCE S256, and request only the scopes they need. The server is stateless; each request is tenant-isolated.
+
+```json
+{ "mcpServers": { "factorize": { "url": "https://app.factorize.sh/mcp" } } }
+```
+
+Tool results contain MCP text plus structured JSON. Errors are reported as `code: message`. Credentials and signing secrets are never accepted or returned.

@@ -1,0 +1,12 @@
+---
+title: Jobs, triggers, and runs
+description: The durable execution model and prompt contract.
+---
+
+A Job contains a prompt template, execution target, model/effort options, concurrency limit (1–50), and up to 50 triggers. Every job has a server-generated manual trigger. A Run is a queued or executing instance. Automatic webhook, schedule, and lifecycle signals coalesce; manual invocations never coalesce.
+
+Templates are Mustache and render only against the firing trigger's stable slug, such as `{{trigger-1.issue.title}}`. Missing paths become empty strings. Run inspection returns the complete persisted `context`, rendered `prompt`, `invocation.trigger_id`, execution metadata, output, and activity.
+
+Trigger kinds are `manual`, `schedule`, `webhook`, and `jobLifecycle`. Webhooks support Linear, ClickUp, GitHub, and Cloudflare Tail. A webhook handler is one synchronous `function handler(webhook)` declaration: `false` rejects, `true` keeps the default payload, and a JSON object replaces it. It runs after authentication/scoping in an isolated Worker with no network or bindings.
+
+See the repository's [trigger context contract](https://github.com/GenerationSoftware/factorize/blob/main/docs/job-trigger-context.md) for the reflection paths exposed with every trigger.

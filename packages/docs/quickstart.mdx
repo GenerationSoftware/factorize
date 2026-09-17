@@ -1,0 +1,34 @@
+---
+title: Quickstart
+description: Configure authentication and create a job end to end.
+---
+
+## Prerequisites
+
+You need a Cloudflare Worker deployment, a Linear OAuth application, an exe.dev VM with Herdr and an agent, and an HTTPS API token restricted to the exact SSH destination used by the VM. Set `APP_ORIGIN`, OAuth credentials, `LINEAR_WEBHOOK_SIGNING_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, and `SESSION_SIGNING_SECRET`.
+
+Sign in to the dashboard, connect the VM, choose an execution target, and create a job. Use `list_execution_targets` or `GET /api/v1/execution-targets` before submitting `executionTargetId`.
+
+## First API call
+
+```bash
+curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" "$APP_ORIGIN/api/v1/jobs"
+```
+
+Create a manual job:
+
+```bash
+curl -X POST "$APP_ORIGIN/api/v1/jobs" \
+  -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" -H 'content-type: application/json' \
+  -d '{"name":"Review changes","slug":"review-changes","promptTemplate":"Review: {{trigger-1.prompt}}","executionTargetId":"TARGET_ID","triggers":[{"kind":"manual","config":{}}]}'
+```
+
+Invoke it with a reusable idempotency key:
+
+```bash
+curl -X POST "$APP_ORIGIN/api/v1/jobs/JOB_ID/invocations" \
+  -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" -H 'content-type: application/json' \
+  -d '{"prompt":"Review the latest commit","idempotencyKey":"review-2026-09-17"}'
+```
+
+The response is `202`. Query `/runs` and then `/runs/RUN_ID`; stop an active run with `/runs/RUN_ID/stop`.

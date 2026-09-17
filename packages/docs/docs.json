@@ -1,0 +1,16 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "Factorize",
+  "theme": "mint",
+  "colors": { "primary": "#e5a400", "light": "#fff8e1", "dark": "#17130a" },
+  "favicon": "/favicon.ico",
+  "logo": { "light": "/logo-light.svg", "dark": "/logo-dark.svg" },
+  "navigation": {
+    "groups": [
+      { "group": "Start", "pages": ["index", "quickstart", "concepts"] },
+      { "group": "REST API", "pages": ["api/authentication", "api/discovery", "api/openapi", "api/reference"] },
+      { "group": "MCP", "pages": ["mcp/overview", "mcp/tools"] },
+      { "group": "Integrations", "pages": ["integrations/triggers", "integrations/oauth"] }
+    ]
+  }
+}

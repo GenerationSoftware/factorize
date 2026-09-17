@@ -1,0 +1,11 @@
+---
+title: OAuth discovery
+description: Endpoints and metadata for OAuth-aware clients.
+---
+
+At the deployment origin, clients can retrieve:
+
+* `/.well-known/oauth-authorization-server` — issuer, authorization, token, registration, revocation, and device endpoints plus supported grants/scopes.
+* `/.well-known/oauth-protected-resource` — resource `APP_ORIGIN/mcp`, authorization server, header bearer authentication, and supported scopes.
+
+The authorization endpoint is `/authorize`, token endpoint `/oauth/token`, dynamic registration endpoint `/oauth/register`, and device endpoint `/oauth/device_authorization`. Client ID Metadata Documents are enabled. MCP clients should use `APP_ORIGIN/mcp`; they can discover OAuth automatically and complete browser PKCE consent.

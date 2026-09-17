@@ -1,0 +1,10 @@
+{
+  "name": "factorize-docs",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "mint dev",
+    "validate": "node scripts/validate.mjs",
+    "deploy": "mint deploy"
+  }
+}
