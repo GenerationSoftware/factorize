@@ -5,7 +5,7 @@ import { equalHmac, hmac } from "./crypto";
 import { Tenant, TenantV2 } from "./tenant";
 import { GitHubInstallationRegistry, GitHubInstallationRegistryV2 } from "./github-registry";
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
-import { apiKeysSettingsPage, authPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, settingsPage } from "./ui";
+import { apiKeysSettingsPage, authPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, loginPage, settingsPage } from "./ui";
 import type { Env } from "./types";
 import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
 
@@ -345,7 +345,7 @@ const render = (page: string, nonce: string) => page.replaceAll("<script>", `<sc
 
 app.get("/", async (c) => {
   const session = await owner(c);
-  return c.html(render(landingPage(session ? { email: session.email } : null), c.get("cspNonce")));
+  return session ? c.redirect("/jobs") : c.html(render(loginPage(c.env.MARKETING_ORIGIN), c.get("cspNonce")));
 });
 app.get("/auth/signup", (c) => c.html(render(authPage("Create your Factorize account", "signup"), c.get("cspNonce"))));
 app.get("/auth/login", (c) => c.html(render(authPage("Sign in to Factorize", "login"), c.get("cspNonce"))));

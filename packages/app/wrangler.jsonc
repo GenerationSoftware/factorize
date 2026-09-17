@@ -18,6 +18,7 @@
   ],
   "vars": {
     "APP_ORIGIN": "https://app.factorize.sh",
+    "MARKETING_ORIGIN": "https://factorize.sh",
     "LINEAR_OAUTH_SCOPES": "read,write"
   }
 }
