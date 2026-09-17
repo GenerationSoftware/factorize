@@ -9,6 +9,9 @@ export interface ExeConnection {
   agentCommand?: string;
   /** Per-job harness model. Empty means the harness chooses its default. */
   model?: string;
+  /** Models returned by the VM's attached exe.dev LLM integration. */
+  models?: string[];
+  modelsRefreshedAt?: string;
 }
 
 export interface ExeResponse {
@@ -158,6 +161,17 @@ export function herdrCheckCommand(connection: ExeConnection): string {
 /** A deliberately minimal SSH round trip for validating an exe.dev token. */
 export function connectionCheckCommand(): string {
   return "printf '%s\\n' factorize-connection-ok";
+}
+
+/** Query the documented exe.dev LLM integration from inside the connected VM. */
+export function modelListCommand(): string {
+  return "curl --fail --silent --show-error https://llm.int.exe.xyz/v1/models | jq -cer '[.data[]?.id | strings] | unique'";
+}
+
+export function parseModelList(value: string): string[] {
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || parsed.some(model => typeof model !== "string")) throw new Error("The model endpoint returned an invalid response");
+  return [...new Set(parsed.map(model => model.trim()).filter(Boolean))].sort();
 }
 
 /** exe.dev executes non-interactive shells, which do not load the user's PATH customizations. */

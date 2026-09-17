@@ -164,7 +164,7 @@ curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
   https://app.factorize.sh/api/v1/github-installations
 ```
 
-Job CRUD is available at `/jobs` and `/jobs/:id`; job metadata includes `currentRuns` and `maxConcurrency`. Run collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Runs can be filtered by `jobId`, `state`, and `contextQuery`; context queries use case-insensitive literal substring matching and matching items contain a bounded `context_excerpt`, never the full context. `GET /runs/:runId` returns the complete structured trigger `context` and invocation metadata, including the firing `trigger_id`. The canonical Job prompt contract is documented in [docs/job-trigger-context.md](docs/job-trigger-context.md). Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
+Job CRUD is available at `/jobs` and `/jobs/:id`; job metadata includes `currentRuns` and `maxConcurrency`. Run collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Runs can be filtered by `jobId`, `state`, and `contextQuery`; context queries use case-insensitive literal substring matching and matching items contain a bounded `context_excerpt`, never the full context. `GET /runs/:runId` returns the rendered `prompt`, complete structured trigger `context`, and invocation metadata, including the firing `trigger_id`. The canonical Job prompt contract is documented in [docs/job-trigger-context.md](docs/job-trigger-context.md). Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
 
 ## MCP clients
 
@@ -184,7 +184,7 @@ Factorize also supports the OAuth 2.0 Device Authorization Grant (RFC 8628) for 
 - Linear webhooks require a valid HMAC-SHA256 signature and fresh timestamp before workspace routing.
 - Session cookies are signed, expire after seven days, and are checked against workspace membership.
 - OAuth access is tenant-bound, scope-checked, revocable, and revalidates current owner membership at the shared service boundary.
-- Public REST and MCP responses omit connection tokens, credential records, prompts, and internal execution requests/responses.
+- Public REST and MCP responses omit connection tokens, credential records, and internal execution requests/responses. Authorized run inspection includes the rendered prompt sent to the agent.
 - Agent output is not copied into Linear; completion comments point back to the Herdr session on your VM.
 - The dashboard uses a restrictive content-security policy and locally built Tailwind CSS.
 

@@ -110,10 +110,10 @@ describe("pages", () => {
   it("selects a per-job model with harness-aware suggestions", () => {
     const html = jobPage({ email: "owner@example.com" }, "job-1");
     expect(html).toContain('name="model"');
-    expect(html).toContain('placeholder="Harness default"');
-    expect(html).toContain("const modelChoices={codex:");
+    expect(html).toContain("new Option('Harness default','')");
+    expect(html).toContain("target?.models||[]");
     expect(html).toContain("model:form.model.value.trim()");
-    expect(html).toContain("form.model.value=current.model||''");
+    expect(html).toContain("syncModels(current?.model||'')");
     expectInlineScriptsToParse(html);
   });
 
@@ -246,13 +246,17 @@ describe("pages", () => {
     const detail = jobDetailPage({ email: "owner@example.com" }, "job-1");
     const run = jobRunPage({ email: "owner@example.com" }, "run-1");
     const settings = settingsPage({ email: "owner@example.com" });
-    expect(list).toContain("Manual only");
     expect(list).toContain("jobStatus(j)");
     expect(list).toContain("j.runningCount>0");
     expect(list).toContain("Last run failed");
     expect(list).toContain("Last run succeeded");
     expect(list).toContain("/'+esc(j.concurrencyLimit)+' Running");
-    expect(list).not.toContain("+' concurrent · updated '");
+    expect(list).toMatch(/<h1 class="text-3xl font-bold tracking-tight">Jobs<\/h1><\/div><a href="\/jobs\/new"/);
+    expect(list).not.toContain("Create reusable agent work and choose exactly how it starts.");
+    expect(list).not.toContain("triggers.map(t=>triggerBadge(t.kind))");
+    expect(list).not.toContain("new Date(j.updatedAt)");
+    expect(list).not.toContain("new Date(next)");
+    expect(list).not.toContain(">View →</a>");
     expect(editor).toContain("Add trigger");
     expect(editor).toContain('id="trigger-rows"');
     expect(editor).toContain("Context slug");
@@ -281,16 +285,15 @@ describe("pages", () => {
     expect(detail).toContain('<nav aria-label="Breadcrumb">');
     expect(detail).toContain('aria-current="page"');
     expect(detail).toContain("esc(j.name)");
-    expect(detail).toContain('summary class="w-fit cursor-pointer');
-    expect(detail).toContain(">Details</summary>");
-    expect(detail).toContain("j.runningCount)+'/'+esc(j.concurrencyLimit)+' Running");
-    expect(detail).toContain('data-run-start=');
-    expect(detail).toContain("elapsedTime({created_at:x.dataset.runStart})+' elapsed'");
+    expect(detail).toContain('<summary class="w-fit cursor-pointer');
+    expect(detail).toContain('>Details</summary>');
+    expect(detail).toContain('w-full break-words text-3xl');
+    expect(detail).toContain("esc(j.runningCount)+'/'+esc(j.concurrencyLimit)+' Running");
+    expect(detail).toContain('data-run-started=');
+    expect(detail).toContain('setInterval(refreshRunElapsed,1000)');
     expect(detail).not.toContain("const triggerDetail=");
-    expect(detail).not.toContain('<section class="rounded-2xl border border-stone-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 mt-8 p-6"><h2 class="font-semibold">Prompt template</h2>');
-    expect(detail).toContain("stateBadge(r.state)");
-    expect(detail).toContain("bg-green-100 text-green-800");
-    expect(detail).toContain("bg-red-100 text-red-800");
+    expect(detail).not.toContain("esc(t.slug)+' · '+esc(t.kind)");
+    expect(detail.indexOf('>Details</summary>')).toBeLessThan(detail.indexOf('Prompt template'));
     expect(run).toContain('class="mx-auto max-w-6xl');
     expect(run).toContain('<nav aria-label="Breadcrumb">');
     expect(run).toContain("request('/api/v1/jobs/'+encodeURIComponent(r.job_id))");
@@ -300,11 +303,13 @@ describe("pages", () => {
     expect(run).not.toContain("Observation");
     expect(run).toContain("caps.includes('output')");
     expect(run).toContain('data-run-output');
-    expect(run).toContain("Context sent to agent");
-    expect(run).toContain('<details class=');
-    expect(run).toContain('data-run-context');
-    expect(run).toContain("JSON.stringify(r.context,null,2)");
-    expect(run).toContain("Context is not available for this legacy run.");
+    expect(run).toContain('<details data-run-prompt-details');
+    expect(run).toContain('<summary class="cursor-pointer font-semibold">Prompt</summary>');
+    expect(run).not.toContain('<details data-run-prompt-details open');
+    expect(run).toContain('data-run-prompt');
+    expect(run).toContain("esc(r.prompt||'Prompt is not available for this run.')");
+    expect(run).not.toContain("Context sent to agent");
+    expect(run).not.toContain('data-run-context');
     expect(run).toContain('font-mono text-xs leading-5');
     expect(run).toContain("ansiToHtml(outputText(r))");
     expect(run).toContain("r.live_output??r.result");
@@ -316,6 +321,10 @@ describe("pages", () => {
     expect(run).toContain('output.scrollHeight-output.scrollTop-output.clientHeight<24');
     expect(run).toContain('if(follow)output.scrollTop=output.scrollHeight');
     expect(run).not.toContain("__name");
+    for (const stateClass of ['bg-blue-100', 'bg-amber-100', 'bg-green-100', 'bg-red-100']) {
+      expect(detail).toContain(stateClass);
+      expect(run).toContain(stateClass);
+    }
     expect(settings).toContain("Connect every provider used by your Jobs");
     expect(settings).toContain("Linear");
     expect(settings).toContain("GitHub App");

@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import Mustache from "mustache";
 import { decrypt, encrypt, equalHmac } from "./crypto";
-import { agentListCommand, agentOutputCommand, agentStartupBlocked, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, garbageCollectPaneCommand, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, validateWorktreeLeaseCommand, type ExeConnection } from "./exe";
+import { agentListCommand, agentOutputCommand, agentStartupBlocked, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, garbageCollectPaneCommand, herdrAgentStatus, herdrCheckCommand, modelListCommand, paneGetCommand, paneProcessInfoCommand, parseModelList, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, validateWorktreeLeaseCommand, type ExeConnection } from "./exe";
 import { findOwnedAgent, ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, isLinearAuthenticationError, refreshLinearToken } from "./linear";
 import { matchingIssue } from "./matcher";
@@ -223,6 +223,8 @@ export class TenantV2 extends DurableObject<Env> {
       if (request.method === "PUT" && url.pathname === "/connections/clickup") return await this.saveClickUp(await request.json());
       if (request.method === "PUT" && url.pathname === "/connections/exe") return await this.saveExe(await request.json());
       if (request.method === "POST" && url.pathname === "/connections/exe/test") return await this.testExe(await request.json());
+      const exeModelsMatch = url.pathname.match(/^\/connections\/exe\/([^/]+)\/models$/);
+      if (request.method === "POST" && exeModelsMatch) return await this.refreshExeModels(decodeURIComponent(exeModelsMatch[1]));
       if (request.method === "PUT" && url.pathname === "/connections/amp") return await this.saveAmp(await request.json());
       if (request.method === "POST" && url.pathname === "/connections/amp/test") return await this.testAmp(await request.json());
       if (request.method === "GET" && url.pathname === "/connections/cloudflare-tail") return json(await this.tailIntegrationStatus());
@@ -310,12 +312,32 @@ export class TenantV2 extends DurableObject<Env> {
       throw new Error(`This token cannot run ssh commands on ${value.vmName}. Create an exe.dev API token with --cmds="'ssh ${value.vmName}'" (not --vm), then paste the new exe1 token.`);
     }
     if (!verification.ok) throw new Error(`exe.dev/Herdr verification failed (${verification.status}): ${verification.body.slice(0, 300)}`);
+    const models = await this.discoverExeModels(value);
     const connectionId = value.connectionId || id();
-    await this.putConnection(`exe:${connectionId}`, value);
+    const saved = { ...value, models, modelsRefreshedAt: now() };
+    await this.putConnection(`exe:${connectionId}`, saved);
     // Preserve the most recently saved connection for existing flows created
     // before connections were selectable.
-    await this.putConnection("exe", value);
-    return json({ ok: true, connectionId, verification: verification.body });
+    await this.putConnection("exe", saved);
+    return json({ ok: true, connectionId, verification: verification.body, models });
+  }
+
+  private async discoverExeModels(connection: ExeConnection): Promise<string[]> {
+    const result = await exec(connection, modelListCommand());
+    if (!result.ok) throw new Error(`Could not load models from the exe.dev LLM integration (${result.status}): ${result.body.slice(0, 300)}`);
+    try { return parseModelList(result.body); }
+    catch (error) { throw new Error(error instanceof Error ? error.message : "The model endpoint returned an invalid response"); }
+  }
+
+  private async refreshExeModels(connectionId: string): Promise<Response> {
+    const connection = await this.connection<ExeConnection>(`exe:${connectionId}`);
+    if (!connection) throw new Error("Exe.dev connection not found");
+    const models = await this.discoverExeModels(connection);
+    const saved = { ...connection, models, modelsRefreshedAt: now() };
+    await this.putConnection(`exe:${connectionId}`, saved);
+    const legacy = await this.connection<ExeConnection>("exe");
+    if (legacy?.vmName === connection.vmName && legacy.cwd === connection.cwd && legacy.agentKind === connection.agentKind) await this.putConnection("exe", saved);
+    return json({ ok: true, models, modelsRefreshedAt: saved.modelsRefreshedAt });
   }
 
   private async testExe(input: unknown): Promise<Response> {
@@ -451,6 +473,8 @@ export class TenantV2 extends DurableObject<Env> {
       workspace: connection.vmName,
       cwd: connection.cwd,
       agentKind: connection.agentKind,
+      models: connection.models ?? [],
+      modelsRefreshedAt: connection.modelsRefreshedAt ?? null,
       capabilities: ["output", "prompt-delivery", "recovery", "stop"],
     })), ...ampConnections.map(connection => ({ id: `amp:${connection.connectionId}`, kind: "amp", name: `Amp · ${connection.project}`, workspace: connection.project, cwd: "Cloud orb", agentKind: "Amp", capabilities: ["stop"] }))]);
   }
@@ -896,7 +920,7 @@ export class TenantV2 extends DurableObject<Env> {
   }
 
   private async getRun(runId: string): Promise<Response> {
-    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_handle, r.execution_capabilities AS capabilities, r.destination_url, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
+    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_handle, r.execution_capabilities AS capabilities, r.destination_url, r.prompt AS encrypted_prompt, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
       i.id AS invocation_id, i.job_id AS invocation_job_id, i.source AS invocation_source, i.claim_key AS invocation_claim_key, i.trigger_id AS invocation_trigger_id, i.context, i.occurrence AS invocation_occurrence, i.created_at AS invocation_created_at
       FROM runs r LEFT JOIN job_runs jr ON jr.id = r.id LEFT JOIN invocations i ON i.id = jr.invocation_id WHERE r.id = ?`, runId);
     if (!run) return new Response("Not found", { status: 404 });
@@ -914,6 +938,8 @@ export class TenantV2 extends DurableObject<Env> {
       run.invocation = null;
     }
     for (const key of ["invocation_id", "invocation_job_id", "invocation_source", "invocation_trigger_id", "invocation_claim_key", "invocation_occurrence", "invocation_created_at"]) delete run[key];
+    if (typeof run.encrypted_prompt === "string" && run.encrypted_prompt) run.prompt = await decrypt(run.encrypted_prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    delete run.encrypted_prompt;
     if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     run.activity = this.rows("SELECT action, detail, created_at FROM run_activity WHERE run_id = ? ORDER BY created_at, id", runId);
     this.presentExecution(run);
