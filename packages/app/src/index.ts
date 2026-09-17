@@ -7,7 +7,6 @@ import { GitHubInstallationRegistry, GitHubInstallationRegistryV2 } from "./gith
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
 import { apiKeysSettingsPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, settingsPage } from "./ui";
 import type { Env } from "./types";
-import { nextOccurrence, validateScheduleConfig } from "./schedule";
 import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
 
 const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string } }>();
@@ -142,29 +141,6 @@ app.post("/auth/logout", (c) => {
   return c.redirect("/");
 });
 
-const jobApi = async (c: any, path: string, init?: RequestInit) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/v1${path}`, init);
-};
-app.get("/api/jobs", (c) => jobApi(c, "/jobs"));
-app.post("/api/jobs", async (c) => jobApi(c, "/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() }));
-app.get("/api/jobs/:id", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}`));
-app.put("/api/jobs/:id", async (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: await c.req.text() }));
-app.delete("/api/jobs/:id", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" }));
-app.post("/api/jobs/:id/enable", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}/enable`, { method: "POST" }));
-app.post("/api/jobs/:id/disable", (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}/disable`, { method: "POST" }));
-app.post("/api/jobs/:id/invocations", async (c) => jobApi(c, `/jobs/${encodeURIComponent(c.req.param("id"))}/invocations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() }));
-app.post("/api/job-handlers/test", async (c) => jobApi(c, "/job-handlers/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() }));
-app.get("/api/job-runs", (c) => jobApi(c, `/runs?${new URL(c.req.url).searchParams.toString()}`));
-app.get("/api/job-runs/:id", (c) => jobApi(c, `/runs/${encodeURIComponent(c.req.param("id"))}`));
-app.post("/api/job-runs/:id/stop", (c) => jobApi(c, `/runs/${encodeURIComponent(c.req.param("id"))}/stop`, { method: "POST" }));
-app.get("/api/execution-targets", (c) => jobApi(c, "/execution-targets"));
-app.get("/api/job-trigger-availability", (c) => jobApi(c, "/job-trigger-availability"));
-app.post("/api/schedules/preview", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  try { const config = validateScheduleConfig(await c.req.json()); return c.json({ nextRunAt: nextOccurrence(config, new Date()).toISOString() }); }
-  catch (error) { return c.json({ error: error instanceof Error ? error.message : "Invalid schedule" }, 400); }
-});
 app.get("/api/connections/status", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/connections/status");

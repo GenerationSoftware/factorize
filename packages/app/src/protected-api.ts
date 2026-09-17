@@ -40,6 +40,8 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       if (!path.startsWith("/api/v1")) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
       if (request.method === "GET" && path === "/api/v1/exe-connections") return Response.json(await service.listExeConnections());
       if (request.method === "GET" && path === "/api/v1/execution-targets") return Response.json(await service.listExecutionTargets());
+      if (request.method === "GET" && path === "/api/v1/job-trigger-availability") return Response.json(await service.listJobTriggerAvailability());
+      if (request.method === "POST" && path === "/api/v1/schedules/preview") return Response.json(await service.previewSchedule(await request.json()));
       if (request.method === "GET" && path === "/api/v1/integrations/cloudflare-tail") return Response.json(await service.listTailIntegrations());
       if (request.method === "GET" && path === "/api/v1/jobs") return Response.json(await service.listJobs());
       if (request.method === "POST" && path === "/api/v1/jobs") return Response.json(await service.createJob(jobInputSchema.parse(await request.json())), { status: 201 });
