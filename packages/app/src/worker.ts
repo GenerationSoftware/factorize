@@ -5,6 +5,7 @@ import { hmac } from "./crypto";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceLoginRedirect, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
 import { authenticateAccessToken } from "./access-tokens";
+import { AuthStore } from "./auth-do";
 
 const scopes = ["flows:read", "flows:write", "runs:read", "runs:write"];
 const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -74,6 +75,7 @@ function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
 function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)); }
 
 export { TenantV2, Tenant, GitHubInstallationRegistryV2, GitHubInstallationRegistry } from "./index";
+export { AuthStore } from "./auth-do";
 export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   const oauth = provider(env);
   const url = new URL(request.url);

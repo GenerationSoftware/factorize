@@ -5,7 +5,7 @@ import { equalHmac, hmac } from "./crypto";
 import { Tenant, TenantV2 } from "./tenant";
 import { GitHubInstallationRegistry, GitHubInstallationRegistryV2 } from "./github-registry";
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
-import { apiKeysSettingsPage, jobDetailPage, jobPage, jobsPage, jobRunPage, loginPage, settingsPage } from "./ui";
+import { apiKeysSettingsPage, authPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, loginPage, settingsPage } from "./ui";
 import type { Env } from "./types";
 import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
 
@@ -48,6 +48,16 @@ export const requestCookie = (request: Request, name: string) => {
 
 function tenant(c: { env: Env }, tenantId: string) { return c.env.TENANTS.get(c.env.TENANTS.idFromName(`tenant:${tenantId}`)); }
 function githubRegistry(c: { env: Env }) { if (!c.env.GITHUB_INSTALLATIONS) throw new Error("GitHub registry is not configured"); return c.env.GITHUB_INSTALLATIONS.get(c.env.GITHUB_INSTALLATIONS.idFromName("github-installations")); }
+function auth(c: { env: Env }) { if (!c.env.AUTH) throw new Error("Authentication is not configured"); return c.env.AUTH.get(c.env.AUTH.idFromName("auth")); }
+async function authIdentity(c: any, path: string, input: Record<string, unknown>) { const response = await auth(c).fetch(`https://auth${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); return { response, body: await response.json().catch(() => ({})) as any }; }
+async function establishSession(c: any, identity: { userId: string; email: string; tenantId: string }) {
+  const member = await tenant(c, identity.tenantId).fetch("https://tenant/members", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: identity.userId, email: identity.email }) });
+  const data = await member.json() as { role: string; session_version: number };
+  if (data.role !== "owner") return false;
+  const lifetime = 60 * 60 * 24 * 7;
+  setCookie(c, "factorize_session", await signSession({ tenantId: identity.tenantId, userId: identity.userId, email: identity.email, exp: Math.floor(Date.now() / 1000) + lifetime, sessionVersion: data.session_version }, c.env.SESSION_SIGNING_SECRET), { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: lifetime });
+  return true;
+}
 async function authed(c: any): Promise<Session | null> { return readSession(getCookie(c, "factorize_session"), c.env.SESSION_SIGNING_SECRET); }
 async function owner(c: any): Promise<Session | null> {
   const session = await authed(c); if (!session) return null;
@@ -140,6 +150,11 @@ app.post("/auth/logout", (c) => {
   deleteCookie(c, "factorize_session", { path: "/" });
   return c.redirect("/");
 });
+
+app.post("/auth/signup", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/signup", input as Record<string, unknown>); if (!result.response.ok) return c.json(result.body, result.response.status as any); if (!await establishSession(c, result.body)) return c.text("This account cannot access the tenant", 403); return c.redirect("/jobs", 303); });
+app.post("/auth/login", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/login", input as Record<string, unknown>); if (!result.response.ok) return c.html(render(authPage("Sign in", "login", String(input.email ?? ""), result.body.error), c.get("cspNonce")), result.response.status as any); if (!await establishSession(c, result.body)) return c.text("This account cannot access the tenant", 403); return c.redirect("/jobs", 303); });
+app.post("/auth/password-reset", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/reset/request", input as Record<string, unknown>); return c.html(render(authPage("Check your email", "reset", "", result.body.error), c.get("cspNonce")), result.response.status as any); });
+app.post("/auth/password-reset/complete", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/reset/complete", input as Record<string, unknown>); return result.response.ok ? c.redirect("/auth/login", 303) : c.html(render(authPage("Reset password", "complete", String(input.token ?? ""), result.body.error), c.get("cspNonce")), result.response.status as any); });
 
 app.get("/auth/clickup", async (c) => {
   const session = await owner(c); if (!session) return c.redirect("/auth/linear");
@@ -332,6 +347,9 @@ app.get("/", async (c) => {
   const session = await owner(c);
   return session ? c.redirect("/jobs") : c.html(render(loginPage(c.env.MARKETING_ORIGIN), c.get("cspNonce")));
 });
+app.get("/auth/signup", (c) => c.html(render(authPage("Create your Factorize account", "signup"), c.get("cspNonce"))));
+app.get("/auth/login", (c) => c.html(render(authPage("Sign in to Factorize", "login"), c.get("cspNonce"))));
+app.get("/auth/password-reset", (c) => c.html(render(authPage("Reset your password", "reset"), c.get("cspNonce"))));
 app.get("/jobs", async (c) => { const session = await owner(c); return session ? c.html(render(jobsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
 app.get("/jobs/new", async (c) => { const session = await owner(c); return session ? c.html(render(jobPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
 app.get("/jobs/:id", async (c) => { const session = await owner(c); return session ? c.html(render(jobDetailPage({ email: session.email }, c.req.param("id")), c.get("cspNonce"))) : c.redirect("/auth/linear"); });

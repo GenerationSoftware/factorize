@@ -80,6 +80,12 @@ openssl rand -base64 32
 
 ## Configure Linear
 
+## Account authentication
+
+Factorize stores first-party accounts in the `AuthStore` Durable Object. Users can create an account and sign in with an email address and a password of at least 12 characters at `/auth/signup` and `/auth/login`; the existing Linear connection remains available from the same sign-in page. Passwords are salted PBKDF2-SHA-256 hashes and reset tokens are single-use, expire after one hour, and revoke existing sessions when consumed.
+
+The `v4-auth-store` Durable Object migration must be deployed before using first-party authentication. Configure `SESSION_SIGNING_SECRET` as usual. For local development only, `AUTH_RESET_RETURN_TOKEN=true` makes the reset endpoint return its token so the flow can be exercised without an email provider; leave it unset or false in production. Transactional email delivery can consume reset events from the auth store without exposing whether an address is registered.
+
 Use authorization-code OAuth and enable **Webhooks** on the OAuth application. Configure:
 
 | Setting | Value |

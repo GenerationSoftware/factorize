@@ -8,12 +8,13 @@
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "cacbf744337747ffbb9c0153329aad4f" }],
   "worker_loaders": [{ "binding": "CUSTOM_HANDLER_LOADER" }],
   "durable_objects": {
-    "bindings": [{ "name": "TENANTS", "class_name": "TenantV2" }, { "name": "GITHUB_INSTALLATIONS", "class_name": "GitHubInstallationRegistryV2" }]
+    "bindings": [{ "name": "TENANTS", "class_name": "TenantV2" }, { "name": "GITHUB_INSTALLATIONS", "class_name": "GitHubInstallationRegistryV2" }, { "name": "AUTH", "class_name": "AuthStore" }]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Tenant"] },
     { "tag": "v2", "new_sqlite_classes": ["GitHubInstallationRegistry"] },
-    { "tag": "v3-fresh-durable-objects", "new_sqlite_classes": ["TenantV2", "GitHubInstallationRegistryV2"] }
+    { "tag": "v3-fresh-durable-objects", "new_sqlite_classes": ["TenantV2", "GitHubInstallationRegistryV2"] },
+    { "tag": "v4-auth-store", "new_sqlite_classes": ["AuthStore"] }
   ],
   "vars": {
     "APP_ORIGIN": "https://app.factorize.sh",
