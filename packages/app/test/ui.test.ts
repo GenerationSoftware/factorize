@@ -110,10 +110,10 @@ describe("pages", () => {
   it("selects a per-job model with harness-aware suggestions", () => {
     const html = jobPage({ email: "owner@example.com" }, "job-1");
     expect(html).toContain('name="model"');
-    expect(html).toContain('placeholder="Harness default"');
-    expect(html).toContain("const modelChoices={codex:");
+    expect(html).toContain("new Option('Harness default','')");
+    expect(html).toContain("target?.models||[]");
     expect(html).toContain("model:form.model.value.trim()");
-    expect(html).toContain("form.model.value=current.model||''");
+    expect(html).toContain("syncModels(current?.model||'')");
     expectInlineScriptsToParse(html);
   });
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { agentOutputCommand, exec, stopAgentCommand } from "../src/exe";
+import { agentOutputCommand, exec, modelListCommand, parseModelList, stopAgentCommand } from "../src/exe";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -38,5 +38,19 @@ describe("exe command exit status", () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(2);
     expect(result.body).toBe("usage");
+  });
+});
+
+describe("connection model discovery", () => {
+  it("uses the documented VM-local LLM endpoint", () => {
+    expect(modelListCommand()).toContain("https://llm.int.exe.xyz/v1/models");
+  });
+
+  it("normalizes the returned model IDs", () => {
+    expect(parseModelList('["gpt-5.5"," claude-sonnet-4-5","gpt-5.5",""]')).toEqual(["claude-sonnet-4-5", "gpt-5.5"]);
+  });
+
+  it("rejects malformed model responses", () => {
+    expect(() => parseModelList('{"data":[]}')).toThrow("invalid response");
   });
 });

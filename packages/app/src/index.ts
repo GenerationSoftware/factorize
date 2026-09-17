@@ -261,6 +261,10 @@ app.post("/api/connections/exe/test", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/connections/exe/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
 });
+app.post("/api/connections/exe/:id/models", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch(`https://tenant/connections/exe/${encodeURIComponent(c.req.param("id"))}/models`, { method: "POST" });
+});
 app.put("/api/connections/amp", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/connections/amp", { method: "PUT", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
