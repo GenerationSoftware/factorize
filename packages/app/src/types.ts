@@ -7,6 +7,7 @@ export interface Env {
   GITHUB_INSTALLATIONS?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
+  MARKETING_ORIGIN?: string;
   LINEAR_CLIENT_ID: string;
   LINEAR_CLIENT_SECRET: string;
   LINEAR_OAUTH_SCOPES?: string;

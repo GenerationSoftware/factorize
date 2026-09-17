@@ -4,6 +4,18 @@ import { ansiToHtmlBrowserSource } from "./ansi";
 type Viewer = { email: string } | null;
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 
+/** The app entry point is intentionally separate from the public marketing site. */
+export const loginPage = (marketingOrigin = "https://factorize.sh") => `<!doctype html>
+<html lang="en" class="bg-stone-50 [color-scheme:light] dark:bg-slate-950 dark:[color-scheme:dark]"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in — Factorize</title><link rel="stylesheet" href="/styles.css">
+<script>try{const saved=localStorage.getItem('factorize-theme'),dark=saved?saved==='dark':matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',dark)}catch{}</script>
+</head><body class="flex min-h-[100dvh] flex-col bg-stone-50 text-slate-950 dark:bg-slate-950 dark:text-slate-100"><main class="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 py-16">
+<a href="${marketingOrigin}" class="text-center text-lg font-bold tracking-tight">Factorize</a><section class="mt-8 rounded-2xl border border-stone-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+<h1 class="text-2xl font-bold tracking-tight">Sign in to Factorize</h1><p class="mt-2 text-sm text-slate-600 dark:text-slate-400">Manage your software factory and its Jobs.</p>
+<a href="/auth/linear" class="mt-8 flex min-h-12 items-center justify-center rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white dark:bg-white dark:text-slate-950">Continue with Linear</a>
+<p class="mt-6 text-center text-xs leading-5 text-slate-500">New here? Sign in to create your workspace. Email, Google, and Linear sign-in can be added as authentication providers without changing your Jobs.</p>
+</section></main><footer class="border-t border-stone-200 px-5 py-6 text-center text-sm text-slate-500 dark:border-slate-800">Public site: <a class="underline" href="${marketingOrigin}">factorize.sh</a></footer><script>const root=document.documentElement;const button=document.createElement('button');button.type='button';button.className='fixed right-5 top-5 rounded-lg border px-3 py-2 text-sm';button.textContent=root.classList.contains('dark')?'☀':'☾';button.setAttribute('aria-label','Toggle theme');button.onclick=()=>{root.classList.toggle('dark');button.textContent=root.classList.contains('dark')?'☀':'☾';try{localStorage.setItem('factorize-theme',root.classList.contains('dark')?'dark':'light')}catch{}};document.body.append(button);</script></body></html>`;
+
 const themeScript = `
 const themeToggle=document.querySelector('#theme-toggle'),themeIcon=document.querySelector('#theme-icon');
 const syncThemeButton=()=>{const dark=document.documentElement.classList.contains('dark');themeIcon.textContent=dark?'☀':'☾';themeToggle.setAttribute('aria-label',dark?'Use light mode':'Use dark mode')};
