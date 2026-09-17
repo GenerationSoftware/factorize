@@ -11,6 +11,8 @@ export interface Env {
   LINEAR_CLIENT_SECRET: string;
   LINEAR_OAUTH_SCOPES?: string;
   LINEAR_WEBHOOK_SIGNING_SECRET: string;
+  CLICKUP_CLIENT_ID?: string;
+  CLICKUP_CLIENT_SECRET?: string;
   CREDENTIAL_ENCRYPTION_KEY: string;
   SESSION_SIGNING_SECRET: string;
   GITHUB_APP_ID?: string;
@@ -33,7 +35,7 @@ export type OAuthProps = {
 };
 
 export interface WorkItem {
-  provider: "linear" | "github" | "cloudflare";
+  provider: "linear" | "clickup" | "github" | "cloudflare";
   claimKey: string;
   identifier: string;
   title: string;

@@ -3,10 +3,10 @@ import type { MatchRule } from "./types";
 import { validateHandlerCode } from "./custom-handler";
 import { matchingGitHubIssue } from "./github-issue-matcher";
 
-export type WebhookProvider = "linear" | "github" | "cloudflareTail";
+export type WebhookProvider = "linear" | "clickup" | "github" | "cloudflareTail";
 export type WebhookTriggerConfig = {
   provider: WebhookProvider;
-  projectId?: string; matchRules?: MatchRule[]; installationId?: number; repositoryId?: number;
+  projectId?: string; listId?: string; matchRules?: MatchRule[]; installationId?: number; repositoryId?: number;
   event?: string; action?: string; integrationId?: string; signingSecret?: string; secret?: string; handlerCode?: string;
 };
 export interface WebhookInvocation {
@@ -21,6 +21,7 @@ export function adaptWebhook(config: WebhookTriggerConfig, provider: WebhookProv
     const data = payload.data ?? {}, projectId = data.project?.id ?? data.issue?.project?.id;
     if (!config.projectId || projectId !== config.projectId || !matchingIssue(payload, { projectId: config.projectId, matchRules: config.matchRules ?? [] })) return null;
   }
+  if (provider === "clickup" && (!config.listId || payload.task?.list?.id !== config.listId || payload.matches !== true)) return null;
   if (provider === "github") {
     if (payload.installation?.id !== config.installationId || payload.repository?.id !== config.repositoryId) return null;
     if (config.matchRules?.length) {
@@ -30,7 +31,7 @@ export function adaptWebhook(config: WebhookTriggerConfig, provider: WebhookProv
   const normalizedProvider = provider === "cloudflareTail" ? "cloudflare" : provider;
   const providerAliases = provider === "linear"
     ? { issue: payload.data?.issue ?? (payload.type === "Issue" ? payload.data : undefined) }
-    : {};
+    : provider === "clickup" ? { task: payload.task } : {};
   return {
     claimKey: `webhook:${normalizedProvider}:${deliveryId}`,
     payload: { ...payload, ...providerAliases, provider: normalizedProvider, event: eventName ?? payload.type ?? "webhook", delivery_id: deliveryId },

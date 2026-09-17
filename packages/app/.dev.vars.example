@@ -3,6 +3,8 @@ LINEAR_CLIENT_ID=
 LINEAR_CLIENT_SECRET=
 # Copy this once from the Webhooks section of the Linear OAuth app settings.
 LINEAR_WEBHOOK_SIGNING_SECRET=
+CLICKUP_CLIENT_ID=
+CLICKUP_CLIENT_SECRET=
 # base64-encoded 32 random bytes: openssl rand -base64 32
 CREDENTIAL_ENCRYPTION_KEY=
 # a separate random value for signed browser sessions

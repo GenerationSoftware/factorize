@@ -141,6 +141,35 @@ app.post("/auth/logout", (c) => {
   return c.redirect("/");
 });
 
+app.get("/auth/clickup", async (c) => {
+  const session = await owner(c); if (!session) return c.redirect("/auth/linear");
+  if (!c.env.CLICKUP_CLIENT_ID) return c.text("ClickUp OAuth is not configured", 503);
+  const state = await signSession({ ...session, exp: Math.floor(Date.now() / 1000) + 600 }, c.env.SESSION_SIGNING_SECRET);
+  setCookie(c, "clickup_oauth_state", state, { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/auth/clickup", maxAge: 600 });
+  const redirect = new URL("https://app.clickup.com/api");
+  redirect.searchParams.set("client_id", c.env.CLICKUP_CLIENT_ID);
+  redirect.searchParams.set("redirect_uri", `${c.env.APP_ORIGIN}/auth/clickup/callback`);
+  redirect.searchParams.set("state", state);
+  return c.redirect(redirect.toString());
+});
+
+app.get("/auth/clickup/callback", async (c) => {
+  const session = await owner(c), code = c.req.query("code"), state = c.req.query("state");
+  if (!session || !code || !state || state !== getCookie(c, "clickup_oauth_state") || !c.env.CLICKUP_CLIENT_ID || !c.env.CLICKUP_CLIENT_SECRET) return c.text("Invalid ClickUp OAuth state", 400);
+  const tokenResponse = await fetch("https://api.clickup.com/api/v2/oauth/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: c.env.CLICKUP_CLIENT_ID, client_secret: c.env.CLICKUP_CLIENT_SECRET, code }) });
+  const tokens = await tokenResponse.json() as { access_token?: string };
+  if (!tokenResponse.ok || !tokens.access_token) return c.text("ClickUp token exchange failed", 502);
+  const teamsResponse = await fetch("https://api.clickup.com/api/v2/team", { headers: { Authorization: tokens.access_token } });
+  const teams = await teamsResponse.json() as any, team = teams.teams?.[0];
+  if (!teamsResponse.ok || !team?.id) return c.text("Could not identify a ClickUp workspace", 502);
+  const hookResponse = await fetch(`https://api.clickup.com/api/v2/team/${encodeURIComponent(team.id)}/webhook`, { method: "POST", headers: { Authorization: tokens.access_token, "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: `${c.env.APP_ORIGIN}/webhooks/clickup/${encodeURIComponent(session.tenantId)}`, events: ["taskCreated", "taskUpdated", "taskStatusUpdated", "taskAssigneeUpdated", "taskTagUpdated", "taskMoved"] }) });
+  const hook = await hookResponse.json() as any;
+  if (!hookResponse.ok || !hook.id) return c.text("Could not register the ClickUp webhook", 502);
+  await tenant(c, session.tenantId).fetch("https://tenant/connections/clickup", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accessToken: tokens.access_token, teamId: String(team.id), teamName: team.name, webhookId: String(hook.id), webhookSecret: hook.secret }) });
+  deleteCookie(c, "clickup_oauth_state", { path: "/auth/clickup" });
+  return c.redirect("/settings/integrations");
+});
+
 app.get("/api/connections/status", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/connections/status");
@@ -172,6 +201,14 @@ app.get("/api/linear/projects", async (c) => {
 app.get("/api/linear/options", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/linear/options");
+});
+app.get("/api/clickup/lists", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch("https://tenant/clickup/lists");
+});
+app.get("/api/clickup/options", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch(`https://tenant/clickup/options?listId=${encodeURIComponent(c.req.query("listId") ?? "")}`);
 });
 app.get("/api/github/installations", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
@@ -253,6 +290,13 @@ app.post("/webhooks/linear", async (c) => {
   const deliveryId = c.req.header("linear-delivery");
   if (!deliveryId) return c.text("Missing delivery ID", 400);
   return tenant(c, organizationId).fetch("https://tenant/webhook/linear", { method: "POST", headers: { "Content-Type": "application/json", "Linear-Delivery": `linear:${deliveryId}` }, body: raw });
+});
+
+app.post("/webhooks/clickup/:tenantId", async (c) => {
+  const raw = await c.req.text();
+  if (new TextEncoder().encode(raw).byteLength > 262_144) return c.text("Payload too large", 413);
+  try { JSON.parse(raw); } catch { return c.text("Invalid JSON", 400); }
+  return tenant(c, c.req.param("tenantId")).fetch("https://tenant/webhook/clickup", { method: "POST", headers: { "Content-Type": "application/json", "X-Signature": c.req.header("X-Signature") ?? "" }, body: raw });
 });
 
 app.post("/webhooks/github", async (c) => {
