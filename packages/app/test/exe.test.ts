@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { agentOutputCommand, exec, modelListCommand, parseModelList, stopAgentCommand } from "../src/exe";
+import { agentOutputCommand, exec, launchAgentCommand, modelListCommand, parseModelList, replaceForegroundCommand, startAgentInPaneCommand, stopAgentCommand } from "../src/exe";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -14,6 +14,20 @@ describe("agent output command", () => {
 
     expect(command).toContain("agent read 'factorize-1' --source recent --format text");
     expect(command).not.toContain("--lines");
+  });
+});
+
+describe("terminal color environment", () => {
+  const connection = { vmName: "factorize-vm", apiToken: "secret", agentKind: "codex", cwd: "/workspace" };
+
+  it("enables ANSI/true-color output when launching an agent", () => {
+    const command = launchAgentCommand("factorize-1", connection, "workspace", "/workspace/.factorize-runs/1", "lease", "prompt");
+    expect(command).toContain("TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 CLICOLOR_FORCE=1");
+  });
+
+  it("keeps the color environment on agent restart paths", () => {
+    expect(startAgentInPaneCommand("agent", connection, "pane")).toContain("TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 CLICOLOR_FORCE=1");
+    expect(replaceForegroundCommand("agent", connection, "pane")).toContain("TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 CLICOLOR_FORCE=1");
   });
 });
 
