@@ -191,7 +191,7 @@ export class TenantV2 extends DurableObject<Env> {
       if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) return await this.stopRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/v1/execution-targets") return await this.executionTargets();
       if (request.method === "GET" && url.pathname === "/v1/job-trigger-availability") return await this.triggerAvailability();
-      if (request.method === "GET" && url.pathname === "/v1/jobs") return json(await Promise.all(this.rows("SELECT * FROM jobs ORDER BY created_at DESC").map(row => this.publicJob(row))));
+      if (request.method === "GET" && url.pathname === "/v1/jobs") return json(await this.publicJobs(this.rows("SELECT * FROM jobs ORDER BY created_at DESC")));
       if (request.method === "POST" && url.pathname === "/v1/jobs") return await this.createJob(await request.json());
       const invocationMatch = url.pathname.match(/^\/v1\/jobs\/([^/]+)\/invocations$/);
       if (request.method === "POST" && invocationMatch) return await this.invokeJob(decodeURIComponent(invocationMatch[1]), await request.json());
@@ -509,18 +509,58 @@ export class TenantV2 extends DurableObject<Env> {
     return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: job.slug, agent_kind: target.agentKind, model: target.model ?? "", effort: target.effort ?? "", cwd: target.cwd, execution_backend_kind: target.backendKind ?? "exe-herdr", execution_connection_id: target.connectionId, exe_connection_id: target.connectionId, enabled: job.enabled };
   }
 
-  private async publicJob(row: Row): Promise<Record<string, unknown>> {
-    const triggers = this.triggersFor(row.id);
+  private async publicJobs(rows: Row[]): Promise<Record<string, unknown>[]> {
+    if (!rows.length) return [];
+
+    // List pages are deliberately hydrated from a fixed set of queries. In
+    // particular, do not call publicJob() independently here: provider
+    // connections contain credentials and decrypting the same one for every
+    // webhook makes a large jobs list unnecessarily expensive.
+    const triggers = this.rows("SELECT * FROM triggers ORDER BY job_id,position,created_at,id");
+    const activity = new Map<string, Row>();
+    for (const row of this.rows("SELECT job_id,count(*) AS count,max(received_at) AS last_received_at FROM job_events GROUP BY job_id")) activity.set(String(row.job_id), row);
+    const runs = new Map<string, Row>();
+    for (const row of this.rows("SELECT job_id,state,created_at,id FROM job_runs ORDER BY created_at DESC,id DESC")) {
+      const key = String(row.job_id), summary = runs.get(key) ?? { running_count: 0, last_run_state: row.state };
+      if (row.state === "running") summary.running_count = Number(summary.running_count) + 1;
+      runs.set(key, summary);
+    }
+    const schedules = new Map<string, Row>();
+    for (const row of this.rows("SELECT trigger_id,next_run_at,last_triggered_at FROM schedule_state")) schedules.set(String(row.trigger_id), row);
+
+    const providerKinds = new Set<string>();
+    for (const trigger of triggers) {
+      if (trigger.kind !== "webhook") continue;
+      let config: Record<string, any> = {};
+      try { config = JSON.parse(String(trigger.config)); } catch { /* handled safely when rendered */ }
+      if (typeof config.provider === "string") providerKinds.add(config.provider === "cloudflareTail" ? `cloudflare-tail:${config.integrationId}` : config.provider);
+    }
+    const providerAvailability = new Map<string, { available: boolean; reason: string | null }>();
+    const connectionKinds = [...providerKinds].filter(kind => ["linear", "clickup"].includes(kind) || kind.startsWith("cloudflare-tail:"));
+    const connections = await Promise.all(connectionKinds.map(async kind => [kind, Boolean(await this.connection(kind))] as const));
+    for (const [kind, available] of connections) providerAvailability.set(kind, available ? { available: true, reason: null } : { available: false, reason: kind === "linear" ? "Reconnect Linear to use this trigger." : kind === "clickup" ? "Connect ClickUp to use this trigger." : "Reconnect this Cloudflare Tail installation to use this trigger." });
+    const installationStates = new Map<number, string>();
+    for (const row of this.rows("SELECT installation_id,state FROM github_installations")) installationStates.set(Number(row.installation_id), String(row.state));
+    for (const kind of providerKinds) if (kind === "github") providerAvailability.set(kind, { available: true, reason: null });
+
+    const triggerMap = new Map<string, Row[]>();
+    for (const trigger of triggers) { const key = String(trigger.job_id); triggerMap.set(key, [...(triggerMap.get(key) ?? []), trigger]); }
+    const context = { triggerMap, activity, runs, schedules, providerAvailability, installationStates };
+    return Promise.all(rows.map(row => this.publicJob(row, context)));
+  }
+
+  private async publicJob(row: Row, context?: { triggerMap: Map<string, Row[]>; activity: Map<string, Row>; runs: Map<string, Row>; schedules: Map<string, Row>; providerAvailability: Map<string, { available: boolean; reason: string | null }>; installationStates: Map<number, string> }): Promise<Record<string, unknown>> {
+    const triggers = context?.triggerMap.get(String(row.id)) ?? this.triggersFor(row.id);
     let executionTarget: Record<string, unknown> = {};
     try { executionTarget = JSON.parse(String(row.execution_target)); } catch { /* malformed internal state is presented safely */ }
-    const activity = this.one("SELECT count(*) AS count,max(received_at) AS last_received_at FROM job_events WHERE job_id=?", row.id) as Row | undefined;
-    const runSummary = this.one("SELECT count(*) FILTER (WHERE state='running') AS running_count,(SELECT state FROM job_runs WHERE job_id=? ORDER BY created_at DESC,id DESC LIMIT 1) AS last_run_state FROM job_runs WHERE job_id=?", row.id, row.id) as Row | undefined;
+    const activity = context?.activity.get(String(row.id)) ?? this.one("SELECT count(*) AS count,max(received_at) AS last_received_at FROM job_events WHERE job_id=?", row.id) as Row | undefined;
+    const runSummary = context?.runs.get(String(row.id)) ?? this.one("SELECT count(*) FILTER (WHERE state='running') AS running_count,(SELECT state FROM job_runs WHERE job_id=? ORDER BY created_at DESC,id DESC LIMIT 1) AS last_run_state FROM job_runs WHERE job_id=?", row.id, row.id) as Row | undefined;
     const publicTriggers = await Promise.all(triggers.map(async trigger => {
       let config: Record<string, unknown> = {};
       try { config = JSON.parse(String(trigger.config)); } catch { /* present malformed state safely */ }
       if (trigger.kind === "webhook") config = publicWebhookConfig(config as WebhookTriggerConfig);
-      const runtime = trigger.kind === "schedule" ? this.one("SELECT next_run_at,last_triggered_at FROM schedule_state WHERE trigger_id=?", trigger.id) as Row | undefined : undefined;
-      const availability = await this.providerTriggerAvailability(trigger.kind, config);
+      const runtime = trigger.kind === "schedule" ? context?.schedules.get(String(trigger.id)) ?? this.one("SELECT next_run_at,last_triggered_at FROM schedule_state WHERE trigger_id=?", trigger.id) as Row | undefined : undefined;
+      const availability = await this.providerTriggerAvailability(trigger.kind, config, context);
       return { id: trigger.id, slug: trigger.slug, kind: trigger.kind, enabled: Boolean(trigger.enabled), config, reflection: reflectTriggerContext({ ...trigger, config }), createdAt: trigger.created_at, updatedAt: trigger.updated_at,
         actionRequired: availability.available ? null : availability.reason,
         activity: { count: Number(activity?.count ?? 0), lastReceivedAt: activity?.last_received_at ?? null },
@@ -583,15 +623,14 @@ export class TenantV2 extends DurableObject<Env> {
     });
   }
 
-  private async providerTriggerAvailability(kind: unknown, config: Record<string, any>): Promise<{ available: boolean; reason: string | null }> {
+  private async providerTriggerAvailability(kind: unknown, config: Record<string, any>, context?: { providerAvailability: Map<string, { available: boolean; reason: string | null }>; installationStates: Map<number, string> }): Promise<{ available: boolean; reason: string | null }> {
     if (kind !== "webhook") return { available: true, reason: null };
-    if (config.provider === "linear") return await this.connection("linear") ? { available: true, reason: null } : { available: false, reason: "Reconnect Linear to use this trigger." };
-    if (config.provider === "clickup") return await this.connection("clickup") ? { available: true, reason: null } : { available: false, reason: "Connect ClickUp to use this trigger." };
+    if (config.provider === "linear" || config.provider === "clickup") return context?.providerAvailability.get(config.provider) ?? (await this.connection(config.provider) ? { available: true, reason: null } : { available: false, reason: config.provider === "linear" ? "Reconnect Linear to use this trigger." : "Connect ClickUp to use this trigger." });
     if (config.provider === "github") {
-      const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", Number(config.installationId)) as Row | undefined;
+      const installation = context ? (context.installationStates.has(Number(config.installationId)) ? { state: context.installationStates.get(Number(config.installationId)) } : undefined) : this.one("SELECT state FROM github_installations WHERE installation_id=?", Number(config.installationId)) as Row | undefined;
       return installation?.state === "active" ? { available: true, reason: null } : { available: false, reason: "Reconnect this GitHub installation to use this trigger." };
     }
-    if (config.provider === "cloudflareTail") return await this.connection(`cloudflare-tail:${config.integrationId}`) ? { available: true, reason: null } : { available: false, reason: "Reconnect this Cloudflare Tail installation to use this trigger." };
+    if (config.provider === "cloudflareTail") return context?.providerAvailability.get(`cloudflare-tail:${config.integrationId}`) ?? (await this.connection(`cloudflare-tail:${config.integrationId}`) ? { available: true, reason: null } : { available: false, reason: "Reconnect this Cloudflare Tail installation to use this trigger." });
     return { available: false, reason: "This webhook provider is no longer supported." };
   }
 
