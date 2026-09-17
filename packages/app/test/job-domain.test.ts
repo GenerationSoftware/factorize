@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InvocationService, JOB_SCHEMA, renderJobPrompt, type Invocation, type Job, type JobRepository, type JobRun } from "../src/job-domain";
+import { InvocationService, JOB_SCHEMA, renderJobPrompt, renderRunName, type Invocation, type Job, type JobRepository, type JobRun } from "../src/job-domain";
 
 const job = (overrides: Partial<Job> = {}): Job => ({
   id: "job-1", name: "Triage", slug: "triage", promptTemplate: "{{trigger-1.prompt}} · {{trigger-2.issue.title}}",
@@ -20,6 +20,10 @@ class MemoryRepository implements JobRepository {
 }
 
 describe("job invocation domain", () => {
+  it("renders run names with active and inactive trigger conditionals", () => {
+    expect(renderRunName("{{#trigger-2}}{{trigger-2.issue.identifier}}{{/trigger-2}}{{^trigger-2}}manual{{/trigger-2}}", { "trigger-1": { prompt: "go" }, "trigger-2": false }, "fallback")).toBe("manual");
+    expect(renderRunName("{{#trigger-2}}{{trigger-2.issue.identifier}}{{/trigger-2}}", { "trigger-1": false, "trigger-2": { issue: { identifier: "GEN-1" } } }, "fallback")).toBe("GEN-1");
+  });
   it("renders structured trigger paths and empty missing values", () => {
     expect(renderJobPrompt(job(), { "trigger-1": { prompt: "Fix it" }, "trigger-2": { issue: { title: "Bug" } } })).toBe("Fix it · Bug");
     expect(renderJobPrompt(job(), { "trigger-1": { prompt: "Fix it" } })).toBe("Fix it · ");

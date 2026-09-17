@@ -14,7 +14,7 @@ import { generateTailSecret, sanitizeTailEvent, signTailDelivery, suppressTailEv
 import { ExeHerdrBackend } from "./exe-herdr-backend";
 import { AmpBackend, type AmpConnection } from "./amp-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
-import { JOB_SCHEMA, renderJobPrompt } from "./job-domain";
+import { JOB_SCHEMA, renderJobPrompt, renderRunName } from "./job-domain";
 import { normalizeExecutionState, type RunHandle } from "./execution";
 import { catchUpOccurrence, nextOccurrence, validateScheduleConfig, type ScheduleConfig } from "./schedule";
 import { adaptWebhook, publicWebhookConfig, validateWebhookHandler, type WebhookProvider, type WebhookTriggerConfig } from "./webhook-trigger";
@@ -88,6 +88,8 @@ export class TenantV2 extends DurableObject<Env> {
     this.ensureColumn("flow_events", "issue_url", "TEXT");
     this.ensureColumn("runs", "issue_url", "TEXT");
     this.ensureColumn("runs", "issue_title", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("runs", "run_name", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("jobs", "encrypted_run_name_template", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("runs", "workspace_name", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("runs", "agent_kind", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("runs", "exec_request", "TEXT");
@@ -586,6 +588,7 @@ export class TenantV2 extends DurableObject<Env> {
     return {
       id: row.id, name: row.name, slug: row.slug,
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
+      runNameTemplate: row.encrypted_run_name_template ? await decrypt(String(row.encrypted_run_name_template), this.env.CREDENTIAL_ENCRYPTION_KEY) : "",
       model: String(executionTarget.model ?? ""),
       effort: String(executionTarget.effort ?? ""),
       concurrencyLimit: Number(row.concurrency_limit),
@@ -618,6 +621,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (input.effort !== undefined && (typeof input.effort !== "string" || input.effort.trim().length > 40)) throw new Error("Job effort must be a string of 40 characters or fewer");
     if (!Array.isArray(input.triggers) || input.triggers.some((trigger: any) => !["manual", "schedule", "webhook", "jobLifecycle"].includes(trigger?.kind))) throw new Error("Job triggers are invalid");
     Mustache.parse(input.promptTemplate);
+    if (input.runNameTemplate !== undefined) Mustache.parse(String(input.runNameTemplate));
     for (const trigger of input.triggers) {
       if (trigger.kind === "schedule") validateScheduleConfig(trigger.config);
       if (trigger.kind === "webhook") validateWebhookHandler(trigger.config);
@@ -705,7 +709,7 @@ export class TenantV2 extends DurableObject<Env> {
     const target = { ...await this.jobTarget(input.executionTargetId), model: text(input.model).trim(), effort: text(input.effort).trim() }, jobId = id(), timestamp = now();
     const triggers = this.normalizedTriggers(input.triggers);
     this.validateLifecycleGraph(jobId, triggers);
-    this.ctx.storage.sql.exec("INSERT INTO jobs (id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", jobId, input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
+    this.ctx.storage.sql.exec("INSERT INTO jobs (id,name,slug,encrypted_prompt_template,encrypted_run_name_template,execution_target,concurrency_limit,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)", jobId, input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), await encrypt(String(input.runNameTemplate ?? ""), this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
     for (const trigger of triggers) this.ctx.storage.sql.exec("INSERT INTO triggers (id,job_id,kind,slug,enabled,config,position,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", trigger.id ?? id(), jobId, trigger.kind, trigger.slug, trigger.enabled === false ? 0 : 1, JSON.stringify(this.persistedTriggerConfig(trigger)), trigger.position, timestamp, timestamp);
     await this.resetSchedules(jobId);
     return json(await this.publicJob(this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row));
@@ -725,7 +729,7 @@ export class TenantV2 extends DurableObject<Env> {
     const triggers = this.normalizedTriggers(input.triggers, existing);
     this.validateLifecycleGraph(jobId, triggers);
     const target = { ...await this.jobTarget(input.executionTargetId), model: text(input.model).trim(), effort: text(input.effort).trim() }, timestamp = now();
-    this.ctx.storage.sql.exec("UPDATE jobs SET name=?,slug=?,encrypted_prompt_template=?,execution_target=?,concurrency_limit=?,updated_at=? WHERE id=?", input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, timestamp, jobId);
+    this.ctx.storage.sql.exec("UPDATE jobs SET name=?,slug=?,encrypted_prompt_template=?,encrypted_run_name_template=?,execution_target=?,concurrency_limit=?,updated_at=? WHERE id=?", input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), await encrypt(String(input.runNameTemplate ?? ""), this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, timestamp, jobId);
     const retained = new Set<string>();
     for (const trigger of triggers) {
       const triggerId = typeof trigger.id === "string" && existing.has(trigger.id) ? trigger.id : id(); retained.add(triggerId);
@@ -792,6 +796,9 @@ export class TenantV2 extends DurableObject<Env> {
     if (existing) return { invocationId: existing.invocation_id, runId: existing.run_id, state: existing.state, duplicate: true };
     const job = await this.publicJob(row);
     const prompt = renderJobPrompt({ promptTemplate: String(job.promptTemplate) }, context);
+    const triggerContext = Object.fromEntries(this.triggersFor(jobId).map(trigger => [String(trigger.slug), false]));
+    Object.assign(triggerContext, context);
+    const runName = renderRunName(String(job.runNameTemplate ?? ""), triggerContext, `Run ${id().slice(0, 8)}`);
     const invocationId = id(), runId = id(), timestamp = now();
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO invocations (id,job_id,source,claim_key,trigger_id,context,occurrence,created_at) VALUES (?,?,?,?,?,?,?,?)", invocationId, jobId, source, claimKey, triggerId, JSON.stringify(context), occurrence ? JSON.stringify(occurrence) : null, timestamp);
     const winner = this.one("SELECT id FROM invocations WHERE job_id=? AND claim_key=?", jobId, claimKey) as Row;
@@ -805,7 +812,7 @@ export class TenantV2 extends DurableObject<Env> {
     try { target = JSON.parse(String(row.execution_target)); } catch { /* validated when the job is saved */ }
     const provider = source === "webhook" ? String((occurrence as any)?.metadata?.provider ?? "webhook") : source;
     const backendKind = String(target.backendKind ?? "exe-herdr"), capabilities = backendKind === "amp" ? ["stop"] : ["output", "prompt-delivery", "recovery", "stop"];
-    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", provider, backendKind, JSON.stringify(capabilities), backendKind === "amp" ? null : "https://exe.dev/", timestamp, timestamp);
+    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,run_name,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), runName, null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", provider, backendKind, JSON.stringify(capabilities), backendKind === "amp" ? null : "https://exe.dev/", timestamp, timestamp);
     await this.ctx.storage.setAlarm(Date.now());
     return { invocationId, runId, state: "queued", duplicate: false };
   }
@@ -982,9 +989,10 @@ export class TenantV2 extends DurableObject<Env> {
     const excerpt = contextQuery
       ? ", instr(lower(i.context), lower(?)) AS context_match_index, length(i.context) AS context_length, substr(i.context, max(instr(lower(i.context), lower(?)) - 80, 1), 200) AS context_excerpt"
       : ", NULL AS context_excerpt";
-    const rows = this.rows(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_capabilities AS capabilities, r.destination_url, r.created_at, r.updated_at${excerpt} FROM runs r LEFT JOIN job_runs jr ON jr.id = r.id LEFT JOIN invocations i ON i.id = jr.invocation_id ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY r.created_at DESC, r.id DESC LIMIT ?`, ...selectArgs, ...args, limit + 1);
+    const rows = this.rows(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.issue_title, r.run_name, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_capabilities AS capabilities, r.destination_url, r.created_at, r.updated_at${excerpt} FROM runs r LEFT JOIN job_runs jr ON jr.id = r.id LEFT JOIN invocations i ON i.id = jr.invocation_id ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY r.created_at DESC, r.id DESC LIMIT ?`, ...selectArgs, ...args, limit + 1);
     const hasMore = rows.length > limit, items = rows.slice(0, limit);
     for (const item of items) {
+      item.name = String(item.run_name || item.issue_title || `Run ${String(item.id).slice(0, 8)}`);
       if (contextQuery) {
         const matchIndex = Number(item.context_match_index), contextLength = Number(item.context_length), excerptValue = String(item.context_excerpt ?? "");
         const excerptStart = Math.max(matchIndex - 80, 1);
@@ -998,7 +1006,7 @@ export class TenantV2 extends DurableObject<Env> {
   }
 
   private async getRun(runId: string): Promise<Response> {
-    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_handle, r.execution_capabilities AS capabilities, r.destination_url, r.prompt AS encrypted_prompt, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
+    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.issue_title, r.run_name, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_handle, r.execution_capabilities AS capabilities, r.destination_url, r.prompt AS encrypted_prompt, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
       i.id AS invocation_id, i.job_id AS invocation_job_id, i.source AS invocation_source, i.claim_key AS invocation_claim_key, i.trigger_id AS invocation_trigger_id, i.context, i.occurrence AS invocation_occurrence, i.created_at AS invocation_created_at
       FROM runs r LEFT JOIN job_runs jr ON jr.id = r.id LEFT JOIN invocations i ON i.id = jr.invocation_id WHERE r.id = ?`, runId);
     if (!run) return new Response("Not found", { status: 404 });
@@ -1021,6 +1029,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     run.activity = this.rows("SELECT action, detail, created_at FROM run_activity WHERE run_id = ? ORDER BY created_at, id", runId);
     this.presentExecution(run);
+    run.name = String(run.run_name || run.issue_title || `Run ${String(run.id).slice(0, 8)}`);
     if (["starting", "running", "blocked", "stopping"].includes(String(run.state)) && (run.capabilities as unknown[]).includes("output")) {
       const pipe = this.executionConfig(run.job_id);
       if (pipe && String(run.backend_kind) === "exe-herdr") {
