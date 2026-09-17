@@ -16,7 +16,7 @@ const shell = (title: string, viewer: Viewer, body: string, script = "") => `<!d
 <html lang="en" class="bg-stone-50 [color-scheme:light] dark:bg-slate-950 dark:[color-scheme:dark]"><head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>${title}</title><meta name="theme-color" content="#fdc901"><link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png"><link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link rel="manifest" href="/site.webmanifest"><script>try{const saved=localStorage.getItem('factorize-theme'),dark=saved?saved==='dark':matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',dark)}catch{}</script><link rel="stylesheet" href="/styles.css">
-</head><body class="min-h-screen bg-stone-50 text-slate-950 antialiased dark:bg-slate-950 dark:text-slate-100">
+</head><body class="flex min-h-[100dvh] flex-col bg-stone-50 text-slate-950 antialiased dark:bg-slate-950 dark:text-slate-100">
 <header class="border-b border-stone-200 bg-white dark:border-slate-800 dark:bg-slate-950"><nav class="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 lg:px-8">
   <a href="/" class="flex items-center gap-2 text-lg font-bold tracking-tight"><img src="/bee-mark-monochrome.png" alt="" class="navbar-bee h-8 w-8 object-contain">Factorize</a>
   <div class="flex items-center gap-2 text-sm font-medium sm:gap-4">
