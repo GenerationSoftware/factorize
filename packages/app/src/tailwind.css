@@ -17,6 +17,15 @@
 }
 @custom-variant dark (&:where(.dark, .dark *));
 
+@layer utilities {
+  /* Keep the job controls compact while allowing their row to wrap on phones. */
+  #job-detail > div.mt-6 > div:last-child > :is(button, a) {
+    min-height: 2.5rem;
+    padding: .5rem .75rem;
+    border-radius: .5rem;
+  }
+}
+
 @theme {
   /* Bee palette: soft honey surfaces paired with warm charcoal neutrals. */
   --color-factorize-50: #fff9e6;
