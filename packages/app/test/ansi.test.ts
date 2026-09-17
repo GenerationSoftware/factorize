@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ansiToHtml } from "../src/ansi";
+import { ansiToHtml, ansiToHtmlBrowserSource } from "../src/ansi";
 
 describe("ansiToHtml", () => {
   it("renders standard, bright, indexed, and true-color SGR colors", () => {
@@ -31,5 +31,12 @@ describe("ansiToHtml", () => {
 
   it("leaves plain text unchanged apart from required HTML escaping", () => {
     expect(ansiToHtml("plain\n  output & more")).toBe("plain\n  output &amp; more");
+  });
+
+  it("ships standalone browser source without bundler runtime helpers", () => {
+    const browserAnsiToHtml = Function(`${ansiToHtmlBrowserSource}; return ansiToHtml`)() as (input: unknown) => string;
+    const sample = '\u001b[1;38;2;1;2;3m<strong>styled</strong>\u001b[0m';
+    expect(ansiToHtmlBrowserSource).not.toContain("__name");
+    expect(browserAnsiToHtml(sample)).toBe(ansiToHtml(sample));
   });
 });

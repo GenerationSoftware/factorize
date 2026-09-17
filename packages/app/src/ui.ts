@@ -1,6 +1,6 @@
 /** Framework-light pages; Tailwind is compiled locally into public/styles.css. */
 import { triggerContextCatalog } from "./trigger-context";
-import { ansiToHtml } from "./ansi";
+import { ansiToHtmlBrowserSource } from "./ansi";
 type Viewer = { email: string } | null;
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 
@@ -48,7 +48,7 @@ const dashboardHead = (title: string, description: string, action = "") => `<div
 const card = "rounded-2xl border border-stone-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
 const uiHelpers = `
 const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-${ansiToHtml.toString()}
+${ansiToHtmlBrowserSource}
 const request=async(url,options)=>{const r=await fetch(url,options),body=await r.json().catch(()=>({}));if(r.status===401){location.href='/auth/linear';throw new Error('Unauthorized')}if(!r.ok)throw new Error(body.error?.message||body.error||'Request failed');return body};
 const pairs=v=>Object.entries(v||{}).map(([k,x])=>k+'='+x).join('\\n');
 const record=v=>Object.fromEntries(String(v||'').split(/\\n/).map(x=>x.trim()).filter(Boolean).map(x=>{const i=x.indexOf('=');if(i<1)throw new Error('Parameters must use name=value, one per line.');return[x.slice(0,i).trim(),x.slice(i+1)]}));
