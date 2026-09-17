@@ -358,6 +358,8 @@ describe("pages", () => {
     expect(detail).toContain("esc(j.name)");
     expect(detail).toContain('<summary class="w-fit cursor-pointer');
     expect(detail).toContain('>Details</summary>');
+    expect(detail).toContain('Name template');
+    expect(detail).toContain('j.runNameTemplate||\'Default run name\'');
     expect(detail).toContain('w-full break-words text-3xl');
     expect(detail).toContain("esc(j.runningCount)+'/'+esc(j.concurrencyLimit)+' Running");
     expect(detail).toContain('data-run-started=');
