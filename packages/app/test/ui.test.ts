@@ -230,6 +230,10 @@ describe("pages", () => {
     expect(run).toContain("destination_url");
     expect(run).toContain("caps.includes('output')");
     expect(run).toContain('data-run-output');
+    expect(run).toContain("Context sent to agent");
+    expect(run).toContain('data-run-context');
+    expect(run).toContain("JSON.stringify(r.context,null,2)");
+    expect(run).toContain("Context is not available for this legacy run.");
     expect(run).toContain('font-mono text-xs leading-5');
     expect(run).toContain("ansiToHtml(r.result");
     expect(run).not.toContain("__name");
