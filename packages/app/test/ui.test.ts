@@ -52,6 +52,9 @@ describe("pages", () => {
     const html = jobPage({ email: "owner@example.com" });
     expect(html).toContain('id="linear-rules"');
     expect(html).toContain('id="add-linear-rule"');
+    expect(html).toContain('id="github-rules"');
+    expect(html).toContain('id="add-github-rule"');
+    expect(html).toContain("matchRules:readGithubRules()");
     expect(html).toContain("status:'Status',label:'Label',assignee:'Assignee',creator:'Creator',owner:'Owner'");
     expect(html).toContain("matchRules:readLinearRules()");
     expect(html).toContain("(c.matchRules?.length?c.matchRules:");

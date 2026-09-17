@@ -47,6 +47,9 @@ describe("flow workspaces", () => {
     expect(launch).toContain('projects."/repo/.factorize-runs/run".trust_level="trusted"');
     expect(launch).toContain("agent read 'factorize-1' --source recent --format text");
     expect(launch).toContain("agent prompt 'factorize-1' '1' --wait --until working --until idle");
+    expect(launch).toContain('trust_lock=/tmp/factorize-codex-trust-$(id -u).lock');
+    expect(launch).toContain('flock 9');
+    expect(launch).toContain('flock -u 9');
     expect(launch).not.toContain("agent prompt 'factorize-1' 'fix it'");
     expect(delivery).toContain("agent prompt 'factorize-1'");
     expect(delivery).toContain("agent wait 'factorize-1' --until idle --until done --timeout 15000");
@@ -58,7 +61,7 @@ describe("flow workspaces", () => {
   it("passes the initial prompt only when starting a new idempotent agent", () => {
     const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
     expect(command).not.toContain("agent prompt 'factorize-1' 'fix it'");
-    expect(command).toContain("else herdr agent start 'factorize-1'");
+    expect(command).toContain("flock 9 && herdr agent start 'factorize-1'");
     expect(command).toContain("/tmp/factorize-prompts/factorize-1/prompt.md");
   });
 
@@ -68,17 +71,32 @@ describe("flow workspaces", () => {
     expect(defaultAgentCommand("pi")).toBe("");
   });
 
+  it("does not take the Codex trust lock for other agent kinds", () => {
+    const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "claude", cwd: "/repo" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
+    expect(command).not.toContain("factorize-codex-trust");
+    expect(command).not.toContain("flock");
+  });
+
   it("passes a configured agent command as safely quoted arguments", () => {
     const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo", agentCommand: "--model 'gpt 5'" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
     expect(command).toContain("-- '--model' 'gpt 5'");
   });
 
-  it("garbage collects only after terminal, run directory, and lease revalidation", () => {
+  it("garbage collects the pane and run directory only after ownership revalidation", () => {
     const command = garbageCollectPaneCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "w1:p2", "term-7", "/repo/.factorize-runs/run", "lease-7");
     expect(command).toContain(".terminal_id == $terminal");
     expect(command).toContain("factorize-lease");
     expect(command).not.toContain("agent stop");
     expect(command).toContain("pane close 'w1:p2'");
+    expect(command).toContain("rm -rf -- '/repo/.factorize-runs/run'");
+    expect(command).toContain("test ! -e '/repo/.factorize-runs/run'");
+    expect(command.indexOf("pane close 'w1:p2'")).toBeLessThan(command.indexOf("rm -rf -- '/repo/.factorize-runs/run'"));
+  });
+
+  it("refuses to garbage collect outside the per-run directory", () => {
+    const command = garbageCollectPaneCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "w1:p2", "term-7", "/repo", "lease-7");
+    expect(command).toContain("case '/repo' in '/repo/.factorize-runs/'*");
+    expect(command.indexOf("case '/repo' in")).toBeLessThan(command.indexOf("pane close 'w1:p2'"));
   });
 
   it("quotes the complete exe.dev SSH request body", () => {

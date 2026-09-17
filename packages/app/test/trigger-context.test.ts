@@ -11,6 +11,7 @@ describe("trigger context reflection", () => {
     }
     expect(triggerContextCatalog.linear).toContainEqual(expect.objectContaining({ path: "issue.title", type: "string" }));
     expect(triggerContextCatalog.github).toContainEqual(expect.objectContaining({ path: "pull_request.number", type: "number" }));
+    expect(triggerContextCatalog.github).toContainEqual(expect.objectContaining({ path: "issue.title", type: "string" }));
   });
 
   it("preserves the slug and explicitly marks unknown handler output", () => {

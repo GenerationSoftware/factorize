@@ -1,6 +1,7 @@
 import { matchingIssue } from "./matcher";
 import type { MatchRule } from "./types";
 import { validateHandlerCode } from "./custom-handler";
+import { matchingGitHubIssue } from "./github-issue-matcher";
 
 export type WebhookProvider = "linear" | "clickup" | "github" | "cloudflareTail";
 export type WebhookTriggerConfig = {
@@ -23,7 +24,9 @@ export function adaptWebhook(config: WebhookTriggerConfig, provider: WebhookProv
   if (provider === "clickup" && (!config.listId || payload.task?.list?.id !== config.listId || payload.matches !== true)) return null;
   if (provider === "github") {
     if (payload.installation?.id !== config.installationId || payload.repository?.id !== config.repositoryId) return null;
-    if ((eventName ?? "") !== (config.event ?? "pull_request") || payload.action !== (config.action ?? "dequeued")) return null;
+    if (config.matchRules?.length) {
+      if (eventName !== "issues" || !matchingGitHubIssue(payload, config.matchRules)) return null;
+    } else if ((eventName ?? "") !== (config.event ?? "pull_request") || payload.action !== (config.action ?? "dequeued")) return null;
   }
   const normalizedProvider = provider === "cloudflareTail" ? "cloudflare" : provider;
   const providerAliases = provider === "linear"
