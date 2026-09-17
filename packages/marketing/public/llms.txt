@@ -1,0 +1,9 @@
+# Factorize
+
+> Open-source software factories that route Linear issues to coding agents running on your exe.dev VM.
+
+Factorize helps teams plan work in Linear, automate coding-agent jobs, and collaborate while agents work.
+
+- [Documentation](https://docs.factorize.sh): Setup guides, concepts, REST API reference, and MCP integration.
+- [Factorize app](https://app.factorize.sh): Create and manage software-factory jobs.
+- [Source code](https://github.com/GenerationSoftware/factorize): Host and customize Factorize yourself.
