@@ -176,13 +176,26 @@ describe("pages", () => {
     expect(html).not.toContain('min-w-[48rem]');
   });
 
-  it("selects a per-job model with harness-aware suggestions", () => {
+  it("configures agent and repository per job", () => {
     const html = jobPage({ email: "owner@example.com" }, "job-1");
     expect(html).toContain('name="model"');
-    expect(html).toContain("new Option('Harness default','')");
-    expect(html).toContain("target?.models||[]");
+    expect(html).toContain('name="agentKind"');
+    expect(html).toContain('name="repositoryUrl"');
+    expect(html).toContain('name="checkoutRef"');
     expect(html).toContain("model:form.model.value.trim()");
-    expect(html).toContain("syncModels(current?.model||'')");
+    expect(html).toContain("repositoryUrl:form.repositoryUrl.value.trim()");
+    expectInlineScriptsToParse(html);
+  });
+
+  it("keeps exe.dev settings VM-only and supports testing, tags, and removal", () => {
+    const html = settingsPage({ email: "owner@example.com" });
+    const dialog = html.match(/<dialog id="exe-setup"[\s\S]*?<\/dialog>/)?.[0] ?? "";
+    expect(dialog).toContain('id="test-exe-token"');
+    expect(dialog).toContain('name="tags" multiple');
+    expect(dialog).not.toContain('name="repositoryUrl"');
+    expect(dialog).not.toContain('name="checkoutRef"');
+    expect(html).toContain('data-remove-integration=');
+    expect(html).toContain('missingPermissions');
     expectInlineScriptsToParse(html);
   });
 

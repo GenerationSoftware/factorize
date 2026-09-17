@@ -52,14 +52,7 @@ export interface WorkItem {
 export interface ExeConnectionInput {
   connectionId?: string;
   apiToken: string;
-  agentKind: "claude" | "codex" | "pi" | string;
   tags?: string[];
-  repositoryUrl: string;
-  checkoutRef?: string;
-  agentCommand?: string;
-  models?: string[];
-  modelsRefreshedAt?: string;
-  efforts?: string[];
 }
 
 export interface AmpConnectionInput { connectionId?: string; accessToken: string; project: string; apiBaseUrl?: string; }
