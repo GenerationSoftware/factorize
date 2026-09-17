@@ -98,7 +98,7 @@ export class TenantV2 extends DurableObject<Env> {
     this.ensureColumn("runs", "execution_handle", "TEXT");
     this.ensureColumn("runs", "execution_capabilities", "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn("runs", "destination_url", "TEXT");
-    for (const [column, definition] of Object.entries({ herdr_server_namespace: "TEXT NOT NULL DEFAULT 'default'", worktree_path: "TEXT", ownership_lease: "TEXT", ownership_generation: "INTEGER NOT NULL DEFAULT 0", agent_session_generation: "INTEGER NOT NULL DEFAULT 0", output_captured: "INTEGER NOT NULL DEFAULT 0", claim_released: "INTEGER NOT NULL DEFAULT 0", pane_collected: "INTEGER NOT NULL DEFAULT 0", worktree_disposition: "TEXT" })) this.ensureColumn("runs", column, definition);
+    for (const [column, definition] of Object.entries({ herdr_server_namespace: "TEXT NOT NULL DEFAULT 'default'", worktree_path: "TEXT", ownership_lease: "TEXT", ownership_generation: "INTEGER NOT NULL DEFAULT 0", agent_session_generation: "INTEGER NOT NULL DEFAULT 0", output_captured: "INTEGER NOT NULL DEFAULT 0", claim_released: "INTEGER NOT NULL DEFAULT 0", pane_collected: "INTEGER NOT NULL DEFAULT 0", pane_collection_attempt: "INTEGER NOT NULL DEFAULT 0", pane_collection_next_at: "INTEGER", worktree_disposition: "TEXT" })) this.ensureColumn("runs", column, definition);
     for (const [column, definition] of Object.entries({ herdr_workspace_id: "TEXT", herdr_pane_id: "TEXT", herdr_terminal_id: "TEXT", agent_session_source: "TEXT", agent_session_kind: "TEXT", agent_session_value: "TEXT", herdr_cwd: "TEXT", last_agent_status: "TEXT", recovery_attempt: "INTEGER NOT NULL DEFAULT 0", recovery_reason: "TEXT", recovery_started_at: "TEXT", recovery_last_action: "TEXT", recovery_next_at: "INTEGER", recovery_comment_started: "INTEGER NOT NULL DEFAULT 0", recovery_comment_finished: "INTEGER NOT NULL DEFAULT 0", prompt_accepted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_attempted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_accepted: "INTEGER NOT NULL DEFAULT 0" })) this.ensureColumn("runs", column, definition);
     this.ensureColumn("triggers", "slug", "TEXT");
     this.ensureColumn("jobs", "slug", "TEXT");
@@ -252,6 +252,8 @@ export class TenantV2 extends DurableObject<Env> {
   async alarm(): Promise<void> {
     await this.processGitHubVerifications();
     await this.processDueSchedules();
+    const panes = this.rows("SELECT * FROM runs WHERE state IN ('done','failed','cancelled') AND output_captured=1 AND claim_released=1 AND pane_collected=0 AND pane_collection_attempt<8 AND COALESCE(pane_collection_next_at,0)<=? ORDER BY updated_at LIMIT 20", Date.now());
+    for (const run of panes) await this.collectRunPane(run);
     // Release completed slots before looking at the queue, so capacity is used
     // immediately rather than waiting for the next polling alarm.
     const running = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('starting','running','blocked','recovering') ORDER BY updated_at LIMIT 40");
@@ -272,7 +274,8 @@ export class TenantV2 extends DurableObject<Env> {
     const verification = this.one("SELECT min(next_attempt_at) AS next_attempt_at FROM pending_verifications") as Row;
     const nextVerification = Number(verification?.next_attempt_at || 0);
     const schedule = this.one("SELECT min(next_run_at) AS next_run_at FROM schedule_state") as Row;
-    const candidates = [Number(pending.count) > 0 ? Date.now() + 15_000 : 0, nextVerification, Number(schedule?.next_run_at || 0)].filter(Boolean);
+    const collection = this.one("SELECT min(pane_collection_next_at) AS next_at FROM runs WHERE pane_collected=0 AND pane_collection_attempt<8 AND pane_collection_next_at IS NOT NULL") as Row;
+    const candidates = [Number(pending.count) > 0 ? Date.now() + 15_000 : 0, nextVerification, Number(schedule?.next_run_at || 0), Number(collection?.next_at || 0)].filter(Boolean);
     if (candidates.length) await this.ctx.storage.setAlarm(Math.min(...candidates));
   }
 
@@ -1360,10 +1363,31 @@ export class TenantV2 extends DurableObject<Env> {
     if (!['done', 'failed', 'cancelled'].includes(String(run.state)) || !Number(run.output_captured) || !Number(run.claim_released) || !run.herdr_pane_id || !run.herdr_terminal_id || !run.worktree_path || !run.ownership_lease) return;
     const pipe = this.executionConfig(run.pipe_id);
     const connection = pipe ? await this.connectionForPipe(pipe) : null;
-    if (!connection) return;
-    const collected = await exec(connection, garbageCollectPaneCommand(connection, String(run.herdr_pane_id), String(run.herdr_terminal_id), String(run.worktree_path), String(run.ownership_lease)));
+    const attempt = Number(run.pane_collection_attempt || 0) + 1;
+    if (!connection) {
+      this.activity(run.id, "pane_collection_retry", `Attempt ${attempt}/8 could not resolve the run's execution connection.`);
+      this.schedulePaneCollection(run.id, attempt);
+      return;
+    }
+    let collected;
+    try {
+      collected = await exec(connection, garbageCollectPaneCommand(connection, String(run.herdr_pane_id), String(run.herdr_terminal_id), String(run.worktree_path), String(run.ownership_lease)));
+    } catch (error) {
+      this.activity(run.id, "pane_collection_retry", `Attempt ${attempt}/8 could not reach the VM: ${error instanceof Error ? error.message : "unknown error"}`);
+      this.schedulePaneCollection(run.id, attempt);
+      return;
+    }
     this.commandActivity(run.id, "pane garbage collection", collected);
-    if (collected.ok && (collected.exitCode === null || collected.exitCode === 0)) this.ctx.storage.sql.exec("UPDATE runs SET pane_collected=1,worktree_disposition='retained',updated_at=? WHERE id=?", now(), run.id);
+    if (collected.ok && (collected.exitCode === null || collected.exitCode === 0)) {
+      this.ctx.storage.sql.exec("UPDATE runs SET pane_collected=1,pane_collection_attempt=?,pane_collection_next_at=NULL,worktree_disposition='retained',updated_at=? WHERE id=?", attempt, now(), run.id);
+      return;
+    }
+    this.schedulePaneCollection(run.id, attempt);
+  }
+
+  private schedulePaneCollection(runId: unknown, attempt: number): void {
+    const nextAt = attempt < 8 ? Date.now() + Math.min(60_000, 2_000 * 2 ** Math.min(attempt - 1, 5)) : null;
+    this.ctx.storage.sql.exec("UPDATE runs SET pane_collection_attempt=?,pane_collection_next_at=?,updated_at=? WHERE id=?", attempt, nextAt, now(), runId);
   }
 
   private async safeLinearComment(issueId: string, body: string): Promise<void> { try { await this.postLinearComment(issueId, body); } catch (error) { console.warn(JSON.stringify({ event: "linear_notification_failed", issueId, message: error instanceof Error ? error.message : "unknown" })); } }
