@@ -176,14 +176,14 @@ describe("pages", () => {
     expect(html).not.toContain('min-w-[48rem]');
   });
 
-  it("configures agent and repository per job", () => {
+  it("configures the agent without repository fields", () => {
     const html = jobPage({ email: "owner@example.com" }, "job-1");
     expect(html).toContain('name="model"');
     expect(html).toContain('name="agentKind"');
-    expect(html).toContain('name="repositoryUrl"');
-    expect(html).toContain('name="checkoutRef"');
+    expect(html).not.toContain('name="repositoryUrl"');
+    expect(html).not.toContain('name="checkoutRef"');
     expect(html).toContain("model:form.model.value.trim()");
-    expect(html).toContain("repositoryUrl:form.repositoryUrl.value.trim()");
+    expect(html).not.toContain("repositoryUrl:");
     expectInlineScriptsToParse(html);
   });
 

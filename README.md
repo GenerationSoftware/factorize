@@ -104,7 +104,7 @@ Create a ClickUp OAuth application with the callback URL `https://your-domain.ex
 ## Create a Job
 
 1. Sign in with Linear.
-2. Connect exe.dev using an account-level HTTPS API token, repository URL, optional checkout ref, and the VM tags needed to attach integrations.
+2. Connect exe.dev using an account-level HTTPS API token and the VM tags needed to attach integrations.
 3. Create a Job, choose its execution target, and add authenticated provider triggers. Every Linear matching rule must match.
 
 Matching provider events queue work up to the Job’s configured concurrency. Each run creates a tagged VM, clones the configured repository, runs the agent directly, captures its output, and deletes the VM on every terminal outcome.

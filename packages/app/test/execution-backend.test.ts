@@ -4,7 +4,7 @@ import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle }
 
 afterEach(() => vi.unstubAllGlobals());
 
-const connection = { apiToken: "secret", agentKind: "codex", repositoryUrl: "https://github.int.exe.xyz/acme/repo.git", checkoutRef: "main", tags: ["github", "llm"], model: "gpt-5.5", effort: "high" };
+const connection = { apiToken: "secret", agentKind: "codex", tags: ["github", "llm"], model: "gpt-5.5", effort: "high" };
 
 describe("ExeVmBackend", () => {
   it("tests every required permission and discovers sorted unique VM tags", async () => {
@@ -35,7 +35,7 @@ describe("ExeVmBackend", () => {
     expect(result.missingPermissions).toEqual([]);
   });
 
-  it("creates a tagged VM, clones the repository, and launches Codex directly", async () => {
+  it("creates a tagged VM and launches Codex directly in the workspace", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
       requests.push(String(init.body));
@@ -46,7 +46,8 @@ describe("ExeVmBackend", () => {
     expect(requests[0]).toContain("new --name='factorize-run-1'");
     expect(requests[0]).toContain("--tag='github'");
     expect(requests[0]).toContain("--tag='llm'");
-    expect(requests[1]).toContain("git clone --");
+    expect(requests[1]).toContain("cd /workspace");
+    expect(requests[1]).not.toContain("git clone");
     expect(requests[1]).toContain("codex");
   });
 

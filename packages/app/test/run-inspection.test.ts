@@ -135,7 +135,7 @@ describe("run invocation inspection", () => {
       created_at: "2026-09-16T12:00:00Z", updated_at: "2026-09-16T12:01:00Z",
     }] : []);
     (tenant as any).executionConfig = () => ({ id: "job-1" });
-    (tenant as any).connectionForPipe = async () => ({ apiToken: "secret", agentKind: "codex", repositoryUrl: "https://example.test/repo.git", tags: [] });
+    (tenant as any).connectionForPipe = async () => ({ apiToken: "secret", agentKind: "codex", tags: [] });
     const output = vi.spyOn(ExeVmBackend.prototype, "readOutput").mockResolvedValue("work in progress");
 
     const body = await ((tenant as any).getRun("run-1") as Promise<Response>).then((response: Response) => response.json()) as any;

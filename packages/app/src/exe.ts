@@ -5,8 +5,6 @@ export interface ExeConnection {
 
 export interface ExeRunConnection extends ExeConnection {
   agentKind: string;
-  repositoryUrl: string;
-  checkoutRef?: string;
   agentCommand?: string;
   model?: string;
   effort?: string;

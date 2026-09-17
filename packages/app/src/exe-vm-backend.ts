@@ -72,7 +72,7 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async launch(request: LaunchRequest): Promise<LaunchReceipt> {
     const connection = this.connection as ExeRunConnection;
-    if (!connection.agentKind || !connection.repositoryUrl) throw new Error("The job is missing its agent or repository configuration");
+    if (!connection.agentKind) throw new Error("The job is missing its agent configuration");
     const vm = vmNameFor(request.runId);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
@@ -82,13 +82,10 @@ export class ExeVmBackend implements ExecutionBackend {
     }
 
     const prompt = base64(request.prompt), output = "/tmp/factorize.log", status = "/tmp/factorize.status";
-    const checkout = connection.checkoutRef ? ` && git checkout --detach ${shellAtom(connection.checkoutRef)}` : "";
     const work = [
       "set -eu",
       "mkdir -p /workspace",
       "cd /workspace",
-      `git clone -- ${shellAtom(connection.repositoryUrl)} repo`,
-      `cd repo${checkout}`,
       `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
       `setsid nohup sh -c ${shellAtom(`set +e; ${agentCommand(connection)} < /tmp/factorize-prompt.md > ${output} 2>&1; code=$?; printf '%s' "$code" > ${status}`)} >/dev/null 2>&1 &`,
       "echo started",
