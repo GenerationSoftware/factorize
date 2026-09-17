@@ -99,6 +99,8 @@ describe("pages", () => {
     expect(html).toContain('id="add-github-rule"');
     expect(html).toContain("matchRules:readGithubRules()");
     expect(html).toContain("status:'Status',label:'Label',assignee:'Assignee',creator:'Creator',owner:'Owner'");
+    expect(html).toContain("const githubRuleOptions=type=>type==='status'?resources.githubOptions.statuses:type==='label'?resources.githubOptions.labels:resources.githubOptions.users;");
+    expect(html).toContain("githubRuleOptions(type.value).map");
     expect(html).toContain("matchRules:readLinearRules()");
     expect(html).toContain("(c.matchRules?.length?c.matchRules:");
     expect(html).not.toContain("const legacyJobPage");
