@@ -286,10 +286,12 @@ describe("pages", () => {
     expect(run).toContain("request('/api/v1/jobs/'+encodeURIComponent(r.job_id))");
     expect(run).toContain("esc(j.name)");
     expect(run).toContain("runLabel='Run '+r.id.slice(0,8)");
-    expect(run).toContain("destination_url");
+    expect(run).not.toContain("destination_url");
+    expect(run).not.toContain("Observation");
     expect(run).toContain("caps.includes('output')");
     expect(run).toContain('data-run-output');
     expect(run).toContain("Context sent to agent");
+    expect(run).toContain('<details class=');
     expect(run).toContain('data-run-context');
     expect(run).toContain("JSON.stringify(r.context,null,2)");
     expect(run).toContain("Context is not available for this legacy run.");
@@ -298,6 +300,11 @@ describe("pages", () => {
     expect(run).toContain("r.live_output??r.result");
     expect(run).toContain("setTimeout(refreshOutput,3000)");
     expect(run).toContain("Live · refreshes automatically");
+    expect(run).toContain('data-run-elapsed');
+    expect(run).toContain("+'s elapsed'");
+    expect(run).toContain('max-h-[calc(100vh-12rem)] overflow-auto');
+    expect(run).toContain('output.scrollHeight-output.scrollTop-output.clientHeight<24');
+    expect(run).toContain('if(follow)output.scrollTop=output.scrollHeight');
     expect(run).not.toContain("__name");
     expect(settings).toContain("Connect every provider used by your Jobs");
     expect(settings).toContain("Linear");
