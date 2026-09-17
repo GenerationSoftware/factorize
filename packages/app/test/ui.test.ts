@@ -185,6 +185,12 @@ describe("pages", () => {
     expect(settings).toContain('<tbody id="installed-integrations"');
     expect(settings).toContain('<th scope="row"');
     expect(settings).toContain("sm:table-row");
+    expect(settings).toContain('<span class="flex items-center gap-2.5">');
+    expect(settings).toContain('<span class="flex h-7 w-7 shrink-0 items-center justify-center text-slate-800');
+    expect(settings).not.toContain("h-10 w-10 shrink-0 items-center justify-center rounded-xl border");
+    expect(settings).toContain('<details class="relative inline-block text-left">');
+    expect(settings).toContain("Actions<svg aria-hidden=\"true\"");
+    expect(settings).toContain("absolute right-0 z-20");
     expect(settings).toContain("const form=e.currentTarget,d=new FormData(form)");
     expect(settings).not.toContain("e.currentTarget.reset()");
   });
