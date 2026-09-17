@@ -372,10 +372,13 @@ export class TenantV2 extends DurableObject<Env> {
     return Promise.all(rows.map(async row => ({ ...(JSON.parse(await decrypt(String(row.value), this.env.CREDENTIAL_ENCRYPTION_KEY)) as any), integrationId: String(row.kind).slice(16) })));
   }
 
-  private async tailIntegrationStatus(): Promise<Array<Record<string, unknown>>> {
-    const installations = await this.tailIntegrations();
-    return installations.map(({ signingSecret: _secret, ...installation }) => ({ ...installation, status: "connected", secretConfigured: true,
-      referencedJobCount: Number((this.one("SELECT count(DISTINCT job_id) AS count FROM triggers WHERE kind='webhook' AND json_extract(config,'$.provider')='cloudflareTail' AND json_extract(config,'$.integrationId')=?", installation.integrationId) as Row)?.count ?? 0) }));
+  private async tailIntegrationStatus(installations?: Array<{ integrationId: string; name: string; signingSecret: string; createdAt: string; updatedAt: string }>): Promise<Array<Record<string, unknown>>> {
+    const loadedInstallations = installations ?? await this.tailIntegrations();
+    const referencedJobCounts = new Map(this.rows(
+      "SELECT json_extract(config,'$.integrationId') AS integration_id, count(DISTINCT job_id) AS count FROM triggers WHERE kind='webhook' AND json_extract(config,'$.provider')='cloudflareTail' GROUP BY json_extract(config,'$.integrationId')",
+    ).map(row => [String(row.integration_id), Number(row.count ?? 0)] as const));
+    return loadedInstallations.map(({ signingSecret: _secret, ...installation }) => ({ ...installation, status: "connected", secretConfigured: true,
+      referencedJobCount: referencedJobCounts.get(installation.integrationId) ?? 0 }));
   }
 
   private async saveTailIntegration(input: unknown): Promise<Response> {
@@ -454,13 +457,14 @@ export class TenantV2 extends DurableObject<Env> {
     const connections = await this.exeConnections();
     const exe = await this.connection<ExeConnectionInput>("exe");
     const ampConnections = await this.ampConnections();
+    const tailInstallations = await this.tailIntegrations();
     return json({
       linear: linear ? { organizationName: linear.organizationName ?? null, viewerEmail: linear.viewerEmail ?? null } : null,
       clickup: clickup ? { teamName: clickup.teamName ?? null } : null,
       exe: exe ? { vmName: exe.vmName, agentKind: exe.agentKind, cwd: exe.cwd, herdrCommand: exe.herdrCommand ?? "herdr", agentCommand: exe.agentCommand ?? defaultAgentCommand(exe.agentKind) } : null,
       exeConnections: connections.map(({ apiToken, ...connection }) => connection),
       ampConnections: ampConnections.map(({ accessToken, ...connection }) => connection),
-      cloudflareTail: { count: (await this.tailIntegrations()).length, installations: await this.tailIntegrationStatus() },
+      cloudflareTail: { count: tailInstallations.length, installations: await this.tailIntegrationStatus(tailInstallations) },
     });
   }
 
