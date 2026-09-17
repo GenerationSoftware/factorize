@@ -20,6 +20,12 @@ describe("Herdr 0.9 recovery identity", () => {
     expect(ownsPane({ terminalId: "term-other", paneId: "pane-2" }, moved, "/repo")).toBe(false);
   });
 
+  it("keeps pane ownership after Linux marks the run cwd as deleted", () => {
+    const completed = { ...moved, status: "idle", cwd: "/repo/.factorize-runs/run-1 (deleted)" };
+    expect(ownsPane({ terminalId: "term-1", paneId: "pane-2" }, completed, "/repo/.factorize-runs/run-1")).toBe(true);
+    expect(ownsPane({ terminalId: "term-1", paneId: "pane-2" }, { ...completed, cwd: "/repo/other (deleted)" }, "/repo/.factorize-runs/run-1")).toBe(false);
+  });
+
   it("parses agent list arrays", () => {
     const agents = parseAgentList(JSON.stringify({ result: { agents: [{ name: "flow-1", kind: "codex", pane_id: "pane-1", session: { id: "abc" } }] } }));
     expect(agents).toHaveLength(1);
