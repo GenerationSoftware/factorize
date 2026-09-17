@@ -268,7 +268,10 @@ describe("pages", () => {
     expect(run).toContain("JSON.stringify(r.context,null,2)");
     expect(run).toContain("Context is not available for this legacy run.");
     expect(run).toContain('font-mono text-xs leading-5');
-    expect(run).toContain("ansiToHtml(r.result");
+    expect(run).toContain("ansiToHtml(outputText(r))");
+    expect(run).toContain("r.live_output??r.result");
+    expect(run).toContain("setTimeout(refreshOutput,3000)");
+    expect(run).toContain("Live · refreshes automatically");
     expect(run).not.toContain("__name");
     expect(settings).toContain("Connect every provider used by your Jobs");
     expect(settings).toContain("Linear");
