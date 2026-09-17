@@ -38,6 +38,8 @@ describe("pages", () => {
     expect(html).toContain("jobRunsState.cursors[targetPage]=cursor");
     expect(html).toContain("const cursor=targetPage===currentPage+1?r.nextCursor:jobRunsState.cursors[targetPage]");
     expect(html).not.toContain("jobRunsState.cursors[jobRunsState.page]=r.nextCursor");
+    expect(html).toContain("targetPage===currentPage+1?r.nextCursor:jobRunsState.cursors[targetPage]");
+    expect(html).toContain("jobRunsState.runs===null");
     expectInlineScriptsToParse(html);
   });
 
