@@ -281,6 +281,16 @@ describe("pages", () => {
     expect(detail).toContain('<nav aria-label="Breadcrumb">');
     expect(detail).toContain('aria-current="page"');
     expect(detail).toContain("esc(j.name)");
+    expect(detail).toContain('summary class="w-fit cursor-pointer');
+    expect(detail).toContain(">Details</summary>");
+    expect(detail).toContain("j.runningCount)+'/'+esc(j.concurrencyLimit)+' Running");
+    expect(detail).toContain('data-run-start=');
+    expect(detail).toContain("elapsedTime({created_at:x.dataset.runStart})+' elapsed'");
+    expect(detail).not.toContain("const triggerDetail=");
+    expect(detail).not.toContain('<section class="rounded-2xl border border-stone-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 mt-8 p-6"><h2 class="font-semibold">Prompt template</h2>');
+    expect(detail).toContain("stateBadge(r.state)");
+    expect(detail).toContain("bg-green-100 text-green-800");
+    expect(detail).toContain("bg-red-100 text-red-800");
     expect(run).toContain('class="mx-auto max-w-6xl');
     expect(run).toContain('<nav aria-label="Breadcrumb">');
     expect(run).toContain("request('/api/v1/jobs/'+encodeURIComponent(r.job_id))");
