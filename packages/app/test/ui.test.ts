@@ -58,6 +58,17 @@ describe("pages", () => {
     expectInlineScriptsToParse(html);
   });
 
+  it("makes shared containers fill available width and keeps job actions compact", () => {
+    for (const html of [jobsPage({ email: "owner@example.com" }), jobDetailPage({ email: "owner@example.com" }, "job-1"), jobRunPage({ email: "owner@example.com" }, "run-1"), settingsPage({ email: "owner@example.com" })]) {
+      expect(html).toContain('class="mx-auto w-full max-w-6xl');
+      expect(html).toContain('class="mx-auto flex h-16 w-full max-w-6xl');
+      expect(html).toContain('class="mx-auto flex w-full max-w-6xl');
+    }
+    const detail = jobDetailPage({ email: "owner@example.com" }, "job-1");
+    expect(detail).toContain('mt-6 grid min-w-0 items-start gap-5 sm:grid-cols-[minmax(0,1fr)_auto]');
+    expect(detail).toContain('class="flex flex-wrap items-start gap-2 sm:justify-end"');
+  });
+
 
   it("escapes profile data", () => {
     const html = landingPage({ email: '<script>alert("x")</script>@example.com' });
