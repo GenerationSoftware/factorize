@@ -110,6 +110,16 @@ describe("pages", () => {
     }
   });
 
+  it("constrains the job editor and its controls for narrow viewports", () => {
+    const html = jobPage({ email: "owner@example.com" }, "job-1");
+    expect(html).toContain('<main class="mx-auto w-full max-w-5xl min-w-0');
+    expect(html).toContain('<form id="job" class="mt-8 min-w-0 space-y-6">');
+    expect(html).toContain('min-w-0 p-6');
+    expect(html).toContain('class="mt-5 grid min-w-0 gap-5 sm:grid-cols-3"');
+    expect(html).toContain('class="max-w-full overflow-x-auto"');
+    expect(html).toContain('class="mt-2 break-words text-sm');
+  });
+
   it("selects a per-job model with harness-aware suggestions", () => {
     const html = jobPage({ email: "owner@example.com" }, "job-1");
     expect(html).toContain('name="model"');
