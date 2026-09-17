@@ -1,0 +1,8 @@
+---
+title: Provider OAuth and boundaries
+description: Configure Linear and optional ClickUp connections.
+---
+
+Linear is the required dashboard identity and webhook provider. Register `/auth/linear/callback`, configure issue and issue-label webhooks at `/webhooks/linear`, and store the client credentials and signing secret as Worker secrets. ClickUp is optional: register `/auth/clickup/callback`; connecting it automatically registers its task webhook. GitHub uses an installed GitHub App, while exe.dev and Cloudflare Tail connections are configured in Settings.
+
+Provider credentials are encrypted at rest in the tenant Durable Object. Public REST/MCP APIs expose only safe metadata. Owner membership and session version are enforced at the shared service boundary.

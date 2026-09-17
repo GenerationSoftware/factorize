@@ -1,0 +1,19 @@
+# Factorize full documentation
+
+Factorize creates durable coding-agent Jobs on a user's exe.dev VM. A Job has a prompt template, execution target, concurrency limit, and stable-slugged manual, schedule, webhook, or lifecycle triggers. Runs are queued, scoped to a tenant, and inspectable through REST or MCP.
+
+## Authentication
+
+Use OAuth 2.1 authorization code with PKCE S256 or RFC 8628 device authorization. Scopes are flows:read, flows:write, runs:read, and runs:write. Access tokens last one hour; refresh tokens last up to 30 days. Owner membership, session version, tenant binding, and revocation are checked on service calls.
+
+## REST
+
+The API is rooted at `/api/v1`. Read operations list connections, installations, targets, trigger availability, Tail integrations, jobs, job events, and runs. Write operations create/replace/delete/enable/disable jobs, test handlers, invoke jobs, stop runs, and preview schedules. Run lists return `{items,nextCursor}` and accept `jobId`, `state`, `contextQuery`, `limit` (1–100), and `cursor`.
+
+## MCP
+
+Connect to `APP_ORIGIN/mcp` using Streamable HTTP. Tools mirror the REST surface: connection/target discovery, job CRUD and enablement, manual invocation, run inspection/filtering/stopping, webhook activity, and isolated handler testing. Tool output is structured JSON plus text; secrets are omitted.
+
+## Triggers
+
+Webhooks support Linear, ClickUp, GitHub, and Cloudflare Tail. Schedule config is `{cron,timezone}`. Lifecycle config is `{sourceJobIds,states}` with succeeded, failed, or stopped. Templates address the firing trigger by slug, for example `{{trigger-1.issue.title}}`. Manual idempotency keys are client values and must not begin with `manual:`.

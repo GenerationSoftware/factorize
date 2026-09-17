@@ -1,0 +1,52 @@
+openapi: 3.1.0
+info:
+  title: Factorize API
+  version: 1.0.0
+  description: Versioned Factorize REST API. See the hosted docs for examples and OAuth discovery.
+servers:
+  - url: https://app.factorize.sh
+security: [{ bearerAuth: [] }]
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: OAuth2 }
+  schemas:
+    Error: { type: object, required: [error], properties: { error: { type: object, required: [code, message], properties: { code: { type: string }, message: { type: string } } } } }
+    JobInput:
+      type: object
+      required: [name, slug, promptTemplate, executionTargetId]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        slug: { type: string, pattern: '^[a-z][a-z0-9_-]{0,29}$' }
+        promptTemplate: { type: string, minLength: 1, maxLength: 50000 }
+        concurrencyLimit: { type: integer, minimum: 1, maximum: 50, default: 1 }
+        executionTargetId: { type: string, minLength: 1 }
+        model: { type: string, maxLength: 120 }
+        effort: { type: string, maxLength: 40 }
+        triggers: { type: array, maxItems: 50, items: { type: object } }
+    RunPage: { type: object, required: [items], properties: { items: { type: array, items: { type: object } }, nextCursor: { type: string, nullable: true } } }
+paths:
+  /api/health: { get: { summary: Worker health check, security: [], responses: { '200': { description: OK, content: { application/json: { example: { ok: true } } } } } } }
+  /api/v1/exe-connections: { get: { summary: List exe connections, responses: { '200': { description: Safe metadata } } } }
+  /api/v1/github-installations: { get: { summary: List GitHub installations, responses: { '200': { description: Installations } } } }
+  /api/v1/execution-targets: { get: { summary: List execution targets, responses: { '200': { description: Targets } } } }
+  /api/v1/job-trigger-availability: { get: { summary: List available trigger kinds, responses: { '200': { description: Availability } } } }
+  /api/v1/integrations/cloudflare-tail: { get: { summary: List Tail integrations, responses: { '200': { description: Integrations } } } }
+  /api/v1/jobs:
+    get: { summary: List jobs, responses: { '200': { description: Jobs } } }
+    post: { summary: Create job, requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/JobInput' } } } }, responses: { '201': { description: Created } } }
+  /api/v1/jobs/{jobId}:
+    parameters: [{ name: jobId, in: path, required: true, schema: { type: string } }]
+    get: { summary: Get job, responses: { '200': { description: Job } } }
+    put: { summary: Replace job, requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/JobInput' } } } }, responses: { '200': { description: Updated } } }
+    delete: { summary: Delete job, responses: { '200': { description: Deleted } } }
+  /api/v1/jobs/{jobId}/enable: { post: { summary: Enable job, responses: { '200': { description: Enabled } } } }
+  /api/v1/jobs/{jobId}/disable: { post: { summary: Disable job, responses: { '200': { description: Disabled } } } }
+  /api/v1/jobs/{jobId}/invocations: { post: { summary: Invoke job, responses: { '202': { description: Accepted } } } }
+  /api/v1/jobs/{jobId}/events: { get: { summary: List webhook activity, responses: { '200': { description: Activity } } } }
+  /api/v1/job-handlers/test: { post: { summary: Test webhook handler, responses: { '200': { description: Decision } } } }
+  /api/v1/runs:
+    get: { summary: List runs, parameters: [{ name: jobId, in: query, schema: { type: string } }, { name: state, in: query, schema: { type: string } }, { name: contextQuery, in: query, schema: { type: string } }, { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }, { name: cursor, in: query, schema: { type: string } }], responses: { '200': { description: Paginated runs, content: { application/json: { schema: { $ref: '#/components/schemas/RunPage' } } } } } }
+  /api/v1/runs/{runId}: { get: { summary: Get run, responses: { '200': { description: Run } } } }
+  /api/v1/runs/{runId}/stop: { post: { summary: Stop run, responses: { '200': { description: Stopped } } } }
+  /api/v1/schedules/preview: { post: { summary: Preview schedule, responses: { '200': { description: Next occurrence } } } }

@@ -1,0 +1,12 @@
+---
+title: OpenAPI definition
+description: Download the machine-readable Factorize REST contract.
+---
+
+The checked-in definition is [`openapi.yaml`](https://github.com/GenerationSoftware/factorize/blob/main/packages/docs/openapi.yaml). It covers every `/api/v1` operation, bearer security, scopes, request schemas, pagination, and the common error envelope.
+
+```bash
+curl -O https://raw.githubusercontent.com/GenerationSoftware/factorize/main/packages/docs/openapi.yaml
+```
+
+Run `npm run validate --workspace=factorize-docs` before publishing. The validator checks that the route inventory in the Worker and the OpenAPI paths remain synchronized.

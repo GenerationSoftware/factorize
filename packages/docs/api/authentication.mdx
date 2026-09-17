@@ -1,0 +1,27 @@
+---
+title: Authentication and scopes
+description: OAuth 2.1, device authorization, and access-token rules.
+---
+
+Protected API and MCP requests use `Authorization: Bearer <token>`. Browser users may also use their signed Factorize session cookie. Access is tenant-bound; owner membership and session version are rechecked on every service call.
+
+## Scopes
+
+| Scope | Allows |
+| --- | --- |
+| `flows:read` | Jobs, targets, connections, integrations, trigger availability |
+| `flows:write` | Create/update/delete/enable/disable jobs; test handlers |
+| `runs:read` | List/get runs and webhook activity |
+| `runs:write` | Invoke and stop runs |
+
+Authorization-code clients must use PKCE S256. Implicit and plain PKCE are disabled. Access tokens last 1 hour; refresh tokens can last 30 days. RFC 7009 revocation is advertised by discovery.
+
+## Device flow
+
+1. Register a public client at `POST /oauth/register` with `grant_types` containing `urn:ietf:params:oauth:grant-type:device_code` and `token_endpoint_auth_method: none`.
+2. POST form data to `/oauth/device_authorization` with `client_id`, `scope`, and optional `resource`.
+3. Send the user to `/device?user_code=...` and poll `/oauth/token` with the device code.
+
+Device codes expire after 10 minutes and polling is rate limited. The token endpoint returns `authorization_pending`, `slow_down`, `access_denied`, or `expired_token` as appropriate.
+
+Never send Linear, exe.dev, or connection credentials to an API client. Tokens are revocable and responses omit stored secrets.
