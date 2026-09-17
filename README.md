@@ -54,6 +54,7 @@ For a headless machine, authenticate first with `npx wrangler login --device --b
 
 - A Cloudflare account with Workers enabled.
 - A Linear OAuth application with webhooks enabled.
+- Optional: a ClickUp OAuth application for ClickUp task triggers.
 - An exe.dev VM with Herdr and your coding agent (such as Codex or Claude) installed.
 - An exe.dev HTTPS API token restricted to the exact SSH destination Factorize will use, for example `ssh exedev@my-vm`.
 
@@ -90,6 +91,10 @@ Use authorization-code OAuth and enable **Webhooks** on the OAuth application. C
 
 After changing the webhook settings, re-authorize existing workspaces so Linear creates a fresh workspace subscription.
 
+## Configure ClickUp
+
+Create a ClickUp OAuth application with the callback URL `https://your-domain.example/auth/clickup/callback`, then store its client ID and secret in `CLICKUP_CLIENT_ID` and `CLICKUP_CLIENT_SECRET`. Connecting ClickUp from Settings registers the signed task webhook automatically. ClickUp triggers can filter a list by status, tag, assignee, or creator; all configured rules must match.
+
 ## Create a Job
 
 1. Sign in with Linear.
@@ -107,6 +112,8 @@ Cloudflare Worker failures can also start Jobs through the separately deployable
 | `LINEAR_CLIENT_ID` | Linear OAuth client ID |
 | `LINEAR_CLIENT_SECRET` | Linear OAuth client secret |
 | `LINEAR_WEBHOOK_SIGNING_SECRET` | Verifies Linear webhook signatures |
+| `CLICKUP_CLIENT_ID` | ClickUp OAuth client ID |
+| `CLICKUP_CLIENT_SECRET` | ClickUp OAuth client secret; ClickUp also uses a per-installation webhook secret stored encrypted by Factorize |
 | `CREDENTIAL_ENCRYPTION_KEY` | Base64-encoded 32-byte key for encrypted credentials |
 | `SESSION_SIGNING_SECRET` | Independent secret for signed browser sessions |
 | `APP_ORIGIN` | Public Worker origin, configured in `packages/app/wrangler.jsonc` |

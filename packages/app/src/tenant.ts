@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import Mustache from "mustache";
-import { decrypt, encrypt } from "./crypto";
+import { decrypt, encrypt, equalHmac } from "./crypto";
 import { agentListCommand, agentOutputCommand, agentStartupBlocked, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, garbageCollectPaneCommand, herdrAgentStatus, herdrCheckCommand, paneGetCommand, paneProcessInfoCommand, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, validateWorktreeLeaseCommand, type ExeConnection } from "./exe";
 import { findOwnedAgent, ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, isLinearAuthenticationError, refreshLinearToken } from "./linear";
@@ -20,6 +20,7 @@ import { catchUpOccurrence, nextOccurrence, validateScheduleConfig, type Schedul
 import { adaptWebhook, publicWebhookConfig, validateWebhookHandler, type WebhookProvider, type WebhookTriggerConfig } from "./webhook-trigger";
 import { reflectTriggerContext } from "./trigger-context";
 import { installedTriggerAvailability, sameProviderReference } from "./trigger-availability";
+import { clickUpJson, matchingClickUpTask } from "./clickup";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -216,7 +217,10 @@ export class TenantV2 extends DurableObject<Env> {
       if (request.method === "DELETE" && accessToken) return this.revokeAccessToken(decodeURIComponent(accessToken[1]));
       if (request.method === "GET" && url.pathname === "/linear/projects") return await this.linearProjects();
       if (request.method === "GET" && url.pathname === "/linear/options") return await this.linearOptions();
+      if (request.method === "GET" && url.pathname === "/clickup/lists") return await this.clickUpLists();
+      if (request.method === "GET" && url.pathname === "/clickup/options") return await this.clickUpOptions(url.searchParams.get("listId"));
       if (request.method === "PUT" && url.pathname === "/connections/linear") return await this.saveLinear(await request.json());
+      if (request.method === "PUT" && url.pathname === "/connections/clickup") return await this.saveClickUp(await request.json());
       if (request.method === "PUT" && url.pathname === "/connections/exe") return await this.saveExe(await request.json());
       if (request.method === "POST" && url.pathname === "/connections/exe/test") return await this.testExe(await request.json());
       if (request.method === "PUT" && url.pathname === "/connections/amp") return await this.saveAmp(await request.json());
@@ -229,6 +233,7 @@ export class TenantV2 extends DurableObject<Env> {
       const tailTestMatch = url.pathname.match(/^\/connections\/cloudflare-tail\/([^/]+)\/test$/);
       if (request.method === "POST" && tailTestMatch) return await this.testTailIntegration(decodeURIComponent(tailTestMatch[1]));
       if (request.method === "POST" && url.pathname === "/webhook/linear") return await this.acceptLinearWebhook(await request.json() as Record<string, any>, request.headers.get("linear-delivery"));
+      if (request.method === "POST" && url.pathname === "/webhook/clickup") { const raw = await request.text(); return await this.acceptClickUpWebhook(raw, request.headers.get("X-Signature")); }
       if (request.method === "POST" && url.pathname === "/webhook/github") return await this.acceptGitHubWebhook(await request.json() as Record<string, any>, request.headers.get("github-delivery"), request.headers.get("github-event"));
       const tailMatch = url.pathname.match(/^\/webhook\/cloudflare\/([^/]+)$/);
       if (request.method === "POST" && tailMatch) return await this.acceptCloudflareTail(decodeURIComponent(tailMatch[1]), await request.text(), request.headers);
@@ -283,6 +288,15 @@ export class TenantV2 extends DurableObject<Env> {
     const value = input as { accessToken?: string; refreshToken?: string; organizationId?: string; organizationName?: string; viewerId?: string; viewerEmail?: string };
     if (!value.accessToken || !value.refreshToken || !value.organizationId) throw new Error("Linear tokens and organization are required");
     await this.putConnection("linear", value);
+    return json({ ok: true });
+  }
+
+  private async saveClickUp(input: unknown): Promise<Response> {
+    const value = input as { accessToken?: string; teamId?: string; teamName?: string; webhookId?: string; webhookSecret?: string };
+    if (!value.accessToken || !value.teamId || !value.webhookId || !value.webhookSecret) throw new Error("ClickUp token, workspace, and webhook are required");
+    const prior = await this.connection<{ accessToken: string; webhookId?: string }>("clickup");
+    if (prior?.webhookId && prior.webhookId !== value.webhookId) await fetch(`https://api.clickup.com/api/v2/webhook/${encodeURIComponent(prior.webhookId)}`, { method: "DELETE", headers: { Authorization: prior.accessToken } }).catch(() => undefined);
+    await this.putConnection("clickup", value);
     return json({ ok: true });
   }
 
@@ -411,11 +425,13 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async connectionStatus(): Promise<Response> {
     const linear = await this.connection<{ organizationName?: string; viewerEmail?: string }>("linear");
+    const clickup = await this.connection<{ teamName?: string }>("clickup");
     const connections = await this.exeConnections();
     const exe = await this.connection<ExeConnectionInput>("exe");
     const ampConnections = await this.ampConnections();
     return json({
       linear: linear ? { organizationName: linear.organizationName ?? null, viewerEmail: linear.viewerEmail ?? null } : null,
+      clickup: clickup ? { teamName: clickup.teamName ?? null } : null,
       exe: exe ? { vmName: exe.vmName, agentKind: exe.agentKind, cwd: exe.cwd, herdrCommand: exe.herdrCommand ?? "herdr", agentCommand: exe.agentCommand ?? defaultAgentCommand(exe.agentKind) } : null,
       exeConnections: connections.map(({ apiToken, ...connection }) => connection),
       ampConnections: ampConnections.map(({ accessToken, ...connection }) => connection),
@@ -520,6 +536,7 @@ export class TenantV2 extends DurableObject<Env> {
   private async providerTriggerAvailability(kind: unknown, config: Record<string, any>): Promise<{ available: boolean; reason: string | null }> {
     if (kind !== "webhook") return { available: true, reason: null };
     if (config.provider === "linear") return await this.connection("linear") ? { available: true, reason: null } : { available: false, reason: "Reconnect Linear to use this trigger." };
+    if (config.provider === "clickup") return await this.connection("clickup") ? { available: true, reason: null } : { available: false, reason: "Connect ClickUp to use this trigger." };
     if (config.provider === "github") {
       const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", Number(config.installationId)) as Row | undefined;
       return installation?.state === "active" ? { available: true, reason: null } : { available: false, reason: "Reconnect this GitHub installation to use this trigger." };
@@ -530,9 +547,10 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async triggerAvailability(): Promise<Response> {
     const linear = Boolean(await this.connection("linear"));
+    const clickup = Boolean(await this.connection("clickup"));
     const githubStates = this.rows("SELECT state FROM github_installations").map(row => String(row.state));
     const cloudflareTail = (await this.tailIntegrations()).length;
-    return json(installedTriggerAvailability(linear, githubStates, cloudflareTail));
+    return json(installedTriggerAvailability(linear, clickup, githubStates, cloudflareTail));
   }
 
   private sameProviderReference(trigger: any, previous?: Row): boolean {
@@ -958,6 +976,29 @@ export class TenantV2 extends DurableObject<Env> {
     return json({ statuses: statusData.workflowStates.nodes, users: userData.users.nodes, labels: labelData.issueLabels.nodes });
   }
 
+  private async clickUpLists(): Promise<Response> {
+    const connection = await this.connection<{ accessToken: string; teamId: string }>("clickup");
+    if (!connection) throw new Error("Connect ClickUp first");
+    const spaces = (await clickUpJson(connection.accessToken, `/team/${connection.teamId}/space?archived=false`)).spaces ?? [];
+    const lists: Array<{ id: string; name: string }> = [];
+    for (const space of spaces) {
+      const [folderData, folderless] = await Promise.all([
+        clickUpJson(connection.accessToken, `/space/${space.id}/folder?archived=false`),
+        clickUpJson(connection.accessToken, `/space/${space.id}/list?archived=false`),
+      ]);
+      for (const list of folderless.lists ?? []) lists.push({ id: String(list.id), name: `${space.name} / ${list.name}` });
+      for (const folder of folderData.folders ?? []) for (const list of folder.lists ?? []) lists.push({ id: String(list.id), name: `${space.name} / ${folder.name} / ${list.name}` });
+    }
+    return json(lists);
+  }
+
+  private async clickUpOptions(listId: string | null): Promise<Response> {
+    const connection = await this.connection<{ accessToken: string; teamId: string }>("clickup");
+    if (!connection || !listId) throw new Error("Connect ClickUp and choose a list first");
+    const [list, team, tags] = await Promise.all([clickUpJson(connection.accessToken, `/list/${encodeURIComponent(listId)}`), clickUpJson(connection.accessToken, `/team/${connection.teamId}`), clickUpJson(connection.accessToken, `/team/${connection.teamId}/tag`)]);
+    return json({ statuses: (list.statuses ?? []).map((x: any) => ({ id: x.status, name: x.status })), users: (team.team?.members ?? []).map((x: any) => ({ id: String(x.user.id), name: x.user.username ?? x.user.email })), labels: (tags.tags ?? []).map((x: any) => ({ id: x.name, name: x.name })) });
+  }
+
   private webhookJobs(provider: WebhookProvider): Array<{ job: Row; triggerId: string; triggerSlug: string; config: WebhookTriggerConfig }> {
     return this.rows("SELECT j.*,t.id AS trigger_id,t.slug AS trigger_slug,t.config AS trigger_config FROM jobs j JOIN triggers t ON t.job_id=j.id WHERE j.enabled=1 AND t.enabled=1 AND t.kind='webhook'")
       .flatMap(job => { try { const config = JSON.parse(String(job.trigger_config)) as WebhookTriggerConfig; return config.provider === provider ? [{ job, triggerId: String(job.trigger_id), triggerSlug: String(job.trigger_slug), config }] : []; } catch { return []; } }) as any;
@@ -1004,6 +1045,27 @@ export class TenantV2 extends DurableObject<Env> {
   private async acceptLinearWebhook(event: Record<string, any>, deliveryId: string | null): Promise<Response> {
     if (!deliveryId) return new Response("Missing delivery ID", { status: 400 });
     await this.invokeWebhookJobs("linear", deliveryId, event);
+    await this.ctx.storage.setAlarm(Date.now());
+    return new Response(null, { status: 200 });
+  }
+
+  private async acceptClickUpWebhook(raw: string, signature: string | null): Promise<Response> {
+    const connection = await this.connection<{ accessToken: string; webhookId: string; webhookSecret: string }>("clickup");
+    if (!connection || !signature || !(await equalHmac(raw, signature, connection.webhookSecret))) return new Response("Invalid signature", { status: 401 });
+    let event: Record<string, any>; try { event = JSON.parse(raw); } catch { return new Response("Invalid JSON", { status: 400 }); }
+    if (!event.task_id || String(event.webhook_id) !== connection.webhookId) return new Response(null, { status: 202 });
+    const relevant = event.event === "taskCreated" || ["taskStatusUpdated", "taskAssigneeUpdated", "taskTagUpdated", "taskMoved"].includes(String(event.event))
+      || (event.event === "taskUpdated" && (event.history_items ?? []).some((item: any) => ["status", "assignee", "tags", "list_id", "creator"].includes(String(item.field))));
+    if (!relevant) return new Response(null, { status: 202 });
+    const task = await clickUpJson(connection.accessToken, `/task/${encodeURIComponent(String(event.task_id))}`);
+    const deliveryId = `clickup:${event.webhook_id}:${event.event}:${event.history_items?.[0]?.date ?? event.task_id}`;
+    for (const { job, triggerId, triggerSlug, config } of this.webhookJobs("clickup")) {
+      const payload = { ...event, task, matches: matchingClickUpTask(task, String(config.listId), config.matchRules ?? []) };
+      const invocation = adaptWebhook(config, "clickup", deliveryId, payload, event.event);
+      if (!invocation) { this.recordJobEvent(String(job.id), "clickup", deliveryId, "ignored", "Task did not match this job trigger."); continue; }
+      const result = await this.signalAutomaticJob(String(job.id), "webhook", triggerId, `webhook:${triggerId}:${invocation.claimKey}`, { [triggerSlug]: invocation.payload }, { ...invocation.occurrence, metadata: { ...invocation.occurrence.metadata, triggerId } });
+      this.recordJobEvent(String(job.id), "clickup", deliveryId, result?.duplicate ? "duplicate" : result ? "accepted" : "ignored", result ? "ClickUp task queued through canonical job invocation." : "Job was unavailable.");
+    }
     await this.ctx.storage.setAlarm(Date.now());
     return new Response(null, { status: 200 });
   }

@@ -16,6 +16,7 @@ export const runIdSchema = z.object({ runId: z.string().min(1) });
 const webhookCommonSchema = z.object({ handlerCode: z.string().max(16_384).optional() });
 export const webhookTriggerConfigSchema = z.discriminatedUnion("provider", [
   webhookCommonSchema.extend({ provider: z.literal("linear"), projectId: z.string().min(1), matchRules: z.array(matchRuleSchema).min(1) }).strict(),
+  webhookCommonSchema.extend({ provider: z.literal("clickup"), listId: z.string().min(1), matchRules: z.array(matchRuleSchema).min(1) }).strict(),
   webhookCommonSchema.extend({ provider: z.literal("github"), installationId: z.number().int().positive(), repositoryId: z.number().int().positive(), event: z.string().min(1).default("pull_request"), action: z.string().min(1).default("dequeued") }).strict(),
   webhookCommonSchema.extend({ provider: z.literal("cloudflareTail"), integrationId: z.string().min(1) }).strict(),
 ]);

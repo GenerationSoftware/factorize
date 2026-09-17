@@ -14,12 +14,19 @@ describe("webhook Job trigger adapters", () => {
     expect(adaptWebhook(config, "github", "github:d2", { installation: { id: 7 }, repository: { id: 10 }, action: "dequeued" }, "pull_request")).toBeNull();
   });
 
+  it("matches normalized ClickUp tasks after authoritative filtering", () => {
+    const config = { provider: "clickup" as const, listId: "list-1", matchRules: [{ type: "status" as const, targetId: "done" }] };
+    const payload = { event: "taskStatusUpdated", task: { id: "task-1", list: { id: "list-1" }, name: "Ship it" }, matches: true };
+    expect(adaptWebhook(config, "clickup", "clickup:d1", payload)).toMatchObject({ payload: { provider: "clickup", task: { id: "task-1" } } });
+    expect(adaptWebhook(config, "clickup", "clickup:d2", { ...payload, matches: false })).toBeNull();
+  });
+
   it("never exposes webhook secrets", () => {
     expect(publicWebhookConfig({ provider: "cloudflareTail", signingSecret: "super-secret-value", handlerCode: "function handler(webhook) { return true; }" })).toEqual({ provider: "cloudflareTail", handlerCode: "function handler(webhook) { return true; }", secretConfigured: true });
   });
 
   it("validates optional handlers for every provider", () => {
-    for (const provider of ["linear", "github", "cloudflareTail"] as const) {
+    for (const provider of ["linear", "clickup", "github", "cloudflareTail"] as const) {
       expect(() => validateWebhookHandler({ provider, handlerCode: "function handler(webhook) { return { id: webhook.id }; }" })).not.toThrow();
     }
     expect(() => validateWebhookHandler({ provider: "linear", handlerCode: "return true" })).toThrow("complete function handler(webhook)");
