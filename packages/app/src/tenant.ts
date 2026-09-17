@@ -11,6 +11,7 @@ import { githubClaimKey, githubCollection, githubHeaders, installationToken, nor
 import type { WorkItem } from "./types";
 import { invokeCustomHandler } from "./custom-handler";
 import { generateTailSecret, sanitizeTailEvent, signTailDelivery, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
+import { ExeVmBackend } from "./exe-vm-backend";
 import { ExeHerdrBackend } from "./exe-herdr-backend";
 import { AmpBackend, type AmpConnection } from "./amp-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
@@ -328,20 +329,19 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async saveExe(input: unknown): Promise<Response> {
     const value = input as ExeConnectionInput;
-    if (!value.vmName || !value.apiToken || !value.cwd || !value.agentKind) throw new Error("SSH destination, API token, agent, and working directory are required");
-    const verification = await exec(value, herdrCheckCommand(value));
-    if (verification.status === 403 && verification.body.includes("command not allowed by token permissions")) {
-      throw new Error(`This token cannot run ssh commands on ${value.vmName}. Create an exe.dev API token with --cmds="'ssh ${value.vmName}'" (not --vm), then paste the new exe1 token.`);
-    }
-    if (!verification.ok) throw new Error(`exe.dev/Herdr verification failed (${verification.status}): ${verification.body.slice(0, 300)}`);
-    const models = await this.discoverExeModels(value);
+    if (!value.apiToken || !value.agentKind) throw new Error("An account-level exe.dev token and agent are required");
+    if (value.cwd && (!value.cwd.startsWith("/") || value.cwd.includes("\0"))) throw new Error("Working directory must be an absolute path");
+    const tags = Array.isArray(value.tags) ? value.tags.map(tag => String(tag).trim()).filter(Boolean) : [];
+    if (tags.length > 20 || tags.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) throw new Error("VM tags may contain only letters, numbers, dot, underscore, colon, and hyphen");
+    if (value.repositoryUrl && (!/^https:\/\//i.test(value.repositoryUrl) || value.repositoryUrl.length > 2000)) throw new Error("Repository URL must be an HTTPS URL");
+    if (value.checkoutRef && (value.checkoutRef.length > 255 || /[\0\r\n]/.test(value.checkoutRef))) throw new Error("Checkout ref is invalid");
+    const saved = { ...value, cwd: value.cwd || "/workspace", tags, models: value.models ?? [], modelsRefreshedAt: now() };
     const connectionId = value.connectionId || id();
-    const saved = { ...value, models, modelsRefreshedAt: now() };
     await this.putConnection(`exe:${connectionId}`, saved);
     // Preserve the most recently saved connection for existing flows created
     // before connections were selectable.
     await this.putConnection("exe", saved);
-    return json({ ok: true, connectionId, verification: verification.body, models });
+    return json({ ok: true, connectionId, models: saved.models });
   }
 
   private async discoverExeModels(connection: ExeConnection): Promise<string[]> {
@@ -441,7 +441,7 @@ export class TenantV2 extends DurableObject<Env> {
     const linear = await this.connection<{ accessToken: string }>("linear");
     if (!linear) throw new Error("Connect Linear first");
     const exe = await this.exeConnection(input.exeConnectionId);
-    if (!exe) throw new Error("Connect Herdr first");
+    if (!exe) throw new Error("Connect an exe.dev account first");
     const cwd = this.cwdTemplate(input.cwd ?? exe.cwd, flowId);
     const workspaceName = flowId;
     // These legacy fields are retained for compatibility with the v1 Durable Object schema.
@@ -482,7 +482,7 @@ export class TenantV2 extends DurableObject<Env> {
     return json({
       linear: linear ? { organizationName: linear.organizationName ?? null, viewerEmail: linear.viewerEmail ?? null } : null,
       clickup: clickup ? { teamName: clickup.teamName ?? null } : null,
-      exe: exe ? { vmName: exe.vmName, agentKind: exe.agentKind, cwd: exe.cwd, herdrCommand: exe.herdrCommand ?? "herdr", agentCommand: exe.agentCommand ?? defaultAgentCommand(exe.agentKind) } : null,
+      exe: exe ? { agentKind: exe.agentKind, cwd: exe.cwd, tags: exe.tags ?? [] } : null,
       exeConnections: connections.map(({ apiToken, ...connection }) => connection),
       ampConnections: ampConnections.map(({ accessToken, ...connection }) => connection),
       cloudflareTail: { count: tailInstallations.length, installations: await this.tailIntegrationStatus(tailInstallations) },
@@ -513,9 +513,9 @@ export class TenantV2 extends DurableObject<Env> {
     const ampConnections = await this.ampConnections();
     return json([...populated.map(connection => ({
       id: connection.connectionId,
-      kind: "exe-herdr",
-      name: connection.vmName,
-      workspace: connection.vmName,
+      kind: "exe-vm",
+      name: "Ephemeral exe.dev VMs",
+      workspace: "ephemeral",
       cwd: connection.cwd,
       agentKind: connection.agentKind,
       models: connection.models ?? [],
@@ -532,7 +532,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (!job) return undefined;
     let target: Record<string, unknown> = {};
     try { target = JSON.parse(String(job.execution_target)); } catch { return undefined; }
-    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: job.slug, agent_kind: target.agentKind, model: target.model ?? "", effort: target.effort ?? "", cwd: target.cwd, execution_backend_kind: target.backendKind ?? "exe-herdr", execution_connection_id: target.connectionId, exe_connection_id: target.connectionId, enabled: job.enabled };
+    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: job.slug, agent_kind: target.agentKind, model: target.model ?? "", effort: target.effort ?? "", cwd: target.cwd, execution_backend_kind: target.backendKind ?? "exe-vm", execution_connection_id: target.connectionId, exe_connection_id: target.connectionId, enabled: job.enabled };
   }
 
   private async publicJobs(rows: Row[]): Promise<Record<string, unknown>[]> {
@@ -618,7 +618,7 @@ export class TenantV2 extends DurableObject<Env> {
     }
     const target = (await this.exeConnections()).find(item => item.connectionId === targetId);
     if (!target) throw new Error("Execution target not found");
-    return { connectionId: target.connectionId, backendKind: "exe-herdr", workspace: target.vmName, cwd: target.cwd, agentKind: target.agentKind };
+    return { connectionId: target.connectionId, backendKind: "exe-vm", workspace: target.vmName ?? "ephemeral", cwd: target.cwd, agentKind: target.agentKind };
   }
 
   private validateJobInput(input: any): void {
@@ -818,7 +818,7 @@ export class TenantV2 extends DurableObject<Env> {
     let target: Record<string, unknown> = {};
     try { target = JSON.parse(String(row.execution_target)); } catch { /* validated when the job is saved */ }
     const provider = source === "webhook" ? String((occurrence as any)?.metadata?.provider ?? "webhook") : source;
-    const backendKind = String(target.backendKind ?? "exe-herdr"), capabilities = backendKind === "amp" ? ["stop"] : ["output", "prompt-delivery", "recovery", "stop"];
+    const backendKind = String(target.backendKind ?? "exe-vm"), capabilities = backendKind === "amp" ? ["stop"] : ["output", "recovery", "stop"];
     this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,run_name,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, jobId, invocationId, String(row.name), runName, null, claimKey, `factorize-${runId}`, String(target.workspace ?? ""), String(target.agentKind ?? ""), "queued", encryptedPrompt, "pending", provider, backendKind, JSON.stringify(capabilities), backendKind === "amp" ? null : "https://exe.dev/", timestamp, timestamp);
     await this.ctx.storage.setAlarm(Date.now());
     return { invocationId, runId, state: "queued", duplicate: false };
@@ -977,7 +977,7 @@ export class TenantV2 extends DurableObject<Env> {
 
   private presentExecution(run: Row): void {
     run.state = normalizeExecutionState(run.state);
-    run.backend_kind = String(run.backend_kind || "exe-herdr");
+    run.backend_kind = String(run.backend_kind || "exe-vm");
     try { run.capabilities = JSON.parse(String(run.capabilities || "[]")); } catch { run.capabilities = []; }
     if (!Array.isArray(run.capabilities) || run.capabilities.length === 0) run.capabilities = ["output", "prompt-delivery", "recovery"];
     run.destination_url = String(run.destination_url || "https://exe.dev/");
@@ -1073,11 +1073,12 @@ export class TenantV2 extends DurableObject<Env> {
     run.name = String(run.run_name || run.issue_title || `Run ${String(run.id).slice(0, 8)}`);
     if (["starting", "running", "blocked", "stopping"].includes(String(run.state)) && (run.capabilities as unknown[]).includes("output")) {
       const pipe = this.executionConfig(run.job_id);
-      if (pipe && String(run.backend_kind) === "exe-herdr") {
+      if (pipe && ["exe-vm", "exe-herdr"].includes(String(run.backend_kind))) {
         const connection = await this.connectionForPipe(pipe);
         if (connection) {
           try {
-            const output = await new ExeHerdrBackend(connection).readOutput(this.executionHandle(run, "exe-herdr"));
+            const backend = String(run.backend_kind) === "exe-herdr" ? new ExeHerdrBackend(connection) : new ExeVmBackend(connection);
+            const output = await backend.readOutput(this.executionHandle(run, String(run.backend_kind)));
             if (output !== null) {
               const scrubbed = safeSession(output);
               if (scrubbed !== null) {
@@ -1122,7 +1123,7 @@ export class TenantV2 extends DurableObject<Env> {
         } else {
         const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
         if (connection && run.agent_name) {
-          const backend = new ExeHerdrBackend(connection);
+      const backend = new ExeVmBackend(connection);
           this.ctx.storage.sql.exec("UPDATE runs SET state='stopping',updated_at=? WHERE id=?", now(), runId);
           const stopped = await backend.stop(this.executionHandle(run, backend.kind));
           if (stopped.state !== "stopped") return Response.json({ error: "Could not stop the active agent" }, { status: 502 });
@@ -1351,7 +1352,7 @@ export class TenantV2 extends DurableObject<Env> {
     try { this.ctx.storage.sql.exec("INSERT INTO active_claims (pipe_id,issue_id,run_id) VALUES (?,?,?)", pipe.id, workItem.claimKey, runId); }
     catch { this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, "duplicate", "An active or queued run already owns this work item.", workItem.provider); return; }
     const prompt = await encrypt(plaintextPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.title, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, "pending", workItem.provider, "exe-herdr", JSON.stringify(["output", "prompt-delivery", "recovery"]), "https://exe.dev/", now(), now());
+    this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.title, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, "pending", workItem.provider, "exe-vm", JSON.stringify(["output", "recovery", "stop"]), "https://exe.dev/", now(), now());
     const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id=? AND state IN ('starting','running','blocked','recovering')", pipe.id) as Row;
     this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, Number(active.count) < Number(pipe.max_concurrency) ? "accepted" : "queued_capacity", Number(active.count) < Number(pipe.max_concurrency) ? "Handler accepted delivery; agent queued to start." : "Handler accepted delivery; queued for capacity.", workItem.provider);
   }
@@ -1461,12 +1462,7 @@ export class TenantV2 extends DurableObject<Env> {
     }
     const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "No exe.dev VM is connected.");
-    const workspaceName = String(run.workspace_name || pipe.workspace_name || workspaceNameFor(String(pipe.name)));
-    const lease = crypto.randomUUID();
-    const worktreePath = `${connection.cwd.replace(/\/$/, "")}/.factorize-runs/${String(run.id)}`;
-    this.ctx.storage.sql.exec("UPDATE runs SET herdr_server_namespace='default',worktree_path=?,ownership_lease=?,ownership_generation=ownership_generation+1,agent_session_generation=1,updated_at=? WHERE id=?", worktreePath, lease, now(), run.id);
-    if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize started **${connection.agentKind}** on ${connection.vmName} in Herdr workspace \`${workspaceName}\` for this issue.`);
-    const backend = new ExeHerdrBackend(connection, { agentName: String(run.agent_name), workspaceName, runPath: worktreePath, lease });
+    const backend = new ExeVmBackend(connection, { cwd: connection.cwd });
     const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='submitting',updated_at=? WHERE id=?", now(), run.id);
     const launched = await backend.launch({ runId: String(run.id), prompt });
@@ -1476,21 +1472,10 @@ export class TenantV2 extends DurableObject<Env> {
     const execResponse = await encrypt(safeSession(result.body) ?? "Agent command response unavailable.", this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET exec_request = ?, exec_response = ?, exec_status = ?, exec_exit_code = ?, updated_at = ? WHERE id = ?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
     this.commandActivity(run.id, "initial agent start", result);
-    if (!result.ok || (result.exitCode !== null && result.exitCode !== 0)) return this.finishRun(run, "failed", `Unable to start Herdr agent (exe.dev HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}): ${result.body.slice(0, 800)}`);
-    const observed = await backend.inspect(launched.handle), verification = observed.command!;
-    this.commandActivity(run.id, "initial agent verification", verification);
-    if (!verification.ok || (verification.exitCode !== null && verification.exitCode !== 0) || !herdrAgentStatus(verification.body)) {
-      return this.beginRecovery(run, pipe, connection, `agent start succeeded but verification was ambiguous (exe.dev HTTP ${verification.status}, VM exit ${verification.exitCode ?? "not reported"})`);
-    }
-    const identity = parseAgent(verification.body);
-    if (!identity) return this.beginRecovery(run, pipe, connection, "agent start succeeded but its structured identity was inconsistent");
-    const startupOutput = backend.readOutput ? await backend.readOutput(launched.handle) : null;
-    if (startupOutput && agentStartupBlocked(startupOutput)) {
-      return this.finishRun(run, "failed", "The agent process started but stopped at an interactive startup permission prompt.");
-    }
+    if (!result.ok || (result.exitCode !== null && result.exitCode !== 0)) return this.finishRun(run, "failed", `Unable to start the ephemeral VM agent (exe.dev HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}): ${result.body.slice(0, 800)}`);
     this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='accepted',prompt_delivery_request=?,prompt_delivery_response=?,prompt_delivery_status=?,prompt_delivery_exit_code=?,prompt_accepted=1,updated_at=? WHERE id=?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
-    this.activity(run.id, "prompt_delivered_at_launch", "The initial prompt was passed as a positional harness argument in the successful Herdr launch command.");
-    this.persistIdentity(run.id, identity, "running");
+    this.activity(run.id, "prompt_delivered_at_launch", "The initial prompt was written to the run-owned VM and the agent was detached.");
+    this.ctx.storage.sql.exec("UPDATE runs SET state='running',prompt_delivery_state='accepted',prompt_accepted=1,updated_at=? WHERE id=?", now(), run.id);
   }
 
   private async pollRun(run: Row): Promise<void> {
@@ -1514,26 +1499,10 @@ export class TenantV2 extends DurableObject<Env> {
     }
     const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "exe.dev connection is unavailable.");
-    if (String(run.state) === "recovering") return this.recoverRun(run, pipe, connection);
-    const backend = new ExeHerdrBackend(connection), handle = this.executionHandle(run, backend.kind);
-    const observation = await backend.inspect(handle), status = observation.command!;
-    if (!status.ok && (status.exitCode === null || status.exitCode === 0)) return; // transient exe.dev/API failure
-    if (!status.ok || (status.exitCode !== null && status.exitCode !== 0)) return this.beginRecovery(run, pipe, connection, `expected Herdr agent is no longer resolvable (VM exit ${status.exitCode ?? "unknown"})`);
-    const live = parseAgent(status.body);
-    if (!live) return this.beginRecovery(run, pipe, connection, "Herdr returned an inconsistent agent identity");
-    const terminalOwned = Boolean(run.herdr_terminal_id && ownsPane(this.savedIdentity(run), live, String(run.worktree_path || "")));
-    if (terminalOwned) {
-      const rotated = String(run.agent_session_value || "") !== live.sessionValue;
-      this.persistIdentity(run.id, live, String(run.state), rotated);
-      this.ctx.storage.sql.exec("UPDATE runs SET recovery_attempt=0,recovery_started_at=NULL,recovery_next_at=NULL,recovery_reason=NULL WHERE id=?", run.id);
-    }
-    if (run.herdr_terminal_id && !terminalOwned) return this.beginRecovery(run, pipe, connection, "Herdr alias resolved to a different terminal owner");
-    if (!terminalOwned) this.persistIdentity(run.id, live, String(run.state));
-    if (observation.state === "blocked") {
-      this.ctx.storage.sql.exec("UPDATE runs SET state = 'blocked', updated_at = ? WHERE id = ?", now(), run.id);
-      return;
-    }
-    if (observation.state !== "succeeded") return;
+    const backend = new ExeVmBackend(connection), handle = this.executionHandle(run, backend.kind);
+    const observation = await backend.inspect(handle);
+    if (observation.state === "running") return;
+    if (observation.state === "failed") return this.finishRun(run, "failed", observation.detail ?? "The agent failed in its ephemeral VM.");
     const output = backend.readOutput ? await backend.readOutput(handle) : null;
     await this.finishRun(run, "done", output ?? "Agent completed; terminal output is not available from this backend.", output !== null);
   }
@@ -1654,9 +1623,14 @@ export class TenantV2 extends DurableObject<Env> {
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id = ? AND issue_id = ?", run.pipe_id, run.claim_key || run.issue_id);
     this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id);
     await this.afterJobTerminal(String(run.pipe_id), String(run.id), state === "done" ? "succeeded" : "failed", transitionedAt);
-    await this.collectRunPane({ ...run, state, output_captured: outputCaptured ? 1 : Number(run.output_captured || 0), claim_released: 1 });
+    const pipe = this.executionConfig(run.pipe_id);
+    if (pipe && String(run.execution_backend_kind) === "exe-vm" && run.execution_handle) {
+      const connection = await this.connectionForPipe(pipe);
+      if (connection) await new ExeVmBackend(connection).stop(this.executionHandle(run, "exe-vm")).catch(error => this.activity(run.id, "vm_cleanup_retry", String(error).slice(0, 500)));
+      this.ctx.storage.sql.exec("UPDATE runs SET pane_collected=1,worktree_disposition='deleted',updated_at=? WHERE id=?", now(), run.id);
+    } else await this.collectRunPane({ ...run, state, output_captured: outputCaptured ? 1 : Number(run.output_captured || 0), claim_released: 1 });
     const heading = state === "done" ? "Factorize completed the agent run." : "Factorize could not complete the agent run.";
-    if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `${heading}\n\nRun ID: \`${run.id}\`. Review the Herdr session on the configured VM for details.`);
+    if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `${heading}\n\nRun ID: \`${run.id}\`. The ephemeral exe.dev VM was deleted after the run.`);
   }
 
   private async collectRunPane(run: Row): Promise<void> {
