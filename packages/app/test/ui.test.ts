@@ -24,6 +24,9 @@ describe("pages", () => {
     expect(html).toContain("View on GitHub");
     expect(html).toContain('id="theme-toggle"');
     expect(html).toContain("dark:bg-slate-950");
+    expect(html).toContain('<body class="flex min-h-[100dvh] flex-col');
+    expect(html).toContain("<main class=\"landing-honeycomb");
+    expect(html).toContain("<footer class=\"border-t");
   });
 
 

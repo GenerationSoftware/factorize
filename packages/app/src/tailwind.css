@@ -1,4 +1,14 @@
 @import "tailwindcss";
+
+@layer base {
+  body > main {
+    flex: 1;
+  }
+
+  body > footer {
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  }
+}
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
