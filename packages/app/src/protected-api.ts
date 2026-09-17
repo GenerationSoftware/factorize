@@ -73,8 +73,8 @@ async function mcp(request: Request, service: ApiService, env: Env, ctx: Executi
     tool("list_runs", "List authoritative job runs by job ID, state, and an optional case-insensitive literal substring of triggered context. Automatic webhook, schedule, and lifecycle signals coalesce, so query runs and the provider API for authoritative work. Context matches include only a bounded excerpt.", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
     tool("get_run", "Get a run with its full triggered context, invocation metadata, execution metadata, output, and activity. For manual invocations, invocation.idempotency_key is the client-reusable value; invocation.claim_key is internal.", runIdSchema, ({ runId }: any) => service.getRun(runId));
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
-    tool("list_jobs", "List jobs", z.object({}), () => service.listJobs());
-    tool("get_job", "Get a job", jobIdSchema, ({ jobId }: any) => service.getJob(jobId));
+    tool("list_jobs", "List jobs with their current run count and maximum concurrency", z.object({}), () => service.listJobs());
+    tool("get_job", "Get a job with its current run count and maximum concurrency", jobIdSchema, ({ jobId }: any) => service.getJob(jobId));
     tool("create_job", "Create a job using an executionTargetId returned by list_execution_targets. Credentials are never accepted or returned.", jobInputSchema, (input: any) => service.createJob(input));
     tool("update_job", "Replace a job configuration. Credentials are never accepted or returned.", jobInputSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.updateJob(jobId, input));
     tool("delete_job", "Delete a job and its queued invocation history", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));

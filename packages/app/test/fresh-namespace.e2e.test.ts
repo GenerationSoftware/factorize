@@ -43,6 +43,8 @@ describe("fresh TenantV2 namespace", () => {
       promptTemplate: "{{trigger-1.prompt}}",
       executionTargetId: "amp:execution-1",
       runningCount: 0,
+      currentRuns: 0,
+      maxConcurrency: 1,
       lastRunState: null,
       triggers: [{ kind: "manual", slug: "trigger-1" }],
     });

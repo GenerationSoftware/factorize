@@ -469,6 +469,8 @@ export class TenantV2 extends DurableObject<Env> {
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
       concurrencyLimit: Number(row.concurrency_limit),
       runningCount: Number(runSummary?.running_count ?? 0),
+      maxConcurrency: Number(row.concurrency_limit),
+      currentRuns: Number(runSummary?.running_count ?? 0),
       lastRunState: runSummary?.last_run_state ?? null,
       executionTargetId: `${executionTarget.backendKind === "amp" ? "amp:" : ""}${String(executionTarget.connectionId ?? "")}`,
       triggers: publicTriggers,
