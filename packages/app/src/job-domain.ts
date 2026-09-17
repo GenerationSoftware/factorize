@@ -178,6 +178,19 @@ export const JOB_SCHEMA = `
     detail TEXT NOT NULL, received_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS job_events_by_job ON job_events(job_id, received_at DESC);
+  CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id TEXT PRIMARY KEY, provider TEXT NOT NULL, delivery_id TEXT NOT NULL, event_type TEXT NOT NULL DEFAULT 'unknown',
+    event_action TEXT NOT NULL DEFAULT 'unknown', outcome TEXT NOT NULL, detail TEXT NOT NULL, received_at TEXT NOT NULL,
+    UNIQUE(provider, delivery_id)
+  );
+  CREATE TABLE IF NOT EXISTS webhook_delivery_events (
+    id TEXT PRIMARY KEY, delivery_id TEXT NOT NULL REFERENCES webhook_deliveries(id) ON DELETE CASCADE,
+    job_id TEXT, outcome TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS webhook_deliveries_order ON webhook_deliveries(received_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS webhook_deliveries_provider ON webhook_deliveries(provider, received_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS webhook_deliveries_outcome ON webhook_deliveries(outcome, received_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS webhook_delivery_events_delivery ON webhook_delivery_events(delivery_id, created_at, id);
   CREATE TABLE IF NOT EXISTS schedule_state (
     trigger_id TEXT PRIMARY KEY REFERENCES triggers(id) ON DELETE CASCADE,
     job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
