@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
 @layer base {
+  html {
+    scrollbar-gutter: stable;
+  }
+
   body > main {
     flex: 1;
   }

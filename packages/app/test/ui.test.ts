@@ -45,6 +45,19 @@ describe("pages", () => {
     expectInlineScriptsToParse(html);
   });
 
+  it("keeps paginated run content width stable", () => {
+    const html = jobDetailPage({ email: "owner@example.com" }, "job-1");
+    expect(html).toContain('<main class="mx-auto max-w-6xl min-w-0');
+    expect(html).toContain('id="job-detail" class="min-w-0"');
+    expect(html).toContain('data-job-runs-section');
+    expect(html).toContain('class="min-w-0 divide-y');
+    expect(html).toContain('<li class="min-w-0">');
+    expect(html).toContain('class="flex min-w-0 items-center');
+    expect(html).toContain('class="min-w-0 truncate"');
+    expect(html).toContain('class="shrink-0"');
+    expectInlineScriptsToParse(html);
+  });
+
 
   it("escapes profile data", () => {
     const html = landingPage({ email: '<script>alert("x")</script>@example.com' });
