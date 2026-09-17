@@ -34,7 +34,11 @@ export function matchesLineage(saved: Partial<HerdrIdentity>, live: HerdrIdentit
 export function safeToAdopt(saved: Partial<HerdrIdentity>, live: HerdrIdentity, claimedSessions: Set<string>): boolean { return matchesLineage(saved, live) && (!saved.kind || saved.kind === live.kind) && (!saved.cwd || saved.cwd === live.cwd) && !claimedSessions.has(live.sessionValue); }
 /** Native sessions and aliases may rotate; terminal + worktree own the pane. */
 export function ownsPane(saved: Partial<HerdrIdentity>, live: HerdrIdentity, worktreePath: string): boolean {
-  return Boolean(saved.terminalId && saved.terminalId === live.terminalId && worktreePath && live.cwd === worktreePath && (!saved.paneId || saved.paneId === live.paneId));
+  // Linux appends " (deleted)" to /proc cwd links after the run directory is
+  // removed. The terminal still identifies the same owned pane in that case;
+  // rejecting it traps an already-idle agent in the recovery loop forever.
+  const ownsWorktree = live.cwd === worktreePath || live.cwd === `${worktreePath} (deleted)`;
+  return Boolean(saved.terminalId && saved.terminalId === live.terminalId && worktreePath && ownsWorktree && (!saved.paneId || saved.paneId === live.paneId));
 }
 export function findOwnedAgent(saved: Partial<HerdrIdentity>, agents: HerdrIdentity[], worktreePath: string, expectedName: string, expectedKind: string, runId: string): HerdrIdentity | undefined {
   const runPath = (cwd: string) => cwd.includes(`/.factorize-runs/${runId}`) || cwd.includes(`/.factorize-worktrees/${runId}`);
