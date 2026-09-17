@@ -82,12 +82,21 @@ describe("flow workspaces", () => {
     expect(command).toContain("-- '--model' 'gpt 5'");
   });
 
-  it("garbage collects only after terminal, run directory, and lease revalidation", () => {
+  it("garbage collects the pane and run directory only after ownership revalidation", () => {
     const command = garbageCollectPaneCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "w1:p2", "term-7", "/repo/.factorize-runs/run", "lease-7");
     expect(command).toContain(".terminal_id == $terminal");
     expect(command).toContain("factorize-lease");
     expect(command).not.toContain("agent stop");
     expect(command).toContain("pane close 'w1:p2'");
+    expect(command).toContain("rm -rf -- '/repo/.factorize-runs/run'");
+    expect(command).toContain("test ! -e '/repo/.factorize-runs/run'");
+    expect(command.indexOf("pane close 'w1:p2'")).toBeLessThan(command.indexOf("rm -rf -- '/repo/.factorize-runs/run'"));
+  });
+
+  it("refuses to garbage collect outside the per-run directory", () => {
+    const command = garbageCollectPaneCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "w1:p2", "term-7", "/repo", "lease-7");
+    expect(command).toContain("case '/repo' in '/repo/.factorize-runs/'*");
+    expect(command.indexOf("case '/repo' in")).toBeLessThan(command.indexOf("pane close 'w1:p2'"));
   });
 
   it("quotes the complete exe.dev SSH request body", () => {

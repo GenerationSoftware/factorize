@@ -1386,7 +1386,7 @@ export class TenantV2 extends DurableObject<Env> {
     }
     this.commandActivity(run.id, "pane garbage collection", collected);
     if (collected.ok && (collected.exitCode === null || collected.exitCode === 0)) {
-      this.ctx.storage.sql.exec("UPDATE runs SET pane_collected=1,pane_collection_attempt=?,pane_collection_next_at=NULL,worktree_disposition='retained',updated_at=? WHERE id=?", attempt, now(), run.id);
+      this.ctx.storage.sql.exec("UPDATE runs SET pane_collected=1,pane_collection_attempt=?,pane_collection_next_at=NULL,worktree_disposition='deleted',updated_at=? WHERE id=?", attempt, now(), run.id);
       return;
     }
     this.schedulePaneCollection(run.id, attempt);
