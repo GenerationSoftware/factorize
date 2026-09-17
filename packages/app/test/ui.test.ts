@@ -103,8 +103,18 @@ describe("pages", () => {
       expect(html).toContain("Name this job and set how many runs it can process at once.");
       expect(html).toContain("Choose the events that start this job and expose prompt context.");
       expect(html).toContain("Write the instructions for each run using context supplied by your triggers.");
-      expect(html).toContain("Select the connected environment that will run this job.");
+      expect(html).toContain("Select the connected environment and model that will run this job.");
     }
+  });
+
+  it("selects a per-job model with harness-aware suggestions", () => {
+    const html = jobPage({ email: "owner@example.com" }, "job-1");
+    expect(html).toContain('name="model"');
+    expect(html).toContain('placeholder="Harness default"');
+    expect(html).toContain("const modelChoices={codex:");
+    expect(html).toContain("model:form.model.value.trim()");
+    expect(html).toContain("form.model.value=current.model||''");
+    expectInlineScriptsToParse(html);
   });
 
   it("shows synchronized wildcard trigger hints while retaining detailed autocomplete", () => {
