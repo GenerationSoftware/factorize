@@ -31,6 +31,17 @@ const id = () => crypto.randomUUID();
 const HERDR_FLOW_NAME = /^[a-z][a-z0-9_-]{0,29}$/;
 const JOB_SLUG = /^[a-z][a-z0-9_-]{0,29}$/;
 
+// Keep the index definitions next to the query they support. Every listRuns
+// variant can use the same descending keyset order without a table scan or a
+// temporary sort (the pipe/state variants also cover the corresponding
+// filtered queries).
+const RUN_INDEXES = `
+  CREATE INDEX IF NOT EXISTS runs_by_order ON runs(created_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS runs_by_pipe_order ON runs(pipe_id, created_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS runs_by_state_order ON runs(state, created_at DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS runs_by_pipe_state_order ON runs(pipe_id, state, created_at DESC, id DESC);
+`;
+
 const object = (value: unknown): Record<string, any> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 const text = (value: unknown): string => typeof value === "string" ? value : "";
 const linearSource = new LinearSourceAdapter();
@@ -99,6 +110,7 @@ export class TenantV2 extends DurableObject<Env> {
     this.ensureColumn("runs", "execution_handle", "TEXT");
     this.ensureColumn("runs", "execution_capabilities", "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn("runs", "destination_url", "TEXT");
+    this.ctx.storage.sql.exec(RUN_INDEXES);
     for (const [column, definition] of Object.entries({ herdr_server_namespace: "TEXT NOT NULL DEFAULT 'default'", worktree_path: "TEXT", ownership_lease: "TEXT", ownership_generation: "INTEGER NOT NULL DEFAULT 0", agent_session_generation: "INTEGER NOT NULL DEFAULT 0", output_captured: "INTEGER NOT NULL DEFAULT 0", claim_released: "INTEGER NOT NULL DEFAULT 0", pane_collected: "INTEGER NOT NULL DEFAULT 0", pane_collection_attempt: "INTEGER NOT NULL DEFAULT 0", pane_collection_next_at: "INTEGER", worktree_disposition: "TEXT" })) this.ensureColumn("runs", column, definition);
     for (const [column, definition] of Object.entries({ herdr_workspace_id: "TEXT", herdr_pane_id: "TEXT", herdr_terminal_id: "TEXT", agent_session_source: "TEXT", agent_session_kind: "TEXT", agent_session_value: "TEXT", herdr_cwd: "TEXT", last_agent_status: "TEXT", recovery_attempt: "INTEGER NOT NULL DEFAULT 0", recovery_reason: "TEXT", recovery_started_at: "TEXT", recovery_last_action: "TEXT", recovery_next_at: "INTEGER", recovery_comment_started: "INTEGER NOT NULL DEFAULT 0", recovery_comment_finished: "INTEGER NOT NULL DEFAULT 0", prompt_accepted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_attempted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_accepted: "INTEGER NOT NULL DEFAULT 0" })) this.ensureColumn("runs", column, definition);
     this.ensureColumn("triggers", "slug", "TEXT");
