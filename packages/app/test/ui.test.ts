@@ -47,7 +47,7 @@ describe("pages", () => {
 
   it("keeps paginated run content width stable", () => {
     const html = jobDetailPage({ email: "owner@example.com" }, "job-1");
-    expect(html).toContain('<main class="mx-auto max-w-6xl min-w-0');
+    expect(html).toContain('<main class="mx-auto w-full max-w-6xl min-w-0 px-4 py-8 sm:px-5 sm:py-12 lg:px-8">');
     expect(html).toContain('id="job-detail" class="min-w-0"');
     expect(html).toContain('data-job-runs-section');
     expect(html).toContain('class="min-w-0 divide-y');
@@ -151,7 +151,7 @@ describe("pages", () => {
 
   it("keeps the Jobs page proportionate and overflow-safe on phones", () => {
     const html = jobsPage({ email: "owner@example.com" });
-    expect(html).toContain('<main class="mx-auto max-w-6xl px-4 py-8 sm:px-5 sm:py-12 lg:px-8">');
+    expect(html).toContain('<main class="mx-auto w-full max-w-6xl min-w-0 px-4 py-8 sm:px-5 sm:py-12 lg:px-8">');
     expect(html).toContain('class="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4"');
     expect(html).toContain('class="inline-flex w-full justify-center rounded-xl');
     expect(html).toContain('sm:w-auto sm:px-5 sm:py-3">Create job</a>');
@@ -219,7 +219,7 @@ describe("pages", () => {
 
   it("aligns Settings with the Jobs page width and gutters", () => {
     const settings = settingsPage({ email: "owner@example.com" });
-    expect(settings).toContain('<main class="mx-auto max-w-6xl px-5 py-12 lg:px-8">');
+    expect(settings).toContain('<main class="mx-auto w-full max-w-6xl min-w-0 px-4 py-8 sm:px-5 sm:py-12 lg:px-8">');
     expect(settings).not.toContain('<main class="mx-auto max-w-4xl');
   });
 
@@ -351,7 +351,8 @@ describe("pages", () => {
     expect(detail).not.toContain("const triggerDetail=");
     expect(detail).not.toContain("esc(t.slug)+' · '+esc(t.kind)");
     expect(detail.indexOf('>Details</summary>')).toBeLessThan(detail.indexOf('Prompt template'));
-    expect(run).toContain('class="mx-auto max-w-6xl');
+    expect(run).toContain('class="mx-auto w-full max-w-6xl min-w-0 px-4 py-8 sm:px-5 sm:py-12 lg:px-8');
+    expect(run).toContain('id="run-detail" class="min-w-0"');
     expect(run).toContain('<nav aria-label="Breadcrumb">');
     expect(run).toContain("request('/api/v1/jobs/'+encodeURIComponent(r.job_id))");
     expect(run).toContain("esc(j.name)");
