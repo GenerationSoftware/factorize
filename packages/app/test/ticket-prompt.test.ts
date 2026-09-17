@@ -33,4 +33,14 @@ Create \`WHOA.md\` with \`it works!\`.`);
     }, "bug-fixes");
     expect(prompt).toBe("bug-fixes: GEN-1979 — Use `extra` context. (2026.09)");
   });
+
+  it("decodes HTML entities in ticket content before rendering the prompt", () => {
+    const prompt = linearTicketPrompt({
+      identifier: "GEN-2063", title: "Run prompt formatting",
+      description: "Fix the merge conflicts in https:&#x2F;&#x2F;github.com&#x2F;GenerationSoftware&#x2F;factorize&#x2F;pull&#x2F;100 &amp; keep the link.",
+    }, "flow");
+
+    expect(prompt).toContain("https://github.com/GenerationSoftware/factorize/pull/100 & keep the link.");
+    expect(prompt).not.toContain("&#x2F;");
+  });
 });
