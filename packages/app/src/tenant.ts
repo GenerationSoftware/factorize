@@ -238,6 +238,8 @@ export class TenantV2 extends DurableObject<Env> {
       if (request.method === "POST" && url.pathname === "/github/setup-state/consume") return this.consumeSetupState(await request.json());
       const repoMatch = url.pathname.match(/^\/github\/installations\/(\d+)\/repositories$/);
       if (request.method === "GET" && repoMatch) return await this.githubRepositories(Number(repoMatch[1]));
+      const optionMatch = url.pathname.match(/^\/github\/installations\/(\d+)\/repositories\/(\d+)\/issue-options$/);
+      if (request.method === "GET" && optionMatch) return await this.githubIssueOptions(Number(optionMatch[1]), Number(optionMatch[2]));
       const stateMatch = url.pathname.match(/^\/github\/installations\/(\d+)\/state$/);
       if (request.method === "PATCH" && stateMatch) return this.updateGitHubInstallation(Number(stateMatch[1]), await request.json());
       const installMatch = url.pathname.match(/^\/github\/installations\/(\d+)$/);
@@ -1534,6 +1536,27 @@ export class TenantV2 extends DurableObject<Env> {
       page += 1;
     }
     return json(repositories.map(normalizeRepository));
+  }
+
+  private async githubIssueOptions(installationId: number, repositoryId: number): Promise<Response> {
+    const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", installationId) as Row | undefined;
+    if (installation?.state !== "active") return new Response("GitHub installation is unavailable", { status: 409 });
+    const token = await installationToken(this.env, installationId);
+    const repositoryResponse = await fetch(`https://api.github.com/repositories/${repositoryId}`, { headers: githubHeaders(token) });
+    if (!repositoryResponse.ok) return new Response("GitHub repository is unavailable", { status: repositoryResponse.status });
+    const repository = await repositoryResponse.json() as { full_name?: string };
+    if (!repository.full_name) return new Response("GitHub repository is unavailable", { status: 404 });
+    const load = async (path: string) => {
+      const response = await fetch(`https://api.github.com/repos/${repository.full_name}/${path}?per_page=100`, { headers: githubHeaders(token) });
+      if (!response.ok) throw new Error(`GitHub ${path} could not be loaded`);
+      return await response.json() as Array<{ id: number; name?: string; login?: string }>;
+    };
+    const [labels, assignees] = await Promise.all([load("labels"), load("assignees")]);
+    return json({
+      statuses: [{ id: "open", name: "Open" }, { id: "closed", name: "Closed" }],
+      labels: labels.map(label => ({ id: String(label.id), name: label.name ?? String(label.id) })),
+      users: assignees.map(user => ({ id: String(user.id), name: user.login ?? String(user.id) })),
+    });
   }
 
   private async validateSource(input: PipeInput): Promise<FlowSource> {
