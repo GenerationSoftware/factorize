@@ -47,6 +47,9 @@ describe("flow workspaces", () => {
     expect(launch).toContain('projects."/repo/.factorize-runs/run".trust_level="trusted"');
     expect(launch).toContain("agent read 'factorize-1' --source recent --format text");
     expect(launch).toContain("agent prompt 'factorize-1' '1' --wait --until working --until idle");
+    expect(launch).toContain('trust_lock=/tmp/factorize-codex-trust-$(id -u).lock');
+    expect(launch).toContain('flock 9');
+    expect(launch).toContain('flock -u 9');
     expect(launch).not.toContain("agent prompt 'factorize-1' 'fix it'");
     expect(delivery).toContain("agent prompt 'factorize-1'");
     expect(delivery).toContain("agent wait 'factorize-1' --until idle --until done --timeout 15000");
@@ -58,7 +61,7 @@ describe("flow workspaces", () => {
   it("passes the initial prompt only when starting a new idempotent agent", () => {
     const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
     expect(command).not.toContain("agent prompt 'factorize-1' 'fix it'");
-    expect(command).toContain("else herdr agent start 'factorize-1'");
+    expect(command).toContain("flock 9 && herdr agent start 'factorize-1'");
     expect(command).toContain("/tmp/factorize-prompts/factorize-1/prompt.md");
   });
 
@@ -66,6 +69,12 @@ describe("flow workspaces", () => {
     expect(defaultAgentCommand("codex")).toBe("--dangerously-bypass-approvals-and-sandbox");
     expect(defaultAgentCommand("claude")).toBe("--dangerously-skip-permissions");
     expect(defaultAgentCommand("pi")).toBe("");
+  });
+
+  it("does not take the Codex trust lock for other agent kinds", () => {
+    const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "claude", cwd: "/repo" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
+    expect(command).not.toContain("factorize-codex-trust");
+    expect(command).not.toContain("flock");
   });
 
   it("passes a configured agent command as safely quoted arguments", () => {
