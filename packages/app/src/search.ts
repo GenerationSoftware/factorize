@@ -11,7 +11,16 @@ export function rankField(value: string, query: string, field: string): RankedSe
   if (haystack === needle) return { score: field === "session" ? 2 : 0, field, range: { start: 0, end: value.length } };
   const start = haystack.indexOf(needle);
   if (start >= 0) return { score: field === "session" ? 2 : 1, field, range: { start, end: start + needle.length } };
-  return null;
+  // Keep the useful VS Code-style behavior for queries whose characters are
+  // separated in the field (for example, "gen2098" matching "GEN-2098").
+  // This is deliberately a lower-ranked fallback than a contiguous match.
+  const ranges = searchMatches(value, query);
+  if (!ranges.length) return null;
+  return {
+    score: field === "session" ? 3 : 2,
+    field,
+    range: { start: ranges[0]!.start, end: ranges.at(-1)!.end },
+  };
 }
 
 export function sessionExcerpt(value: string, range: SearchMatch, radius = 90): string {
