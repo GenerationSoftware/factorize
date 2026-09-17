@@ -27,6 +27,7 @@ export interface Job {
   name: string;
   slug: string;
   promptTemplate: string;
+  runNameTemplate?: string;
   model: string;
   effort?: string;
   executionTarget: ExecutionTarget;
@@ -93,6 +94,17 @@ export function renderJobPrompt(job: Pick<Job, "promptTemplate">, context: Recor
   }
 }
 
+export function renderRunName(template: string, context: Record<string, unknown>, fallback: string): string {
+  if (!template.trim()) return fallback;
+  try {
+    Mustache.parse(template);
+    const name = Mustache.render(template, context).trim();
+    return name || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /** The only operation trigger adapters call after normalizing an occurrence. */
 export class InvocationService {
   constructor(
@@ -135,7 +147,7 @@ export class InvocationService {
 /** Fresh v2 Durable Object schema. There are deliberately no legacy Flow migrations. */
 export const JOB_SCHEMA = `
   CREATE TABLE IF NOT EXISTS jobs (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, encrypted_prompt_template TEXT NOT NULL,
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, encrypted_prompt_template TEXT NOT NULL, encrypted_run_name_template TEXT NOT NULL DEFAULT '',
     execution_target TEXT NOT NULL,
     concurrency_limit INTEGER NOT NULL CHECK (concurrency_limit >= 1), enabled INTEGER NOT NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -156,7 +168,7 @@ export const JOB_SCHEMA = `
     id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     invocation_id TEXT NOT NULL UNIQUE REFERENCES invocations(id) ON DELETE CASCADE,
     state TEXT NOT NULL CHECK (state IN ('queued','running','succeeded','failed','stopped')),
-    encrypted_prompt TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, started_at TEXT
+    encrypted_prompt TEXT NOT NULL, run_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, started_at TEXT
   );
   CREATE INDEX IF NOT EXISTS job_runs_queue ON job_runs(state, created_at);
   CREATE INDEX IF NOT EXISTS job_runs_active ON job_runs(job_id, state);
