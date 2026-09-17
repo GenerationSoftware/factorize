@@ -276,9 +276,9 @@ app.post("/api/connections/exe/test", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/connections/exe/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
 });
-app.post("/api/connections/exe/:id/models", async (c) => {
+app.delete("/api/connections/exe/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/connections/exe/${encodeURIComponent(c.req.param("id"))}/models`, { method: "POST" });
+  return tenant(c, session.tenantId).fetch(`https://tenant/connections/exe/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
 });
 app.put("/api/connections/amp", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
@@ -287,6 +287,10 @@ app.put("/api/connections/amp", async (c) => {
 app.post("/api/connections/amp/test", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch("https://tenant/connections/amp/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+});
+app.delete("/api/connections/amp/:id", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch(`https://tenant/connections/amp/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
 });
 app.post("/webhooks/cloudflare/:tenantId/:jobId", async (c) => {
   const raw = await c.req.text();

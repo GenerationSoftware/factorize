@@ -1,6 +1,6 @@
 import type { BackendCommandResult, ExecutionBackend, ExecutionObservation, LaunchReceipt, LaunchRequest, RunHandle } from "./execution";
 import { base64 } from "./crypto";
-import { defaultAgentCommand, shellAtom, type ExeConnection } from "./exe";
+import { defaultAgentCommand, shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
 
 const API = "https://exe.dev/exec";
 const capabilities = ["output", "recovery", "stop"] as const;
@@ -20,18 +20,32 @@ function shellWords(value: string): string[] {
   return words;
 }
 
-function agentCommand(connection: ExeConnection): string {
+function agentCommand(connection: ExeRunConnection): string {
   const args = shellWords(connection.agentCommand?.trim() || defaultAgentCommand(connection.agentKind));
   if (connection.model?.trim()) args.push("--model", connection.model.trim());
   if (connection.effort?.trim() && connection.agentKind === "codex") args.push("-c", `model_reasoning_effort=${connection.effort.trim()}`);
   return args.map(shellAtom).join(" ");
 }
 
+export interface ExePermissionTest { ok: boolean; missingPermissions: string[]; tags: string[]; checks: BackendCommandResult[] }
+
+export function tagsFromInventory(inventory: unknown): string[] {
+  const tags = new Set<string>();
+  const visit = (value: unknown, key?: string): void => {
+    if (typeof value === "string" && value.startsWith("tag:") && value.length > 4) { tags.add(value.slice(4)); return; }
+    if (Array.isArray(value)) { if (key === "tags") value.forEach(tag => typeof tag === "string" && tags.add(tag)); else value.forEach(item => visit(item)); return; }
+    if (!value || typeof value !== "object") return;
+    Object.entries(value as Record<string, unknown>).forEach(([name, item]) => visit(item, name));
+  };
+  visit(inventory);
+  return [...tags].sort((a, b) => a.localeCompare(b));
+}
+
 export class ExeVmBackend implements ExecutionBackend {
   readonly kind = "exe-vm";
   readonly capabilities = capabilities;
 
-  constructor(private readonly connection: ExeConnection) {}
+  constructor(private readonly connection: ExeConnection | ExeRunConnection) {}
 
   private async api(command: string): Promise<BackendCommandResult> {
     const response = await fetch(API, { method: "POST", headers: { Authorization: `Bearer ${this.connection.apiToken}`, "Content-Type": "text/plain" }, body: command });
@@ -40,9 +54,20 @@ export class ExeVmBackend implements ExecutionBackend {
     return { body, status: response.status, exitCode, ok: response.ok && (exitCode === null || exitCode === 0), requestBody: command };
   }
 
+  async testPermissions(): Promise<ExePermissionTest> {
+    const commands = ["ls --json", "integrations list --json", "new --help", "ssh --help", "rm --help"];
+    const checks = await Promise.all(commands.map(command => this.api(command)));
+    let tags: string[] = [];
+    for (const check of checks.slice(0, 2)) if (check.ok) try { tags.push(...tagsFromInventory(JSON.parse(check.body))); } catch { /* use the remaining tag source */ }
+    tags = [...new Set(tags)].sort((a, b) => a.localeCompare(b));
+    return { ok: checks.every(check => check.ok), missingPermissions: checks.filter(check => !check.ok).map(check => String(check.requestBody).split(" ")[0]), tags, checks };
+  }
+
   async test(): Promise<BackendCommandResult> { return this.api("ls --json"); }
 
   async launch(request: LaunchRequest): Promise<LaunchReceipt> {
+    const connection = this.connection as ExeRunConnection;
+    if (!connection.agentKind || !connection.repositoryUrl) throw new Error("The job is missing its agent or repository configuration");
     const vm = vmNameFor(request.runId);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
@@ -52,15 +77,15 @@ export class ExeVmBackend implements ExecutionBackend {
     }
 
     const prompt = base64(request.prompt), output = "/tmp/factorize.log", status = "/tmp/factorize.status";
-    const checkout = this.connection.checkoutRef ? ` && git checkout --detach ${shellAtom(this.connection.checkoutRef)}` : "";
+    const checkout = connection.checkoutRef ? ` && git checkout --detach ${shellAtom(connection.checkoutRef)}` : "";
     const work = [
       "set -eu",
       "mkdir -p /workspace",
       "cd /workspace",
-      `git clone -- ${shellAtom(this.connection.repositoryUrl)} repo`,
+      `git clone -- ${shellAtom(connection.repositoryUrl)} repo`,
       `cd repo${checkout}`,
       `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
-      `setsid nohup sh -c ${shellAtom(`set +e; ${agentCommand(this.connection)} < /tmp/factorize-prompt.md > ${output} 2>&1; code=$?; printf '%s' "$code" > ${status}`)} >/dev/null 2>&1 &`,
+      `setsid nohup sh -c ${shellAtom(`set +e; ${agentCommand(connection)} < /tmp/factorize-prompt.md > ${output} 2>&1; code=$?; printf '%s' "$code" > ${status}`)} >/dev/null 2>&1 &`,
       "echo started",
     ].join(" && ");
     let started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);

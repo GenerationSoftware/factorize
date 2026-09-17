@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ExeVmBackend, isOwnedVmName, vmNameFor } from "../src/exe-vm-backend";
+import { ExeVmBackend, isOwnedVmName, tagsFromInventory, vmNameFor } from "../src/exe-vm-backend";
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -7,6 +7,21 @@ afterEach(() => vi.unstubAllGlobals());
 const connection = { apiToken: "secret", agentKind: "codex", repositoryUrl: "https://github.int.exe.xyz/acme/repo.git", checkoutRef: "main", tags: ["github", "llm"], model: "gpt-5.5", effort: "high" };
 
 describe("ExeVmBackend", () => {
+  it("tests every required permission and discovers sorted unique VM tags", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => String(init.body) === "ssh --help"
+      ? new Response("forbidden", { status: 403 })
+      : new Response(String(init.body) === "ls --json" ? '{"vms":[{"tags":["github","llm"]},{"tags":["github"]}]}' : "help", { headers: { "X-Exe-Exit": "0" } })));
+    const result = await new ExeVmBackend({ apiToken: "secret", tags: [] }).testPermissions();
+    expect(result.ok).toBe(false);
+    expect(result.missingPermissions).toEqual(["ssh"]);
+    expect(result.tags).toEqual(["github", "llm"]);
+    expect(result.checks.map(check => check.requestBody)).toEqual(["ls --json", "integrations list --json", "new --help", "ssh --help", "rm --help"]);
+  });
+
+  it("extracts tags only from tag arrays", () => {
+    expect(tagsFromInventory({ tags: ["one"], nested: { name: "ignored", attachments: ["tag:three"], tags: ["two", "one"] } })).toEqual(["one", "three", "two"]);
+  });
+
   it("creates a tagged VM, clones the repository, and launches Codex directly", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {

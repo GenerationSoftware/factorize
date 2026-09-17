@@ -1,7 +1,10 @@
 export interface ExeConnection {
   apiToken: string;
-  agentKind: string;
   tags: string[];
+}
+
+export interface ExeRunConnection extends ExeConnection {
+  agentKind: string;
   repositoryUrl: string;
   checkoutRef?: string;
   agentCommand?: string;
