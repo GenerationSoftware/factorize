@@ -8,6 +8,7 @@ const themeScript = `
 const themeToggle=document.querySelector('#theme-toggle'),themeIcon=document.querySelector('#theme-icon');
 const syncThemeButton=()=>{const dark=document.documentElement.classList.contains('dark');themeIcon.textContent=dark?'☀':'☾';themeToggle.setAttribute('aria-label',dark?'Use light mode':'Use dark mode')};
 themeToggle.addEventListener('click',()=>{const dark=!document.documentElement.classList.contains('dark');document.documentElement.classList.toggle('dark',dark);try{localStorage.setItem('factorize-theme',dark?'dark':'light')}catch{}syncThemeButton()});syncThemeButton();
+document.addEventListener('click',event=>{if(!(event.target instanceof Element))return;document.querySelectorAll('details[open]').forEach(menu=>{if(!menu.contains(event.target))menu.open=false})});
 const activeNavigation=location.pathname.startsWith('/settings')?'settings':location.pathname.startsWith('/jobs')?'jobs':'';
 if(activeNavigation){const link=document.querySelector('[data-navigation="'+activeNavigation+'"]');link?.setAttribute('aria-current','page')}
 `;
