@@ -176,10 +176,10 @@ describe("pages", () => {
     expect(html).not.toContain('min-w-[48rem]');
   });
 
-  it("configures the agent without repository fields", () => {
+  it("uses the integration agent and configures only model and effort per job", () => {
     const html = jobPage({ email: "owner@example.com" }, "job-1");
     expect(html).toContain('name="model"');
-    expect(html).toContain('name="agentKind"');
+    expect(html).not.toContain('name="agentKind"');
     expect(html).not.toContain('name="repositoryUrl"');
     expect(html).not.toContain('name="checkoutRef"');
     expect(html).toContain("model:form.model.value.trim()");
@@ -194,6 +194,8 @@ describe("pages", () => {
     expect(dialog).toContain('id="exe-token-valid"');
     expect(dialog).toContain('id="exe-token-status"');
     expect(dialog).toContain('name="tags" multiple');
+    expect(dialog).toContain('name="agentKind"');
+    expect(dialog).toContain('temporary tagged VM');
     expect(dialog).not.toContain('name="repositoryUrl"');
     expect(dialog).not.toContain('name="checkoutRef"');
     expect(html).toContain('data-remove-integration=');

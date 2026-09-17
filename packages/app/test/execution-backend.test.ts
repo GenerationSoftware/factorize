@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExeVmBackend, isOwnedVmName, tagsFromInventory, vmNameFor } from "../src/exe-vm-backend";
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
+import type { ExeRunConnection } from "../src/exe";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const connection = { apiToken: "secret", agentKind: "codex", tags: ["github", "llm"], model: "gpt-5.5", effort: "high" };
+const connection = { apiToken: "secret", agentKind: "codex", tags: ["github", "llm"], model: "gpt-5.5", effort: "high" } satisfies ExeRunConnection;
 
 describe("ExeVmBackend", () => {
   it("tests every required permission and discovers sorted unique VM tags", async () => {
@@ -49,6 +50,27 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("cd /workspace");
     expect(requests[1]).not.toContain("git clone");
     expect(requests[1]).toContain("codex");
+  });
+
+  it("validates Codex and loads models in a temporary tagged VM that is deleted", async () => {
+    const requests: string[] = [];
+    let vm = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const command = String(init.body); requests.push(command);
+      if (command.startsWith("new ")) {
+        vm = command.match(/--name='([^']+)'/)?.[1] ?? "";
+        return new Response(JSON.stringify({ name: vm }), { headers: { "X-Exe-Exit": "0" } });
+      }
+      if (command.startsWith("ssh ")) return new Response('["gpt-5.5","gpt-5.6"]', { headers: { "X-Exe-Exit": "0" } });
+      if (command === "ls --json") return new Response(JSON.stringify({ vms: [{ name: vm, comment: `Factorize VM ${vm}` }] }), { headers: { "X-Exe-Exit": "0" } });
+      return new Response("removed", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    const result = await new ExeVmBackend(connection).validateAgentAndModels("codex");
+    expect(result.models).toEqual(["gpt-5.5", "gpt-5.6"]);
+    expect(requests[0]).toContain("--tag='github'");
+    expect(requests[1]).toContain("command -v codex");
+    expect(requests[1]).toContain("https://llm.int.exe.xyz/v1/models");
+    expect(requests.at(-1)).toBe(`rm '${vm}'`);
   });
 
   it("refuses to delete a VM outside the owned namespace", async () => {

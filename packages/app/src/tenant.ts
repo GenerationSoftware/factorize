@@ -331,18 +331,20 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async saveExe(input: unknown): Promise<Response> {
     const value = input as ExeConnectionInput;
-    if (!value.apiToken) throw new Error("An account-level exe.dev HTTPS token is required");
+    if (!value.apiToken || !["codex", "claude"].includes(value.agentKind)) throw new Error("An account-level exe.dev HTTPS token and agent are required");
     const tags = Array.isArray(value.tags) ? value.tags.map(tag => String(tag).trim()).filter(Boolean) : [];
     if (tags.length > 20 || tags.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) throw new Error("VM tags may contain only letters, numbers, dot, underscore, colon, and hyphen");
-    const saved: ExeConnection = { apiToken: value.apiToken, tags };
-    const verification = await new ExeVmBackend(saved).testPermissions();
+    const candidate: ExeConnection = { apiToken: value.apiToken, tags, agentKind: value.agentKind, models: [], modelsRefreshedAt: "" };
+    const backend = new ExeVmBackend(candidate), verification = await backend.testPermissions();
     if (!verification.ok) throw new Error(`exe.dev token is missing required permissions: ${verification.missingPermissions.join(", ")}`);
+    const validation = await backend.validateAgentAndModels(value.agentKind);
+    const saved: ExeConnection = { ...candidate, models: validation.models, modelsRefreshedAt: now() };
     const connectionId = value.connectionId || id();
     await this.putConnection(`exe:${connectionId}`, saved);
     // Preserve the most recently saved connection for existing flows created
     // before connections were selectable.
     await this.putConnection("exe", saved);
-    return json({ ok: true, connectionId });
+    return json({ ok: true, connectionId, models: saved.models });
   }
 
   private async testExe(input: unknown): Promise<Response> {
@@ -443,7 +445,7 @@ export class TenantV2 extends DurableObject<Env> {
     // App-wide webhook verification is performed at the Worker edge before reaching this object.
     this.ctx.storage.sql.exec(
       "INSERT INTO pipes (id,name,project_id,team_id,filter_type,filter_target_id,max_concurrency,capability,webhook_id,signing_secret,workspace_name,agent_kind,context_template,match_rules,exe_connection_id,cwd,source_kind,source_config,trigger_kind,trigger_config,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      pipeId, input.name, source.kind === "linear" ? source.projectId : "", "", rules[0].type, rules[0].targetId, maxConcurrency, "app-webhook", null, "app-webhook", workspaceName, "codex", source.kind !== "github" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : source.kind === "custom" ? "custom_handler" : "linear_match", "{}", now(),
+      pipeId, input.name, source.kind === "linear" ? source.projectId : "", "", rules[0].type, rules[0].targetId, maxConcurrency, "app-webhook", null, "app-webhook", workspaceName, exe.agentKind, source.kind !== "github" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : source.kind === "custom" ? "custom_handler" : "linear_match", "{}", now(),
     );
     return Response.json({ id: pipeId }, { status: 201 });
   }
@@ -462,7 +464,7 @@ export class TenantV2 extends DurableObject<Env> {
     const cwd = this.cwdTemplate(input.cwd ?? "/workspace", flowId);
     this.ctx.storage.sql.exec(
       "UPDATE pipes SET name=?, project_id=?, filter_type=?, filter_target_id=?, max_concurrency=?, workspace_name=?, agent_kind=?, context_template=?, match_rules=?, exe_connection_id=?, cwd=?, source_kind=?, source_config=?, trigger_kind=?, trigger_config=? WHERE id=?",
-      input.name, source.kind === "linear" ? source.projectId : "", rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, "codex", source.kind !== "github" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : source.kind === "custom" ? "custom_handler" : "linear_match", "{}", pipeId,
+      input.name, source.kind === "linear" ? source.projectId : "", rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe.agentKind, source.kind !== "github" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : source.kind === "custom" ? "custom_handler" : "linear_match", "{}", pipeId,
     );
     return json({ id: pipeId, ok: true });
   }
@@ -493,7 +495,10 @@ export class TenantV2 extends DurableObject<Env> {
       name: "Ephemeral exe.dev VMs",
       workspace: "ephemeral",
       cwd: "/workspace",
-      agents: ["codex", "claude"],
+      agentKind: connection.agentKind,
+      models: connection.models ?? [],
+      modelsRefreshedAt: connection.modelsRefreshedAt ?? null,
+      efforts: connection.agentKind === "codex" ? ["minimal", "low", "medium", "high", "xhigh"] : [],
       capabilities: ["output", "recovery", "stop"],
     })), ...ampConnections.map(connection => ({ id: `amp:${connection.connectionId}`, kind: "amp", name: `Amp · ${connection.project}`, workspace: connection.project, cwd: "Cloud orb", agentKind: "Amp", capabilities: ["stop"] }))]);
   }
@@ -592,7 +597,7 @@ export class TenantV2 extends DurableObject<Env> {
     }
     const target = (await this.exeConnections()).find(item => item.connectionId === targetId);
     if (!target) throw new Error("Execution target not found");
-    return { connectionId: target.connectionId, backendKind: "exe-vm", workspace: "ephemeral", cwd: "/workspace" };
+    return { connectionId: target.connectionId, backendKind: "exe-vm", workspace: "ephemeral", cwd: "/workspace", agentKind: target.agentKind };
   }
 
   private validateJobInput(input: any): void {
@@ -600,7 +605,6 @@ export class TenantV2 extends DurableObject<Env> {
     if (!JOB_SLUG.test(String(input.slug ?? ""))) throw new Error("Job slug must start with a lowercase letter and contain only lowercase letters, digits, hyphens, or underscores (30 characters maximum).");
     if (input.model !== undefined && (typeof input.model !== "string" || input.model.trim().length > 120)) throw new Error("Job model must be a string of 120 characters or fewer");
     if (input.effort !== undefined && (typeof input.effort !== "string" || input.effort.trim().length > 40)) throw new Error("Job effort must be a string of 40 characters or fewer");
-    if (!input.executionTargetId?.startsWith?.("amp:") && !["codex", "claude"].includes(input.agentKind)) throw new Error("Choose a supported agent");
     if (!Array.isArray(input.triggers) || input.triggers.some((trigger: any) => !["manual", "schedule", "webhook", "jobLifecycle"].includes(trigger?.kind))) throw new Error("Job triggers are invalid");
     Mustache.parse(input.promptTemplate);
     if (input.runNameTemplate !== undefined) Mustache.parse(String(input.runNameTemplate));
@@ -688,7 +692,7 @@ export class TenantV2 extends DurableObject<Env> {
     this.validateJobInput(input);
     if (this.one("SELECT id FROM jobs WHERE slug=?", input.slug)) throw new Error("Job slug is already in use");
     await this.validateProviderIntegrations(input.triggers);
-    const target = { ...await this.jobTarget(input.executionTargetId), agentKind: text(input.agentKind).trim(), model: text(input.model).trim(), effort: text(input.effort).trim() }, jobId = id(), timestamp = now();
+    const target = { ...await this.jobTarget(input.executionTargetId), model: text(input.model).trim(), effort: text(input.effort).trim() }, jobId = id(), timestamp = now();
     const triggers = this.normalizedTriggers(input.triggers);
     this.validateLifecycleGraph(jobId, triggers);
     this.ctx.storage.sql.exec("INSERT INTO jobs (id,name,slug,encrypted_prompt_template,encrypted_run_name_template,execution_target,concurrency_limit,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)", jobId, input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), await encrypt(String(input.runNameTemplate ?? ""), this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
@@ -710,7 +714,7 @@ export class TenantV2 extends DurableObject<Env> {
     await this.validateProviderIntegrations(input.triggers, existing);
     const triggers = this.normalizedTriggers(input.triggers, existing);
     this.validateLifecycleGraph(jobId, triggers);
-    const target = { ...await this.jobTarget(input.executionTargetId), agentKind: text(input.agentKind).trim(), model: text(input.model).trim(), effort: text(input.effort).trim() }, timestamp = now();
+    const target = { ...await this.jobTarget(input.executionTargetId), model: text(input.model).trim(), effort: text(input.effort).trim() }, timestamp = now();
     this.ctx.storage.sql.exec("UPDATE jobs SET name=?,slug=?,encrypted_prompt_template=?,encrypted_run_name_template=?,execution_target=?,concurrency_limit=?,updated_at=? WHERE id=?", input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), await encrypt(String(input.runNameTemplate ?? ""), this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, timestamp, jobId);
     const retained = new Set<string>();
     for (const trigger of triggers) {
@@ -1640,7 +1644,7 @@ export class TenantV2 extends DurableObject<Env> {
   private async connectionForPipe(pipe: Row): Promise<ExeRunConnection | null> {
     const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
     if (!connection) return null;
-    return { ...connection, agentKind: String(pipe.agent_kind ?? ""), model: String(pipe.model ?? ""), effort: String(pipe.effort ?? "") };
+    return { ...connection, model: String(pipe.model ?? ""), effort: String(pipe.effort ?? "") };
   }
 
   private async upsertMember(input: unknown): Promise<Response> {
