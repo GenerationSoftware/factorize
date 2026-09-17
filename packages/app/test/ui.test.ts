@@ -117,6 +117,19 @@ describe("pages", () => {
     expectInlineScriptsToParse(html);
   });
 
+  it("syntax highlights Mustache expressions in the prompt context template", () => {
+    const html = jobPage({ email: "owner@example.com" }, "job-1");
+    expect(html).toContain('class="template-editor mt-2"');
+    expect(html).toContain('id="prompt-highlight" aria-hidden="true"');
+    expect(html).toContain('spellcheck="false"');
+    expect(html).toContain("function highlightPrompt()");
+    expect(html).toContain('class="template-delimiter"');
+    expect(html).toContain('class="template-expression"');
+    expect(html).toContain("promptEditor.addEventListener('input',highlightPrompt)");
+    expect(html).toContain("promptEditor.addEventListener('scroll',highlightPrompt)");
+    expectInlineScriptsToParse(html);
+  });
+
   it("renders accessible icon actions for editing and removing triggers", () => {
     const editor = jobPage({ email: "owner@example.com" }, "job-1");
     expect(editor).toContain('aria-label="Edit trigger" title="Edit trigger"');
