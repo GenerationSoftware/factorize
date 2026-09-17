@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { McpServer, WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
+import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
 import { ApiService, ServiceError } from "./flow-service";
@@ -66,7 +66,9 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
     } catch (error) { return errorResponse(error); }
 }
 
-async function mcp(request: Request, service: ApiService, env: Env, ctx: ExecutionContext): Promise<Response> {
+const mcpServices = new WeakMap<Request, ApiService>();
+
+function createMcpServer(service: ApiService): McpServer {
     const server = new McpServer({ name: "factorize", version: "1.0.0" });
     const tool = <T>(name: string, description: string, schema: any, action: (input: T) => Promise<unknown>) => server.registerTool(name, { description, inputSchema: schema }, async (input: T) => {
       try { return structured(await action(input)); }
@@ -89,12 +91,32 @@ async function mcp(request: Request, service: ApiService, env: Env, ctx: Executi
     tool("test_job_webhook_handler", "Test an isolated synchronous Job webhook handler without creating a run. Returns the decision and never accepts credentials.", jobHandlerTestSchema, (input: any) => service.testJobHandler(input));
     tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
     tool("list_cloudflare_tail_integrations", "List installed Cloudflare Tail integrations and reference counts. Signing secrets are never returned.", z.object({}), () => service.listTailIntegrations());
-    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    await server.connect(transport);
-    const appHostname = new URL(env.APP_ORIGIN).hostname;
-    const mcpApp = createMcpHonoApp({ host: appHostname, allowedHosts: [appHostname], allowedOrigins: [appHostname] });
-    mcpApp.all("/mcp", c => transport.handleRequest(c.req.raw, { parsedBody: (c as any).get("parsedBody") }));
-    return mcpApp.fetch(request, env, ctx);
+    return server;
+}
+
+// The SDK owns the request-scoped transport/server lifecycle. The factory only
+// resolves the service for the request being served, so tenant context cannot
+// leak between concurrent MCP calls.
+const mcpHandler = createMcpHandler(({ requestInfo }) => {
+    const service = requestInfo && mcpServices.get(requestInfo);
+    if (!service) throw new Error("MCP request context is unavailable");
+    return createMcpServer(service);
+});
+
+const mcpApps = new Map<string, ReturnType<typeof createMcpHonoApp>>();
+function mcpAppFor(hostname: string) {
+    let app = mcpApps.get(hostname);
+    if (!app) {
+      app = createMcpHonoApp({ host: hostname, allowedHosts: [hostname], allowedOrigins: [hostname] });
+      app.all("/mcp", c => mcpHandler.fetch(c.req.raw, { parsedBody: (c as any).get("parsedBody") }));
+      mcpApps.set(hostname, app);
+    }
+    return app;
+}
+
+async function mcp(request: Request, service: ApiService, env: Env, ctx: ExecutionContext): Promise<Response> {
+    mcpServices.set(request, service);
+    return mcpAppFor(new URL(env.APP_ORIGIN).hostname).fetch(request, env, ctx);
   }
 
 export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
