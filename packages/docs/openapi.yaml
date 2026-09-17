@@ -29,6 +29,7 @@ components:
       type: object
       additionalProperties: false
       properties:
+        name: { type: string, minLength: 1, maxLength: 120, description: Display name for the run }
         prompt: { type: string, maxLength: 50000, default: '' }
         data: { type: object, additionalProperties: true, default: {} }
         idempotencyKey: { type: string, minLength: 1, maxLength: 200 }

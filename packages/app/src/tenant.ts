@@ -786,13 +786,13 @@ export class TenantV2 extends DurableObject<Env> {
     if (!Boolean(job.enabled)) return Response.json({ error: "Job is disabled" }, { status: 409 });
     const trigger = this.one("SELECT id,slug FROM triggers WHERE job_id=? AND kind='manual' AND enabled=1 ORDER BY created_at,id LIMIT 1", jobId) as Row | undefined;
     if (!trigger) return Response.json({ error: "The manual trigger is disabled" }, { status: 409 });
-    const result = await this.invokeCanonicalJob(jobId, "manual", String(trigger.id), input.idempotencyKey ? `manual:${input.idempotencyKey}` : `manual:${id()}`, { [String(trigger.slug)]: { prompt: String(input.prompt ?? ""), data: input.data ?? {} } });
+    const result = await this.invokeCanonicalJob(jobId, "manual", String(trigger.id), input.idempotencyKey ? `manual:${input.idempotencyKey}` : `manual:${id()}`, { [String(trigger.slug)]: { prompt: String(input.prompt ?? ""), data: input.data ?? {} } }, undefined, typeof input.name === "string" ? input.name.trim() : undefined);
     if (!result) return Response.json({ error: "Job is disabled" }, { status: 409 });
     return json(result);
   }
 
   /** Single persistence boundary used by manual and every automatic trigger adapter. */
-  private async invokeCanonicalJob(jobId: string, source: "manual" | "schedule" | "webhook" | "jobLifecycle", triggerId: string, claimKey: string, context: Record<string, unknown>, occurrence?: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  private async invokeCanonicalJob(jobId: string, source: "manual" | "schedule" | "webhook" | "jobLifecycle", triggerId: string, claimKey: string, context: Record<string, unknown>, occurrence?: Record<string, unknown>, explicitRunName?: string): Promise<Record<string, unknown> | null> {
     const row = this.one("SELECT * FROM jobs WHERE id = ?", jobId) as Row | undefined;
     if (!row || !Boolean(row.enabled)) return null;
     const existing = this.one("SELECT i.id AS invocation_id,r.id AS run_id,r.state FROM invocations i JOIN job_runs r ON r.invocation_id=i.id WHERE i.job_id=? AND i.claim_key=?", jobId, claimKey) as Row | undefined;
@@ -801,7 +801,7 @@ export class TenantV2 extends DurableObject<Env> {
     const prompt = renderJobPrompt({ promptTemplate: String(job.promptTemplate) }, context);
     const triggerContext = Object.fromEntries(this.triggersFor(jobId).map(trigger => [String(trigger.slug), false]));
     Object.assign(triggerContext, context);
-    const runName = renderRunName(String(job.runNameTemplate ?? ""), triggerContext, `Run ${id().slice(0, 8)}`);
+    const runName = explicitRunName || renderRunName(String(job.runNameTemplate ?? ""), triggerContext, `Run ${id().slice(0, 8)}`);
     const invocationId = id(), runId = id(), timestamp = now();
     this.ctx.storage.sql.exec("INSERT OR IGNORE INTO invocations (id,job_id,source,claim_key,trigger_id,context,occurrence,created_at) VALUES (?,?,?,?,?,?,?,?)", invocationId, jobId, source, claimKey, triggerId, JSON.stringify(context), occurrence ? JSON.stringify(occurrence) : null, timestamp);
     const winner = this.one("SELECT id FROM invocations WHERE job_id=? AND claim_key=?", jobId, claimKey) as Row;

@@ -9,7 +9,10 @@ const commonWebhook: ContextPath[] = [
 ];
 
 export const triggerContextCatalog: Record<string, ContextPath[]> = {
-  manual: [{ path: "prompt", type: "string", description: "Prompt supplied by the manual invocation.", example: "Review the failing build" }],
+  manual: [
+    { path: "prompt", type: "string", description: "Prompt supplied by the manual invocation.", example: "Review the failing build" },
+    { path: "data", type: "object", description: "JSON data supplied by the manual invocation." },
+  ],
   schedule: [
     { path: "scheduled_at", type: "string", description: "Scheduled occurrence as an ISO 8601 timestamp.", example: "2026-09-16T09:00:00.000Z" },
     { path: "cron", type: "string", description: "Configured cron expression.", example: "0 9 * * *" },
