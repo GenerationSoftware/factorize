@@ -1,7 +1,7 @@
 # Factorize
 
-[![CI](https://github.com/asselstine/factorize/actions/workflows/ci.yml/badge.svg)](https://github.com/asselstine/factorize/actions/workflows/ci.yml)
-[![Deploy to Cloudflare](https://img.shields.io/badge/Deploy_to-Cloudflare-F38020?style=flat&logo=cloudflare&logoColor=white)](https://deploy.workers.cloudflare.com/?url=https://github.com/asselstine/factorize&path=packages/app)
+[![CI](https://github.com/GenerationSoftware/factorize/actions/workflows/ci.yml/badge.svg)](https://github.com/GenerationSoftware/factorize/actions/workflows/ci.yml)
+[![Deploy to Cloudflare](https://img.shields.io/badge/Deploy_to-Cloudflare-F38020?style=flat&logo=cloudflare&logoColor=white)](https://deploy.workers.cloudflare.com/?url=https://github.com/GenerationSoftware/factorize&path=packages/app)
 
 **A no-code software factory for Linear teams.** Factorize turns selected Linear issue changes into coding-agent jobs on your own exe.dev VM, using Herdr to run the agent you choose.
 
