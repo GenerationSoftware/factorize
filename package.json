@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "npm run dev --workspace=factorize",
     "dev:marketing": "npm run dev --workspace=factorize-marketing",
+    "build:marketing": "npm run build:marketing --workspace=factorize-marketing",
     "build:css": "npm run build:css --workspace=factorize",
     "test": "npm run test --workspaces --if-present",
     "check": "npm run check --workspace=factorize && npm run check --workspace=factorize-marketing && npm run check --workspace=factorize-tail-relay",

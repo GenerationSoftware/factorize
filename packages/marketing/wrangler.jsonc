@@ -2,6 +2,7 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "factorize-marketing",
   "main": "src/index.ts",
+  "pages_build_output_dir": "./public",
   "compatibility_date": "2026-09-10",
   "assets": { "directory": "./public", "binding": "ASSETS" },
   "vars": { "APP_ORIGIN": "https://app.factorize.sh" }
