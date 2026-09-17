@@ -783,7 +783,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (!Boolean(job.enabled)) return Response.json({ error: "Job is disabled" }, { status: 409 });
     const trigger = this.one("SELECT id,slug FROM triggers WHERE job_id=? AND kind='manual' AND enabled=1 ORDER BY created_at,id LIMIT 1", jobId) as Row | undefined;
     if (!trigger) return Response.json({ error: "The manual trigger is disabled" }, { status: 409 });
-    const result = await this.invokeCanonicalJob(jobId, "manual", String(trigger.id), input.idempotencyKey ? `manual:${input.idempotencyKey}` : `manual:${id()}`, { [String(trigger.slug)]: { prompt: String(input.prompt ?? "") } });
+    const result = await this.invokeCanonicalJob(jobId, "manual", String(trigger.id), input.idempotencyKey ? `manual:${input.idempotencyKey}` : `manual:${id()}`, { [String(trigger.slug)]: { prompt: String(input.prompt ?? ""), data: input.data ?? {} } });
     if (!result) return Response.json({ error: "Job is disabled" }, { status: 409 });
     return json(result);
   }

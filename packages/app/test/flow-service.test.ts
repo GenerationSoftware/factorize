@@ -86,7 +86,9 @@ describe("shared API schemas", () => {
     expect(() => jobInputSchema.parse({ ...job, apiToken: "secret" })).toThrow();
     expect(() => jobInputSchema.parse({ ...job, parameterDefaults: {} })).toThrow();
     expect(() => manualInvocationSchema.parse({ parameters: {} })).toThrow();
-    expect(manualInvocationSchema.parse({ prompt: "ticket" })).toMatchObject({ prompt: "ticket" });
+    expect(manualInvocationSchema.parse({ prompt: "ticket", data: { name: "Ticket run", nested: { priority: 1 } } })).toMatchObject({ prompt: "ticket", data: { name: "Ticket run", nested: { priority: 1 } } });
+    expect(manualInvocationSchema.parse({})).toMatchObject({ prompt: "" });
+    expect(() => manualInvocationSchema.parse({ data: [] })).toThrow();
     expect(manualInvocationSchema.parse({ idempotencyKey: "dev-dispatch-gen-2032" })).toMatchObject({ idempotencyKey: "dev-dispatch-gen-2032" });
     expect(() => manualInvocationSchema.parse({ idempotencyKey: "manual:dev-dispatch-gen-2032" })).toThrow(/reserved manual: claim-key prefix/);
   });
