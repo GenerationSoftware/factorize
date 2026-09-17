@@ -874,7 +874,7 @@ export class TenantV2 extends DurableObject<Env> {
   }
 
   private async getRun(runId: string): Promise<Response> {
-    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_capabilities AS capabilities, r.destination_url, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
+    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_handle, r.execution_capabilities AS capabilities, r.destination_url, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
       i.id AS invocation_id, i.job_id AS invocation_job_id, i.source AS invocation_source, i.claim_key AS invocation_claim_key, i.trigger_id AS invocation_trigger_id, i.context, i.occurrence AS invocation_occurrence, i.created_at AS invocation_created_at
       FROM runs r LEFT JOIN job_runs jr ON jr.id = r.id LEFT JOIN invocations i ON i.id = jr.invocation_id WHERE r.id = ?`, runId);
     if (!run) return new Response("Not found", { status: 404 });
@@ -895,6 +895,21 @@ export class TenantV2 extends DurableObject<Env> {
     if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
     run.activity = this.rows("SELECT action, detail, created_at FROM run_activity WHERE run_id = ? ORDER BY created_at, id", runId);
     this.presentExecution(run);
+    if (["starting", "running", "blocked", "stopping"].includes(String(run.state)) && (run.capabilities as unknown[]).includes("output")) {
+      const pipe = this.executionConfig(run.job_id);
+      if (pipe && String(run.backend_kind) === "exe-herdr") {
+        const connection = await this.connectionForPipe(pipe);
+        if (connection) {
+          try {
+            const output = await new ExeHerdrBackend(connection).readOutput(this.executionHandle(run, "exe-herdr"));
+            if (output !== null) run.live_output = output;
+          } catch {
+            // Run inspection remains available when live output is temporarily unreachable.
+          }
+        }
+      }
+    }
+    delete run.execution_handle;
     return json(run);
   }
 
