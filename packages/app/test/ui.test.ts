@@ -191,11 +191,16 @@ describe("pages", () => {
     const html = settingsPage({ email: "owner@example.com" });
     const dialog = html.match(/<dialog id="exe-setup"[\s\S]*?<\/dialog>/)?.[0] ?? "";
     expect(dialog).toContain('id="test-exe-token"');
+    expect(dialog).toContain('id="exe-token-valid"');
+    expect(dialog).toContain('id="exe-token-status"');
     expect(dialog).toContain('name="tags" multiple');
     expect(dialog).not.toContain('name="repositoryUrl"');
     expect(dialog).not.toContain('name="checkoutRef"');
     expect(html).toContain('data-remove-integration=');
     expect(html).toContain('missingPermissions');
+    expect(html).toContain("setTimeout(testExeToken,500)");
+    expect(html).toContain("elements.apiToken.addEventListener('input'");
+    expect(html).toContain("token!==form.elements.apiToken.value.trim()");
     expectInlineScriptsToParse(html);
   });
 

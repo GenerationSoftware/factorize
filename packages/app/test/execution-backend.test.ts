@@ -22,6 +22,19 @@ describe("ExeVmBackend", () => {
     expect(tagsFromInventory({ tags: ["one"], nested: { name: "ignored", attachments: ["tag:three"], tags: ["two", "one"] } })).toEqual(["one", "three", "two"]);
   });
 
+  it("does not mistake an authorized command error for a missing permission", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const command = String(init.body);
+      if (command === "ssh --help") return new Response("VM name is required", { status: 422, headers: { "X-Exe-Exit": "1" } });
+      if (command === "ls --json") return new Response('{"vms":[]}', { headers: { "X-Exe-Exit": "0" } });
+      if (command === "integrations list --json") return new Response('{"integrations":[]}', { headers: { "X-Exe-Exit": "0" } });
+      return new Response("help", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    const result = await new ExeVmBackend({ apiToken: "secret", tags: [] }).testPermissions();
+    expect(result.ok).toBe(true);
+    expect(result.missingPermissions).toEqual([]);
+  });
+
   it("creates a tagged VM, clones the repository, and launches Codex directly", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
