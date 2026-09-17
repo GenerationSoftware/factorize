@@ -117,6 +117,14 @@ describe("pages", () => {
     expectInlineScriptsToParse(html);
   });
 
+  it("submits editable trigger fields and uses a UnicodeSets-safe slug pattern", () => {
+    const html = jobPage({ email: "owner@example.com" }, "job-1");
+    expect(html).toContain('pattern="[a-z][a-z0-9_\\-]{0,29}"');
+    expect(html).toContain("triggers.map(({id,slug,kind,enabled,config})=>({id,slug,kind,enabled,config}))");
+    expect(html).not.toContain("triggers.map(({_clientId,...t})=>t)");
+    expectInlineScriptsToParse(html);
+  });
+
   it("shows synchronized wildcard trigger hints while retaining detailed autocomplete", () => {
     const html = jobPage({ email: "owner@example.com" }, "job-1");
     expect(html).toContain("const triggerHints=()=>triggers.map");
