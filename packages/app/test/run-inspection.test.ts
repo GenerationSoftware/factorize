@@ -13,6 +13,31 @@ function tenantWithRows(rows: (query: string, ...params: unknown[]) => Record<st
 }
 
 describe("run invocation inspection", () => {
+  it("projects Tail references with one grouped count query", async () => {
+    const queries: string[] = [];
+    const tenant = tenantWithRows((query) => {
+      queries.push(query);
+      return [
+        { integration_id: "tail-1", count: 2 },
+        { integration_id: "tail-2", count: 1 },
+      ];
+    });
+
+    const installations = [
+      { integrationId: "tail-1", name: "Production", signingSecret: "secret-1", createdAt: "2026-09-16", updatedAt: "2026-09-16" },
+      { integrationId: "tail-2", name: "Staging", signingSecret: "secret-2", createdAt: "2026-09-16", updatedAt: "2026-09-16" },
+      { integrationId: "tail-3", name: "Unused", signingSecret: "secret-3", createdAt: "2026-09-16", updatedAt: "2026-09-16" },
+    ];
+
+    await expect((tenant as any).tailIntegrationStatus(installations)).resolves.toEqual([
+      { integrationId: "tail-1", name: "Production", createdAt: "2026-09-16", updatedAt: "2026-09-16", status: "connected", secretConfigured: true, referencedJobCount: 2 },
+      { integrationId: "tail-2", name: "Staging", createdAt: "2026-09-16", updatedAt: "2026-09-16", status: "connected", secretConfigured: true, referencedJobCount: 1 },
+      { integrationId: "tail-3", name: "Unused", createdAt: "2026-09-16", updatedAt: "2026-09-16", status: "connected", secretConfigured: true, referencedJobCount: 0 },
+    ]);
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("GROUP BY json_extract(config,'$.integrationId')");
+  });
+
   it("preserves trigger slugs across edits and reordering", () => {
     const tenant = Object.create(TenantV2.prototype) as TenantV2;
     const existing = new Map([
