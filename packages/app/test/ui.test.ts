@@ -223,6 +223,9 @@ describe("pages", () => {
     expect(detail).toContain("Run now");
     expect(run).toContain("destination_url");
     expect(run).toContain("caps.includes('output')");
+    expect(run).toContain('data-run-output');
+    expect(run).toContain('font-mono text-xs leading-5');
+    expect(run).toContain("ansiToHtml(r.result");
     expect(settings).toContain("Connect every provider used by your Jobs");
     expect(settings).toContain("Linear");
     expect(settings).toContain("GitHub App");
