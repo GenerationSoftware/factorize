@@ -1,8 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import Mustache from "mustache";
 import { decrypt, encrypt, equalHmac } from "./crypto";
-import { agentListCommand, agentOutputCommand, agentStartupBlocked, agentStatusCommand, connectionCheckCommand, defaultAgentCommand, exec, garbageCollectPaneCommand, herdrAgentStatus, herdrCheckCommand, modelListCommand, paneGetCommand, paneProcessInfoCommand, parseModelList, replaceForegroundCommand, startAgentCommand, startAgentInPaneCommand, stopAgentCommand, validateWorktreeLeaseCommand, type ExeConnection } from "./exe";
-import { findOwnedAgent, ownsPane, parseAgent, parseAgentList, parsePaneProcess, type HerdrIdentity } from "./recovery";
+import { defaultAgentCommand, type ExeConnection } from "./exe";
 import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUERY, isLinearAuthenticationError, refreshLinearToken } from "./linear";
 import { matchingIssue } from "./matcher";
 import type { AmpConnectionInput, Env, ExeConnectionInput, FilterType, MatchRule, RunState, TailIntegrationInput } from "./types";
@@ -12,7 +11,6 @@ import type { WorkItem } from "./types";
 import { invokeCustomHandler } from "./custom-handler";
 import { generateTailSecret, sanitizeTailEvent, signTailDelivery, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
 import { ExeVmBackend } from "./exe-vm-backend";
-import { ExeHerdrBackend } from "./exe-herdr-backend";
 import { AmpBackend, type AmpConnection } from "./amp-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 import { JOB_SCHEMA, renderJobPrompt, renderRunName } from "./job-domain";
@@ -31,7 +29,7 @@ type Row = Record<string, unknown>;
 const json = (value: unknown) => Response.json(value);
 const now = () => new Date().toISOString();
 const id = () => crypto.randomUUID();
-const HERDR_FLOW_NAME = /^[a-z][a-z0-9_-]{0,29}$/;
+const FLOW_NAME = /^[a-z][a-z0-9_-]{0,29}$/;
 const JOB_SLUG = /^[a-z][a-z0-9_-]{0,29}$/;
 
 // Keep the index definitions next to the query they support. Every listRuns
@@ -114,11 +112,13 @@ export class TenantV2 extends DurableObject<Env> {
     this.ensureColumn("runs", "claim_key", "TEXT");
     this.ensureColumn("runs", "execution_backend_kind", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("runs", "execution_handle", "TEXT");
+    this.ensureColumn("runs", "vm_cleanup_attempt", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("runs", "vm_cleanup_next_at", "INTEGER");
+    this.ensureColumn("runs", "vm_cleanup_complete", "INTEGER NOT NULL DEFAULT 0");
     this.ensureColumn("runs", "execution_capabilities", "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn("runs", "destination_url", "TEXT");
     this.ctx.storage.sql.exec(RUN_INDEXES);
-    for (const [column, definition] of Object.entries({ herdr_server_namespace: "TEXT NOT NULL DEFAULT 'default'", worktree_path: "TEXT", ownership_lease: "TEXT", ownership_generation: "INTEGER NOT NULL DEFAULT 0", agent_session_generation: "INTEGER NOT NULL DEFAULT 0", output_captured: "INTEGER NOT NULL DEFAULT 0", claim_released: "INTEGER NOT NULL DEFAULT 0", pane_collected: "INTEGER NOT NULL DEFAULT 0", pane_collection_attempt: "INTEGER NOT NULL DEFAULT 0", pane_collection_next_at: "INTEGER", worktree_disposition: "TEXT" })) this.ensureColumn("runs", column, definition);
-    for (const [column, definition] of Object.entries({ herdr_workspace_id: "TEXT", herdr_pane_id: "TEXT", herdr_terminal_id: "TEXT", agent_session_source: "TEXT", agent_session_kind: "TEXT", agent_session_value: "TEXT", herdr_cwd: "TEXT", last_agent_status: "TEXT", recovery_attempt: "INTEGER NOT NULL DEFAULT 0", recovery_reason: "TEXT", recovery_started_at: "TEXT", recovery_last_action: "TEXT", recovery_next_at: "INTEGER", recovery_comment_started: "INTEGER NOT NULL DEFAULT 0", recovery_comment_finished: "INTEGER NOT NULL DEFAULT 0", prompt_accepted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_attempted: "INTEGER NOT NULL DEFAULT 0", recovery_prompt_accepted: "INTEGER NOT NULL DEFAULT 0" })) this.ensureColumn("runs", column, definition);
+    for (const [column, definition] of Object.entries({ output_captured: "INTEGER NOT NULL DEFAULT 0", claim_released: "INTEGER NOT NULL DEFAULT 0", prompt_accepted: "INTEGER NOT NULL DEFAULT 0" })) this.ensureColumn("runs", column, definition);
     this.ensureColumn("triggers", "slug", "TEXT");
     this.ensureColumn("jobs", "slug", "TEXT");
     for (const job of this.rows("SELECT id,name,slug FROM jobs ORDER BY created_at,id")) {
@@ -246,8 +246,6 @@ export class TenantV2 extends DurableObject<Env> {
       if (request.method === "PUT" && url.pathname === "/connections/exe") return await this.saveExe(await request.json());
       if (request.method === "POST" && url.pathname === "/connections/exe/test") return await this.testExe(await request.json());
       if (request.method === "POST" && url.pathname === "/authorize") return this.authorize(await request.json());
-      const exeModelsMatch = url.pathname.match(/^\/connections\/exe\/([^/]+)\/models$/);
-      if (request.method === "POST" && exeModelsMatch) return await this.refreshExeModels(decodeURIComponent(exeModelsMatch[1]));
       if (request.method === "PUT" && url.pathname === "/connections/amp") return await this.saveAmp(await request.json());
       if (request.method === "POST" && url.pathname === "/connections/amp/test") return await this.testAmp(await request.json());
       if (request.method === "GET" && url.pathname === "/connections/cloudflare-tail") return json(await this.tailIntegrationStatus());
@@ -284,17 +282,17 @@ export class TenantV2 extends DurableObject<Env> {
   async alarm(): Promise<void> {
     await this.processGitHubVerifications();
     await this.processDueSchedules();
-    const panes = this.rows("SELECT * FROM runs WHERE state IN ('done','failed','cancelled') AND output_captured=1 AND claim_released=1 AND pane_collected=0 AND pane_collection_attempt<8 AND COALESCE(pane_collection_next_at,0)<=? ORDER BY updated_at LIMIT 20", Date.now());
-    for (const run of panes) await this.collectRunPane(run);
+    const cleanup = this.rows("SELECT * FROM runs WHERE execution_backend_kind='exe-vm' AND execution_handle IS NOT NULL AND vm_cleanup_complete=0 AND vm_cleanup_attempt<8 AND COALESCE(vm_cleanup_next_at,0)<=? AND state IN ('done','failed','stopped','stopping') ORDER BY updated_at LIMIT 20", Date.now());
+    for (const run of cleanup) await this.cleanupRunVm(run);
     // Release completed slots before looking at the queue, so capacity is used
     // immediately rather than waiting for the next polling alarm.
-    const running = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('starting','running','blocked','recovering') ORDER BY updated_at LIMIT 40");
+    const running = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('starting','running','blocked') ORDER BY updated_at LIMIT 40");
     for (const run of running) await this.pollRun(run);
     const queued = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state = 'queued' ORDER BY created_at LIMIT 20");
     for (const run of queued) {
       const pipe = this.executionConfig(run.pipe_id);
       if (!pipe) continue;
-      const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id = ? AND state IN ('starting','running','blocked','recovering')", pipe.id) as Row;
+      const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id = ? AND state IN ('starting','running','blocked')", pipe.id) as Row;
       if (Number(active.count) >= Number(pipe.max_concurrency)) continue;
       const name = `${String(pipe.workspace_name).slice(0, 20)}-${String(run.id).replaceAll("-", "").slice(0, 8)}`;
       this.ctx.storage.sql.exec("UPDATE runs SET state = 'starting', agent_name = ?, workspace_name = ?, updated_at = ? WHERE id = ? AND state = 'queued'", name, pipe.workspace_name, now(), run.id);
@@ -302,12 +300,12 @@ export class TenantV2 extends DurableObject<Env> {
       await this.startRun({ ...run, agent_name: name, workspace_name: pipe.workspace_name }, pipe);
     }
 
-    const pending = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('queued','starting','running','blocked','recovering')") as Row;
+    const pending = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('queued','starting','running','blocked')") as Row;
     const verification = this.one("SELECT min(next_attempt_at) AS next_attempt_at FROM pending_verifications") as Row;
     const nextVerification = Number(verification?.next_attempt_at || 0);
     const schedule = this.one("SELECT min(next_run_at) AS next_run_at FROM schedule_state") as Row;
-    const collection = this.one("SELECT min(pane_collection_next_at) AS next_at FROM runs WHERE pane_collected=0 AND pane_collection_attempt<8 AND pane_collection_next_at IS NOT NULL") as Row;
-    const candidates = [Number(pending.count) > 0 ? Date.now() + 15_000 : 0, nextVerification, Number(schedule?.next_run_at || 0), Number(collection?.next_at || 0)].filter(Boolean);
+    const cleanupDue = this.one("SELECT min(vm_cleanup_next_at) AS next_at FROM runs WHERE vm_cleanup_complete=0 AND vm_cleanup_attempt<8 AND vm_cleanup_next_at IS NOT NULL") as Row;
+    const candidates = [Number(pending.count) > 0 ? Date.now() + 15_000 : 0, nextVerification, Number(schedule?.next_run_at || 0), Number(cleanupDue?.next_at || 0)].filter(Boolean);
     if (candidates.length) await this.ctx.storage.setAlarm(Math.min(...candidates));
   }
 
@@ -329,45 +327,28 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async saveExe(input: unknown): Promise<Response> {
     const value = input as ExeConnectionInput;
-    if (!value.apiToken || !value.agentKind) throw new Error("An account-level exe.dev token and agent are required");
-    if (value.cwd && (!value.cwd.startsWith("/") || value.cwd.includes("\0"))) throw new Error("Working directory must be an absolute path");
+    if (!value.apiToken || !value.agentKind || !value.repositoryUrl) throw new Error("An account-level exe.dev token, repository URL, and agent are required");
     const tags = Array.isArray(value.tags) ? value.tags.map(tag => String(tag).trim()).filter(Boolean) : [];
     if (tags.length > 20 || tags.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) throw new Error("VM tags may contain only letters, numbers, dot, underscore, colon, and hyphen");
-    if (value.repositoryUrl && (!/^https:\/\//i.test(value.repositoryUrl) || value.repositoryUrl.length > 2000)) throw new Error("Repository URL must be an HTTPS URL");
+    if (!/^https:\/\//i.test(value.repositoryUrl) || value.repositoryUrl.length > 2000) throw new Error("Repository URL must be an HTTPS URL");
     if (value.checkoutRef && (value.checkoutRef.length > 255 || /[\0\r\n]/.test(value.checkoutRef))) throw new Error("Checkout ref is invalid");
-    const saved = { ...value, cwd: value.cwd || "/workspace", tags, models: value.models ?? [], modelsRefreshedAt: now() };
+    const saved: ExeConnection = { ...value, tags, models: value.models ?? [] };
+    const verification = await new ExeVmBackend(saved).test();
+    if (!verification.ok) throw new Error(`exe.dev account verification failed (${verification.status}): ${verification.body.slice(0, 300)}`);
     const connectionId = value.connectionId || id();
     await this.putConnection(`exe:${connectionId}`, saved);
     // Preserve the most recently saved connection for existing flows created
     // before connections were selectable.
     await this.putConnection("exe", saved);
-    return json({ ok: true, connectionId, models: saved.models });
-  }
-
-  private async discoverExeModels(connection: ExeConnection): Promise<string[]> {
-    const result = await exec(connection, modelListCommand());
-    if (!result.ok) throw new Error(`Could not load models from the exe.dev LLM integration (${result.status}): ${result.body.slice(0, 300)}`);
-    try { return parseModelList(result.body); }
-    catch (error) { throw new Error(error instanceof Error ? error.message : "The model endpoint returned an invalid response"); }
-  }
-
-  private async refreshExeModels(connectionId: string): Promise<Response> {
-    const connection = await this.connection<ExeConnection>(`exe:${connectionId}`);
-    if (!connection) throw new Error("Exe.dev connection not found");
-    const models = await this.discoverExeModels(connection);
-    const saved = { ...connection, models, modelsRefreshedAt: now() };
-    await this.putConnection(`exe:${connectionId}`, saved);
-    const legacy = await this.connection<ExeConnection>("exe");
-    if (legacy?.vmName === connection.vmName && legacy.cwd === connection.cwd && legacy.agentKind === connection.agentKind) await this.putConnection("exe", saved);
-    return json({ ok: true, models, modelsRefreshedAt: saved.modelsRefreshedAt });
+    return json({ ok: true, connectionId });
   }
 
   private async testExe(input: unknown): Promise<Response> {
     const supplied = input as Partial<ExeConnectionInput>;
     const saved = supplied.connectionId ? await this.exeConnection(supplied.connectionId) : await this.connection<ExeConnection>("exe");
-    const connection = supplied.vmName || supplied.apiToken || supplied.cwd ? supplied as ExeConnection : saved;
-    if (!connection?.vmName || !connection.apiToken) throw new Error("SSH destination and API token are required");
-    const result = await exec(connection, connectionCheckCommand());
+    const connection = supplied.apiToken ? supplied as ExeConnection : saved;
+    if (!connection?.apiToken || !connection.repositoryUrl) throw new Error("Account token and repository URL are required");
+    const result = await new ExeVmBackend(connection).test();
     return json({ ok: result.ok && (result.exitCode === null || result.exitCode === 0), httpStatus: result.status, exitCode: result.exitCode, command: result.requestBody, output: result.body });
   }
 
@@ -442,7 +423,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (!linear) throw new Error("Connect Linear first");
     const exe = await this.exeConnection(input.exeConnectionId);
     if (!exe) throw new Error("Connect an exe.dev account first");
-    const cwd = this.cwdTemplate(input.cwd ?? exe.cwd, flowId);
+    const cwd = this.cwdTemplate(input.cwd ?? "/workspace/repo", flowId);
     const workspaceName = flowId;
     // These legacy fields are retained for compatibility with the v1 Durable Object schema.
     // App-wide webhook verification is performed at the Worker edge before reaching this object.
@@ -464,7 +445,7 @@ export class TenantV2 extends DurableObject<Env> {
     const workspaceName = flowId;
     const exe = await this.exeConnection(input.exeConnectionId);
     if (!exe) throw new Error("Choose an exe.dev connection.");
-    const cwd = this.cwdTemplate(input.cwd ?? exe.cwd, flowId);
+    const cwd = this.cwdTemplate(input.cwd ?? "/workspace/repo", flowId);
     this.ctx.storage.sql.exec(
       "UPDATE pipes SET name=?, project_id=?, filter_type=?, filter_target_id=?, max_concurrency=?, workspace_name=?, agent_kind=?, context_template=?, match_rules=?, exe_connection_id=?, cwd=?, source_kind=?, source_config=?, trigger_kind=?, trigger_config=? WHERE id=?",
       input.name, source.kind === "linear" ? source.projectId : "", rules[0].type, rules[0].targetId, maxConcurrency, workspaceName, exe.agentKind, source.kind !== "github" ? this.contextTemplate(input.contextTemplate) : "", JSON.stringify(rules), input.exeConnectionId || "default", cwd, source.kind, JSON.stringify(source), source.kind === "github" ? source.trigger : source.kind === "custom" ? "custom_handler" : "linear_match", "{}", pipeId,
@@ -482,7 +463,7 @@ export class TenantV2 extends DurableObject<Env> {
     return json({
       linear: linear ? { organizationName: linear.organizationName ?? null, viewerEmail: linear.viewerEmail ?? null } : null,
       clickup: clickup ? { teamName: clickup.teamName ?? null } : null,
-      exe: exe ? { agentKind: exe.agentKind, cwd: exe.cwd, tags: exe.tags ?? [] } : null,
+      exe: exe ? { agentKind: exe.agentKind, repositoryUrl: exe.repositoryUrl, checkoutRef: exe.checkoutRef ?? null, tags: exe.tags ?? [] } : null,
       exeConnections: connections.map(({ apiToken, ...connection }) => connection),
       ampConnections: ampConnections.map(({ accessToken, ...connection }) => connection),
       cloudflareTail: { count: tailInstallations.length, installations: await this.tailIntegrationStatus(tailInstallations) },
@@ -491,37 +472,18 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async executionTargets(): Promise<Response> {
     const connections = await this.exeConnections();
-    const populated = await Promise.all(connections.map(async connection => {
-      // A missing models field means this connection predates discovery. Once a
-      // discovery has run, even an empty result is left for the explicit refresh action.
-      if (Array.isArray(connection.models)) return connection;
-      try {
-        const models = await this.discoverExeModels(connection);
-        const saved = { ...connection, models, modelsRefreshedAt: now() };
-        await this.putConnection(`exe:${connection.connectionId}`, saved);
-        const legacy = await this.connection<ExeConnection>("exe");
-        if (legacy?.vmName === connection.vmName && legacy.cwd === connection.cwd && legacy.agentKind === connection.agentKind) await this.putConnection("exe", saved);
-        return saved;
-      } catch {
-        // Mark the attempted discovery as populated so a transient/unavailable
-        // integration does not turn every job-editor load into a remote call.
-        const saved = { ...connection, models: [], modelsRefreshedAt: now() };
-        await this.putConnection(`exe:${connection.connectionId}`, saved);
-        return saved;
-      }
-    }));
     const ampConnections = await this.ampConnections();
-    return json([...populated.map(connection => ({
+    return json([...connections.map(connection => ({
       id: connection.connectionId,
       kind: "exe-vm",
       name: "Ephemeral exe.dev VMs",
       workspace: "ephemeral",
-      cwd: connection.cwd,
+      cwd: "/workspace/repo",
       agentKind: connection.agentKind,
       models: connection.models ?? [],
       modelsRefreshedAt: connection.modelsRefreshedAt ?? null,
       efforts: connection.efforts ?? (connection.agentKind === "codex" ? ["minimal", "low", "medium", "high", "xhigh"] : []),
-      capabilities: ["output", "prompt-delivery", "recovery", "stop"],
+      capabilities: ["output", "recovery", "stop"],
     })), ...ampConnections.map(connection => ({ id: `amp:${connection.connectionId}`, kind: "amp", name: `Amp · ${connection.project}`, workspace: connection.project, cwd: "Cloud orb", agentKind: "Amp", capabilities: ["stop"] }))]);
   }
 
@@ -618,7 +580,7 @@ export class TenantV2 extends DurableObject<Env> {
     }
     const target = (await this.exeConnections()).find(item => item.connectionId === targetId);
     if (!target) throw new Error("Execution target not found");
-    return { connectionId: target.connectionId, backendKind: "exe-vm", workspace: target.vmName ?? "ephemeral", cwd: target.cwd, agentKind: target.agentKind };
+    return { connectionId: target.connectionId, backendKind: "exe-vm", workspace: "ephemeral", cwd: "/workspace/repo", agentKind: target.agentKind };
   }
 
   private validateJobInput(input: any): void {
@@ -893,7 +855,7 @@ export class TenantV2 extends DurableObject<Env> {
     const page = Math.max(1, Math.min(10000, Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1));
     const offset = (page - 1) * 20;
     const events = view === "events" ? this.rows("SELECT id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, provider, received_at FROM flow_events WHERE flow_id = ? ORDER BY received_at DESC, id DESC LIMIT 11 OFFSET ?", flowId, offset) : [];
-    const runs = view === "runs" ? this.rows("SELECT id, issue_id, issue_title, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, prompt_delivery_state, prompt_delivery_request, prompt_delivery_response, prompt_delivery_status, prompt_delivery_exit_code, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code, recovery_reason, recovery_attempt, recovery_last_action, recovery_started_at FROM runs WHERE pipe_id = ? AND state != 'ignored' ORDER BY created_at DESC, id DESC LIMIT 21 OFFSET ?", flowId, offset) : [];
+    const runs = view === "runs" ? this.rows("SELECT id, issue_id, issue_title, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, prompt_delivery_state, prompt_delivery_request, prompt_delivery_response, prompt_delivery_status, prompt_delivery_exit_code, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code FROM runs WHERE pipe_id = ? AND state != 'ignored' ORDER BY created_at DESC, id DESC LIMIT 21 OFFSET ?", flowId, offset) : [];
     await this.backfillRunIssueDetails(runs);
     const hasNext = (view === "events" ? events : runs).length > 20;
     if (events.length > 20) events.pop();
@@ -979,7 +941,7 @@ export class TenantV2 extends DurableObject<Env> {
     run.state = normalizeExecutionState(run.state);
     run.backend_kind = String(run.backend_kind || "exe-vm");
     try { run.capabilities = JSON.parse(String(run.capabilities || "[]")); } catch { run.capabilities = []; }
-    if (!Array.isArray(run.capabilities) || run.capabilities.length === 0) run.capabilities = ["output", "prompt-delivery", "recovery"];
+    if (!Array.isArray(run.capabilities) || run.capabilities.length === 0) run.capabilities = ["output", "recovery", "stop"];
     run.destination_url = String(run.destination_url || "https://exe.dev/");
   }
 
@@ -989,7 +951,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (jobId) { clauses.push("r.pipe_id = ?"); args.push(jobId); }
     if (state === "succeeded") { clauses.push("r.state IN ('succeeded','done')"); }
     else if (state === "stopped") { clauses.push("r.state IN ('stopped','cancelled')"); }
-    else if (state === "starting") { clauses.push("r.state IN ('starting','recovering')"); }
+    else if (state === "starting") { clauses.push("r.state IN ('starting')"); }
     else if (state) { clauses.push("r.state = ?"); args.push(state); }
     if (contextQuery) { clauses.push("instr(lower(i.context), lower(?)) > 0"); args.push(contextQuery); selectArgs.push(contextQuery, contextQuery); }
     if (cursor) { clauses.push("(r.created_at < ? OR (r.created_at = ? AND r.id < ?))"); args.push(cursor.at, cursor.at, cursor.id); }
@@ -1045,7 +1007,7 @@ export class TenantV2 extends DurableObject<Env> {
   }
 
   private async getRun(runId: string): Promise<Response> {
-    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.issue_title, r.run_name, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_handle, r.execution_capabilities AS capabilities, r.destination_url, r.prompt AS encrypted_prompt, r.session, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
+    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.issue_title, r.run_name, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_handle, r.execution_capabilities AS capabilities, r.destination_url, r.prompt AS encrypted_prompt, r.session, r.result, r.exec_status, r.exec_exit_code, r.created_at, r.updated_at,
       i.id AS invocation_id, i.job_id AS invocation_job_id, i.source AS invocation_source, i.claim_key AS invocation_claim_key, i.trigger_id AS invocation_trigger_id, i.context, i.occurrence AS invocation_occurrence, i.created_at AS invocation_created_at
       FROM runs r LEFT JOIN job_runs jr ON jr.id = r.id LEFT JOIN invocations i ON i.id = jr.invocation_id WHERE r.id = ?`, runId);
     if (!run) return new Response("Not found", { status: 404 });
@@ -1073,11 +1035,11 @@ export class TenantV2 extends DurableObject<Env> {
     run.name = String(run.run_name || run.issue_title || `Run ${String(run.id).slice(0, 8)}`);
     if (["starting", "running", "blocked", "stopping"].includes(String(run.state)) && (run.capabilities as unknown[]).includes("output")) {
       const pipe = this.executionConfig(run.job_id);
-      if (pipe && ["exe-vm", "exe-herdr"].includes(String(run.backend_kind))) {
+      if (pipe && String(run.backend_kind) === "exe-vm") {
         const connection = await this.connectionForPipe(pipe);
         if (connection) {
           try {
-            const backend = String(run.backend_kind) === "exe-herdr" ? new ExeHerdrBackend(connection) : new ExeVmBackend(connection);
+            const backend = new ExeVmBackend(connection);
             const output = await backend.readOutput(this.executionHandle(run, String(run.backend_kind)));
             if (output !== null) {
               const scrubbed = safeSession(output);
@@ -1109,8 +1071,8 @@ export class TenantV2 extends DurableObject<Env> {
   private async stopRun(runId: string): Promise<Response> {
     const run = this.one("SELECT * FROM runs WHERE id = ?", runId);
     if (!run) return new Response("Not found", { status: 404 });
-    if (!["starting", "running", "blocked", "recovering"].includes(String(run.state))) return Response.json({ error: "Run is not active" }, { status: 409 });
-    if (["starting", "running", "blocked", "recovering"].includes(String(run.state))) {
+    if (!["starting", "running", "blocked"].includes(String(run.state))) return Response.json({ error: "Run is not active" }, { status: 409 });
+    if (["starting", "running", "blocked"].includes(String(run.state))) {
       const pipe = this.executionConfig(run.pipe_id);
       if (pipe) {
         if (String(pipe.execution_backend_kind) === "amp") {
@@ -1121,13 +1083,10 @@ export class TenantV2 extends DurableObject<Env> {
           const stopped = await backend.stop(this.executionHandle(run, backend.kind));
           if (stopped.state !== "stopped") return Response.json({ error: "Could not stop the Amp run" }, { status: 502 });
         } else {
-        const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
-        if (connection && run.agent_name) {
-      const backend = new ExeVmBackend(connection);
           this.ctx.storage.sql.exec("UPDATE runs SET state='stopping',updated_at=? WHERE id=?", now(), runId);
-          const stopped = await backend.stop(this.executionHandle(run, backend.kind));
-          if (stopped.state !== "stopped") return Response.json({ error: "Could not stop the active agent" }, { status: 502 });
-        }
+          const deleted = await this.cleanupRunVm({ ...run, state: "stopping" });
+          if (!deleted) return Response.json({ id: runId, state: "stopping", stopped: false }, { status: 202 });
+          return json({ id: runId, state: "stopped", stopped: true });
         }
       }
     }
@@ -1353,7 +1312,7 @@ export class TenantV2 extends DurableObject<Env> {
     catch { this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, "duplicate", "An active or queued run already owns this work item.", workItem.provider); return; }
     const prompt = await encrypt(plaintextPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("INSERT INTO runs (id,pipe_id,issue_id,issue_title,issue_url,claim_key,agent_name,workspace_name,agent_kind,state,prompt,prompt_delivery_state,provider,execution_backend_kind,execution_capabilities,destination_url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", runId, pipe.id, workItem.identifier, workItem.title, workItem.url, workItem.claimKey, `factorize-${runId}`, String(pipe.workspace_name ?? ""), String(pipe.agent_kind ?? ""), "queued", prompt, "pending", workItem.provider, "exe-vm", JSON.stringify(["output", "recovery", "stop"]), "https://exe.dev/", now(), now());
-    const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id=? AND state IN ('starting','running','blocked','recovering')", pipe.id) as Row;
+    const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id=? AND state IN ('starting','running','blocked')", pipe.id) as Row;
     this.recordFlowEvent(pipe, deliveryId, workItem.identifier, workItem.url, workItem.event as any, Number(active.count) < Number(pipe.max_concurrency) ? "accepted" : "queued_capacity", Number(active.count) < Number(pipe.max_concurrency) ? "Handler accepted delivery; agent queued to start." : "Handler accepted delivery; queued for capacity.", workItem.provider);
   }
 
@@ -1462,10 +1421,12 @@ export class TenantV2 extends DurableObject<Env> {
     }
     const connection = await this.connectionForPipe(pipe);
     if (!connection) return this.finishRun(run, "failed", "No exe.dev VM is connected.");
-    const backend = new ExeVmBackend(connection, { cwd: connection.cwd });
+    const backend = new ExeVmBackend(connection);
     const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='submitting',updated_at=? WHERE id=?", now(), run.id);
-    const launched = await backend.launch({ runId: String(run.id), prompt });
+    let launched;
+    try { launched = await backend.launch({ runId: String(run.id), prompt }); }
+    catch (error) { return this.finishRun(run, "failed", error instanceof Error ? error.message : "exe.dev VM launch failed."); }
     const result = launched.command!;
     this.ctx.storage.sql.exec("UPDATE runs SET execution_backend_kind=?,execution_handle=?,execution_capabilities=?,destination_url=?,updated_at=? WHERE id=?", backend.kind, JSON.stringify(launched.handle), JSON.stringify(launched.capabilities), launched.destinationUrl, now(), run.id);
     const execRequest = await encrypt(result.requestBody, this.env.CREDENTIAL_ENCRYPTION_KEY);
@@ -1502,15 +1463,12 @@ export class TenantV2 extends DurableObject<Env> {
     const backend = new ExeVmBackend(connection), handle = this.executionHandle(run, backend.kind);
     const observation = await backend.inspect(handle);
     if (observation.state === "running") return;
-    if (observation.state === "failed") return this.finishRun(run, "failed", observation.detail ?? "The agent failed in its ephemeral VM.");
+    if (observation.state === "failed") {
+      const output = backend.readOutput ? await backend.readOutput(handle) : null;
+      return this.finishRun(run, "failed", output ?? observation.detail ?? "The agent failed in its ephemeral VM.", output !== null);
+    }
     const output = backend.readOutput ? await backend.readOutput(handle) : null;
     await this.finishRun(run, "done", output ?? "Agent completed; terminal output is not available from this backend.", output !== null);
-  }
-
-  private savedIdentity(run: Row): Partial<HerdrIdentity> { return { name: String(run.agent_name || ""), kind: String(run.agent_kind || ""), workspaceId: String(run.herdr_workspace_id || ""), paneId: String(run.herdr_pane_id || ""), terminalId: String(run.herdr_terminal_id || ""), cwd: String(run.herdr_cwd || ""), sessionSource: String(run.agent_session_source || ""), sessionKind: String(run.agent_session_kind || ""), sessionValue: String(run.agent_session_value || "") }; }
-
-  private persistIdentity(runId: unknown, live: HerdrIdentity, state = "running", sessionRotated = false): void {
-    this.ctx.storage.sql.exec("UPDATE runs SET state=?,herdr_workspace_id=?,herdr_pane_id=?,herdr_terminal_id=?,agent_session_source=?,agent_session_kind=?,agent_session_value=?,agent_session_generation=agent_session_generation+?,herdr_cwd=?,last_agent_status=?,updated_at=? WHERE id=?", state, live.workspaceId, live.paneId, live.terminalId, live.sessionSource, live.sessionKind, live.sessionValue, sessionRotated ? 1 : 0, live.cwd, live.status, now(), runId);
   }
 
   private activity(runId: unknown, action: string, detail: string): void {
@@ -1529,88 +1487,8 @@ export class TenantV2 extends DurableObject<Env> {
 
   private commandActivity(runId: unknown, command: string, result: { ok: boolean; status: number; exitCode: number | null; body?: string }): void {
     const excerpt = result.body ? this.diagnosticExcerpt(result.body) : "";
-    this.activity(runId, "herdr_command", `${command}: HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}, ${result.ok ? "request succeeded" : "request failed"}${excerpt ? `; response: ${excerpt}` : "; empty response"}`);
+    this.activity(runId, "exe_command", `${command}: HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}, ${result.ok ? "request succeeded" : "request failed"}${excerpt ? `; response: ${excerpt}` : "; empty response"}`);
   }
-
-  private async beginRecovery(run: Row, pipe: Row, connection: ExeConnection, reason: string): Promise<void> {
-    const started = !run.recovery_started_at;
-    this.ctx.storage.sql.exec("UPDATE runs SET state='recovering',recovery_reason=?,recovery_started_at=COALESCE(recovery_started_at,?),recovery_next_at=?,recovery_last_action='inspecting Herdr state',updated_at=? WHERE id=?", reason, now(), Date.now(), now(), run.id);
-    this.activity(run.id, "recovery_started", reason);
-    const captured = await exec(connection, agentOutputCommand(connection, String(run.agent_name)));
-    const scrubbedCapture = captured.ok ? safeSession(captured.body) : null;
-    if (scrubbedCapture) { const encrypted = await encrypt(scrubbedCapture, this.env.CREDENTIAL_ENCRYPTION_KEY); this.ctx.storage.sql.exec("UPDATE runs SET session=?,result=?,output_captured=1 WHERE id=?", encrypted, encrypted, run.id); this.activity(run.id, "transcript_captured", "Captured and scrubbed recent output before reconciliation."); }
-    if (started && !Number(run.recovery_comment_started) && String(run.provider || "linear") === "linear") {
-      await this.safeLinearComment(String(run.issue_id), `Factorize detected a Herdr change and started automatic recovery for run \`${run.id}\`. The concurrency slot remains reserved.`);
-      this.ctx.storage.sql.exec("UPDATE runs SET recovery_comment_started=1 WHERE id=?", run.id);
-    }
-    await this.recoverRun({ ...run, state: "recovering", recovery_reason: reason, recovery_started_at: run.recovery_started_at || now() }, pipe, connection);
-  }
-
-  private async recoverRun(run: Row, pipe: Row, connection: ExeConnection): Promise<void> {
-    if (Number(run.recovery_next_at || 0) > Date.now()) return;
-    const attempt = Number(run.recovery_attempt || 0) + 1;
-    const timeoutMs = Math.max(15_000, Number(this.env.RECOVERY_TIMEOUT_MS) || 5 * 60_000), maxAttempts = Math.max(1, Number(this.env.RECOVERY_MAX_ATTEMPTS) || 8);
-    if (attempt > maxAttempts || Date.now() - Date.parse(String(run.recovery_started_at)) > timeoutMs) return this.finishRecovery(run, "failed", "Automatic recovery exhausted its bounded retry budget.");
-    this.ctx.storage.sql.exec("UPDATE runs SET recovery_attempt=?,recovery_last_action='listing Herdr agents',updated_at=? WHERE id=?", attempt, now(), run.id);
-    this.activity(run.id, "recovery_attempt", `Attempt ${attempt}/${maxAttempts}; elapsed ${Math.max(0, Date.now() - Date.parse(String(run.recovery_started_at)))}ms of ${timeoutMs}ms budget.`);
-    const listed = await exec(connection, agentListCommand(connection));
-    this.commandActivity(run.id, "agent list", listed);
-    if (!listed.ok || (listed.exitCode !== null && listed.exitCode !== 0)) { this.scheduleRecovery(run.id, attempt, "transient Herdr agent-list failure"); return; }
-    const agents = parseAgentList(listed.body), saved = this.savedIdentity(run);
-    const owned = findOwnedAgent(saved, agents, String(run.worktree_path || ""), String(run.agent_name || ""), connection.agentKind, String(run.id));
-    if (owned) {
-      const rotated = String(run.agent_session_value || "") !== owned.sessionValue;
-      this.persistIdentity(run.id, owned, "running", rotated);
-      return this.finishRecovery({ ...run, recovery_attempt: attempt }, "running", "Reconciled the owned terminal and worktree; refreshed native session continuity metadata.", owned);
-    }
-    if (saved.paneId) {
-      const pane = await exec(connection, paneGetCommand(connection, saved.paneId));
-      this.commandActivity(run.id, "pane get", pane);
-      if (pane.ok && (pane.exitCode === null || pane.exitCode === 0)) {
-        const lease = await exec(connection, validateWorktreeLeaseCommand(connection, String(run.worktree_path || ""), String(run.ownership_lease || "")));
-        this.commandActivity(run.id, "worktree lease validation", lease);
-        if (!lease.ok || (lease.exitCode !== null && lease.exitCode !== 0)) { this.scheduleRecovery(run.id, attempt, "owned pane remained but its worktree lease did not validate"); return; }
-        const process = await exec(connection, paneProcessInfoCommand(connection, saved.paneId));
-        this.commandActivity(run.id, "pane process-info", process);
-        const processIdentity = process.ok ? parsePaneProcess(process.body) : null;
-        const processCommand = [processIdentity?.executable, ...(processIdentity?.argv ?? [])].join(" ").toLowerCase();
-        if (processIdentity && processIdentity.paneId === saved.paneId && processIdentity.cwd === saved.cwd && processCommand.includes(connection.agentKind.toLowerCase())) {
-          const adopted = await exec(connection, startAgentInPaneCommand(String(run.agent_name), connection, saved.paneId, String(run.worktree_path)));
-          const live = adopted.ok ? parseAgent(adopted.body) : null;
-          if (live) return this.finishRecovery(run, "running", "Returned the matching harness in the owned pane to Herdr control.", live);
-        }
-        if (processIdentity && processIdentity.paneId === saved.paneId && processIdentity.cwd === saved.cwd && /(^|\/)(ba|z|fi)?sh(?:\s|$)/.test(processCommand)) {
-          const restarted = await exec(connection, startAgentInPaneCommand(String(run.agent_name), connection, saved.paneId, String(run.worktree_path)));
-          const live = restarted.ok ? parseAgent(restarted.body) : null;
-          if (live) return this.resumeRecoveredHarness(run, connection, live, "Started a deliberate replacement after the owned pane's agent exited.");
-        }
-        if (processIdentity && processIdentity.paneId === saved.paneId && processIdentity.cwd === saved.cwd) {
-          const replaced = await exec(connection, replaceForegroundCommand(String(run.agent_name), connection, saved.paneId, String(run.worktree_path)));
-          const live = replaced.ok ? parseAgent(replaced.body) : null;
-          if (live) return this.resumeRecoveredHarness(run, connection, live, "Gracefully stopped the exact validated foreground process and restarted the configured harness.");
-          this.scheduleRecovery(run.id, attempt, "foreground process identity changed during validated interruption");
-          return;
-        }
-        const restarted = await exec(connection, startAgentInPaneCommand(String(run.agent_name), connection, saved.paneId, String(run.worktree_path)));
-        const live = restarted.ok ? parseAgent(restarted.body) : null;
-        if (live) return this.resumeRecoveredHarness(run, connection, live, "Restarted the configured harness in the recovered pane.");
-      }
-    }
-    const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY);
-    const recoveryPrompt = `${prompt}\n\nRecovery context: inspect the existing repository state and continue completed work rather than repeating it. Last status: ${String(run.last_agent_status || "unknown")}.`;
-    const runPath = String(run.worktree_path || ""), lease = String(run.ownership_lease || "");
-    if (!runPath || !lease) return this.finishRecovery(run, "failed", "Recovery cannot prove the run directory lease.");
-    const replacement = await exec(connection, startAgentCommand(String(run.agent_name), connection, recoveryPrompt, String(run.workspace_name), runPath, lease));
-    this.commandActivity(run.id, "replacement agent start", replacement);
-    if (replacement.ok && (replacement.exitCode === null || replacement.exitCode === 0)) this.ctx.storage.sql.exec("UPDATE runs SET prompt_accepted=1,prompt_delivery_state='accepted' WHERE id=?", run.id);
-    const live = replacement.ok ? parseAgent(replacement.body) : null;
-    if (live) return this.finishRecovery(run, "running", "Recreated the deleted pane/workspace and started a replacement harness.", live);
-    this.scheduleRecovery(run.id, attempt, "idempotent run-tab reconciliation was not yet verifiable");
-  }
-
-  private scheduleRecovery(runId: unknown, attempt: number, action: string): void { const delay = Math.min(60_000, 2_000 * 2 ** Math.min(attempt - 1, 5)); this.ctx.storage.sql.exec("UPDATE runs SET recovery_next_at=?,recovery_last_action=?,updated_at=? WHERE id=?", Date.now() + delay, action, now(), runId); this.activity(runId, "recovery_retry", action); }
-  private async resumeRecoveredHarness(run: Row, connection: ExeConnection, live: HerdrIdentity, action: string): Promise<void> { if (Number(run.recovery_prompt_attempted)) return this.finishRecovery(run, "running", `${action} Recovery prompt delivery was previously attempted and was not repeated.`, live); const prompt = await decrypt(String(run.prompt), this.env.CREDENTIAL_ENCRYPTION_KEY); const output = run.result ? await decrypt(String(run.result), this.env.CREDENTIAL_ENCRYPTION_KEY) : ""; const recoveryPrompt = `${prompt}\n\nRecovery context: inspect existing repository state and continue rather than repeating completed work. Last captured output/status:\n${output.slice(-4000)}\n${String(run.last_agent_status || "unknown")}`; this.ctx.storage.sql.exec("UPDATE runs SET recovery_prompt_attempted=1,prompt_delivery_state='submitting' WHERE id=?", run.id); const sent = await exec(connection, `${agentStatusCommand(connection, live.name)} && ${connection.herdrCommand?.trim() || "herdr"} agent prompt '${live.name.replaceAll("'", `'\"'\"'`)}' '${recoveryPrompt.replaceAll("'", `'\"'\"'`)}'`); if (!sent.ok || (sent.exitCode !== null && sent.exitCode !== 0)) { this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='ambiguous' WHERE id=?", run.id); return this.finishRecovery(run, "running", `${action} Recovery prompt acknowledgement was ambiguous, so it will not be submitted twice.`, live); } this.ctx.storage.sql.exec("UPDATE runs SET recovery_prompt_accepted=1,prompt_delivery_state='accepted' WHERE id=?", run.id); await this.finishRecovery(run, "running", action, live); }
-  private async finishRecovery(run: Row, state: "running" | "failed", action: string, live?: HerdrIdentity): Promise<void> { this.activity(run.id, state === "running" ? "recovery_succeeded" : "recovery_failed", action); if (live) this.persistIdentity(run.id, live, state); this.ctx.storage.sql.exec("UPDATE runs SET state=?,recovery_attempt=0,recovery_reason=NULL,recovery_started_at=NULL,recovery_last_action=?,recovery_next_at=NULL,recovery_comment_finished=1,updated_at=? WHERE id=?", state, action, now(), run.id); if (!Number(run.recovery_comment_finished) && String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `Factorize automatic recovery ${state === "running" ? "succeeded" : "permanently failed"} for run \`${run.id}\`: ${action}`); if (state === "failed") { const encrypted = await encrypt(action, this.env.CREDENTIAL_ENCRYPTION_KEY); this.ctx.storage.sql.exec("UPDATE runs SET result=? WHERE id=?", encrypted, run.id); this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id=? AND issue_id=?", run.pipe_id, run.claim_key || run.issue_id); this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id); } }
 
   private async finishRun(run: Row, state: Extract<RunState, "done" | "failed">, result: string, outputCaptured = false): Promise<void> {
     const transitionedAt = now();
@@ -1623,45 +1501,48 @@ export class TenantV2 extends DurableObject<Env> {
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id = ? AND issue_id = ?", run.pipe_id, run.claim_key || run.issue_id);
     this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id);
     await this.afterJobTerminal(String(run.pipe_id), String(run.id), state === "done" ? "succeeded" : "failed", transitionedAt);
-    const pipe = this.executionConfig(run.pipe_id);
-    if (pipe && String(run.execution_backend_kind) === "exe-vm" && run.execution_handle) {
-      const connection = await this.connectionForPipe(pipe);
-      if (connection) await new ExeVmBackend(connection).stop(this.executionHandle(run, "exe-vm")).catch(error => this.activity(run.id, "vm_cleanup_retry", String(error).slice(0, 500)));
-      this.ctx.storage.sql.exec("UPDATE runs SET pane_collected=1,worktree_disposition='deleted',updated_at=? WHERE id=?", now(), run.id);
-    } else await this.collectRunPane({ ...run, state, output_captured: outputCaptured ? 1 : Number(run.output_captured || 0), claim_released: 1 });
+    const persisted = this.one("SELECT * FROM runs WHERE id=?", run.id);
+    if (persisted?.execution_handle) await this.cleanupRunVm(persisted);
     const heading = state === "done" ? "Factorize completed the agent run." : "Factorize could not complete the agent run.";
-    if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `${heading}\n\nRun ID: \`${run.id}\`. The ephemeral exe.dev VM was deleted after the run.`);
+    if (String(run.provider || "linear") === "linear") await this.safeLinearComment(String(run.issue_id), `${heading}\n\nRun ID: \`${run.id}\`. Factorize is deleting the ephemeral exe.dev VM.`);
   }
 
-  private async collectRunPane(run: Row): Promise<void> {
-    if (!['done', 'failed', 'cancelled'].includes(String(run.state)) || !Number(run.output_captured) || !Number(run.claim_released) || !run.herdr_pane_id || !run.herdr_terminal_id || !run.worktree_path || !run.ownership_lease) return;
-    const pipe = this.executionConfig(run.pipe_id);
-    const connection = pipe ? await this.connectionForPipe(pipe) : null;
-    const attempt = Number(run.pane_collection_attempt || 0) + 1;
+  private async cleanupRunVm(run: Row): Promise<boolean> {
+    const job = this.one("SELECT execution_target FROM jobs WHERE id=?", run.pipe_id);
+    let connection: ExeConnection | null = null;
+    if (job) {
+      try { const target = JSON.parse(String(job.execution_target)); connection = await this.exeConnection(String(target.connectionId || "default")); }
+      catch { /* retry below */ }
+    }
+    const attempt = Number(run.vm_cleanup_attempt || 0) + 1;
     if (!connection) {
-      this.activity(run.id, "pane_collection_retry", `Attempt ${attempt}/8 could not resolve the run's execution connection.`);
-      this.schedulePaneCollection(run.id, attempt);
-      return;
+      this.scheduleVmCleanup(run.id, attempt, "Execution connection is unavailable.");
+      return false;
     }
-    let collected;
     try {
-      collected = await exec(connection, garbageCollectPaneCommand(connection, String(run.herdr_pane_id), String(run.herdr_terminal_id), String(run.worktree_path), String(run.ownership_lease)));
+      const stopped = await new ExeVmBackend(connection).stop(this.executionHandle(run, "exe-vm"));
+      if (stopped.state === "stopped") {
+        this.ctx.storage.sql.exec("UPDATE runs SET vm_cleanup_complete=1,vm_cleanup_attempt=?,vm_cleanup_next_at=NULL,updated_at=? WHERE id=?", attempt, now(), run.id);
+        this.activity(run.id, "vm_deleted", `Deleted the run-owned VM on attempt ${attempt}.`);
+        if (String(run.state) === "stopping") {
+          this.ctx.storage.sql.exec("UPDATE runs SET state='stopped',result=?,updated_at=? WHERE id=?", await encrypt("Stopped by user", this.env.CREDENTIAL_ENCRYPTION_KEY), now(), run.id);
+          this.ctx.storage.sql.exec("UPDATE job_runs SET state='stopped',updated_at=? WHERE id=?", now(), run.id);
+          this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id=?", run.id);
+          await this.afterJobTerminal(String(run.pipe_id), String(run.id), "stopped");
+        }
+        return true;
+      }
+      this.scheduleVmCleanup(run.id, attempt, stopped.detail ?? "VM deletion failed.");
     } catch (error) {
-      this.activity(run.id, "pane_collection_retry", `Attempt ${attempt}/8 could not reach the VM: ${error instanceof Error ? error.message : "unknown error"}`);
-      this.schedulePaneCollection(run.id, attempt);
-      return;
+      this.scheduleVmCleanup(run.id, attempt, error instanceof Error ? error.message : "Unknown VM deletion failure");
     }
-    this.commandActivity(run.id, "pane garbage collection", collected);
-    if (collected.ok && (collected.exitCode === null || collected.exitCode === 0)) {
-      this.ctx.storage.sql.exec("UPDATE runs SET pane_collected=1,pane_collection_attempt=?,pane_collection_next_at=NULL,worktree_disposition='deleted',updated_at=? WHERE id=?", attempt, now(), run.id);
-      return;
-    }
-    this.schedulePaneCollection(run.id, attempt);
+    return false;
   }
 
-  private schedulePaneCollection(runId: unknown, attempt: number): void {
+  private scheduleVmCleanup(runId: unknown, attempt: number, detail: string): void {
     const nextAt = attempt < 8 ? Date.now() + Math.min(60_000, 2_000 * 2 ** Math.min(attempt - 1, 5)) : null;
-    this.ctx.storage.sql.exec("UPDATE runs SET pane_collection_attempt=?,pane_collection_next_at=?,updated_at=? WHERE id=?", attempt, nextAt, now(), runId);
+    this.ctx.storage.sql.exec("UPDATE runs SET vm_cleanup_attempt=?,vm_cleanup_next_at=?,updated_at=? WHERE id=?", attempt, nextAt, now(), runId);
+    this.activity(runId, "vm_cleanup_retry", `Attempt ${attempt}/8: ${detail}`);
   }
 
   private async safeLinearComment(issueId: string, body: string): Promise<void> { try { await this.postLinearComment(issueId, body); } catch (error) { console.warn(JSON.stringify({ event: "linear_notification_failed", issueId, message: error instanceof Error ? error.message : "unknown" })); } }
@@ -1746,7 +1627,7 @@ export class TenantV2 extends DurableObject<Env> {
   private async connectionForPipe(pipe: Row): Promise<ExeConnection | null> {
     const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
     if (!connection) return null;
-    return { ...connection, ...(pipe.cwd ? { cwd: workingDirectoryFor(String(pipe.cwd), String(pipe.workspace_name)) } : {}), model: String(pipe.model ?? ""), effort: String(pipe.effort ?? "") };
+    return { ...connection, model: String(pipe.model ?? ""), effort: String(pipe.effort ?? "") };
   }
 
   private async upsertMember(input: unknown): Promise<Response> {
@@ -1913,7 +1794,7 @@ export class TenantV2 extends DurableObject<Env> {
 
   private flowId(provided: unknown, name: string): string {
     const value = typeof provided === "string" && provided.trim() ? provided.trim() : workspaceNameFor(name).slice(0, 30);
-    if (!HERDR_FLOW_NAME.test(value)) throw new Error("Flow ID must start with a lowercase letter and contain only lowercase letters, digits, hyphens, or underscores (30 characters maximum).");
+    if (!FLOW_NAME.test(value)) throw new Error("Flow ID must start with a lowercase letter and contain only lowercase letters, digits, hyphens, or underscores (30 characters maximum).");
     return value;
   }
 
@@ -1954,7 +1835,7 @@ export class TenantV2 extends DurableObject<Env> {
 
   private nextRunSlot(pipe: Row, runId: string): number {
     const base = String(pipe.workspace_name);
-    const active = this.rows("SELECT workspace_name FROM runs WHERE pipe_id = ? AND id != ? AND state IN ('starting','running','blocked','recovering')", pipe.id, runId);
+    const active = this.rows("SELECT workspace_name FROM runs WHERE pipe_id = ? AND id != ? AND state IN ('starting','running','blocked')", pipe.id, runId);
     const occupied = new Set(active.map((run) => {
       const match = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-(\\d+)$`).exec(String(run.workspace_name));
       return match ? Number(match[1]) : 0;

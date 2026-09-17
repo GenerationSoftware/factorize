@@ -15,7 +15,7 @@ Linear webhook → Cloudflare Worker → Durable Object → exe.dev /exec → is
 
 - Keep control: agents run on your own exe.dev VM, not a shared runner.
 - Automate deliberately: match Linear issues by owner, creator, status, label, or assignee.
-- Work together: use Herdr to observe, guide, or take over a running agent session.
+- Isolate work: every agent run gets a fresh VM that is deleted as soon as the run ends.
 - Stay isolated: each Linear workspace has its own Cloudflare Durable Object.
 - Avoid duplicate work: a claimed issue stays claimed until its agent job completes.
 
@@ -55,8 +55,8 @@ For a headless machine, authenticate first with `npx wrangler login --device --b
 - A Cloudflare account with Workers enabled.
 - A Linear OAuth application with webhooks enabled.
 - Optional: a ClickUp OAuth application for ClickUp task triggers.
-- An exe.dev VM with Herdr and your coding agent (such as Codex or Claude) installed.
-- An exe.dev HTTPS API token restricted to the exact SSH destination Factorize will use, for example `ssh exedev@my-vm`.
+- An exe.dev account. Fresh VMs include supported coding agents such as Codex and Claude.
+- An exe.dev HTTPS API token allowed to run `ls`, `new`, `ssh`, and `rm`.
 
 ### Develop locally
 
@@ -104,10 +104,10 @@ Create a ClickUp OAuth application with the callback URL `https://your-domain.ex
 ## Create a Job
 
 1. Sign in with Linear.
-2. Connect your exe.dev VM using its restricted HTTPS API token. Use the same user-qualified SSH destination you use interactively so Factorize and your terminal join the same Herdr session.
+2. Connect exe.dev using an account-level HTTPS API token, repository URL, optional checkout ref, and the VM tags needed to attach integrations.
 3. Create a Job, choose its execution target, and add authenticated provider triggers. Every Linear matching rule must match.
 
-Matching provider events queue work up to the Job’s configured concurrency. When a run finishes, Factorize fills its slot from the queue and posts a link to the Herdr session in Linear.
+Matching provider events queue work up to the Job’s configured concurrency. Each run creates a tagged VM, clones the configured repository, runs the agent directly, captures its output, and deletes the VM on every terminal outcome.
 
 Cloudflare Worker failures can also start Jobs through the separately deployable Tail relay. See [Cloudflare Tail job trigger](docs/cloudflare-tail.md).
 
@@ -193,7 +193,7 @@ Factorize also supports the OAuth 2.0 Device Authorization Grant (RFC 8628) for 
 - Session cookies are signed, expire after seven days, and are checked against workspace membership.
 - OAuth access is tenant-bound, scope-checked, revocable, and revalidates current owner membership at the shared service boundary.
 - Public REST and MCP responses omit connection tokens, credential records, and internal execution requests/responses. Authorized run inspection includes the rendered prompt sent to the agent.
-- Agent output is not copied into Linear; completion comments point back to the Herdr session on your VM.
+- Agent output is retained in Factorize run inspection and is not copied into Linear.
 - The dashboard uses a restrictive content-security policy and locally built Tailwind CSS.
 
 ## License

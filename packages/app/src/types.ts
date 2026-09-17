@@ -1,6 +1,6 @@
 export type FilterType = "owner" | "creator" | "status" | "label" | "assignee";
 export interface MatchRule { type: FilterType; targetId: string; }
-export type RunState = "queued" | "starting" | "running" | "recovering" | "done" | "blocked" | "failed" | "ignored" | "stopping" | "stopped" | "succeeded";
+export type RunState = "queued" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "stopping" | "stopped" | "succeeded";
 
 export interface Env {
   TENANTS: DurableObjectNamespace;
@@ -51,16 +51,11 @@ export interface WorkItem {
 
 export interface ExeConnectionInput {
   connectionId?: string;
-  /** Account-level token; no persistent VM is required. */
   apiToken: string;
   agentKind: "claude" | "codex" | "pi" | string;
-  cwd?: string;
   tags?: string[];
-  repositoryUrl?: string;
+  repositoryUrl: string;
   checkoutRef?: string;
-  /** Deprecated fields are accepted while old encrypted settings age out. */
-  vmName?: string;
-  herdrCommand?: string;
   agentCommand?: string;
   models?: string[];
   modelsRefreshedAt?: string;

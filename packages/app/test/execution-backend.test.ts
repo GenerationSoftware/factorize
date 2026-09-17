@@ -1,47 +1,63 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ExeHerdrBackend } from "../src/exe-herdr-backend";
+import { ExeVmBackend, isOwnedVmName, vmNameFor } from "../src/exe-vm-backend";
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("ExeHerdrBackend", () => {
-  it("returns independent launch and prompt delivery receipts", async () => {
+const connection = { apiToken: "secret", agentKind: "codex", repositoryUrl: "https://github.int.exe.xyz/acme/repo.git", checkoutRef: "main", tags: ["github", "llm"], model: "gpt-5.5", effort: "high" };
+
+describe("ExeVmBackend", () => {
+  it("creates a tagged VM, clones the repository, and launches Codex directly", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
-      const body = String(init.body), marker = body.match(/__factorize_exit_[a-f0-9]+__/)?.[0];
-      requests.push(body);
-      return new Response(`{\"result\":{\"agent\":{\"name\":\"run-1\",\"agent_status\":\"working\"}}}\n${marker}:0\n`);
+      requests.push(String(init.body));
+      return new Response(requests.length === 1 ? '{"name":"factorize-run-1"}' : "started", { headers: { "X-Exe-Exit": "0" } });
     }));
-    const backend = new ExeHerdrBackend({ vmName: "vm", apiToken: "secret", agentKind: "codex", cwd: "/repo" }, { agentName: "run-1", workspaceName: "flow", runPath: "/repo/.factorize-runs/run-1", lease: "lease" });
-    const launched = await backend.launch({ runId: "run-1", prompt: "do the work" });
-    expect(launched.handle).toEqual({ backendKind: "exe-herdr", id: "run-1" });
-    expect(launched.capabilities).toEqual(["output", "prompt-delivery", "recovery"]);
-    expect(launched.destinationUrl).toBe("https://exe.dev/");
-    expect(requests[0]).toContain("agent start");
-    expect(requests[0]).toContain("ZG8gdGhlIHdvcms=");
-    expect(requests[0]).toContain("Read and follow the complete task instructions in /tmp/factorize-prompts/run-1/prompt.md");
-    expect(requests[0]).not.toContain("agent prompt 'run-1' 'do the work'");
-    const delivered = await backend.deliverPrompt(launched.handle, "do the work");
-    expect(delivered.state).toBe("accepted");
-    expect(requests[1]).toContain("agent prompt");
-    expect(requests[1]).not.toContain("agent start");
+    const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work" });
+    expect(launched.handle).toEqual({ backendKind: "exe-vm", id: "factorize-run-1" });
+    expect(requests[0]).toContain("new --name='factorize-run-1'");
+    expect(requests[0]).toContain("--tag='github'");
+    expect(requests[0]).toContain("--tag='llm'");
+    expect(requests[1]).toContain("git clone --");
+    expect(requests[1]).toContain("codex");
+  });
+
+  it("refuses to delete a VM outside the owned namespace", async () => {
+    await expect(new ExeVmBackend(connection).stop({ backendKind: "exe-vm", id: "production" })).rejects.toThrow("Invalid exe-vm execution handle");
+    expect(isOwnedVmName("factorize-run-1")).toBe(true);
+    expect(isOwnedVmName("production")).toBe(false);
+  });
+
+  it("reports deletion failure after bounded retries", async () => {
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => String(init.body) === "ls --json"
+      ? new Response('{"vms":[{"name":"factorize-run-1","comment":"Factorize VM factorize-run-1"}]}', { headers: { "X-Exe-Exit": "0" } })
+      : new Response("busy", { status: 422 }));
+    vi.stubGlobal("fetch", fetch);
+    const stopped = await new ExeVmBackend(connection).stop({ backendKind: "exe-vm", id: vmNameFor("run-1") });
+    expect(stopped.state).toBe("failed");
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("will not delete a prefixed VM without the exact ownership marker", async () => {
+    const fetch = vi.fn(async () => new Response('{"vms":[{"name":"factorize-run-1","comment":"created by somebody else"}]}', { headers: { "X-Exe-Exit": "0" } }));
+    vi.stubGlobal("fetch", fetch);
+    const stopped = await new ExeVmBackend(connection).stop({ backendKind: "exe-vm", id: "factorize-run-1" });
+    expect(stopped.state).toBe("failed");
+    expect(stopped.detail).toContain("ownership marker");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("ExecutionBackend contract", () => {
-  it("launches, observes, and stops a fake without trigger or provider details", async () => {
+  it("launches, observes, and stops a provider-neutral backend", async () => {
     class FakeBackend implements ExecutionBackend {
-      readonly kind = "fake";
-      readonly capabilities = [] as const;
-      state: ExecutionObservation["state"] = "queued";
+      readonly kind = "fake"; readonly capabilities = [] as const; state: ExecutionObservation["state"] = "queued";
       async launch(request: LaunchRequest) { this.state = "running"; return { handle: { backendKind: this.kind, id: request.runId }, destinationUrl: `https://runs.example/${request.runId}`, capabilities: this.capabilities, observation: { state: this.state } }; }
       async inspect(_handle: RunHandle) { return { state: this.state }; }
       async stop(_handle: RunHandle) { this.state = "stopped"; return { state: this.state }; }
     }
-    const backend = new FakeBackend();
-    const launched = await backend.launch({ runId: "1", prompt: "work" });
+    const backend = new FakeBackend(), launched = await backend.launch({ runId: "1", prompt: "work" });
     expect(await backend.inspect(launched.handle)).toEqual({ state: "running" });
     expect(await backend.stop(launched.handle)).toEqual({ state: "stopped" });
-    expect((backend as ExecutionBackend).readOutput).toBeUndefined();
   });
 });

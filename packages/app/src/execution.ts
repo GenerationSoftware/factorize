@@ -48,11 +48,10 @@ export interface ExecutionBackend {
   readOutput?(handle: RunHandle): Promise<string | null>;
 }
 
-/** Maps persisted pre-contract states without rewriting historical rows. */
+/** Maps persisted execution states onto the public contract. */
 export function normalizeExecutionState(state: unknown): ExecutionState {
   switch (String(state)) {
     case "queued": case "starting": case "running": case "blocked": case "stopping": case "stopped": case "succeeded": case "failed": return String(state) as ExecutionState;
-    case "recovering": return "starting";
     case "done": return "succeeded";
     case "cancelled": return "stopped";
     default: return "failed";

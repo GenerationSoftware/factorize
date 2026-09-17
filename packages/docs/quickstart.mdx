@@ -5,9 +5,9 @@ description: Configure authentication and create a job end to end.
 
 ## Prerequisites
 
-You need a Cloudflare Worker deployment, a Linear OAuth application, and an exe.dev account-level HTTPS API token allowed to run `new`, `ssh`, and `rm`. Agents are installed on each newly-created VM. Set `APP_ORIGIN`, OAuth credentials, `LINEAR_WEBHOOK_SIGNING_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, and `SESSION_SIGNING_SECRET`.
+You need a Cloudflare Worker deployment, a Linear OAuth application, and an exe.dev account-level HTTPS API token allowed to run `ls`, `new`, `ssh`, and `rm`. Agents are installed on each newly-created VM. Set `APP_ORIGIN`, OAuth credentials, `LINEAR_WEBHOOK_SIGNING_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, and `SESSION_SIGNING_SECRET`.
 
-Sign in to the dashboard, connect the VM, choose an execution target, and create a job. Use `list_execution_targets` or `GET /api/v1/execution-targets` before submitting `executionTargetId`.
+Sign in to the dashboard and configure an exe.dev execution target with its token, repository URL, optional checkout ref, agent, and VM tags. Tags attach the integrations required by the repository and agent. Use `list_execution_targets` or `GET /api/v1/execution-targets` before submitting `executionTargetId`.
 
 ## First API call
 
