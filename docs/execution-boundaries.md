@@ -16,22 +16,20 @@ requirements. The orchestrator persists the backend kind, its opaque handle,
 capabilities, and observation destination URL; it never interprets the handle.
 
 Backends map their native lifecycle into `queued`, `starting`, `running`,
-`blocked`, `stopping`, `stopped`, `succeeded`, or `failed`. Historical `done`,
-`recovering`, and `cancelled` rows are presented as `succeeded`, `starting`, and
-`stopped` respectively, avoiding a risky rewrite of durable history.
+`blocked`, `stopping`, `stopped`, `succeeded`, or `failed`.
 
 `ExeVmBackend` and `AmpBackend` implement this boundary. exe.dev supplies account-level
 VM creation, command transport, and deletion. The configured Codex, Claude, or Pi
 harness runs directly in its isolated VM; output and exit status are durable files.
+Every terminal outcome schedules idempotent VM deletion, with bounded retries
+persisted by the orchestrator.
 Amp cloud runs persist an opaque thread handle and expose the canonical
 Amp thread URL. Amp does not declare output retrieval, so Factorize does not
 ingest thread contents. Amp credentials are dashboard-only; REST and MCP expose
 only non-secret target metadata and capabilities.
 
-Launch and prompt delivery are deliberately separate operations. An existing
-harness proves only that launch reconciliation succeeded. It never proves that
-the run's prompt was accepted. Prompt delivery therefore has its own persisted
-state and request/response receipt.
+The prompt is delivered as part of direct process launch. The launch receipt is
+persisted before polling begins so restarts can resume observation and cleanup.
 
 ## Job invocation boundary
 

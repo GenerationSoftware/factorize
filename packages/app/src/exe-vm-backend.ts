@@ -1,73 +1,126 @@
-import type { ExecutionBackend, ExecutionObservation, LaunchReceipt, LaunchRequest, PromptDeliveryReceipt, RunHandle } from "./execution";
+import type { BackendCommandResult, ExecutionBackend, ExecutionObservation, LaunchReceipt, LaunchRequest, RunHandle } from "./execution";
 import { base64 } from "./crypto";
-import { shellAtom, type ExeConnection } from "./exe";
-
-/** Account credentials used to create and destroy run-owned VMs. */
-export interface ExeVmConnection extends ExeConnection {
-  /** Account-level exe.dev token; it must be allowed to run new, ssh and rm. */
-  accountToken?: string;
-  tags?: string[];
-  repositoryUrl?: string;
-  checkoutRef?: string;
-}
+import { defaultAgentCommand, shellAtom, type ExeConnection } from "./exe";
 
 const API = "https://exe.dev/exec";
 const capabilities = ["output", "recovery", "stop"] as const;
 
-function vmNameFor(runId: string): string {
-  const suffix = runId.replace(/[^a-zA-Z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(-38) || "run";
-  return `factorize-${suffix}`.slice(0, 63);
+export function vmNameFor(runId: string): string {
+  const suffix = runId.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(-38) || "run";
+  return `factorize-${suffix}`;
 }
 
-function commandResult(ok: boolean, status: number, body: string, requestBody: string, exitCode: number | null = null) {
-  return { ok, status, body, requestBody, exitCode };
+export function isOwnedVmName(vm: string): boolean {
+  return /^factorize-[a-z0-9](?:[a-z0-9-]{0,47}[a-z0-9])?$/.test(vm);
 }
 
-/** Adapter for the documented exe.dev HTTPS command API. Every run owns one VM. */
+function shellWords(value: string): string[] {
+  const words: string[] = [];
+  for (const match of value.matchAll(/(?:[^\s'\"]+|'[^']*'|\"[^\"]*\")+/g)) words.push(match[0].replace(/^'|'$/g, "").replace(/^\"|\"$/g, ""));
+  return words;
+}
+
+function agentCommand(connection: ExeConnection): string {
+  const args = shellWords(connection.agentCommand?.trim() || defaultAgentCommand(connection.agentKind));
+  if (connection.model?.trim()) args.push("--model", connection.model.trim());
+  if (connection.effort?.trim() && connection.agentKind === "codex") args.push("-c", `model_reasoning_effort=${connection.effort.trim()}`);
+  return args.map(shellAtom).join(" ");
+}
+
 export class ExeVmBackend implements ExecutionBackend {
   readonly kind = "exe-vm";
   readonly capabilities = capabilities;
-  constructor(private readonly connection: ExeVmConnection, private readonly launchContext?: { repositoryUrl?: string; checkoutRef?: string; cwd?: string; tags?: string[] }) {}
 
-  private token(): string { return this.connection.accountToken || this.connection.apiToken; }
-  private async api(command: string) {
-    const response = await fetch(API, { method: "POST", headers: { Authorization: `Bearer ${this.token()}`, "Content-Type": "text/plain" }, body: command });
-    const body = await response.text();
-    const exit = response.headers.get("X-Exe-Exit");
-    return { body, status: response.status, exitCode: exit && /^\d+$/.test(exit) ? Number(exit) : null, ok: response.ok && (!exit || exit === "0"), requestBody: command };
+  constructor(private readonly connection: ExeConnection) {}
+
+  private async api(command: string): Promise<BackendCommandResult> {
+    const response = await fetch(API, { method: "POST", headers: { Authorization: `Bearer ${this.connection.apiToken}`, "Content-Type": "text/plain" }, body: command });
+    const body = await response.text(), exit = response.headers.get("X-Exe-Exit");
+    const exitCode = exit && /^\d+$/.test(exit) ? Number(exit) : null;
+    return { body, status: response.status, exitCode, ok: response.ok && (exitCode === null || exitCode === 0), requestBody: command };
   }
 
+  async test(): Promise<BackendCommandResult> { return this.api("ls --json"); }
+
   async launch(request: LaunchRequest): Promise<LaunchReceipt> {
-    const vm = vmNameFor(request.runId), tags = [...new Set(this.launchContext?.tags || this.connection.tags || [])];
-    const tagArgs = tags.map(tag => `--tag=${shellAtom(tag)}`).join(" ");
-    const created = await this.api(`new --json --name=${shellAtom(vm)} --no-email ${tagArgs}`.trim());
-    if (!created.ok) throw new Error(`exe.dev VM creation failed (${created.status}): ${created.body.slice(0, 500)}`);
-    const cwd = this.launchContext?.cwd || this.connection.cwd || "/workspace";
-    const repo = this.launchContext?.repositoryUrl || this.connection.repositoryUrl;
-    const ref = this.launchContext?.checkoutRef || this.connection.checkoutRef;
-    const clone = repo ? `git clone ${shellAtom(repo)} repo && cd repo${ref ? ` && git checkout ${shellAtom(ref)}` : ""} && ` : "";
-    const prompt = base64(request.prompt);
-    const agent = this.connection.agentKind === "claude" ? "claude --dangerously-skip-permissions" : "codex --dangerously-bypass-approvals-and-sandbox";
-    const runKey = vm.slice(9), output = `/tmp/factorize-${runKey}.log`, status = `/tmp/factorize-${runKey}.status`;
-    const work = `mkdir -p ${shellAtom(cwd)} && cd ${shellAtom(cwd)} && ${clone}printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md && setsid nohup sh -c ${shellAtom(`${agent} < /tmp/factorize-prompt.md > ${output} 2>&1; printf '%s' "$?" > ${status}`)} >/dev/null 2>&1 & echo started`;
-    const started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
-    const command = commandResult(started.ok, started.status, started.body, started.requestBody, started.exitCode);
-    if (!started.ok) { await this.deleteVm(vm); return { handle: { backendKind: this.kind, id: vm }, destinationUrl: `https://${vm}.exe.xyz/`, capabilities: this.capabilities, observation: { state: "failed", command }, command }; }
-    return { handle: { backendKind: this.kind, id: vm }, destinationUrl: `https://${vm}.exe.xyz/`, capabilities: this.capabilities, observation: { state: "running", command }, command };
+    const vm = vmNameFor(request.runId);
+    const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
+    const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
+    if (!created.ok) {
+      await this.deleteVm(vm).catch(() => undefined);
+      throw new Error(`exe.dev VM creation failed (${created.status}): ${created.body.slice(0, 500)}`);
+    }
+
+    const prompt = base64(request.prompt), output = "/tmp/factorize.log", status = "/tmp/factorize.status";
+    const checkout = this.connection.checkoutRef ? ` && git checkout --detach ${shellAtom(this.connection.checkoutRef)}` : "";
+    const work = [
+      "set -eu",
+      "mkdir -p /workspace",
+      "cd /workspace",
+      `git clone -- ${shellAtom(this.connection.repositoryUrl)} repo`,
+      `cd repo${checkout}`,
+      `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
+      `setsid nohup sh -c ${shellAtom(`set +e; ${agentCommand(this.connection)} < /tmp/factorize-prompt.md > ${output} 2>&1; code=$?; printf '%s' "$code" > ${status}`)} >/dev/null 2>&1 &`,
+      "echo started",
+    ].join(" && ");
+    let started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
+    for (let attempt = 1; !started.ok && attempt < 5; attempt++) started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
+    if (!started.ok) {
+      const cleanup = await this.deleteVm(vm);
+      const detail = `VM provisioning failed (${started.status}): ${started.body.slice(0, 500)}${cleanup.ok ? "" : `; cleanup also failed: ${cleanup.body.slice(0, 200)}`}`;
+      return { handle: { backendKind: this.kind, id: vm }, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail, command: started }, command: started };
+    }
+    return { handle: { backendKind: this.kind, id: vm }, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "running", command: started }, command: started };
   }
 
   async inspect(handle: RunHandle): Promise<ExecutionObservation> {
-    const vm = this.vm(handle), result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(`if [ -f /tmp/factorize-${vm.slice(9)}.status ]; then code=$(cat /tmp/factorize-${vm.slice(9)}.status); [ "$code" = 0 ] && printf succeeded || printf failed; else printf running; fi`)}`);
-    if (!result.ok && result.status >= 500) return { state: "running", command: commandResult(false, result.status, result.body, result.requestBody, result.exitCode) };
-    const state = result.body.trim() === "succeeded" ? "succeeded" : result.body.trim() === "failed" ? "failed" : "running";
-    return { state, command: commandResult(result.ok, result.status, result.body, result.requestBody, result.exitCode) };
+    const vm = this.vm(handle);
+    const result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom('if [ -f /tmp/factorize.status ]; then code=$(cat /tmp/factorize.status); [ "$code" = 0 ] && printf succeeded || printf failed; else printf running; fi')}`);
+    if (!result.ok) return result.status >= 500
+      ? { state: "running", detail: `VM inspection is temporarily unavailable (${result.status})`, command: result }
+      : { state: "failed", detail: `The run-owned VM is unavailable (${result.status}): ${result.body.slice(0, 300)}`, command: result };
+    const state = result.body.trim();
+    return { state: state === "succeeded" ? "succeeded" : state === "failed" ? "failed" : "running", command: result };
   }
 
-  async readOutput(handle: RunHandle): Promise<string | null> { const vm = this.vm(handle), result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(`cat /tmp/factorize-${vm.slice(9)}.log`)}`); return result.ok ? result.body : null; }
-  async stop(handle: RunHandle): Promise<ExecutionObservation> { const vm = this.vm(handle), result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom("pkill -TERM -f factorize-prompt || true")}`); await this.deleteVm(vm); return { state: "stopped", command: commandResult(result.ok, result.status, result.body, result.requestBody, result.exitCode) }; }
-  async deliverPrompt(_handle: RunHandle, _prompt: string): Promise<PromptDeliveryReceipt> { return { state: "failed" }; }
-  private async deleteVm(vm: string) { for (let attempt = 0; attempt < 3; attempt++) { const result = await this.api(`rm ${shellAtom(vm)}`); if (result.ok || result.status === 404) return; } }
-  private vm(handle: RunHandle) { if (handle.backendKind !== this.kind || !handle.id) throw new Error("Invalid exe-vm execution handle"); return handle.id; }
-}
+  async readOutput(handle: RunHandle): Promise<string | null> {
+    const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom("cat /tmp/factorize.log")}`);
+    return result.ok ? result.body : null;
+  }
 
-export { vmNameFor };
+  async stop(handle: RunHandle): Promise<ExecutionObservation> {
+    const result = await this.deleteVm(this.vm(handle));
+    return { state: result.ok ? "stopped" : "failed", detail: result.ok ? undefined : `VM deletion failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
+  }
+
+  private async deleteVm(vm: string): Promise<BackendCommandResult> {
+    if (!isOwnedVmName(vm)) throw new Error("Refusing to delete a VM that is not owned by Factorize");
+    const listed = await this.api("ls --json");
+    if (!listed.ok) return listed;
+    let inventory: unknown;
+    try { inventory = JSON.parse(listed.body); }
+    catch { return { ...listed, ok: false, status: 502, body: "exe.dev returned an invalid VM inventory" }; }
+    const objects: Record<string, unknown>[] = [];
+    const visit = (value: unknown): void => {
+      if (Array.isArray(value)) return value.forEach(visit);
+      if (!value || typeof value !== "object") return;
+      objects.push(value as Record<string, unknown>);
+      Object.values(value).forEach(visit);
+    };
+    visit(inventory);
+    const found = objects.find(item => item.name === vm || item.vm_name === vm);
+    if (!found) return { ...listed, ok: true, status: 404, body: "VM is already absent" };
+    if (found.comment !== `Factorize VM ${vm}`) return { ...listed, ok: false, status: 409, body: "VM ownership marker does not match" };
+    let result: BackendCommandResult | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      result = await this.api(`rm ${shellAtom(vm)}`);
+      if (result.ok || result.status === 404) return { ...result, ok: true };
+    }
+    return result!;
+  }
+
+  private vm(handle: RunHandle): string {
+    if (handle.backendKind !== this.kind || !isOwnedVmName(handle.id)) throw new Error("Invalid exe-vm execution handle");
+    return handle.id;
+  }
+}

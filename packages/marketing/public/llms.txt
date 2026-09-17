@@ -1,6 +1,6 @@
 # Factorize
 
-> Open-source software factories that route Linear issues to coding agents running on your exe.dev VM.
+> Open-source software factories that route work to coding agents running in isolated, ephemeral exe.dev VMs.
 
 Factorize helps teams plan work in Linear, automate coding-agent jobs, and collaborate while agents work.
 
