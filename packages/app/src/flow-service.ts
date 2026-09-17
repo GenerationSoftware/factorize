@@ -15,13 +15,14 @@ export class ApiService {
 
   private async authorize(scope: Scope): Promise<void> {
     if (!this.auth.scopes.includes(scope)) throw new ServiceError(403, "insufficient_scope", `The ${scope} scope is required.`);
-    const response = await this.stub().fetch(`https://tenant/members/${encodeURIComponent(this.auth.userId)}`);
-    if (!response.ok) throw new ServiceError(401, "invalid_token", "The resource owner is no longer a member.");
-    const member = await response.json() as { role?: string; session_version?: number };
-    if (member.role !== "owner" || member.session_version !== this.auth.sessionVersion) throw new ServiceError(401, "invalid_token", "The resource owner's session has been revoked.");
-    if (this.auth.accessTokenId) {
-      const token = await this.stub().fetch(`https://tenant/access-tokens/${encodeURIComponent(this.auth.accessTokenId)}/active`);
-      if (!token.ok) throw new ServiceError(401, "invalid_token", "The access token has expired or been revoked.");
+    const response = await this.stub().fetch("https://tenant/authorize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: this.auth.userId, sessionVersion: this.auth.sessionVersion, accessTokenId: this.auth.accessTokenId }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      throw new ServiceError(401, "invalid_token", body.error ?? "The request is not authorized.");
     }
   }
 

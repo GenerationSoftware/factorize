@@ -12,15 +12,21 @@ const auth: OAuthProps = { tenantId: "tenant-a", userId: "owner-a", sessionVersi
 
 describe("ApiService", () => {
   it("invalidates tokens when the owner session version changes", async () => {
-    const service = new ApiService(environment(() => Response.json({ role: "owner", session_version: 5 })), auth);
+    const requests: Request[] = [];
+    const service = new ApiService(environment(request => {
+      requests.push(request);
+      return Response.json({ error: "The resource owner's session has been revoked." }, { status: 401 });
+    }), auth);
     await expect(service.listJobs()).rejects.toMatchObject({ status: 401, code: "invalid_token" });
+    const authorizationRequests = requests.filter(request => new URL(request.url).pathname === "/authorize");
+    expect(authorizationRequests).toHaveLength(1);
   });
 
   it("uses flow scopes for job management and run scopes for invocation", async () => {
     const requests: string[] = [];
     const service = new ApiService(environment(request => {
       const path = new URL(request.url).pathname;
-      if (path === "/members/owner-a") return Response.json({ role: "owner", session_version: 4 });
+      if (path === "/authorize") return Response.json({ authorized: true });
       requests.push(`${request.method} ${path}`);
       return Response.json({ ok: true });
     }), { ...auth, scopes: ["flows:read", "flows:write", "runs:write"] });
@@ -33,13 +39,36 @@ describe("ApiService", () => {
     const installations = [{ installationId: 123, accountLogin: "generation", accountType: "Organization", state: "active", updatedAt: "2026-09-17T00:00:00.000Z" }];
     const service = new ApiService(environment(request => {
       const path = new URL(request.url).pathname;
-      if (path === "/members/owner-a") return Response.json({ role: "owner", session_version: 4 });
+      if (path === "/authorize") return Response.json({ authorized: true });
       if (path === "/github/installations") return Response.json(installations);
       return new Response("Not found", { status: 404 });
     }), auth);
 
     await expect(service.listGitHubInstallations()).resolves.toEqual(installations);
     expect(JSON.stringify(installations)).not.toMatch(/token|secret|credential/i);
+  });
+});
+
+describe("authorization round trip", () => {
+  it.each([
+    ["valid", Response.json({ authorized: true }), undefined],
+    ["revoked token", Response.json({ error: "The access token has expired or been revoked." }, { status: 401 }), "The access token has expired or been revoked."],
+    ["removed member", Response.json({ error: "The resource owner is no longer a member." }, { status: 401 }), "The resource owner is no longer a member."],
+    ["session mismatch", Response.json({ error: "The resource owner's session has been revoked." }, { status: 401 }), "The resource owner's session has been revoked."],
+  ])("handles %s authorization in one request", async (_name, response, message) => {
+    const requests: Request[] = [];
+    const service = new ApiService(environment(request => {
+      requests.push(request);
+      return new URL(request.url).pathname === "/authorize" ? response : Response.json([]);
+    }), auth);
+    if (message) await expect(service.listJobs()).rejects.toMatchObject({ status: 401, message });
+    else {
+      const result = await service.listJobs();
+      expect(result).toEqual([]);
+    }
+    const authorizationRequests = requests.filter(request => new URL(request.url).pathname === "/authorize");
+    expect(authorizationRequests).toHaveLength(1);
+    expect(new URL(authorizationRequests[0].url).pathname).toBe("/authorize");
   });
 });
 
