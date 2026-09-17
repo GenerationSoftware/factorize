@@ -9,3 +9,5 @@ CLICKUP_CLIENT_SECRET=
 CREDENTIAL_ENCRYPTION_KEY=
 # a separate random value for signed browser sessions
 SESSION_SIGNING_SECRET=
+# Set only in local development to return reset tokens in the response. Keep unset in production.
+AUTH_RESET_RETURN_TOKEN=false

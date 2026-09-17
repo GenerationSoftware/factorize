@@ -24,6 +24,8 @@ export interface Env {
   RECOVERY_MAX_ATTEMPTS?: string;
   OAUTH_KV?: KVNamespace;
   OAUTH_PROVIDER?: import("@cloudflare/workers-oauth-provider").OAuthHelpers;
+  AUTH_RESET_RETURN_TOKEN?: string;
+  AUTH?: DurableObjectNamespace;
 }
 
 export type OAuthProps = {
