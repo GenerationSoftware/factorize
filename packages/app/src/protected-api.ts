@@ -39,6 +39,7 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       if (path === "/mcp") return mcp(request, service, env, ctx);
       if (!path.startsWith("/api/v1")) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
       if (request.method === "GET" && path === "/api/v1/exe-connections") return Response.json(await service.listExeConnections());
+      if (request.method === "GET" && path === "/api/v1/github-installations") return Response.json(await service.listGitHubInstallations());
       if (request.method === "GET" && path === "/api/v1/execution-targets") return Response.json(await service.listExecutionTargets());
       if (request.method === "GET" && path === "/api/v1/job-trigger-availability") return Response.json(await service.listJobTriggerAvailability());
       if (request.method === "POST" && path === "/api/v1/schedules/preview") return Response.json(await service.previewSchedule(await request.json()));
@@ -72,6 +73,7 @@ async function mcp(request: Request, service: ApiService, env: Env, ctx: Executi
       catch (error) { const response = errorResponse(error), detail = await response.json() as any; throw new Error(`${detail.error?.code ?? "operation_failed"}: ${detail.error?.message ?? "Operation failed"}`); }
     });
     tool("list_exe_connections", "List safe metadata for saved exe.dev connections. API tokens are never returned.", z.object({}), () => service.listExeConnections());
+    tool("list_github_installations", "List connected GitHub App installations, including the installation IDs needed by GitHub Job triggers. Credentials are never returned.", z.object({}), () => service.listGitHubInstallations());
     tool("list_runs", "List authoritative job runs by job ID, state, and an optional case-insensitive literal substring of triggered context. Automatic webhook, schedule, and lifecycle signals coalesce, so query runs and the provider API for authoritative work. Context matches include only a bounded excerpt.", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
     tool("get_run", "Get a run with its full triggered context, invocation metadata, execution metadata, output, and activity. For manual invocations, invocation.idempotency_key is the client-reusable value; invocation.claim_key is internal.", runIdSchema, ({ runId }: any) => service.getRun(runId));
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
