@@ -48,6 +48,7 @@ export class ApiService {
   listGitHubInstallations() { return this.call("flows:read", "/github/installations"); }
   listTailIntegrations() { return this.call("flows:read", "/connections/cloudflare-tail"); }
   listRuns(query: URLSearchParams) { return this.call("runs:read", `/v1/runs?${query}`); }
+  search(query: string) { return this.call("runs:read", `/v1/search?q=${encodeURIComponent(query)}`); }
   getRun(runId: string) { return this.call("runs:read", `/v1/runs/${encodeURIComponent(runId)}`); }
   stopRun(runId: string) { return this.call("runs:write", `/v1/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" }); }
   async listJobs() { return (await this.call("flows:read", "/v1/jobs") as any[]).map(value => this.publicJob(value)); }

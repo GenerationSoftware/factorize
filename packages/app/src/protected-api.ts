@@ -58,6 +58,7 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       if (jobMatch && request.method === "PUT") return Response.json(await service.updateJob(decodeURIComponent(jobMatch[1]), jobInputSchema.parse(await request.json())));
       if (jobMatch && request.method === "DELETE") return Response.json(await service.deleteJob(decodeURIComponent(jobMatch[1])));
       if (request.method === "GET" && path === "/api/v1/runs") { const q = listRunsSchema.parse(queryInput(url)); return Response.json(await service.listRuns(queryOf(q))); }
+      if (request.method === "GET" && path === "/api/v1/search") return Response.json(await service.search(url.searchParams.get("q") ?? ""));
       if (request.method === "GET" && path === "/api/v1/webhooks/deliveries") return Response.json(await service.listWebhookDeliveries(url.searchParams));
       const webhookDeliveryMatch = path.match(/^\/api\/v1\/webhooks\/deliveries\/([^/]+)$/);
       if (webhookDeliveryMatch && request.method === "GET") return Response.json(await service.getWebhookDelivery(decodeURIComponent(webhookDeliveryMatch[1])));

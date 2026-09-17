@@ -21,6 +21,7 @@ import { adaptWebhook, publicWebhookConfig, validateWebhookHandler, type Webhook
 import { reflectTriggerContext } from "./trigger-context";
 import { installedTriggerAvailability, sameProviderReference } from "./trigger-availability";
 import { clickUpJson, matchingClickUpTask } from "./clickup";
+import { matchesSearch } from "./search";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -201,6 +202,7 @@ export class TenantV2 extends DurableObject<Env> {
     const url = new URL(request.url);
     try {
       if (request.method === "GET" && url.pathname === "/v1/runs") return this.listRuns(url);
+      if (request.method === "GET" && url.pathname === "/v1/search") return this.search(url.searchParams.get("q") ?? "");
       if (request.method === "GET" && url.pathname === "/v1/webhooks/deliveries") return this.listWebhookDeliveries(url);
       const webhookDeliveryMatch = url.pathname.match(/^\/v1\/webhooks\/deliveries\/([^/]+)$/);
       if (request.method === "GET" && webhookDeliveryMatch) return this.getWebhookDelivery(decodeURIComponent(webhookDeliveryMatch[1]));
@@ -1006,6 +1008,33 @@ export class TenantV2 extends DurableObject<Env> {
       this.presentExecution(item);
     }
     return json({ items, nextCursor: hasMore ? this.nextCursor(items.at(-1), "created_at") : null });
+  }
+
+  private search(query: string): Response {
+    const needle = query.trim();
+    if (!needle) return json({ items: [] });
+    const items: Array<Record<string, unknown>> = [];
+    const add = (kind: string, id: unknown, title: unknown, subtitle: unknown, url: string, haystack: unknown[]) => {
+      const searchable = haystack.map(value => String(value ?? "")).join("\n");
+      if (matchesSearch(searchable, needle)) items.push({ kind, id: String(id), title: String(title || id), subtitle: String(subtitle || ""), url });
+    };
+    for (const job of this.rows("SELECT id,name,slug,execution_target,enabled,created_at,updated_at FROM jobs ORDER BY created_at DESC")) {
+      add("job", job.id, job.name, `${job.slug} · ${job.enabled ? "Enabled" : "Disabled"}`, `/jobs/${encodeURIComponent(String(job.id))}`, Object.values(job));
+      for (const trigger of this.rows("SELECT id,slug,kind,config,enabled,created_at,updated_at FROM triggers WHERE job_id=? ORDER BY position,created_at,id", job.id)) {
+        add("trigger", trigger.id, `${job.name} · ${trigger.slug}`, `${trigger.kind} trigger`, `/jobs/${encodeURIComponent(String(job.id))}/edit`, Object.values(trigger).concat(Object.values(job)));
+      }
+    }
+    for (const run of this.rows(`SELECT r.id,r.pipe_id,r.issue_id,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.execution_backend_kind,r.execution_handle,r.execution_capabilities,r.destination_url,r.created_at,r.updated_at,r.herdr_server_namespace,r.worktree_path,r.ownership_lease,r.herdr_workspace_id,r.herdr_pane_id,r.herdr_terminal_id,r.agent_session_source,r.agent_session_kind,r.agent_session_value,r.herdr_cwd,r.last_agent_status,r.recovery_reason,r.recovery_last_action FROM runs r ORDER BY r.created_at DESC LIMIT 1000`)) {
+      const title = String(run.run_name || run.issue_title || `Run ${String(run.id).slice(0, 8)}`);
+      add("run", run.id, title, `${run.state} · ${run.agent_name || run.agent_kind || run.provider || "run"}`, `/job-runs/${encodeURIComponent(String(run.id))}`, Object.values(run));
+    }
+    for (const event of this.rows("SELECT id,job_id,provider,delivery_id,outcome,detail,received_at FROM job_events ORDER BY received_at DESC LIMIT 1000")) {
+      add("event", event.id, `${event.provider} event · ${event.outcome}`, String(event.detail), `/jobs/${encodeURIComponent(String(event.job_id))}`, Object.values(event));
+    }
+    for (const activity of this.rows("SELECT id,run_id,action,detail,created_at FROM run_activity ORDER BY created_at DESC LIMIT 1000")) {
+      add("activity", activity.id, `${activity.action} · run ${String(activity.run_id).slice(0, 8)}`, String(activity.detail), `/job-runs/${encodeURIComponent(String(activity.run_id))}`, Object.values(activity));
+    }
+    return json({ items: items.slice(0, 100) });
   }
 
   private async getRun(runId: string): Promise<Response> {
