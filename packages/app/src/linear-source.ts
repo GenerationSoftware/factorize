@@ -2,7 +2,12 @@ import Mustache from "mustache";
 import type { WorkItem } from "./types";
 
 const object = (value: unknown): Record<string, any> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
-const text = (value: unknown): string => typeof value === "string" ? value : "";
+const decodeHtmlEntities = (value: string): string => value.replace(/&(?:#(\d+)|#x([\da-f]+)|([a-z][\da-z]+));/gi, (entity, decimal, hexadecimal, named) => {
+  if (decimal) return String.fromCodePoint(Number(decimal));
+  if (hexadecimal) return String.fromCodePoint(parseInt(hexadecimal, 16));
+  return ({ amp: "&", apos: "'", gt: ">", lt: "<", quot: '"' } as Record<string, string>)[named.toLowerCase()] ?? entity;
+});
+const text = (value: unknown): string => typeof value === "string" ? decodeHtmlEntities(value) : "";
 
 export const DEFAULT_CONTEXT_TEMPLATE = `---
 pipe: "{{{flow.name}}}"
