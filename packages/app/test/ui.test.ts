@@ -37,6 +37,10 @@ describe("pages", () => {
     expect(html).toContain("&limit='+jobRunsPageSize");
     expect(html).toContain("jobRunsState.cursors[targetPage]=cursor");
     expect(html).toContain("const cursor=targetPage===currentPage+1?r.nextCursor:jobRunsState.cursors[targetPage]");
+    expect(html).toContain("jobRunsState.page=1;jobRunsState.cursors=[null];jobRunsState.runs=runs");
+    expect(html).toContain("refreshJobRunsPagination();if(hasActiveRuns");
+    expect(html).not.toContain("__factorizeLastRuns");
+    expect(html).not.toContain("new MutationObserver");
     expect(html).not.toContain("jobRunsState.cursors[jobRunsState.page]=r.nextCursor");
     expectInlineScriptsToParse(html);
   });
