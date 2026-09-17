@@ -278,6 +278,14 @@ describe("pages", () => {
     expect(editor).toContain("Credentials are managed only");
     expect(editor).toContain("Cloudflare Tail");
     expect(detail).toContain("Run now");
+    expect(detail).toContain('<nav aria-label="Breadcrumb">');
+    expect(detail).toContain('aria-current="page"');
+    expect(detail).toContain("esc(j.name)");
+    expect(run).toContain('class="mx-auto max-w-6xl');
+    expect(run).toContain('<nav aria-label="Breadcrumb">');
+    expect(run).toContain("request('/api/v1/jobs/'+encodeURIComponent(r.job_id))");
+    expect(run).toContain("esc(j.name)");
+    expect(run).toContain("runLabel='Run '+r.id.slice(0,8)");
     expect(run).toContain("destination_url");
     expect(run).toContain("caps.includes('output')");
     expect(run).toContain('data-run-output');
