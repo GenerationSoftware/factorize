@@ -81,6 +81,7 @@ describe("pages", () => {
     const header = html.match(/<header[\s\S]*?<\/header>/)?.[0] ?? "";
     const profileMenu = header.match(/<details[\s\S]*?<\/details>/)?.[0] ?? "";
     expect(header).toContain('href="/jobs" data-navigation="jobs"');
+    expect(header).toContain('href="https://factorize.sh" class="flex items-center gap-2 text-lg font-bold tracking-tight"');
     expect(header).not.toMatch(/<a href="\/settings"[^>]*>Settings<\/a><details/);
     expect(profileMenu).toContain('aria-label="Open profile menu"');
     expect(profileMenu).toContain('h-11 w-11');
