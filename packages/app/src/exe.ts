@@ -7,6 +7,8 @@ export interface ExeConnection {
   cwd: string;
   herdrCommand?: string;
   agentCommand?: string;
+  /** Per-job harness model. Empty means the harness chooses its default. */
+  model?: string;
 }
 
 export interface ExeResponse {
@@ -159,6 +161,7 @@ function herdrBinary(connection: ExeConnection): string {
 function agentCommand(connection: ExeConnection, prompt?: string, cwd?: string): string {
   const command = connection.agentCommand?.trim() || defaultAgentCommand(connection.agentKind);
   const args = command ? shellWords(command).map(shellAtom) : [];
+  if (connection.model?.trim()) args.push(shellAtom("--model"), shellAtom(connection.model.trim()));
   if (connection.agentKind === "codex" && cwd) args.push("--dangerously-bypass-hook-trust", "--cd", shellAtom(cwd), "-c", shellAtom(`projects.${JSON.stringify(cwd)}.trust_level="trusted"`));
   if (prompt !== undefined) args.push("--", shellAtom(prompt));
   return args.length ? ` -- ${args.join(" ")}` : "";

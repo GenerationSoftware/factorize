@@ -35,6 +35,7 @@ export const jobInputSchema = z.object({
   promptTemplate: z.string().min(1).max(50_000),
   concurrencyLimit: z.number().int().min(1).max(50).default(1),
   executionTargetId: z.string().min(1),
+  model: z.string().trim().max(120).optional(),
   triggers: z.array(triggerSchema).max(50).default([]),
 }).strict();
 export const jobIdSchema = z.object({ jobId: z.string().min(1) });

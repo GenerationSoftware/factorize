@@ -3,6 +3,7 @@ import { InvocationService, JOB_SCHEMA, renderJobPrompt, type Invocation, type J
 
 const job = (overrides: Partial<Job> = {}): Job => ({
   id: "job-1", name: "Triage", slug: "triage", promptTemplate: "{{trigger-1.prompt}} · {{trigger-2.issue.title}}",
+  model: "",
   executionTarget: { connectionId: "exe-1", workspace: "triage", cwd: "/repo", agentKind: "codex" },
   concurrencyLimit: 1, enabled: true,
   triggers: [],
