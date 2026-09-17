@@ -387,6 +387,9 @@ describe("pages", () => {
     expect(run).toContain('data-run-elapsed');
     expect(run).toContain("+'s elapsed'");
     expect(run).toContain('max-h-[calc(100vh-12rem)] overflow-auto');
+    expect(run).toContain('mt-6 min-w-0 overflow-hidden p-6');
+    expect(run).toContain('min-w-0 max-w-full max-h-[calc(100vh-12rem)] overflow-auto whitespace-pre-wrap');
+    expect(run).toContain('block truncate font-medium');
     expect(run).toContain('output.scrollHeight-output.scrollTop-output.clientHeight<24');
     expect(run).toContain('if(follow)output.scrollTop=output.scrollHeight');
     expect(run).not.toContain("__name");

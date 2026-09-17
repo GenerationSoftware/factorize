@@ -5,10 +5,12 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "dev": "npm run dev --workspace=factorize",
+    "dev:marketing": "npm run dev --workspace=factorize-marketing",
     "build:css": "npm run build:css --workspace=factorize",
     "test": "npm run test --workspaces --if-present",
-    "check": "npm run check --workspace=factorize && npm run check --workspace=factorize-tail-relay",
-    "deploy": "npm run deploy:app && npm run deploy:tail-relay",
+    "check": "npm run check --workspace=factorize && npm run check --workspace=factorize-marketing && npm run check --workspace=factorize-tail-relay",
+    "deploy": "npm run deploy:marketing && npm run deploy:app && npm run deploy:tail-relay",
+    "deploy:marketing": "npm run deploy --workspace=factorize-marketing",
     "deploy:app": "npm run deploy --workspace=factorize",
     "deploy:tail-relay": "npm run deploy --workspace=factorize-tail-relay"
   }
