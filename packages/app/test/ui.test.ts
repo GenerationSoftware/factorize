@@ -52,6 +52,9 @@ describe("pages", () => {
     const html = jobPage({ email: "owner@example.com" });
     expect(html).toContain('id="linear-rules"');
     expect(html).toContain('id="add-linear-rule"');
+    expect(html).toContain('id="github-rules"');
+    expect(html).toContain('id="add-github-rule"');
+    expect(html).toContain("matchRules:readGithubRules()");
     expect(html).toContain("status:'Status',label:'Label',assignee:'Assignee',creator:'Creator',owner:'Owner'");
     expect(html).toContain("matchRules:readLinearRules()");
     expect(html).toContain("(c.matchRules?.length?c.matchRules:");
@@ -64,7 +67,7 @@ describe("pages", () => {
     expect(html).toContain('<label class="sr-only" for="add-trigger">Add a trigger</label>');
     expect(html).toContain('<select id="add-trigger" class="field disabled:cursor-wait disabled:opacity-60" disabled>');
     expect(html).toContain("Loading trigger types…");
-    expect(html).toContain("request('/api/job-trigger-availability')");
+    expect(html).toContain("request('/api/v1/job-trigger-availability')");
     expect(html).toContain("filter(([kind])=>availability[kind])");
     expect(html).toContain("window.addEventListener('focus'");
     expect(html).toContain("$('#add-trigger').onchange=");
@@ -252,7 +255,7 @@ describe("pages", () => {
     expect(editor).toContain("e.key==='Escape'");
     expect(editor).not.toContain("Additional triggers (JSON array)");
     expect(editor).not.toContain('name="triggerKind"');
-    expect(editor).toContain("/api/schedules/preview");
+    expect(editor).toContain("/api/v1/schedules/preview");
     expect(editor).toContain("America/New_York");
     expect(editor).toContain("Credentials are managed only");
     expect(editor).toContain("Cloudflare Tail");

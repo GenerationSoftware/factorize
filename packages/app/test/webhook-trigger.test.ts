@@ -14,6 +14,13 @@ describe("webhook Job trigger adapters", () => {
     expect(adaptWebhook(config, "github", "github:d2", { installation: { id: 7 }, repository: { id: 10 }, action: "dequeued" }, "pull_request")).toBeNull();
   });
 
+  it("matches GitHub issue filters", () => {
+    const config = { provider: "github" as const, installationId: 7, repositoryId: 9, matchRules: [{ type: "label" as const, targetId: "3" }] };
+    const payload = { installation: { id: 7 }, repository: { id: 9 }, action: "labeled", label: { id: 3 }, issue: { state: "open", labels: [{ id: 3 }] } };
+    expect(adaptWebhook(config, "github", "github:d3", payload, "issues")).not.toBeNull();
+    expect(adaptWebhook(config, "github", "github:d4", payload, "pull_request")).toBeNull();
+  });
+
   it("never exposes webhook secrets", () => {
     expect(publicWebhookConfig({ provider: "cloudflareTail", signingSecret: "super-secret-value", handlerCode: "function handler(webhook) { return true; }" })).toEqual({ provider: "cloudflareTail", handlerCode: "function handler(webhook) { return true; }", secretConfigured: true });
   });

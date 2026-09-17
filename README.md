@@ -150,6 +150,13 @@ curl -X POST -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
   https://app.factorize.sh/api/v1/runs/RUN_ID/stop
 ```
 
+Connected GitHub App installation metadata, including the installation IDs used by GitHub Job triggers, is available without exposing credentials:
+
+```bash
+curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
+  https://app.factorize.sh/api/v1/github-installations
+```
+
 Job CRUD is available at `/jobs` and `/jobs/:id`; job metadata includes `currentRuns` and `maxConcurrency`. Run collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Runs can be filtered by `jobId`, `state`, and `contextQuery`; context queries use case-insensitive literal substring matching and matching items contain a bounded `context_excerpt`, never the full context. `GET /runs/:runId` returns the complete structured trigger `context` and invocation metadata, including the firing `trigger_id`. The canonical Job prompt contract is documented in [docs/job-trigger-context.md](docs/job-trigger-context.md). Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
 
 ## MCP clients

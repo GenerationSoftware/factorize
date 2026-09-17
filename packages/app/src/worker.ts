@@ -77,6 +77,11 @@ export { TenantV2, Tenant, GitHubInstallationRegistryV2, GitHubInstallationRegis
 export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   const oauth = provider(env);
   const url = new URL(request.url);
+  if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {
+    const session = await currentOwner(request, env);
+    if (!session) return Response.json({ error: { code: "invalid_token", message: "Unauthorized" } }, { status: 401 });
+    return protectedApiFetch(request, env, { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes }, ctx);
+  }
   if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1")) && request.headers.get("Authorization")?.startsWith("Bearer fzt_")) {
     const auth = await authenticateAccessToken(request, env);
     if (!auth) return Response.json({ error: { code: "invalid_token", message: "The access token is invalid, expired, or revoked." } }, { status: 401, headers: { "WWW-Authenticate": "Bearer error=\"invalid_token\"" } });

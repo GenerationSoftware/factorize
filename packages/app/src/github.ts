@@ -35,6 +35,21 @@ export async function installationToken(env: { GITHUB_APP_ID?: string; GITHUB_AP
 
 export const githubHeaders = (token: string): HeadersInit => ({ Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "User-Agent": "Factorize", "X-GitHub-Api-Version": "2022-11-28" });
 
+/** Load every available page of a GitHub collection used by configuration UIs. */
+export async function githubCollection<T>(url: string, token: string, fetcher: typeof fetch = fetch): Promise<T[]> {
+  const items: T[] = [];
+  for (let page = 1; ; page++) {
+    const separator = url.includes("?") ? "&" : "?";
+    const response = await fetcher(`${url}${separator}per_page=100&page=${page}`, { headers: githubHeaders(token) });
+    if (!response.ok) throw new Error(`GitHub collection could not be loaded (${response.status})`);
+    const batch = await response.json() as T[];
+    if (!Array.isArray(batch)) throw new Error("GitHub returned an invalid collection");
+    items.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return items;
+}
+
 export async function signSetupState(value: { tenantId: string; userId: string; nonce: string; exp: number }, secret: string): Promise<string> {
   const body = json64(value);
   return `${body}.${(await hmac(body, secret)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")}`;
