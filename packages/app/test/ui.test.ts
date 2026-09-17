@@ -35,6 +35,9 @@ describe("pages", () => {
     expect(html).toContain("data-run-page=\"previous\"");
     expect(html).toContain("data-run-page=\"next\"");
     expect(html).toContain("&limit='+jobRunsPageSize");
+    expect(html).toContain("jobRunsState.cursors[targetPage]=cursor");
+    expect(html).toContain("const cursor=targetPage===currentPage+1?r.nextCursor:jobRunsState.cursors[targetPage]");
+    expect(html).not.toContain("jobRunsState.cursors[jobRunsState.page]=r.nextCursor");
     expectInlineScriptsToParse(html);
   });
 
