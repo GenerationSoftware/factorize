@@ -25,6 +25,13 @@ components:
         effort: { type: string, maxLength: 40 }
         triggers: { type: array, maxItems: 50, items: { type: object } }
     RunPage: { type: object, required: [items], properties: { items: { type: array, items: { type: object } }, nextCursor: { type: string, nullable: true } } }
+    ManualInvocation:
+      type: object
+      additionalProperties: false
+      properties:
+        prompt: { type: string, maxLength: 50000, default: '' }
+        data: { type: object, additionalProperties: true, default: {} }
+        idempotencyKey: { type: string, minLength: 1, maxLength: 200 }
 paths:
   /api/health: { get: { summary: Worker health check, security: [], responses: { '200': { description: OK, content: { application/json: { example: { ok: true } } } } } } }
   /api/v1/exe-connections: { get: { summary: List exe connections, responses: { '200': { description: Safe metadata } } } }
@@ -42,7 +49,7 @@ paths:
     delete: { summary: Delete job, responses: { '200': { description: Deleted } } }
   /api/v1/jobs/{jobId}/enable: { post: { summary: Enable job, responses: { '200': { description: Enabled } } } }
   /api/v1/jobs/{jobId}/disable: { post: { summary: Disable job, responses: { '200': { description: Disabled } } } }
-  /api/v1/jobs/{jobId}/invocations: { post: { summary: Invoke job, responses: { '202': { description: Accepted } } } }
+  /api/v1/jobs/{jobId}/invocations: { post: { summary: Invoke job, requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ManualInvocation' } } } }, responses: { '202': { description: Accepted } } } }
   /api/v1/jobs/{jobId}/events: { get: { summary: List webhook activity, responses: { '200': { description: Activity } } } }
   /api/v1/job-handlers/test: { post: { summary: Test webhook handler, responses: { '200': { description: Decision } } } }
   /api/v1/runs:
