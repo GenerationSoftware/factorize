@@ -146,6 +146,17 @@ describe("pages", () => {
     expect(settings).not.toContain('<main class="mx-auto max-w-4xl');
   });
 
+  it("uses a styled dialog for manual runs with an optional prompt", () => {
+    const detail = jobDetailPage({ email: "owner@example.com" }, "job-1");
+    expect(detail).toContain('<dialog id="manual-run-dialog" aria-labelledby="manual-run-title"');
+    expect(detail).toContain('placeholder="Leave blank to skip prompt"');
+    expect(detail).toContain("manualRunDialog.showModal()");
+    expect(detail).toContain("body:JSON.stringify({prompt:manualRunForm.elements.prompt.value})");
+    expect(detail).toContain("if(e.target===manualRunDialog)manualRunDialog.close()");
+    expect(detail).not.toContain("prompt('Prompt for this manual run:','')");
+    expectInlineScriptsToParse(detail);
+  });
+
   it("renders accessible settings subpage navigation", () => {
     const integrations = settingsPage({ email: "owner@example.com" });
     const apiKeys = apiKeysSettingsPage({ email: "owner@example.com" });
