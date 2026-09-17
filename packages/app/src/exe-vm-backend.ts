@@ -60,7 +60,12 @@ export class ExeVmBackend implements ExecutionBackend {
     let tags: string[] = [];
     for (const check of checks.slice(0, 2)) if (check.ok) try { tags.push(...tagsFromInventory(JSON.parse(check.body))); } catch { /* use the remaining tag source */ }
     tags = [...new Set(tags)].sort((a, b) => a.localeCompare(b));
-    return { ok: checks.every(check => check.ok), missingPermissions: checks.filter(check => !check.ok).map(check => String(check.requestBody).split(" ")[0]), tags, checks };
+    const missingPermissions = checks.filter(check => check.status === 403).map(check => String(check.requestBody).split(" ")[0]);
+    // exe.dev uses 403 specifically for a command excluded by token permissions.
+    // A help probe may return 422 when its command parser wants an argument; that
+    // still proves the token was authorized to invoke that command.
+    const ok = !missingPermissions.length && checks.every((check, index) => check.ok || (index >= 2 && ((check.status >= 200 && check.status < 300) || check.status === 422)));
+    return { ok, missingPermissions, tags, checks };
   }
 
   async test(): Promise<BackendCommandResult> { return this.api("ls --json"); }
