@@ -42,6 +42,8 @@ describe("fresh TenantV2 namespace", () => {
       slug: "manual-prompt",
       promptTemplate: "{{trigger-1.prompt}}",
       executionTargetId: "amp:execution-1",
+      runningCount: 0,
+      lastRunState: null,
       triggers: [{ kind: "manual", slug: "trigger-1" }],
     });
   });
