@@ -37,7 +37,24 @@ describe("pages", () => {
     expect(html).toContain("&limit='+jobRunsPageSize");
     expect(html).toContain("jobRunsState.cursors[targetPage]=cursor");
     expect(html).toContain("const cursor=targetPage===currentPage+1?r.nextCursor:jobRunsState.cursors[targetPage]");
+    expect(html).toContain("jobRunsState.page=1;jobRunsState.cursors=[null];jobRunsState.runs=runs");
+    expect(html).toContain("refreshJobRunsPagination();if(hasActiveRuns");
+    expect(html).not.toContain("__factorizeLastRuns");
+    expect(html).not.toContain("new MutationObserver");
     expect(html).not.toContain("jobRunsState.cursors[jobRunsState.page]=r.nextCursor");
+    expectInlineScriptsToParse(html);
+  });
+
+  it("keeps paginated run content width stable", () => {
+    const html = jobDetailPage({ email: "owner@example.com" }, "job-1");
+    expect(html).toContain('<main class="mx-auto max-w-6xl min-w-0');
+    expect(html).toContain('id="job-detail" class="min-w-0"');
+    expect(html).toContain('data-job-runs-section');
+    expect(html).toContain('class="min-w-0 divide-y');
+    expect(html).toContain('<li class="min-w-0">');
+    expect(html).toContain('class="flex min-w-0 items-center');
+    expect(html).toContain('class="min-w-0 truncate"');
+    expect(html).toContain('class="shrink-0"');
     expectInlineScriptsToParse(html);
   });
 
