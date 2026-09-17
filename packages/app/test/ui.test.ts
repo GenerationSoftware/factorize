@@ -47,7 +47,7 @@ describe("pages", () => {
 
   it("keeps paginated run content width stable", () => {
     const html = jobDetailPage({ email: "owner@example.com" }, "job-1");
-    expect(html).toContain('<main class="mx-auto max-w-6xl min-w-0');
+    expect(html).toContain('<main class="mx-auto w-full max-w-6xl min-w-0');
     expect(html).toContain('id="job-detail" class="min-w-0"');
     expect(html).toContain('data-job-runs-section');
     expect(html).toContain('class="min-w-0 divide-y');
@@ -56,6 +56,17 @@ describe("pages", () => {
     expect(html).toContain('class="min-w-0 truncate"');
     expect(html).toContain('class="shrink-0"');
     expectInlineScriptsToParse(html);
+  });
+
+  it("makes shared containers fill available width and keeps job actions compact", () => {
+    for (const html of [jobsPage({ email: "owner@example.com" }), jobDetailPage({ email: "owner@example.com" }, "job-1"), jobRunPage({ email: "owner@example.com" }, "run-1"), settingsPage({ email: "owner@example.com" })]) {
+      expect(html).toContain('class="mx-auto w-full max-w-6xl');
+      expect(html).toContain('class="mx-auto flex h-16 w-full max-w-6xl');
+      expect(html).toContain('class="mx-auto flex w-full max-w-6xl');
+    }
+    const detail = jobDetailPage({ email: "owner@example.com" }, "job-1");
+    expect(detail).toContain('mt-6 grid min-w-0 items-start gap-5 sm:grid-cols-[minmax(0,1fr)_auto]');
+    expect(detail).toContain('class="flex flex-wrap items-start gap-2 sm:justify-end"');
   });
 
 
@@ -151,7 +162,7 @@ describe("pages", () => {
 
   it("keeps the Jobs page proportionate and overflow-safe on phones", () => {
     const html = jobsPage({ email: "owner@example.com" });
-    expect(html).toContain('<main class="mx-auto max-w-6xl px-4 py-8 sm:px-5 sm:py-12 lg:px-8">');
+    expect(html).toContain('<main class="mx-auto w-full max-w-6xl px-4 py-8 sm:px-5 sm:py-12 lg:px-8">');
     expect(html).toContain('class="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4"');
     expect(html).toContain('class="inline-flex w-full justify-center rounded-xl');
     expect(html).toContain('sm:w-auto sm:px-5 sm:py-3">Create job</a>');
@@ -219,7 +230,7 @@ describe("pages", () => {
 
   it("aligns Settings with the Jobs page width and gutters", () => {
     const settings = settingsPage({ email: "owner@example.com" });
-    expect(settings).toContain('<main class="mx-auto max-w-6xl px-5 py-12 lg:px-8">');
+    expect(settings).toContain('<main class="mx-auto w-full max-w-6xl px-5 py-12 lg:px-8">');
     expect(settings).not.toContain('<main class="mx-auto max-w-4xl');
   });
 
