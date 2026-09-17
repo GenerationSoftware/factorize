@@ -303,7 +303,9 @@ describe("pages", () => {
     expect(run).not.toContain("Observation");
     expect(run).toContain("caps.includes('output')");
     expect(run).toContain('data-run-output');
-    expect(run).toContain('>Prompt</h2>');
+    expect(run).toContain('<details data-run-prompt-details');
+    expect(run).toContain('<summary class="cursor-pointer font-semibold">Prompt</summary>');
+    expect(run).not.toContain('<details data-run-prompt-details open');
     expect(run).toContain('data-run-prompt');
     expect(run).toContain("esc(r.prompt||'Prompt is not available for this run.')");
     expect(run).not.toContain("Context sent to agent");
