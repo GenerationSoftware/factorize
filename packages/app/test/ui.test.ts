@@ -19,7 +19,7 @@ describe("pages", () => {
     expect(html).toContain("Choose when to fully automate");
     expect(html).toContain("Issues are routed to agents");
     expect(html).toContain('href="/jobs/new"');
-    expect(html).toContain('href="https://github.com/asselstine/factorize" target="_blank"');
+    expect(html).toContain('href="https://github.com/GenerationSoftware/factorize" target="_blank"');
     expect(html).toContain("Host it Yourself");
     expect(html).toContain("View on GitHub");
     expect(html).toContain('id="theme-toggle"');
