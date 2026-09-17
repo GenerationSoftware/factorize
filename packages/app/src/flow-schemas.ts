@@ -34,6 +34,7 @@ export const jobInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   slug: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/),
   promptTemplate: z.string().min(1).max(50_000),
+  runNameTemplate: z.string().max(500).optional(),
   concurrencyLimit: z.number().int().min(1).max(50).default(1),
   executionTargetId: z.string().min(1),
   model: z.string().trim().max(120).optional(),
