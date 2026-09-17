@@ -465,8 +465,27 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async executionTargets(): Promise<Response> {
     const connections = await this.exeConnections();
+    const populated = await Promise.all(connections.map(async connection => {
+      // A missing models field means this connection predates discovery. Once a
+      // discovery has run, even an empty result is left for the explicit refresh action.
+      if (Array.isArray(connection.models)) return connection;
+      try {
+        const models = await this.discoverExeModels(connection);
+        const saved = { ...connection, models, modelsRefreshedAt: now() };
+        await this.putConnection(`exe:${connection.connectionId}`, saved);
+        const legacy = await this.connection<ExeConnection>("exe");
+        if (legacy?.vmName === connection.vmName && legacy.cwd === connection.cwd && legacy.agentKind === connection.agentKind) await this.putConnection("exe", saved);
+        return saved;
+      } catch {
+        // Mark the attempted discovery as populated so a transient/unavailable
+        // integration does not turn every job-editor load into a remote call.
+        const saved = { ...connection, models: [], modelsRefreshedAt: now() };
+        await this.putConnection(`exe:${connection.connectionId}`, saved);
+        return saved;
+      }
+    }));
     const ampConnections = await this.ampConnections();
-    return json([...connections.map(connection => ({
+    return json([...populated.map(connection => ({
       id: connection.connectionId,
       kind: "exe-herdr",
       name: connection.vmName,
@@ -475,6 +494,7 @@ export class TenantV2 extends DurableObject<Env> {
       agentKind: connection.agentKind,
       models: connection.models ?? [],
       modelsRefreshedAt: connection.modelsRefreshedAt ?? null,
+      efforts: connection.efforts ?? (connection.agentKind === "codex" ? ["minimal", "low", "medium", "high", "xhigh"] : []),
       capabilities: ["output", "prompt-delivery", "recovery", "stop"],
     })), ...ampConnections.map(connection => ({ id: `amp:${connection.connectionId}`, kind: "amp", name: `Amp · ${connection.project}`, workspace: connection.project, cwd: "Cloud orb", agentKind: "Amp", capabilities: ["stop"] }))]);
   }
@@ -486,7 +506,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (!job) return undefined;
     let target: Record<string, unknown> = {};
     try { target = JSON.parse(String(job.execution_target)); } catch { return undefined; }
-    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: job.slug, agent_kind: target.agentKind, model: target.model ?? "", cwd: target.cwd, execution_backend_kind: target.backendKind ?? "exe-herdr", execution_connection_id: target.connectionId, exe_connection_id: target.connectionId, enabled: job.enabled };
+    return { id: job.id, name: job.name, max_concurrency: job.concurrency_limit, workspace_name: job.slug, agent_kind: target.agentKind, model: target.model ?? "", effort: target.effort ?? "", cwd: target.cwd, execution_backend_kind: target.backendKind ?? "exe-herdr", execution_connection_id: target.connectionId, exe_connection_id: target.connectionId, enabled: job.enabled };
   }
 
   private async publicJob(row: Row): Promise<Record<string, unknown>> {
@@ -510,6 +530,7 @@ export class TenantV2 extends DurableObject<Env> {
       id: row.id, name: row.name, slug: row.slug,
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
       model: String(executionTarget.model ?? ""),
+      effort: String(executionTarget.effort ?? ""),
       concurrencyLimit: Number(row.concurrency_limit),
       runningCount: Number(runSummary?.running_count ?? 0),
       maxConcurrency: Number(row.concurrency_limit),
@@ -537,6 +558,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (!input?.name || !input.promptTemplate) throw new Error("Job name and prompt template are required");
     if (!JOB_SLUG.test(String(input.slug ?? ""))) throw new Error("Job slug must start with a lowercase letter and contain only lowercase letters, digits, hyphens, or underscores (30 characters maximum).");
     if (input.model !== undefined && (typeof input.model !== "string" || input.model.trim().length > 120)) throw new Error("Job model must be a string of 120 characters or fewer");
+    if (input.effort !== undefined && (typeof input.effort !== "string" || input.effort.trim().length > 40)) throw new Error("Job effort must be a string of 40 characters or fewer");
     if (!Array.isArray(input.triggers) || input.triggers.some((trigger: any) => !["manual", "schedule", "webhook", "jobLifecycle"].includes(trigger?.kind))) throw new Error("Job triggers are invalid");
     Mustache.parse(input.promptTemplate);
     for (const trigger of input.triggers) {
@@ -624,7 +646,7 @@ export class TenantV2 extends DurableObject<Env> {
     this.validateJobInput(input);
     if (this.one("SELECT id FROM jobs WHERE slug=?", input.slug)) throw new Error("Job slug is already in use");
     await this.validateProviderIntegrations(input.triggers);
-    const target = { ...await this.jobTarget(input.executionTargetId), model: text(input.model).trim() }, jobId = id(), timestamp = now();
+    const target = { ...await this.jobTarget(input.executionTargetId), model: text(input.model).trim(), effort: text(input.effort).trim() }, jobId = id(), timestamp = now();
     const triggers = this.normalizedTriggers(input.triggers);
     this.validateLifecycleGraph(jobId, triggers);
     this.ctx.storage.sql.exec("INSERT INTO jobs (id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", jobId, input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, 1, timestamp, timestamp);
@@ -646,7 +668,7 @@ export class TenantV2 extends DurableObject<Env> {
     await this.validateProviderIntegrations(input.triggers, existing);
     const triggers = this.normalizedTriggers(input.triggers, existing);
     this.validateLifecycleGraph(jobId, triggers);
-    const target = { ...await this.jobTarget(input.executionTargetId), model: text(input.model).trim() }, timestamp = now();
+    const target = { ...await this.jobTarget(input.executionTargetId), model: text(input.model).trim(), effort: text(input.effort).trim() }, timestamp = now();
     this.ctx.storage.sql.exec("UPDATE jobs SET name=?,slug=?,encrypted_prompt_template=?,execution_target=?,concurrency_limit=?,updated_at=? WHERE id=?", input.name, input.slug, await encrypt(input.promptTemplate, this.env.CREDENTIAL_ENCRYPTION_KEY), JSON.stringify(target), input.concurrencyLimit, timestamp, jobId);
     const retained = new Set<string>();
     for (const trigger of triggers) {
@@ -1584,7 +1606,7 @@ export class TenantV2 extends DurableObject<Env> {
   private async connectionForPipe(pipe: Row): Promise<ExeConnection | null> {
     const connection = await this.exeConnection(String(pipe.exe_connection_id || "default"));
     if (!connection) return null;
-    return { ...connection, ...(pipe.cwd ? { cwd: workingDirectoryFor(String(pipe.cwd), String(pipe.workspace_name)) } : {}), model: String(pipe.model ?? "") };
+    return { ...connection, ...(pipe.cwd ? { cwd: workingDirectoryFor(String(pipe.cwd), String(pipe.workspace_name)) } : {}), model: String(pipe.model ?? ""), effort: String(pipe.effort ?? "") };
   }
 
   private async upsertMember(input: unknown): Promise<Response> {

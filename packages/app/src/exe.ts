@@ -9,9 +9,12 @@ export interface ExeConnection {
   agentCommand?: string;
   /** Per-job harness model. Empty means the harness chooses its default. */
   model?: string;
+  /** Per-job reasoning effort. Empty means the harness chooses its default. */
+  effort?: string;
   /** Models returned by the VM's attached exe.dev LLM integration. */
   models?: string[];
   modelsRefreshedAt?: string;
+  efforts?: string[];
 }
 
 export interface ExeResponse {
@@ -188,6 +191,7 @@ function agentCommand(connection: ExeConnection, prompt?: string, cwd?: string):
   const command = connection.agentCommand?.trim() || defaultAgentCommand(connection.agentKind);
   const args = command ? shellWords(command).map(shellAtom) : [];
   if (connection.model?.trim()) args.push(shellAtom("--model"), shellAtom(connection.model.trim()));
+  if (connection.effort?.trim() && connection.agentKind === "codex") args.push(shellAtom("-c"), shellAtom(`model_reasoning_effort=${connection.effort.trim()}`));
   if (connection.agentKind === "codex" && cwd) args.push("--dangerously-bypass-hook-trust", "--cd", shellAtom(cwd), "-c", shellAtom(`projects.${JSON.stringify(cwd)}.trust_level="trusted"`));
   if (prompt !== undefined) args.push("--", shellAtom(prompt));
   return args.length ? ` -- ${args.join(" ")}` : "";
