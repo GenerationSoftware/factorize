@@ -452,6 +452,7 @@ export class TenantV2 extends DurableObject<Env> {
     let executionTarget: Record<string, unknown> = {};
     try { executionTarget = JSON.parse(String(row.execution_target)); } catch { /* malformed internal state is presented safely */ }
     const activity = this.one("SELECT count(*) AS count,max(received_at) AS last_received_at FROM job_events WHERE job_id=?", row.id) as Row | undefined;
+    const runSummary = this.one("SELECT count(*) FILTER (WHERE state='running') AS running_count,(SELECT state FROM job_runs WHERE job_id=? ORDER BY created_at DESC,id DESC LIMIT 1) AS last_run_state FROM job_runs WHERE job_id=?", row.id, row.id) as Row | undefined;
     const publicTriggers = await Promise.all(triggers.map(async trigger => {
       let config: Record<string, unknown> = {};
       try { config = JSON.parse(String(trigger.config)); } catch { /* present malformed state safely */ }
@@ -467,6 +468,8 @@ export class TenantV2 extends DurableObject<Env> {
       id: row.id, name: row.name, slug: row.slug,
       promptTemplate: await decrypt(String(row.encrypted_prompt_template), this.env.CREDENTIAL_ENCRYPTION_KEY),
       concurrencyLimit: Number(row.concurrency_limit),
+      runningCount: Number(runSummary?.running_count ?? 0),
+      lastRunState: runSummary?.last_run_state ?? null,
       executionTargetId: `${executionTarget.backendKind === "amp" ? "amp:" : ""}${String(executionTarget.connectionId ?? "")}`,
       triggers: publicTriggers,
       enabled: Boolean(row.enabled), createdAt: row.created_at, updatedAt: row.updated_at,

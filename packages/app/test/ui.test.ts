@@ -202,6 +202,12 @@ describe("pages", () => {
     const run = jobRunPage({ email: "owner@example.com" }, "run-1");
     const settings = settingsPage({ email: "owner@example.com" });
     expect(list).toContain("Manual only");
+    expect(list).toContain("jobStatus(j)");
+    expect(list).toContain("j.runningCount>0");
+    expect(list).toContain("Last run failed");
+    expect(list).toContain("Last run succeeded");
+    expect(list).toContain("/'+esc(j.concurrencyLimit)+' Running");
+    expect(list).not.toContain("+' concurrent · updated '");
     expect(editor).toContain("Add trigger");
     expect(editor).toContain('id="trigger-rows"');
     expect(editor).toContain("Context slug");
