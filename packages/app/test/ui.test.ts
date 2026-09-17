@@ -129,6 +129,20 @@ describe("pages", () => {
     expect(html).toContain('class="mt-2 break-words text-sm');
   });
 
+  it("keeps the Jobs page proportionate and overflow-safe on phones", () => {
+    const html = jobsPage({ email: "owner@example.com" });
+    expect(html).toContain('<main class="mx-auto max-w-6xl px-4 py-8 sm:px-5 sm:py-12 lg:px-8">');
+    expect(html).toContain('class="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4"');
+    expect(html).toContain('class="inline-flex w-full justify-center rounded-xl');
+    expect(html).toContain('sm:w-auto sm:px-5 sm:py-3">Create job</a>');
+    expect(html).toContain('mt-6 overflow-hidden sm:mt-8');
+    expect(html).toContain('flex min-w-0 items-center gap-3 px-4 py-4 sm:gap-4 sm:p-6');
+    expect(html).toContain('h-3 w-3 shrink-0 rounded-full ring-2');
+    expect(html).toContain('flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1');
+    expect(html).toContain('break-words font-semibold');
+    expect(html).not.toContain('min-w-[48rem]');
+  });
+
   it("selects a per-job model with harness-aware suggestions", () => {
     const html = jobPage({ email: "owner@example.com" }, "job-1");
     expect(html).toContain('name="model"');
@@ -274,7 +288,7 @@ describe("pages", () => {
     expect(list).not.toContain("Last run failed");
     expect(list).not.toContain("Last run succeeded");
     expect(list).toContain("/'+esc(j.concurrencyLimit)+' Running");
-    expect(list).toMatch(/<h1 class="text-3xl font-bold tracking-tight">Jobs<\/h1><\/div><a href="\/jobs\/new"/);
+    expect(list).toMatch(/<h1 class="text-3xl font-bold tracking-tight">Jobs<\/h1>[\s\S]*<a href="\/jobs\/new"/);
     expect(list).not.toContain("Create reusable agent work and choose exactly how it starts.");
     expect(list).not.toContain("triggers.map(t=>triggerBadge(t.kind))");
     expect(list).not.toContain("new Date(j.updatedAt)");
