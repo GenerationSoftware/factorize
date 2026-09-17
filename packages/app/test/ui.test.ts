@@ -29,6 +29,15 @@ describe("pages", () => {
     expect(html).toContain("<footer class=\"border-t");
   });
 
+  it("paginates job runs with synchronized controls", () => {
+    const html = jobDetailPage({ email: "owner@example.com" }, "job-1");
+    expect(html).toContain("jobRunsPageSize=20");
+    expect(html).toContain("data-run-page=\"previous\"");
+    expect(html).toContain("data-run-page=\"next\"");
+    expect(html).toContain("&limit='+jobRunsPageSize");
+    expectInlineScriptsToParse(html);
+  });
+
 
   it("escapes profile data", () => {
     const html = landingPage({ email: '<script>alert("x")</script>@example.com' });

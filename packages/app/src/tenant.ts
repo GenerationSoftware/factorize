@@ -865,13 +865,13 @@ export class TenantV2 extends DurableObject<Env> {
     if (!flow) return new Response("Not found", { status: 404 });
     const view = url.searchParams.get("view") === "events" ? "events" : "runs";
     const page = Math.max(1, Math.min(10000, Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1));
-    const offset = (page - 1) * 10;
+    const offset = (page - 1) * 20;
     const events = view === "events" ? this.rows("SELECT id, delivery_id, issue_id, issue_url, event_type, event_action, outcome, detail, provider, received_at FROM flow_events WHERE flow_id = ? ORDER BY received_at DESC, id DESC LIMIT 11 OFFSET ?", flowId, offset) : [];
-    const runs = view === "runs" ? this.rows("SELECT id, issue_id, issue_title, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, prompt_delivery_state, prompt_delivery_request, prompt_delivery_response, prompt_delivery_status, prompt_delivery_exit_code, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code, recovery_reason, recovery_attempt, recovery_last_action, recovery_started_at FROM runs WHERE pipe_id = ? AND state != 'ignored' ORDER BY created_at DESC, id DESC LIMIT 11 OFFSET ?", flowId, offset) : [];
+    const runs = view === "runs" ? this.rows("SELECT id, issue_id, issue_title, issue_url, claim_key, agent_name, workspace_name, agent_kind, state, provider, prompt, prompt_delivery_state, prompt_delivery_request, prompt_delivery_response, prompt_delivery_status, prompt_delivery_exit_code, result, created_at, updated_at, exec_request, exec_response, exec_status, exec_exit_code, recovery_reason, recovery_attempt, recovery_last_action, recovery_started_at FROM runs WHERE pipe_id = ? AND state != 'ignored' ORDER BY created_at DESC, id DESC LIMIT 21 OFFSET ?", flowId, offset) : [];
     await this.backfillRunIssueDetails(runs);
-    const hasNext = (view === "events" ? events : runs).length > 10;
-    if (events.length > 10) events.pop();
-    if (runs.length > 10) runs.pop();
+    const hasNext = (view === "events" ? events : runs).length > 20;
+    if (events.length > 20) events.pop();
+    if (runs.length > 20) runs.pop();
     await Promise.all(runs.map(async (run) => {
       if (run.state !== "ignored" && typeof run.prompt === "string" && run.prompt) run.prompt = await decrypt(run.prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
       if (typeof run.exec_request === "string" && run.exec_request) run.exec_request = await decrypt(run.exec_request, this.env.CREDENTIAL_ENCRYPTION_KEY);
