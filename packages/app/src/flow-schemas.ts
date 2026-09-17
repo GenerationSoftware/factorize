@@ -45,6 +45,7 @@ export const jobIdSchema = z.object({ jobId: z.string().min(1) });
 export const manualInvocationSchema = z.object({
   prompt: z.string().max(50_000).default(""),
   data: z.record(z.string(), z.unknown()).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
   idempotencyKey: z.string().trim().min(1).max(200).refine(key => !key.startsWith("manual:"), {
     message: "idempotencyKey must not include the reserved manual: claim-key prefix",
   }).optional(),
