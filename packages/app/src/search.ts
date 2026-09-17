@@ -1,5 +1,24 @@
 export type SearchMatch = { start: number; end: number };
 
+export type RankedSearchMatch = { score: number; field: string; excerpt?: string; range?: SearchMatch };
+
+const folded = (value: string) => value.normalize().toLocaleLowerCase();
+
+/** Match one named field. Lower scores are more relevant. */
+export function rankField(value: string, query: string, field: string): RankedSearchMatch | null {
+  const haystack = folded(value), needle = folded(query.trim());
+  if (!needle) return null;
+  if (haystack === needle) return { score: field === "session" ? 2 : 0, field, range: { start: 0, end: value.length } };
+  const start = haystack.indexOf(needle);
+  if (start >= 0) return { score: field === "session" ? 2 : 1, field, range: { start, end: start + needle.length } };
+  return null;
+}
+
+export function sessionExcerpt(value: string, range: SearchMatch, radius = 90): string {
+  const start = Math.max(0, range.start - radius), end = Math.min(value.length, range.end + radius);
+  return `${start ? "…" : ""}${value.slice(start, end)}${end < value.length ? "…" : ""}`;
+}
+
 /** Match a query as an ordered sequence of terms, ignoring punctuation and case. */
 export function searchMatches(value: string, query: string): SearchMatch[] {
   const needle = query.normalize().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");

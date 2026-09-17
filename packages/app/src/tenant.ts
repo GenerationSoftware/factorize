@@ -21,7 +21,8 @@ import { adaptWebhook, publicWebhookConfig, validateWebhookHandler, type Webhook
 import { reflectTriggerContext } from "./trigger-context";
 import { installedTriggerAvailability, sameProviderReference } from "./trigger-availability";
 import { clickUpJson, matchingClickUpTask } from "./clickup";
-import { matchesSearch } from "./search";
+import { rankField, sessionExcerpt } from "./search";
+import { safeSession } from "./session-scrubber";
 
 export { DEFAULT_CONTEXT_TEMPLATE, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 
@@ -88,6 +89,7 @@ export class TenantV2 extends DurableObject<Env> {
     this.ensureColumn("pipes", "cwd", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("flow_events", "issue_url", "TEXT");
     this.ensureColumn("runs", "issue_url", "TEXT");
+    this.ensureColumn("runs", "session", "TEXT");
     this.ensureColumn("runs", "issue_title", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("runs", "run_name", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("jobs", "encrypted_run_name_template", "TEXT NOT NULL DEFAULT ''");
@@ -202,7 +204,7 @@ export class TenantV2 extends DurableObject<Env> {
     const url = new URL(request.url);
     try {
       if (request.method === "GET" && url.pathname === "/v1/runs") return this.listRuns(url);
-      if (request.method === "GET" && url.pathname === "/v1/search") return this.search(url.searchParams.get("q") ?? "");
+      if (request.method === "GET" && url.pathname === "/v1/search") return await this.search(url.searchParams.get("q") ?? "");
       if (request.method === "GET" && url.pathname === "/v1/webhooks/deliveries") return this.listWebhookDeliveries(url);
       const webhookDeliveryMatch = url.pathname.match(/^\/v1\/webhooks\/deliveries\/([^/]+)$/);
       if (request.method === "GET" && webhookDeliveryMatch) return this.getWebhookDelivery(decodeURIComponent(webhookDeliveryMatch[1]));
@@ -1010,35 +1012,40 @@ export class TenantV2 extends DurableObject<Env> {
     return json({ items, nextCursor: hasMore ? this.nextCursor(items.at(-1), "created_at") : null });
   }
 
-  private search(query: string): Response {
+  private async search(query: string): Promise<Response> {
     const needle = query.trim();
     if (!needle) return json({ items: [] });
-    const items: Array<Record<string, unknown>> = [];
-    const add = (kind: string, id: unknown, title: unknown, subtitle: unknown, url: string, haystack: unknown[]) => {
-      const searchable = haystack.map(value => String(value ?? "")).join("\n");
-      if (matchesSearch(searchable, needle)) items.push({ kind, id: String(id), title: String(title || id), subtitle: String(subtitle || ""), url });
+    const items: Array<Record<string, unknown> & { score?: number }> = [];
+    const add = (kind: string, id: unknown, title: unknown, subtitle: unknown, url: string, fields: Record<string, unknown>) => {
+      const matches = Object.entries(fields).flatMap(([field, value]) => { const match = rankField(String(value ?? ""), needle, field); return match ? [{ ...match, value: String(value) }] : []; });
+      const best = matches.sort((a, b) => a.score - b.score)[0];
+      if (!best) return;
+      const item: Record<string, unknown> & { score?: number } = { kind, id: String(id), title: String(title || id), subtitle: String(subtitle || ""), url, match_field: best.field, match_text: best.range ? (best.field === "session" ? sessionExcerpt(best.value, best.range) : best.value.slice(best.range.start, best.range.end)) : "" };
+      item.score = best.score;
+      items.push(item);
     };
     for (const job of this.rows("SELECT id,name,slug,execution_target,enabled,created_at,updated_at FROM jobs ORDER BY created_at DESC")) {
-      add("job", job.id, job.name, `${job.slug} · ${job.enabled ? "Enabled" : "Disabled"}`, `/jobs/${encodeURIComponent(String(job.id))}`, Object.values(job));
+      add("job", job.id, job.name, `${job.slug} · ${job.enabled ? "Enabled" : "Disabled"}`, `/jobs/${encodeURIComponent(String(job.id))}`, { name: job.name, slug: job.slug });
       for (const trigger of this.rows("SELECT id,slug,kind,config,enabled,created_at,updated_at FROM triggers WHERE job_id=? ORDER BY position,created_at,id", job.id)) {
-        add("trigger", trigger.id, `${job.name} · ${trigger.slug}`, `${trigger.kind} trigger`, `/jobs/${encodeURIComponent(String(job.id))}/edit`, Object.values(trigger).concat(Object.values(job)));
+        add("trigger", trigger.id, `${job.name} · ${trigger.slug}`, `${trigger.kind} trigger`, `/jobs/${encodeURIComponent(String(job.id))}/edit`, { name: job.name, slug: job.slug, trigger: trigger.slug, kind: trigger.kind, config: trigger.config });
       }
     }
-    for (const run of this.rows(`SELECT r.id,r.pipe_id,r.issue_id,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.execution_backend_kind,r.execution_handle,r.execution_capabilities,r.destination_url,r.created_at,r.updated_at,r.herdr_server_namespace,r.worktree_path,r.ownership_lease,r.herdr_workspace_id,r.herdr_pane_id,r.herdr_terminal_id,r.agent_session_source,r.agent_session_kind,r.agent_session_value,r.herdr_cwd,r.last_agent_status,r.recovery_reason,r.recovery_last_action FROM runs r ORDER BY r.created_at DESC LIMIT 1000`)) {
+    for (const run of this.rows(`SELECT r.id,r.pipe_id,r.issue_id,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.session,r.result,r.created_at FROM runs r ORDER BY r.created_at DESC LIMIT 1000`)) {
       const title = String(run.run_name || run.issue_title || `Run ${String(run.id).slice(0, 8)}`);
-      add("run", run.id, title, `${run.state} · ${run.agent_name || run.agent_kind || run.provider || "run"}`, `/job-runs/${encodeURIComponent(String(run.id))}`, Object.values(run));
+      const session = run.session ? await decrypt(String(run.session), this.env.CREDENTIAL_ENCRYPTION_KEY) : (run.result ? await decrypt(String(run.result), this.env.CREDENTIAL_ENCRYPTION_KEY) : "");
+      add("run", run.id, title, `${run.state} · ${run.agent_name || run.agent_kind || run.provider || "run"}`, `/job-runs/${encodeURIComponent(String(run.id))}`, { job: run.pipe_id, issue_id: run.issue_id, issue_title: run.issue_title, run_name: run.run_name, agent: run.agent_name, agent_kind: run.agent_kind, session });
     }
     for (const event of this.rows("SELECT id,job_id,provider,delivery_id,outcome,detail,received_at FROM job_events ORDER BY received_at DESC LIMIT 1000")) {
-      add("event", event.id, `${event.provider} event · ${event.outcome}`, String(event.detail), `/jobs/${encodeURIComponent(String(event.job_id))}`, Object.values(event));
+      add("event", event.id, `${event.provider} event · ${event.outcome}`, String(event.detail), `/jobs/${encodeURIComponent(String(event.job_id))}`, { provider: event.provider, outcome: event.outcome, detail: event.detail });
     }
     for (const activity of this.rows("SELECT id,run_id,action,detail,created_at FROM run_activity ORDER BY created_at DESC LIMIT 1000")) {
-      add("activity", activity.id, `${activity.action} · run ${String(activity.run_id).slice(0, 8)}`, String(activity.detail), `/job-runs/${encodeURIComponent(String(activity.run_id))}`, Object.values(activity));
+      add("activity", activity.id, `${activity.action} · run ${String(activity.run_id).slice(0, 8)}`, String(activity.detail), `/job-runs/${encodeURIComponent(String(activity.run_id))}`, { action: activity.action, detail: activity.detail, run: activity.run_id });
     }
-    return json({ items: items.slice(0, 100) });
+    return json({ items: items.sort((a, b) => (a.score ?? 9) - (b.score ?? 9)).slice(0, 100).map(({ score, ...item }) => item) });
   }
 
   private async getRun(runId: string): Promise<Response> {
-    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.issue_title, r.run_name, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_handle, r.execution_capabilities AS capabilities, r.destination_url, r.prompt AS encrypted_prompt, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
+    const run = this.one(`SELECT r.id, r.pipe_id AS job_id, r.issue_id, r.issue_url, r.issue_title, r.run_name, r.agent_name, r.workspace_name, r.agent_kind, r.state, r.provider, r.execution_backend_kind AS backend_kind, r.execution_handle, r.execution_capabilities AS capabilities, r.destination_url, r.prompt AS encrypted_prompt, r.session, r.result, r.exec_status, r.exec_exit_code, r.recovery_last_action, r.created_at, r.updated_at,
       i.id AS invocation_id, i.job_id AS invocation_job_id, i.source AS invocation_source, i.claim_key AS invocation_claim_key, i.trigger_id AS invocation_trigger_id, i.context, i.occurrence AS invocation_occurrence, i.created_at AS invocation_created_at
       FROM runs r LEFT JOIN job_runs jr ON jr.id = r.id LEFT JOIN invocations i ON i.id = jr.invocation_id WHERE r.id = ?`, runId);
     if (!run) return new Response("Not found", { status: 404 });
@@ -1059,6 +1066,8 @@ export class TenantV2 extends DurableObject<Env> {
     if (typeof run.encrypted_prompt === "string" && run.encrypted_prompt) run.prompt = await decrypt(run.encrypted_prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     delete run.encrypted_prompt;
     if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    if (run.state !== "ignored" && typeof run.session === "string" && run.session) run.session = await decrypt(run.session, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    if (!run.session && run.result) run.session = run.result;
     run.activity = this.rows("SELECT action, detail, created_at FROM run_activity WHERE run_id = ? ORDER BY created_at, id", runId);
     this.presentExecution(run);
     run.name = String(run.run_name || run.issue_title || `Run ${String(run.id).slice(0, 8)}`);
@@ -1069,7 +1078,13 @@ export class TenantV2 extends DurableObject<Env> {
         if (connection) {
           try {
             const output = await new ExeHerdrBackend(connection).readOutput(this.executionHandle(run, "exe-herdr"));
-            if (output !== null) run.live_output = output;
+            if (output !== null) {
+              const scrubbed = safeSession(output);
+              if (scrubbed !== null) {
+                run.live_output = scrubbed;
+                this.ctx.storage.sql.exec("UPDATE runs SET session=? WHERE id=?", await encrypt(scrubbed, this.env.CREDENTIAL_ENCRYPTION_KEY), run.id);
+              }
+            }
           } catch {
             // Run inspection remains available when live output is temporarily unreachable.
           }
@@ -1458,7 +1473,7 @@ export class TenantV2 extends DurableObject<Env> {
     const result = launched.command!;
     this.ctx.storage.sql.exec("UPDATE runs SET execution_backend_kind=?,execution_handle=?,execution_capabilities=?,destination_url=?,updated_at=? WHERE id=?", backend.kind, JSON.stringify(launched.handle), JSON.stringify(launched.capabilities), launched.destinationUrl, now(), run.id);
     const execRequest = await encrypt(result.requestBody, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    const execResponse = await encrypt(result.body, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    const execResponse = await encrypt(safeSession(result.body) ?? "Agent command response unavailable.", this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET exec_request = ?, exec_response = ?, exec_status = ?, exec_exit_code = ?, updated_at = ? WHERE id = ?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
     this.commandActivity(run.id, "initial agent start", result);
     if (!result.ok || (result.exitCode !== null && result.exitCode !== 0)) return this.finishRun(run, "failed", `Unable to start Herdr agent (exe.dev HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}): ${result.body.slice(0, 800)}`);
@@ -1553,7 +1568,8 @@ export class TenantV2 extends DurableObject<Env> {
     this.ctx.storage.sql.exec("UPDATE runs SET state='recovering',recovery_reason=?,recovery_started_at=COALESCE(recovery_started_at,?),recovery_next_at=?,recovery_last_action='inspecting Herdr state',updated_at=? WHERE id=?", reason, now(), Date.now(), now(), run.id);
     this.activity(run.id, "recovery_started", reason);
     const captured = await exec(connection, agentOutputCommand(connection, String(run.agent_name)));
-    if (captured.ok && captured.body.trim()) { const encrypted = await encrypt(captured.body, this.env.CREDENTIAL_ENCRYPTION_KEY); this.ctx.storage.sql.exec("UPDATE runs SET result=?,output_captured=1 WHERE id=?", encrypted, run.id); this.activity(run.id, "transcript_captured", "Captured recent output before reconciliation."); }
+    const scrubbedCapture = captured.ok ? safeSession(captured.body) : null;
+    if (scrubbedCapture) { const encrypted = await encrypt(scrubbedCapture, this.env.CREDENTIAL_ENCRYPTION_KEY); this.ctx.storage.sql.exec("UPDATE runs SET session=?,result=?,output_captured=1 WHERE id=?", encrypted, encrypted, run.id); this.activity(run.id, "transcript_captured", "Captured and scrubbed recent output before reconciliation."); }
     if (started && !Number(run.recovery_comment_started) && String(run.provider || "linear") === "linear") {
       await this.safeLinearComment(String(run.issue_id), `Factorize detected a Herdr change and started automatic recovery for run \`${run.id}\`. The concurrency slot remains reserved.`);
       this.ctx.storage.sql.exec("UPDATE runs SET recovery_comment_started=1 WHERE id=?", run.id);
@@ -1629,8 +1645,11 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async finishRun(run: Row, state: Extract<RunState, "done" | "failed">, result: string, outputCaptured = false): Promise<void> {
     const transitionedAt = now();
-    const encryptedResult = await encrypt(result, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    this.ctx.storage.sql.exec("UPDATE runs SET state = ?, result = ?, output_captured=?, updated_at = ? WHERE id = ?", state, encryptedResult, outputCaptured ? 1 : Number(run.output_captured || 0), transitionedAt, run.id);
+    const scrubbed = safeSession(result);
+    const safeResult = scrubbed ?? "The run completed without a persistable transcript.";
+    const encryptedResult = await encrypt(safeResult, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    const encryptedSession = scrubbed && outputCaptured ? await encrypt(scrubbed, this.env.CREDENTIAL_ENCRYPTION_KEY) : null;
+    this.ctx.storage.sql.exec("UPDATE runs SET state = ?, result = ?, session = COALESCE(?, session), output_captured=?, updated_at = ? WHERE id = ?", state, encryptedResult, encryptedSession, encryptedSession ? 1 : Number(run.output_captured || 0), transitionedAt, run.id);
     this.ctx.storage.sql.exec("UPDATE job_runs SET state=?,updated_at=? WHERE id=?", state === "done" ? "succeeded" : "failed", transitionedAt, run.id);
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id = ? AND issue_id = ?", run.pipe_id, run.claim_key || run.issue_id);
     this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id);
