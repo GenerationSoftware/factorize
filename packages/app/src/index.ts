@@ -181,6 +181,10 @@ app.get("/api/github/installations/:id/repositories", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   return tenant(c, session.tenantId).fetch(`https://tenant/github/installations/${encodeURIComponent(c.req.param("id"))}/repositories`);
 });
+app.get("/api/github/installations/:installationId/repositories/:repositoryId/issue-options", async (c) => {
+  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
+  return tenant(c, session.tenantId).fetch(`https://tenant/github/installations/${encodeURIComponent(c.req.param("installationId"))}/repositories/${encodeURIComponent(c.req.param("repositoryId"))}/issue-options`);
+});
 app.delete("/api/github/installations/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   const response = await tenant(c, session.tenantId).fetch(`https://tenant/github/installations/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
