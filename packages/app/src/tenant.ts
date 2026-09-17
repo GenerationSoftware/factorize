@@ -201,6 +201,9 @@ export class TenantV2 extends DurableObject<Env> {
     const url = new URL(request.url);
     try {
       if (request.method === "GET" && url.pathname === "/v1/runs") return this.listRuns(url);
+      if (request.method === "GET" && url.pathname === "/v1/webhooks/deliveries") return this.listWebhookDeliveries(url);
+      const webhookDeliveryMatch = url.pathname.match(/^\/v1\/webhooks\/deliveries\/([^/]+)$/);
+      if (request.method === "GET" && webhookDeliveryMatch) return this.getWebhookDelivery(decodeURIComponent(webhookDeliveryMatch[1]));
       if (request.method === "GET" && /^\/v1\/runs\/[^/]+$/.test(url.pathname)) return await this.getRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) return await this.stopRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/v1/execution-targets") return await this.executionTargets();
@@ -1138,6 +1141,47 @@ export class TenantV2 extends DurableObject<Env> {
 
   private recordJobEvent(jobId: string, provider: string, deliveryId: string, outcome: string, detail: string): void {
     this.ctx.storage.sql.exec("INSERT INTO job_events VALUES (?,?,?,?,?,?)", id(), jobId, provider, deliveryId, outcome, detail, now());
+    const receivedAt = now(), canonicalId = `${provider}:${deliveryId}`;
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO webhook_deliveries (id,provider,delivery_id,event_type,event_action,outcome,detail,received_at) VALUES (?,?,?,?,?,?,?,?)", canonicalId, provider, deliveryId, "unknown", "unknown", outcome, detail, receivedAt);
+    this.ctx.storage.sql.exec("UPDATE webhook_deliveries SET outcome=?,detail=? WHERE id=?", outcome, detail, canonicalId);
+    this.ctx.storage.sql.exec("INSERT INTO webhook_delivery_events (id,delivery_id,job_id,outcome,detail,created_at) VALUES (?,?,?,?,?,?)", id(), canonicalId, jobId, outcome, detail, receivedAt);
+  }
+
+  private setWebhookEvent(provider: string, deliveryId: string, eventType: unknown, eventAction: unknown): void {
+    this.ctx.storage.sql.exec("UPDATE webhook_deliveries SET event_type=?,event_action=? WHERE provider=? AND delivery_id=?", text(eventType) || "unknown", text(eventAction) || "unknown", provider, deliveryId);
+  }
+
+  private ensureWebhookDelivery(provider: string, deliveryId: string, eventType?: unknown, eventAction?: unknown): void {
+    const timestamp = now(), canonicalId = `${provider}:${deliveryId}`;
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO webhook_deliveries (id,provider,delivery_id,event_type,event_action,outcome,detail,received_at) VALUES (?,?,?,?,?,?,?,?)", canonicalId, provider, deliveryId, text(eventType) || "unknown", text(eventAction) || "unknown", "received", "Delivery received; processing is in progress.", timestamp);
+  }
+
+  private finalizeWebhookDelivery(provider: string, deliveryId: string): void {
+    this.ctx.storage.sql.exec("UPDATE webhook_deliveries SET outcome='ignored',detail='Delivery was received but did not match an enabled trigger.' WHERE provider=? AND delivery_id=? AND outcome='received'", provider, deliveryId);
+  }
+
+  private listWebhookDeliveries(url: URL): Response {
+    const limit = this.pageSize(url), cursor = this.cursor(url), clauses: string[] = [], args: unknown[] = [];
+    const filters: [string, string][] = [["provider", "provider"], ["deliveryId", "delivery_id"], ["event", "event_type"], ["action", "event_action"], ["outcome", "outcome"]];
+    for (const [query, column] of filters) { const value = url.searchParams.get(query); if (value) { clauses.push(`${column} = ?`); args.push(value); } }
+    const jobId = url.searchParams.get("jobId");
+    if (jobId) { clauses.push("EXISTS (SELECT 1 FROM webhook_delivery_events e WHERE e.delivery_id=webhook_deliveries.id AND e.job_id=?)"); args.push(jobId); }
+    const q = url.searchParams.get("q");
+    if (q) { clauses.push("(delivery_id LIKE ? OR detail LIKE ?)"); args.push(`%${q}%`, `%${q}%`); }
+    const from = url.searchParams.get("from"), to = url.searchParams.get("to");
+    if (from) { clauses.push("received_at >= ?"); args.push(from); }
+    if (to) { clauses.push("received_at <= ?"); args.push(to); }
+    if (cursor) { clauses.push("(received_at < ? OR (received_at = ? AND id < ?))"); args.push(cursor.at, cursor.at, cursor.id); }
+    const rows = this.rows(`SELECT id,provider,delivery_id AS deliveryId,event_type AS event,event_action AS action,outcome,detail,received_at AS receivedAt FROM webhook_deliveries ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY received_at DESC,id DESC LIMIT ?`, ...args, limit + 1);
+    const hasMore = rows.length > limit, items = rows.slice(0, limit);
+    return json({ items, nextCursor: hasMore ? this.nextCursor(items.at(-1), "receivedAt") : null });
+  }
+
+  private getWebhookDelivery(deliveryId: string): Response {
+    const row = this.one("SELECT id,provider,delivery_id AS deliveryId,event_type AS event,event_action AS action,outcome,detail,received_at AS receivedAt FROM webhook_deliveries WHERE id=? OR delivery_id=? ORDER BY received_at DESC LIMIT 1", deliveryId, deliveryId) as Row | undefined;
+    if (!row) return new Response("Not found", { status: 404 });
+    const timeline = this.rows("SELECT job_id AS jobId,outcome,detail,created_at AS createdAt FROM webhook_delivery_events WHERE delivery_id=? ORDER BY created_at,id", row.id);
+    return json({ ...row, timeline });
   }
 
   private async invokeWebhookJobs(provider: WebhookProvider, deliveryId: string, payload: Record<string, any>, eventName?: string): Promise<void> {
@@ -1176,7 +1220,10 @@ export class TenantV2 extends DurableObject<Env> {
 
   private async acceptLinearWebhook(event: Record<string, any>, deliveryId: string | null): Promise<Response> {
     if (!deliveryId) return new Response("Missing delivery ID", { status: 400 });
+    this.ensureWebhookDelivery("linear", deliveryId, event.type, event.action);
     await this.invokeWebhookJobs("linear", deliveryId, event);
+    this.setWebhookEvent("linear", deliveryId, event.type, event.action);
+    this.finalizeWebhookDelivery("linear", deliveryId);
     await this.ctx.storage.setAlarm(Date.now());
     return new Response(null, { status: 200 });
   }
@@ -1191,6 +1238,7 @@ export class TenantV2 extends DurableObject<Env> {
     if (!relevant) return new Response(null, { status: 202 });
     const task = await clickUpJson(connection.accessToken, `/task/${encodeURIComponent(String(event.task_id))}`);
     const deliveryId = `clickup:${event.webhook_id}:${event.event}:${event.history_items?.[0]?.date ?? event.task_id}`;
+    this.ensureWebhookDelivery("clickup", deliveryId, event.event, event.action);
     for (const { job, triggerId, triggerSlug, config } of this.webhookJobs("clickup")) {
       const payload = { ...event, task, matches: matchingClickUpTask(task, String(config.listId), config.matchRules ?? []) };
       const invocation = adaptWebhook(config, "clickup", deliveryId, payload, event.event);
@@ -1198,13 +1246,18 @@ export class TenantV2 extends DurableObject<Env> {
       const result = await this.signalAutomaticJob(String(job.id), "webhook", triggerId, `webhook:${triggerId}:${invocation.claimKey}`, { [triggerSlug]: invocation.payload }, { ...invocation.occurrence, metadata: { ...invocation.occurrence.metadata, triggerId } });
       this.recordJobEvent(String(job.id), "clickup", deliveryId, result?.duplicate ? "duplicate" : result ? "accepted" : "ignored", result ? "ClickUp task queued through canonical job invocation." : "Job was unavailable.");
     }
+    this.setWebhookEvent("clickup", deliveryId, event.event, event.action);
+    this.finalizeWebhookDelivery("clickup", deliveryId);
     await this.ctx.storage.setAlarm(Date.now());
     return new Response(null, { status: 200 });
   }
 
   private async acceptGitHubWebhook(event: Record<string, any>, deliveryId: string | null, eventName: string | null): Promise<Response> {
     if (!deliveryId || !eventName) return new Response("Missing delivery metadata", { status: 400 });
+    this.ensureWebhookDelivery("github", deliveryId, eventName, event.action);
     if (eventName !== "pull_request" || event.action !== "dequeued") await this.invokeWebhookJobs("github", deliveryId, event, eventName);
+    this.setWebhookEvent("github", deliveryId, eventName, event.action);
+    this.finalizeWebhookDelivery("github", deliveryId);
     if (eventName !== "pull_request" || event.action !== "dequeued") { await this.ctx.storage.setAlarm(Date.now()); return new Response(null, { status: 202 }); }
     const installationId = event.installation?.id, repositoryId = event.repository?.id, pull = event.pull_request;
     if (!Number.isSafeInteger(installationId) || !Number.isSafeInteger(repositoryId) || !Number.isSafeInteger(pull?.number)) return new Response(null, { status: 202 });
