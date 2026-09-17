@@ -88,7 +88,7 @@ describe("Worker routes", () => {
   it("returns secret-free integration status through the owner boundary", async () => {
     const status = {
       linear: { organizationName: "Generation", viewerEmail: "owner@example.com" },
-      exeConnections: [{ connectionId: "exe-1", repositoryUrl: "https://github.int.exe.xyz/acme/repo.git", tags: ["github"], agentKind: "codex" }],
+      exeConnections: [{ connectionId: "exe-1", tags: ["github"] }],
       ampConnections: [{ connectionId: "amp-1", project: "generation/factorize", apiBaseUrl: "https://ampcode.com/api/cloud/v1" }],
     };
     const response = await app.request("https://factorize.test/api/connections/status", {

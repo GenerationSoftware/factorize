@@ -28,6 +28,7 @@ function agentCommand(connection: ExeRunConnection): string {
 }
 
 export interface ExePermissionTest { ok: boolean; missingPermissions: string[]; tags: string[]; checks: BackendCommandResult[] }
+export interface ExeAgentValidation { models: string[]; command: BackendCommandResult }
 
 export function tagsFromInventory(inventory: unknown): string[] {
   const tags = new Set<string>();
@@ -45,7 +46,7 @@ export class ExeVmBackend implements ExecutionBackend {
   readonly kind = "exe-vm";
   readonly capabilities = capabilities;
 
-  constructor(private readonly connection: ExeConnection | ExeRunConnection) {}
+  constructor(private readonly connection: Pick<ExeConnection, "apiToken" | "tags"> | ExeRunConnection) {}
 
   private async api(command: string): Promise<BackendCommandResult> {
     const response = await fetch(API, { method: "POST", headers: { Authorization: `Bearer ${this.connection.apiToken}`, "Content-Type": "text/plain" }, body: command });
@@ -70,9 +71,29 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async test(): Promise<BackendCommandResult> { return this.api("ls --json"); }
 
+  async validateAgentAndModels(agentKind: "codex" | "claude"): Promise<ExeAgentValidation> {
+    const vm = vmNameFor(`validate-${crypto.randomUUID()}`);
+    const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
+    const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
+    if (!created.ok) throw new Error(`Could not create the validation VM (${created.status}): ${created.body.slice(0, 300)}`);
+    try {
+      const binary = agentKind === "codex" ? "codex" : "claude";
+      const remote = `command -v ${binary} >/dev/null && curl --fail --silent --show-error https://llm.int.exe.xyz/v1/models | jq -cer '[.data[]?.id | strings] | unique'`;
+      let result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(remote)}`);
+      for (let attempt = 1; !result.ok && attempt < 5; attempt++) result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(remote)}`);
+      if (!result.ok) throw new Error(`${binary} or its model integration is unavailable on a VM with these tags (${result.status}): ${result.body.slice(0, 300)}`);
+      const parsed: unknown = JSON.parse(result.body);
+      if (!Array.isArray(parsed) || parsed.some(model => typeof model !== "string")) throw new Error("The exe.dev model endpoint returned an invalid response");
+      return { models: [...new Set(parsed.map(model => model.trim()).filter(Boolean))].sort(), command: result };
+    } finally {
+      const removed = await this.deleteVm(vm);
+      if (!removed.ok) throw new Error(`The validation VM could not be deleted (${removed.status}): ${removed.body.slice(0, 300)}`);
+    }
+  }
+
   async launch(request: LaunchRequest): Promise<LaunchReceipt> {
     const connection = this.connection as ExeRunConnection;
-    if (!connection.agentKind || !connection.repositoryUrl) throw new Error("The job is missing its agent or repository configuration");
+    if (!connection.agentKind) throw new Error("The job is missing its agent configuration");
     const vm = vmNameFor(request.runId);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
@@ -82,13 +103,10 @@ export class ExeVmBackend implements ExecutionBackend {
     }
 
     const prompt = base64(request.prompt), output = "/tmp/factorize.log", status = "/tmp/factorize.status";
-    const checkout = connection.checkoutRef ? ` && git checkout --detach ${shellAtom(connection.checkoutRef)}` : "";
     const work = [
       "set -eu",
       "mkdir -p /workspace",
       "cd /workspace",
-      `git clone -- ${shellAtom(connection.repositoryUrl)} repo`,
-      `cd repo${checkout}`,
       `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
       `setsid nohup sh -c ${shellAtom(`set +e; ${agentCommand(connection)} < /tmp/factorize-prompt.md > ${output} 2>&1; code=$?; printf '%s' "$code" > ${status}`)} >/dev/null 2>&1 &`,
       "echo started",

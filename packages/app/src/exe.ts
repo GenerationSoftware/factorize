@@ -1,17 +1,15 @@
 export interface ExeConnection {
   apiToken: string;
   tags: string[];
+  agentKind: "codex" | "claude";
+  models?: string[];
+  modelsRefreshedAt?: string;
 }
 
 export interface ExeRunConnection extends ExeConnection {
-  agentKind: string;
-  repositoryUrl: string;
-  checkoutRef?: string;
   agentCommand?: string;
   model?: string;
   effort?: string;
-  models?: string[];
-  modelsRefreshedAt?: string;
   efforts?: string[];
 }
 

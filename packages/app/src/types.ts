@@ -53,6 +53,7 @@ export interface ExeConnectionInput {
   connectionId?: string;
   apiToken: string;
   tags?: string[];
+  agentKind: "codex" | "claude";
 }
 
 export interface AmpConnectionInput { connectionId?: string; accessToken: string; project: string; apiBaseUrl?: string; }
