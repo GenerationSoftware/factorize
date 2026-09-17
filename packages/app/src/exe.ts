@@ -64,7 +64,7 @@ export function launchAgentCommand(agentName: string, connection: ExeConnection,
     `workspace_id=$(printf '%s' "$workspaces" | jq -r --arg label ${shellAtom(workspaceName)} '.result.workspaces[]? | select(.label == $label) | .workspace_id' | head -n1)`,
     `if [ -z "$workspace_id" ]; then created=$(${herdr} workspace create --cwd ${shellAtom(runPath)} --label ${shellAtom(workspaceName)} --no-focus) && workspace_id=$(printf '%s' "$created" | jq -er '.result.workspace.workspace_id') && tab_id=$(printf '%s' "$created" | jq -er '.result.tab.tab_id') && pane=$(printf '%s' "$created" | jq -er '.result.root_pane.pane_id') && ${herdr} tab rename "$tab_id" ${shellAtom(name)} >/dev/null; else tabs=$(${herdr} tab list --workspace "$workspace_id") && tab_id=$(printf '%s' "$tabs" | jq -r --arg label ${shellAtom(name)} '.result.tabs[]? | select(.label == $label) | .tab_id' | head -n1); if [ -z "$tab_id" ]; then created=$(${herdr} tab create --workspace "$workspace_id" --cwd ${shellAtom(runPath)} --label ${shellAtom(name)} --no-focus) && tab_id=$(printf '%s' "$created" | jq -er '.result.tab.tab_id') && pane=$(printf '%s' "$created" | jq -er '.result.root_pane.pane_id'); else panes=$(${herdr} pane list --workspace "$workspace_id") && pane=$(printf '%s' "$panes" | jq -r --arg tab "$tab_id" '.result.panes[]? | select(.tab_id == $tab) | .pane_id' | head -n1); test -n "$pane"; extras=$(printf '%s' "$panes" | jq -r --arg tab "$tab_id" --arg keep "$pane" '.result.panes[]? | select(.tab_id == $tab and .pane_id != $keep) | .pane_id'); for extra in $extras; do ${herdr} pane close "$extra" >/dev/null; done; fi; fi`,
     `existing=$(${herdr} agent get ${shellAtom(name)} 2>/dev/null || true)`,
-    `if [ -n "$existing" ]; then printf '%s\\n' "$existing"; else ${herdr} agent start ${shellAtom(name)} --kind ${shellAtom(connection.agentKind)} --pane "$pane"${agentCommand(connection, launchInstruction, runPath)}${startupTrustCommand(connection, name)} && ${herdr} agent get ${shellAtom(name)}; fi`,
+    `if [ -n "$existing" ]; then printf '%s\\n' "$existing"; else ${startupTrustLock(connection)}${herdr} agent start ${shellAtom(name)} --kind ${shellAtom(connection.agentKind)} --pane "$pane"${agentCommand(connection, launchInstruction, runPath)}${startupTrustCommand(connection, name)}${startupTrustUnlock(connection)} && ${herdr} agent get ${shellAtom(name)}; fi`,
   ].join(" && ");
 }
 
@@ -74,6 +74,17 @@ function startupTrustCommand(connection: ExeConnection, agentName: string): stri
   if (connection.agentKind !== "codex") return "";
   const herdr = herdrBinary(connection), name = shellAtom(agentName);
   return ` && startup_output=$(${herdr} agent read ${name} --source recent --format text) && case "$startup_output" in *"Do you trust the contents of this directory?"*) ${herdr} agent prompt ${name} '1' --wait --until working --until idle --timeout 15000 >/dev/null ;; esac`;
+}
+
+/** Every trust acceptance rewrites the shared Codex config. Serialize that brief handshake so
+ * simultaneous Factorize runs cannot make config/batchWrite race on config.toml. */
+function startupTrustLock(connection: ExeConnection): string {
+  if (connection.agentKind !== "codex") return "";
+  return `trust_lock=/tmp/factorize-codex-trust-$(id -u).lock && exec 9>"$trust_lock" && flock 9 && `;
+}
+
+function startupTrustUnlock(connection: ExeConnection): string {
+  return connection.agentKind === "codex" ? ` && flock -u 9` : "";
 }
 
 export function promptAgentCommand(connection: ExeConnection, agentName: string, prompt: string): string {
@@ -136,7 +147,8 @@ export function stopAgentCommand(connection: ExeConnection, agentName: string): 
 /** Revalidate terminal, run directory, and lease immediately before closing a pane. */
 export function garbageCollectPaneCommand(connection: ExeConnection, paneId: string, terminalId: string, runPath: string, lease: string): string {
   const herdr = herdrBinary(connection), pane = shellAtom(paneId);
-  return [herdrPrefix(connection), `pane_json=$(${herdr} pane get ${pane})`, `printf '%s' "$pane_json" | jq -e --arg pane ${pane} --arg terminal ${shellAtom(terminalId)} '(.result.pane // .result) | .pane_id == $pane and .terminal_id == $terminal' >/dev/null`, `test -d ${shellAtom(runPath)}`, `test "$(cat ${shellAtom(`${runPath}/.factorize-lease`)})" = ${shellAtom(lease)}`, `agent=$(${herdr} agent get ${pane} 2>/dev/null || true)`, `status=$(printf '%s' "$agent" | jq -r '.result.agent.agent_status // .result.agent.state // empty' | tr '[:upper:]' '[:lower:]')`, `case "$status" in ''|idle|done) ;; *) exit 1 ;; esac`, `${herdr} pane close ${pane}`].join(" && ");
+  const runsDirectory = `${connection.cwd.replace(/\/$/, "")}/.factorize-runs`;
+  return [herdrPrefix(connection), `test ${shellAtom(runPath)} != ${shellAtom(runsDirectory)}`, `case ${shellAtom(runPath)} in ${shellAtom(`${runsDirectory}/`)}*) ;; *) exit 1 ;; esac`, `pane_json=$(${herdr} pane get ${pane})`, `printf '%s' "$pane_json" | jq -e --arg pane ${pane} --arg terminal ${shellAtom(terminalId)} '(.result.pane // .result) | .pane_id == $pane and .terminal_id == $terminal' >/dev/null`, `test -d ${shellAtom(runPath)}`, `test "$(cat ${shellAtom(`${runPath}/.factorize-lease`)})" = ${shellAtom(lease)}`, `agent=$(${herdr} agent get ${pane} 2>/dev/null || true)`, `status=$(printf '%s' "$agent" | jq -r '.result.agent.agent_status // .result.agent.state // empty' | tr '[:upper:]' '[:lower:]')`, `case "$status" in ''|idle|done) ;; *) exit 1 ;; esac`, `${herdr} pane close ${pane}`, `rm -rf -- ${shellAtom(runPath)}`, `test ! -e ${shellAtom(runPath)}`].join(" && ");
 }
 
 export function herdrCheckCommand(connection: ExeConnection): string {

@@ -7,7 +7,7 @@ import { LINEAR_ISSUE_PROJECT_QUERY, LINEAR_OPTION_QUERIES, LINEAR_PROJECTS_QUER
 import { matchingIssue } from "./matcher";
 import type { AmpConnectionInput, Env, ExeConnectionInput, FilterType, MatchRule, RunState, TailIntegrationInput } from "./types";
 import { workingDirectoryFor, workspaceNameFor } from "./workspace";
-import { githubClaimKey, githubHeaders, installationToken, normalizeRepository, renderGitHubPrompt } from "./github";
+import { githubClaimKey, githubCollection, githubHeaders, installationToken, normalizeRepository, renderGitHubPrompt } from "./github";
 import type { WorkItem } from "./types";
 import { invokeCustomHandler } from "./custom-handler";
 import { generateTailSecret, sanitizeTailEvent, signTailDelivery, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
@@ -238,6 +238,8 @@ export class TenantV2 extends DurableObject<Env> {
       if (request.method === "POST" && url.pathname === "/github/setup-state/consume") return this.consumeSetupState(await request.json());
       const repoMatch = url.pathname.match(/^\/github\/installations\/(\d+)\/repositories$/);
       if (request.method === "GET" && repoMatch) return await this.githubRepositories(Number(repoMatch[1]));
+      const optionMatch = url.pathname.match(/^\/github\/installations\/(\d+)\/repositories\/(\d+)\/issue-options$/);
+      if (request.method === "GET" && optionMatch) return await this.githubIssueOptions(Number(optionMatch[1]), Number(optionMatch[2]));
       const stateMatch = url.pathname.match(/^\/github\/installations\/(\d+)\/state$/);
       if (request.method === "PATCH" && stateMatch) return this.updateGitHubInstallation(Number(stateMatch[1]), await request.json());
       const installMatch = url.pathname.match(/^\/github\/installations\/(\d+)$/);
@@ -1386,7 +1388,7 @@ export class TenantV2 extends DurableObject<Env> {
     }
     this.commandActivity(run.id, "pane garbage collection", collected);
     if (collected.ok && (collected.exitCode === null || collected.exitCode === 0)) {
-      this.ctx.storage.sql.exec("UPDATE runs SET pane_collected=1,pane_collection_attempt=?,pane_collection_next_at=NULL,worktree_disposition='retained',updated_at=? WHERE id=?", attempt, now(), run.id);
+      this.ctx.storage.sql.exec("UPDATE runs SET pane_collected=1,pane_collection_attempt=?,pane_collection_next_at=NULL,worktree_disposition='deleted',updated_at=? WHERE id=?", attempt, now(), run.id);
       return;
     }
     this.schedulePaneCollection(run.id, attempt);
@@ -1537,6 +1539,23 @@ export class TenantV2 extends DurableObject<Env> {
       page += 1;
     }
     return json(repositories.map(normalizeRepository));
+  }
+
+  private async githubIssueOptions(installationId: number, repositoryId: number): Promise<Response> {
+    const installation = this.one("SELECT state FROM github_installations WHERE installation_id=?", installationId) as Row | undefined;
+    if (installation?.state !== "active") return new Response("GitHub installation is unavailable", { status: 409 });
+    const token = await installationToken(this.env, installationId);
+    const repositoryResponse = await fetch(`https://api.github.com/repositories/${repositoryId}`, { headers: githubHeaders(token) });
+    if (!repositoryResponse.ok) return new Response("GitHub repository is unavailable", { status: repositoryResponse.status });
+    const repository = await repositoryResponse.json() as { full_name?: string };
+    if (!repository.full_name) return new Response("GitHub repository is unavailable", { status: 404 });
+    const load = (path: string) => githubCollection<{ id: number; name?: string; login?: string }>(`https://api.github.com/repos/${repository.full_name}/${path}`, token);
+    const [labels, assignees] = await Promise.all([load("labels"), load("assignees")]);
+    return json({
+      statuses: [{ id: "open", name: "Open" }, { id: "closed", name: "Closed" }],
+      labels: labels.map(label => ({ id: String(label.id), name: label.name ?? String(label.id) })),
+      users: assignees.map(user => ({ id: String(user.id), name: user.login ?? String(user.id) })),
+    });
   }
 
   private async validateSource(input: PipeInput): Promise<FlowSource> {

@@ -28,6 +28,19 @@ describe("ApiService", () => {
     await service.invokeJob("job-1", { prompt: "go", idempotencyKey: "client-1" });
     expect(requests).toEqual(["POST /v1/jobs", "POST /v1/jobs/job-1/invocations"]);
   });
+
+  it("lists safe GitHub installation metadata with the flow read scope", async () => {
+    const installations = [{ installationId: 123, accountLogin: "generation", accountType: "Organization", state: "active", updatedAt: "2026-09-17T00:00:00.000Z" }];
+    const service = new ApiService(environment(request => {
+      const path = new URL(request.url).pathname;
+      if (path === "/members/owner-a") return Response.json({ role: "owner", session_version: 4 });
+      if (path === "/github/installations") return Response.json(installations);
+      return new Response("Not found", { status: 404 });
+    }), auth);
+
+    await expect(service.listGitHubInstallations()).resolves.toEqual(installations);
+    expect(JSON.stringify(installations)).not.toMatch(/token|secret|credential/i);
+  });
 });
 
 describe("shared API schemas", () => {

@@ -112,7 +112,7 @@ describe("Worker routes", () => {
 
   it("fails closed for removed Flow and generic webhook routes", async () => {
     const env = testEnv(ownerHandler({}));
-    for (const path of ["/api/pipes", "/api/pipes/old", "/api/runs/old", "/flows", "/flows/old", "/webhooks/custom/tenant/job"]) {
+    for (const path of ["/api/jobs", "/api/job-runs", "/api/execution-targets", "/api/job-trigger-availability", "/api/schedules/preview", "/api/pipes", "/api/pipes/old", "/api/runs/old", "/flows", "/flows/old", "/webhooks/custom/tenant/job"]) {
       const response = await app.request(`https://factorize.test${path}`, { headers: { cookie: await sessionCookie() } }, env);
       expect(response.status, path).toBe(404);
     }
