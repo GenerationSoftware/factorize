@@ -250,8 +250,10 @@ describe("pages", () => {
     const settings = settingsPage({ email: "owner@example.com" });
     expect(list).toContain("jobStatus(j)");
     expect(list).toContain("j.runningCount>0");
-    expect(list).toContain("Last run failed");
-    expect(list).toContain("Last run succeeded");
+    expect(list).toContain("label:'Idle'");
+    expect(list).toContain("classes:'bg-stone-300 ring-stone-200 dark:bg-slate-600 dark:ring-slate-800'");
+    expect(list).not.toContain("Last run failed");
+    expect(list).not.toContain("Last run succeeded");
     expect(list).toContain("/'+esc(j.concurrencyLimit)+' Running");
     expect(list).toMatch(/<h1 class="text-3xl font-bold tracking-tight">Jobs<\/h1><\/div><a href="\/jobs\/new"/);
     expect(list).not.toContain("Create reusable agent work and choose exactly how it starts.");
