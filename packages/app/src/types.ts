@@ -57,6 +57,7 @@ export interface ExeConnectionInput {
   agentCommand?: string;
   models?: string[];
   modelsRefreshedAt?: string;
+  efforts?: string[];
 }
 
 export interface AmpConnectionInput { connectionId?: string; accessToken: string; project: string; apiBaseUrl?: string; }

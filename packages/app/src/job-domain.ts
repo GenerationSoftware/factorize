@@ -28,6 +28,7 @@ export interface Job {
   slug: string;
   promptTemplate: string;
   model: string;
+  effort?: string;
   executionTarget: ExecutionTarget;
   concurrencyLimit: number;
   enabled: boolean;

@@ -87,6 +87,11 @@ describe("flow workspaces", () => {
     expect(command).toContain("-- '--dangerously-bypass-approvals-and-sandbox' '--model' 'gpt-5.5 codex'");
   });
 
+  it("passes a per-job reasoning effort to Codex", () => {
+    const command = startAgentCommand("factorize-1", { vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo", effort: "high" }, "fix it", "factorize", "/repo/.factorize-runs/run", "lease");
+    expect(command).toContain("'-c' 'model_reasoning_effort=high'");
+  });
+
   it("garbage collects the pane and run directory only after ownership revalidation", () => {
     const command = garbageCollectPaneCommand({ vmName: "vm", apiToken: "token", agentKind: "codex", cwd: "/repo" }, "w1:p2", "term-7", "/repo/.factorize-runs/run", "lease-7");
     expect(command).toContain(".terminal_id == $terminal");
