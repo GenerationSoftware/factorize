@@ -6,7 +6,15 @@ function fromBase64(value: string): Uint8Array {
 }
 
 function toBase64(value: Uint8Array): string {
-  return btoa(String.fromCharCode(...value));
+  // Spreading a large transcript into a function call exceeds the JavaScript
+  // argument limit. Chunking preserves the existing wire format without
+  // imposing an artificial size limit on encrypted run output.
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < value.length; offset += chunkSize) {
+    binary += String.fromCharCode(...value.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
 }
 
 async function importAesKey(encodedKey: string): Promise<CryptoKey> {
