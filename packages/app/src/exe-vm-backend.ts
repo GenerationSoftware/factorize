@@ -2,6 +2,8 @@ import type { BackendCommandResult, ExecutionBackend, ExecutionObservation, Laun
 import { base64 } from "./crypto";
 import { shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
 
+import { HARNESS_LOG_LIMIT, safeDiagnosticText } from "./harness-diagnostics";
+
 const API = "https://exe.dev/exec";
 const capabilities = ["output", "recovery", "stop"] as const;
 
@@ -101,15 +103,14 @@ export class ExeVmBackend implements ExecutionBackend {
       "mkdir -p /home/exedev/workspace",
       "cd /home/exedev/workspace",
       `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
-      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=file:/tmp/factorize-prompt.md --property=StandardOutput=append:${output} --property=StandardError=append:${output} ${harnessCommand(request.harness)}; fi`,
+      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=file:/tmp/factorize-prompt.md --property=StandardOutput=append:${output} --property=StandardError=append:/tmp/factorize.stderr ${harnessCommand(request.harness)}; fi`,
       "echo started",
     ].join("; ");
     let started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
     const accepted = (result: BackendCommandResult) => result.ok && result.body.trim() === "started";
     for (let attempt = 1; !accepted(started) && attempt < 5; attempt++) started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
     if (!accepted(started)) {
-      const cleanup = await this.deleteVm(vm);
-      const detail = `VM provisioning failed (${started.status}): ${started.body.slice(0, 500)}${cleanup.ok ? "" : `; cleanup also failed: ${cleanup.body.slice(0, 200)}`}`;
+      const detail = `VM provisioning failed (${started.status}): ${safeDiagnosticText(started.body, 500)}`;
       return { handle: { backendKind: this.kind, id: vm }, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail, command: started }, command: started };
     }
     return { handle: { backendKind: this.kind, id: vm }, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "running", command: started }, command: started };
@@ -117,15 +118,36 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async inspect(handle: RunHandle): Promise<ExecutionObservation> {
     const vm = this.vm(handle);
-    const inspect = `unit=${shellAtom(vm)}; load=$(sudo systemctl show "$unit" --property=LoadState --value 2>/dev/null || true); active=$(sudo systemctl show "$unit" --property=ActiveState --value 2>/dev/null || true); sub=$(sudo systemctl show "$unit" --property=SubState --value 2>/dev/null || true); result=$(sudo systemctl show "$unit" --property=Result --value 2>/dev/null || true); code=$(sudo systemctl show "$unit" --property=ExecMainStatus --value 2>/dev/null || true); if [ "$load" != loaded ]; then printf missing; elif [ "$sub" = running ] || [ "$sub" = start ] || [ "$active" = activating ] || [ "$active" = deactivating ]; then printf running; elif [ "$result" = success ] && [ "$code" = 0 ]; then printf succeeded; else printf failed; fi`;
-    const result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(inspect)}`);
-    if (!result.ok) return result.status >= 500
-      ? { state: "running", detail: `VM inspection is temporarily unavailable (${result.status})`, command: result }
-      : { state: "failed", detail: `The run-owned VM is unavailable (${result.status}): ${result.body.slice(0, 300)}`, command: result };
-    const state = result.body.trim();
-    if (state === "succeeded") return { state: "succeeded", command: result };
-    if (state === "running") return { state: "running", command: result };
-    return { state: "failed", detail: state === "missing" ? "The run supervisor disappeared before recording a result." : "The supervised agent process exited unsuccessfully.", command: result };
+    const inspect = `sudo systemctl show ${shellAtom(vm)} --property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus`;
+    let response: BackendCommandResult;
+    try { response = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(inspect)}`); }
+    catch { return { state: "running", detail: "VM inspection is temporarily unavailable" }; }
+    // systemctl can return nonzero for a missing unit, but still emits LoadState.
+    if (!response.ok && !response.body.includes("LoadState=not-found")) return ![404, 410].includes(response.status)
+      ? { state: "running", detail: `VM inspection is temporarily unavailable (${response.status})` }
+      : { state: "failed", detail: `The run-owned VM is unavailable (${response.status})` };
+    const properties = Object.fromEntries(response.body.split("\n").filter(line => /^[A-Za-z]+=/.test(line)).map(line => { const index = line.indexOf("="); return [line.slice(0, index), line.slice(index + 1).trim()]; }));
+    const label = (name: string) => /^[a-z-]{1,64}$/.test(properties[name] ?? "") ? properties[name] : "";
+    const number = (name: string) => /^\d{1,10}$/.test(properties[name] ?? "") ? Number(properties[name]) : null;
+    const systemd = { loadState: label("LoadState"), activeState: label("ActiveState"), subState: label("SubState"), result: label("Result"), execMainCode: number("ExecMainCode"), execMainStatus: number("ExecMainStatus") };
+    if (!systemd.loadState) return { state: "running", detail: "VM inspection returned incomplete supervisor metadata" };
+    if (systemd.loadState !== "loaded") return { state: "failed", systemd, detail: "The run supervisor disappeared before recording a result." };
+    if (["running", "start"].includes(systemd.subState) || ["activating", "deactivating"].includes(systemd.activeState)) return { state: "running", systemd };
+    if (!systemd.activeState || !systemd.subState || !systemd.result || systemd.execMainStatus === null || systemd.execMainCode === null) return { state: "running", detail: "VM inspection returned incomplete supervisor metadata" };
+    if (systemd.result === "success" && systemd.execMainStatus === 0) return { state: "succeeded", systemd };
+    return { state: "failed", systemd, detail: `The supervised agent process exited unsuccessfully (Result=${systemd.result}, ExecMainCode=${systemd.execMainCode}, ExecMainStatus=${systemd.execMainStatus}).` };
+  }
+
+  async readHarnessLog(handle: RunHandle): Promise<string> {
+    // Read the first bounded bytes: starting in the middle of a credential could evade redaction.
+    // Old VMs have only the combined log.
+    const remote = `if [ -f /tmp/factorize.stderr ]; then head -c ${HARNESS_LOG_LIMIT} /tmp/factorize.stderr; else head -c ${HARNESS_LOG_LIMIT} /tmp/factorize.log; fi`;
+    const response = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
+    if (!response.ok) throw new Error(`Harness log collection failed (${response.status})`);
+    // Drop a possibly cut final line before redaction. Never retain a partial credential.
+    const text = new TextEncoder().encode(response.body).length >= HARNESS_LOG_LIMIT
+      ? response.body.slice(0, response.body.lastIndexOf("\n") + 1) + "\n[Harness log truncated]\n" : response.body;
+    return safeDiagnosticText(text, HARNESS_LOG_LIMIT);
   }
 
   async readOutput(handle: RunHandle): Promise<string | null> {

@@ -1,4 +1,4 @@
-import Mustache from "mustache";
+import { renderTextTemplate } from "./text-template";
 import type { WorkItem } from "./types";
 
 const object = (value: unknown): Record<string, any> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
@@ -59,7 +59,7 @@ export function renderContextTemplate(template: string, payload: Record<string, 
     title: text(ticket.title) || "Untitled Linear issue", description: text(ticket.description).trim() || "No description provided.",
     project, assignee, state, labels: labels.map((name, index) => ({ name, last: index === labels.length - 1 })),
   };
-  return Mustache.render(template || DEFAULT_CONTEXT_TEMPLATE, { ...payload, ticket: normalizedTicket, flow: { name: flowName } });
+  return renderTextTemplate(template || DEFAULT_CONTEXT_TEMPLATE, { ...payload, ticket: normalizedTicket, flow: { name: flowName } });
 }
 
 export const linearTicketPrompt = (payload: Record<string, unknown>, flowName: string) => renderContextTemplate(DEFAULT_CONTEXT_TEMPLATE, payload, flowName);

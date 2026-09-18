@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import Mustache from "mustache";
 import { InvocationService, renderJobPrompt, renderRunName, type Invocation, type Job, type JobRepository, type JobRun } from "../src/job-domain";
 
 const job = (overrides: Partial<Job> = {}): Job => ({
@@ -20,6 +21,27 @@ class MemoryRepository implements JobRepository {
 }
 
 describe("job invocation domain", () => {
+  it("preserves plain text without decoding literal entities or changing HTML renderers", () => {
+    const value = 'https://linear.app/generation/issue/GEN-2108/run-page?a=1&b=2\n{"title":"Fix it"} <script>alert("x")</script> `code` = &amp; &#x2F;';
+    const context = { "trigger-1": { prompt: value }, "trigger-2": false };
+    for (const substitution of ["{{trigger-1.prompt}}", "{{{trigger-1.prompt}}}", "{{&trigger-1.prompt}}"]) {
+      expect(renderJobPrompt({ promptTemplate: "{{#trigger-1}}<task>\n" + substitution + "\n</task>{{/trigger-1}}{{^trigger-2}} done{{/trigger-2}}" }, context))
+        .toBe("<task>\n" + value + "\n</task> done");
+    }
+    expect(renderRunName("Review {{trigger-1.prompt}}", context, "fallback")).toBe("Review " + value);
+    expect(Mustache.render("{{value}}", { value: "<script>&" })).toBe("&lt;script&gt;&amp;");
+  });
+
+  it("encrypts and persists the original manual task text at invocation time", async () => {
+    const repository = new MemoryRepository();
+    repository.jobs.set("job-1", job({ promptTemplate: "<task>\n{{trigger-1.prompt}}\n</task>" }));
+    const service = new InvocationService(repository, async value => `encrypted:${value}`);
+    const prompt = 'https://linear.app/generation/issue/GEN-2108/run-page\n{"task":"Fix quotes & slashes"}';
+    const result = await service.invoke("job-1", { source: "manual", triggerId: "manual-1", claimKey: "plain-text", context: { "trigger-1": { prompt } } });
+    expect(result.run.encryptedPrompt).toBe(`encrypted:<task>\n${prompt}\n</task>`);
+    expect(repository.claims.get("job-1:plain-text")?.run.encryptedPrompt).toBe(result.run.encryptedPrompt);
+  });
+
   it("renders run names with active and inactive trigger conditionals", () => {
     expect(renderRunName("{{#trigger-2}}{{trigger-2.issue.identifier}}{{/trigger-2}}{{^trigger-2}}manual{{/trigger-2}}", { "trigger-1": { prompt: "go" }, "trigger-2": false }, "fallback")).toBe("manual");
     expect(renderRunName("{{#trigger-2}}{{trigger-2.issue.identifier}}{{/trigger-2}}", { "trigger-1": false, "trigger-2": { issue: { identifier: "GEN-1" } } }, "fallback")).toBe("GEN-1");
@@ -45,6 +67,31 @@ describe("job invocation domain", () => {
     const service = new InvocationService(repository, async value => value, () => crypto.randomUUID(), () => "2026-09-16T00:00:00.000Z");
     const result = await service.invoke("job-1", { source: "webhook", triggerId: "webhook-1", claimKey: "delivery-name", context: { "trigger-2": { issue: { identifier: "GEN-2113" } } } });
     expect(result.run.runName).toBe("Review GEN-2113");
+  });
+
+  it("persists explicit manual names and returns the original name on replay", async () => {
+    const repository = new MemoryRepository();
+    repository.jobs.set("job-1", job({ runNameTemplate: "Template name" }));
+    const service = new InvocationService(repository, async value => value);
+    const request = { source: "manual" as const, name: "GEN-2106 — Issue title", triggerId: "manual-1", claimKey: "manual:issue", context: { "trigger-1": { data: { identifier: "GEN-2106" } } } };
+    const first = await service.invoke("job-1", request);
+    expect((await repository.findInvocation("job-1", request.claimKey))?.run.runName).toBe(request.name);
+    const retry = await service.invoke("job-1", { ...request, name: "Changed name" });
+    expect(retry).toEqual({ ...first, duplicate: true });
+  });
+
+  it.each(["webhook", "schedule", "jobLifecycle"] as const)("keeps %s names template-derived", async source => {
+    const repository = new MemoryRepository();
+    repository.jobs.set("job-1", job({ runNameTemplate: "Automatic" }));
+    const result = await new InvocationService(repository, async value => value).invoke("job-1", { source, name: "Manual override", triggerId: "trigger", claimKey: "event", context: {} });
+    expect(result.run.runName).toBe("Automatic");
+  });
+
+  it.each(["", "   "])("uses the template for an empty manual domain name %j", async name => {
+    const repository = new MemoryRepository();
+    repository.jobs.set("job-1", job({ runNameTemplate: "{{trigger-1.data.identifier}}" }));
+    const result = await new InvocationService(repository, async value => value).invoke("job-1", { source: "manual", name, triggerId: "manual-1", claimKey: "event", context: { "trigger-1": { data: { identifier: "GEN-2106" } } } });
+    expect(result.run.runName).toBe("GEN-2106");
   });
 
   it("starts queued runs only while the job has capacity", async () => {
