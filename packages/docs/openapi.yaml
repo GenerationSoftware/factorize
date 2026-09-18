@@ -24,7 +24,7 @@ components:
         executionTargetId: { type: string, minLength: 1 }
         model: { type: string, maxLength: 120 }
         effort: { type: string, maxLength: 40 }
-        triggers: { type: array, maxItems: 50, items: { type: object } }
+        triggers: { type: array, maxItems: 50, items: { type: object }, description: "Job lifecycle config uses sourceJobIds and states (succeeded, failed, stopped, edited). Edited fires on successful job saves, including enable/disable; context contains source_job_id, event, and edited_at." }
     RunPage: { type: object, required: [items], properties: { items: { type: array, items: { type: object } }, nextCursor: { type: string, nullable: true } } }
     ManualInvocation:
       type: object
@@ -75,7 +75,7 @@ paths:
     delete: { summary: Delete job, responses: { '200': { description: Deleted } } }
   /api/v1/jobs/{jobId}/enable: { post: { summary: Enable job, responses: { '200': { description: Enabled } } } }
   /api/v1/jobs/{jobId}/disable: { post: { summary: Disable job, responses: { '200': { description: Disabled } } } }
-  /api/v1/jobs/{jobId}/invocations: { post: { summary: Invoke job, requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ManualInvocation' } } } }, responses: { '202': { description: Accepted } } } }
+  /api/v1/jobs/{jobId}/invocations: { post: { summary: Invoke job, requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ManualInvocation' } } } }, responses: { '202': { description: Accepted }, '409': { description: 'queue_full — this job already has one queued run. Retry after it starts. Duplicate idempotency keys return the original run.' } } } }
   /api/v1/jobs/{jobId}/events: { get: { summary: List webhook activity, responses: { '200': { description: Activity } } } }
   /api/v1/webhooks/deliveries: { get: { summary: Search webhook deliveries, responses: { '200': { description: Cursor-paginated safe delivery records } } } }
   /api/v1/webhooks/deliveries/{deliveryId}: { get: { summary: Get webhook delivery detail and processing timeline, responses: { '200': { description: Safe delivery detail } } } }

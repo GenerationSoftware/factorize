@@ -1,7 +1,7 @@
 import { clickUpJson, matchingClickUpTask } from "../clickup";
 import { verifyTailDelivery, sanitizeTailEvent, suppressTailEvent } from "../cloudflare-tail";
 import { decrypt, equalHmac, encrypt } from "../crypto";
-import { InvocationService, type Job } from "../job-domain";
+import { InvocationError, InvocationService, type Job } from "../job-domain";
 import { invokeCustomHandler } from "../custom-handler";
 import type { Env } from "../types";
 import { adaptWebhook, type WebhookProvider, type WebhookTriggerConfig } from "../webhook-trigger";
@@ -46,8 +46,13 @@ export class WebhookService {
         if (decision.decision !== true) context = decision.decision;
       }
       const service = new InvocationService(this.jobs, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY));
-      const result = await service.invoke(candidate.job.id, { source: "webhook", triggerId: candidate.triggerId, claimKey: `webhook:${candidate.triggerId}:${invocation.claimKey}`, context: { [candidate.triggerSlug]: context }, occurrence: { ...invocation.occurrence, metadata: { ...invocation.occurrence?.metadata, triggerId: candidate.triggerId } } });
-      await this.event(deliveryPk, candidate.job.id, provider, deliveryId, result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Webhook occurrence was already claimed." : "Webhook occurrence queued through canonical job invocation.");
+      try {
+        const result = await service.invoke(candidate.job.id, { source: "webhook", triggerId: candidate.triggerId, claimKey: `webhook:${candidate.triggerId}:${invocation.claimKey}`, context: { [candidate.triggerSlug]: context }, occurrence: { ...invocation.occurrence, metadata: { ...invocation.occurrence?.metadata, triggerId: candidate.triggerId } } });
+        await this.event(deliveryPk, candidate.job.id, provider, deliveryId, result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Webhook occurrence was already claimed." : "Webhook occurrence queued through canonical job invocation.");
+      } catch (error) {
+        if (!(error instanceof InvocationError) || error.code !== "queue_full") throw error;
+        await this.event(deliveryPk, candidate.job.id, provider, deliveryId, "queue_full", "Job already has a queued run; occurrence skipped.");
+      }
     }
     await this.database.pool.query("UPDATE app.webhook_deliveries SET outcome='ignored',detail='Delivery was received but did not match an enabled trigger.' WHERE tenant_id=$1 AND id=$2 AND outcome='received'", [this.tenantId, deliveryPk]);
     await this.wake();
