@@ -108,13 +108,14 @@ export class ExeVmBackend implements ExecutionBackend {
       throw new Error(`exe.dev VM creation failed (${created.status}): ${created.body.slice(0, 500)}`);
     }
 
-    const prompt = base64(request.prompt), output = "/tmp/factorize.log", status = "/tmp/factorize.status";
+    const prompt = base64(request.prompt), output = "/tmp/factorize.log", unit = vm;
     const work = [
       "set -eu",
       "mkdir -p /home/exedev/workspace",
       "cd /home/exedev/workspace",
       `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
-      `setsid nohup sh -c ${shellAtom(`set +e; ${agentCommand(connection)} < /tmp/factorize-prompt.md > ${output} 2>&1; code=$?; printf '%s' "$code" > ${status}`)} >/dev/null 2>&1 & echo started`,
+      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=file:/tmp/factorize-prompt.md --property=StandardOutput=append:${output} --property=StandardError=append:${output} ${agentCommand(connection)}; fi`,
+      "echo started",
     ].join("; ");
     let started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
     const accepted = (result: BackendCommandResult) => result.ok && result.body.trim() === "started";
@@ -129,12 +130,15 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async inspect(handle: RunHandle): Promise<ExecutionObservation> {
     const vm = this.vm(handle);
-    const result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom('if [ -f /tmp/factorize.status ]; then code=$(cat /tmp/factorize.status); [ "$code" = 0 ] && printf succeeded || printf failed; else printf running; fi')}`);
+    const inspect = `unit=${shellAtom(vm)}; load=$(sudo systemctl show "$unit" --property=LoadState --value 2>/dev/null || true); active=$(sudo systemctl show "$unit" --property=ActiveState --value 2>/dev/null || true); sub=$(sudo systemctl show "$unit" --property=SubState --value 2>/dev/null || true); result=$(sudo systemctl show "$unit" --property=Result --value 2>/dev/null || true); code=$(sudo systemctl show "$unit" --property=ExecMainStatus --value 2>/dev/null || true); if [ "$load" != loaded ]; then printf missing; elif [ "$sub" = running ] || [ "$sub" = start ] || [ "$active" = activating ] || [ "$active" = deactivating ]; then printf running; elif [ "$result" = success ] && [ "$code" = 0 ]; then printf succeeded; else printf failed; fi`;
+    const result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(inspect)}`);
     if (!result.ok) return result.status >= 500
       ? { state: "running", detail: `VM inspection is temporarily unavailable (${result.status})`, command: result }
       : { state: "failed", detail: `The run-owned VM is unavailable (${result.status}): ${result.body.slice(0, 300)}`, command: result };
     const state = result.body.trim();
-    return { state: state === "succeeded" ? "succeeded" : state === "failed" ? "failed" : "running", command: result };
+    if (state === "succeeded") return { state: "succeeded", command: result };
+    if (state === "running") return { state: "running", command: result };
+    return { state: "failed", detail: state === "missing" ? "The run supervisor disappeared before recording a result." : "The supervised agent process exited unsuccessfully.", command: result };
   }
 
   async readOutput(handle: RunHandle): Promise<string | null> {

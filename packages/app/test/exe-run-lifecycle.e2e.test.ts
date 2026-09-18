@@ -8,7 +8,7 @@ declare module "cloudflare:test" { interface ProvidedEnv extends FactorizeEnv {}
 const origin = "https://app.factorize.sh";
 
 describe("exe.dev run lifecycle", () => {
-  const vms = new Map<string, { comment: string; state?: "running" | "succeeded" }>();
+  const vms = new Map<string, { comment: string; state?: "running" | "succeeded" | "failed" }>();
   let scenario: "success" | "launch-failure" = "success";
 
   beforeAll(() => {
@@ -26,12 +26,15 @@ describe("exe.dev run lifecycle", () => {
       }
       if (command.startsWith("rm ")) { vms.delete(command.match(/^rm '([^']+)'/)?.[1] ?? ""); return { statusCode: 200, data: "removed", responseOptions: { headers } }; }
       if (command.startsWith("ssh ") && command.includes("command -v codex")) return { statusCode: 200, data: '["gpt-test"]', responseOptions: { headers } };
-      if (command.startsWith("ssh ") && command.includes("factorize-prompt.md")) {
+      if (command.startsWith("ssh ") && command.includes("systemd-run")) {
         if (scenario === "launch-failure") return { statusCode: 200, data: "bash: syntax error", responseOptions: { headers: { "Content-Type": "text/plain" } } };
         const name = command.match(/^ssh '([^']+)'/)?.[1] ?? ""; const vm = vms.get(name); if (vm) vm.state = "succeeded";
         return { statusCode: 200, data: "started", responseOptions: { headers } };
       }
-      if (command.startsWith("ssh ") && command.includes("factorize.status")) return { statusCode: 200, data: "succeeded", responseOptions: { headers } };
+      if (command.startsWith("ssh ") && command.includes("systemctl show")) {
+        const name = command.match(/^ssh '([^']+)'/)?.[1] ?? "", state = vms.get(name)?.state ?? "running";
+        return { statusCode: 200, data: state, responseOptions: { headers } };
+      }
       if (command.startsWith("ssh ") && command.includes("cat /tmp/factorize.log")) return { statusCode: 200, data: "Hello from the stubbed agent!", responseOptions: { headers } };
       return { statusCode: 422, data: `unexpected command: ${command}` };
     }).persist();
