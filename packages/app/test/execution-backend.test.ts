@@ -56,6 +56,7 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("model_provider=exe-llm");
     expect(requests[1]).toContain("model_providers.exe-llm.base_url=\"https://llm.int.exe.xyz/v1\"");
     expect(requests[1]).toContain("sudo systemd-run");
+    expect(requests[1]).toContain("--uid=exedev --gid=exedev");
     expect(requests[1]).toContain("--property=Type=exec");
     expect(requests[1]).toContain("--property=RemainAfterExit=yes");
     expect(requests[1]).toContain("--property=StandardInput=file:/tmp/factorize-prompt.md");
