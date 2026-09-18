@@ -1,6 +1,6 @@
 import type { BackendCommandResult, ExecutionBackend, ExecutionObservation, LaunchReceipt, LaunchRequest, RunHandle } from "./execution";
 import { base64 } from "./crypto";
-import { defaultAgentCommand, shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
+import { shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
 
 const API = "https://exe.dev/exec";
 const capabilities = ["output", "recovery", "stop"] as const;
@@ -14,23 +14,9 @@ export function isOwnedVmName(vm: string): boolean {
   return /^factorize-[a-z0-9](?:[a-z0-9-]{0,47}[a-z0-9])?$/.test(vm);
 }
 
-function shellWords(value: string): string[] {
-  const words: string[] = [];
-  for (const match of value.matchAll(/(?:[^\s'\"]+|'[^']*'|\"[^\"]*\")+/g)) words.push(match[0].replace(/^'|'$/g, "").replace(/^\"|\"$/g, ""));
-  return words;
-}
-
-function agentCommand(connection: ExeRunConnection): string {
-  const args = shellWords(connection.agentCommand?.trim() || defaultAgentCommand(connection.agentKind));
-  if (connection.agentKind === "codex") args.push(
-    "--color", "always",
-    "-c", "model_provider=exe-llm",
-    "-c", 'model_providers.exe-llm.name="exe-llm"',
-    "-c", 'model_providers.exe-llm.base_url="https://llm.int.exe.xyz/v1"',
-  );
-  if (connection.model?.trim()) args.push("--model", connection.model.trim());
-  if (connection.effort?.trim() && connection.agentKind === "codex") args.push("-c", `model_reasoning_effort=${connection.effort.trim()}`);
-  return args.map(shellAtom).join(" ");
+function harnessCommand(harness: NonNullable<LaunchRequest["harness"]>): string {
+  const environment = Object.entries(harness.env).map(([name, value]) => `${name}=${shellAtom(value)}`);
+  return [...environment, harness.executable, ...harness.args].map((value, index) => index < environment.length ? value : shellAtom(value)).join(" ");
 }
 
 export interface ExePermissionTest { ok: boolean; missingPermissions: string[]; tags: string[]; checks: BackendCommandResult[] }
@@ -77,13 +63,13 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async test(): Promise<BackendCommandResult> { return this.api("ls --json"); }
 
-  async validateAgentAndModels(agentKind: "codex" | "claude"): Promise<ExeAgentValidation> {
+  async validateAgentAndModels(agentKind: "codex" | "claude" | "pi"): Promise<ExeAgentValidation> {
     const vm = vmNameFor(`validate-${crypto.randomUUID()}`);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
     if (!created.ok) throw new Error(`Could not create the validation VM (${created.status}): ${created.body.slice(0, 300)}`);
     try {
-      const binary = agentKind === "codex" ? "codex" : "claude";
+      const binary = agentKind;
       const remote = `command -v ${binary} >/dev/null && curl --fail --silent --show-error https://llm.int.exe.xyz/v1/models | jq -cer '[.data[]?.id | strings] | unique'`;
       let result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(remote)}`);
       for (let attempt = 1; !result.ok && attempt < 5; attempt++) result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(remote)}`);
@@ -100,6 +86,7 @@ export class ExeVmBackend implements ExecutionBackend {
   async launch(request: LaunchRequest): Promise<LaunchReceipt> {
     const connection = this.connection as ExeRunConnection;
     if (!connection.agentKind) throw new Error("The job is missing its agent configuration");
+    if (!request.harness) throw new Error("The run is missing its agent harness launch plan");
     const vm = vmNameFor(request.runId);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
@@ -114,7 +101,7 @@ export class ExeVmBackend implements ExecutionBackend {
       "mkdir -p /home/exedev/workspace",
       "cd /home/exedev/workspace",
       `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
-      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=file:/tmp/factorize-prompt.md --property=StandardOutput=append:${output} --property=StandardError=append:${output} ${agentCommand(connection)}; fi`,
+      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=file:/tmp/factorize-prompt.md --property=StandardOutput=append:${output} --property=StandardError=append:${output} ${harnessCommand(request.harness)}; fi`,
       "echo started",
     ].join("; ");
     let started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
@@ -144,6 +131,12 @@ export class ExeVmBackend implements ExecutionBackend {
   async readOutput(handle: RunHandle): Promise<string | null> {
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom("cat /tmp/factorize.log")}`);
     return result.ok ? result.body : null;
+  }
+
+  async collectArtifact(handle: RunHandle, request: { uploadUrl: string; discoverCommand: string; contentType: string }) {
+    const remote = `file=$(${request.discoverCommand}); test -n "$file"; test -f "$file"; size=$(wc -c < "$file" | tr -d ' '); sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H ${shellAtom(`Content-Type: ${request.contentType}`)} -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(request.uploadUrl)}`;
+    const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
+    return { ok: result.ok, detail: result.ok ? undefined : `Native session upload failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
   }
 
   async stop(handle: RunHandle): Promise<ExecutionObservation> {

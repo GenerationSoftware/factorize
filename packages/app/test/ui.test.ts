@@ -394,8 +394,9 @@ describe("pages", () => {
     expect(run).toContain("runLabel='Run '+r.id.slice(0,8)");
     expect(run).not.toContain("destination_url");
     expect(run).not.toContain("Observation");
-    expect(run).toContain("caps.includes('output')");
-    expect(run).toContain('data-run-output');
+    expect(run).toContain("/trace?after=");
+    expect(run).toContain('data-run-trace');
+    expect(run).toContain('data-trace-more');
     expect(run).toContain('<details data-run-prompt-details');
     expect(run).toContain('<summary class="cursor-pointer font-semibold">Prompt</summary>');
     expect(run).not.toContain('<details data-run-prompt-details open');
@@ -404,18 +405,15 @@ describe("pages", () => {
     expect(run).not.toContain("Context sent to agent");
     expect(run).not.toContain('data-run-context');
     expect(run).toContain('font-mono text-xs leading-5');
-    expect(run).toContain("ansiToHtml(outputText(r))");
-    expect(run).toContain("r.live_output??r.result");
-    expect(run).toContain("setTimeout(refreshOutput,3000)");
+    expect(run).toContain("Native '+esc(r.agent_kind||'agent')+' session");
+    expect(run).toContain("esc(r.artifact_state||'pending')");
+    expect(run).toContain('setTimeout(refreshOutput,3000)');
     expect(run).toContain("Live · refreshes automatically");
     expect(run).toContain('data-run-elapsed');
     expect(run).toContain("+'s elapsed'");
-    expect(run).toContain('max-h-[calc(100vh-12rem)] overflow-auto');
     expect(run).toContain('mt-6 min-w-0 overflow-hidden p-6');
-    expect(run).toContain('min-w-0 max-w-full max-h-[calc(100vh-12rem)] overflow-auto whitespace-pre-wrap');
+    expect(run).toContain('max-h-96 overflow-auto whitespace-pre-wrap');
     expect(run).toContain('block truncate font-medium');
-    expect(run).toContain('output.scrollHeight-output.scrollTop-output.clientHeight<24');
-    expect(run).toContain('if(follow)output.scrollTop=output.scrollHeight');
     expect(run).not.toContain("__name");
     for (const stateClass of ['bg-blue-100', 'bg-amber-100', 'bg-green-100', 'bg-red-100']) {
       expect(detail).toContain(stateClass);

@@ -17,5 +17,9 @@ connection string or expose it as a Worker variable.
 The initial schema deliberately excludes the inert legacy `pipes`,
 `deliveries`, and `flow_events` tables. Every application-owned relationship
 uses a tenant-qualified key so a child row cannot reference another tenant's
-record. `run_transcripts` stores only scrubbed plaintext and provides the GIN
-full-text index used by PostgreSQL search.
+record. Native sessions live in object storage. `run_artifacts` records exact
+keys and checksums, while `run_trace_events` is the bounded projection used by
+the cursor-paginated UI and PostgreSQL search.
+
+The destructive artifact cutover is `0002`; `0003` completes runtime queue
+ownership by binding deferred GitHub verification to an exact trigger.

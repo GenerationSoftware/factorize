@@ -5,18 +5,17 @@ import { hmac } from "./crypto";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceLoginRedirect, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
 import { authenticateAccessToken } from "./access-tokens";
-import { AuthStore } from "./auth-do";
+import { artifactUpload } from "./artifact-upload";
+import { databaseFor } from "./postgres/database";
+import { IdentityRepository } from "./postgres/identity-repository";
 
 const scopes = ["flows:read", "flows:write", "runs:read", "runs:write"];
 const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 async function currentOwner(request: Request, env: Env) {
   const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
   if (!session) return null;
-  const stub = env.TENANTS.get(env.TENANTS.idFromName(`tenant:${session.tenantId}`));
-  const response = await stub.fetch(`https://tenant/members/${encodeURIComponent(session.userId)}`);
-  if (!response.ok) return null;
-  const member = await response.json() as { role?: string; session_version?: number };
-  return member.role === "owner" && member.session_version === session.sessionVersion ? session : null;
+  const member = await new IdentityRepository(databaseFor(env), session.tenantId).member(session.userId);
+  return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? session : null;
 }
 
 function oauthError(error: AuthorizationError): Response {
@@ -74,11 +73,12 @@ function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
 }; }
 function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)); }
 
-export { TenantV2, Tenant, GitHubInstallationRegistryV2, GitHubInstallationRegistry } from "./index";
-export { AuthStore } from "./auth-do";
+export { AlarmCoordinator } from "./alarm-coordinator";
 export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   const oauth = provider(env);
   const url = new URL(request.url);
+  const artifactMatch = url.pathname.match(/^\/internal\/run-artifacts\/([^/]+)$/);
+  if (artifactMatch) return artifactUpload(request, env, decodeURIComponent(artifactMatch[1]!));
   if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {
     const session = await currentOwner(request, env);
     if (!session) return Response.json({ error: { code: "invalid_token", message: "Unauthorized" } }, { status: 401 });

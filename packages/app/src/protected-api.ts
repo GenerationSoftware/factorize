@@ -66,6 +66,8 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       if (webhookDeliveryMatch && request.method === "GET") return Response.json(await service.getWebhookDelivery(decodeURIComponent(webhookDeliveryMatch[1])));
       const runMatch = path.match(/^\/api\/v1\/runs\/([^/]+)$/);
       if (runMatch && request.method === "GET") return Response.json(await service.getRun(decodeURIComponent(runMatch[1])));
+      const traceMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/trace$/);
+      if (traceMatch && request.method === "GET") return Response.json(await service.getRunTrace(decodeURIComponent(traceMatch[1]), Math.max(0, Number(url.searchParams.get("after") ?? 0)), Math.max(1, Math.min(200, Number(url.searchParams.get("limit") ?? 100)))));
       const runDiagnosticMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/diagnostics$/);
       if (runDiagnosticMatch && request.method === "GET") return Response.json(await service.getRunDiagnostics(decodeURIComponent(runDiagnosticMatch[1])));
       const stopMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/stop$/);

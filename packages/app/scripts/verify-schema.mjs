@@ -13,6 +13,9 @@ const ids = {
 await client.connect();
 try {
   await client.query("BEGIN");
+  const authUser = "70000000-0000-4000-8000-000000000001";
+  await client.query("INSERT INTO app.auth_users(id,email) VALUES ($1,'schema-probe@example.invalid')", [authUser]);
+  await client.query("INSERT INTO app.auth_accounts(id,user_id,provider,provider_account_id,password_hash) VALUES (gen_random_uuid(),$1::uuid,'credential',$1::uuid::text,'probe')", [authUser]);
   await client.query("INSERT INTO app.tenants(id) VALUES ($1),($2)", [ids.tenantA, ids.tenantB]);
   await client.query("INSERT INTO app.jobs(tenant_id,id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,'A','same-slug','cipher','{}',1),($3,$4,'B','same-slug','cipher','{}',1)", [ids.tenantA, ids.jobA, ids.tenantB, ids.jobB]);
   await client.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES ($1,$2,$3,'manual','manual')", [ids.tenantA, ids.triggerA, ids.jobA]);
@@ -21,8 +24,9 @@ try {
   if (duplicate.rowCount !== 0) throw new Error("invocation deduplication constraint failed");
   await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'queued','cipher')", [ids.tenantA, ids.runA, ids.jobA, ids.invocationA]);
   await client.query("INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,agent_name,state) VALUES ($1,$2,$3,$4,'linear','GEN-2113','codex','running')", [ids.tenantA, ids.executionA, ids.jobA, ids.invocationA]);
-  await client.query("INSERT INTO app.run_transcripts(tenant_id,run_id,transcript,byte_size) VALUES ($1,$2,'postgres durable orchestration',30)", [ids.tenantA, ids.executionA]);
-  const search = await client.query("SELECT run_id FROM app.run_transcripts WHERE tenant_id=$1 AND search_vector @@ plainto_tsquery('english',$2)", [ids.tenantA, "orchestration"]);
+  await client.query("INSERT INTO app.run_artifacts(tenant_id,run_id,id,kind,object_key,provider,format,byte_size,sha256,state) VALUES ($1,$2,gen_random_uuid(),'native_session','tenants/a/runs/one/native/session.jsonl','codex','jsonl',10,$3,'stored')", [ids.tenantA, ids.executionA, "a".repeat(64)]);
+  await client.query("INSERT INTO app.run_trace_events(tenant_id,run_id,sequence,id,event_type,title,preview_text) VALUES ($1,$2,1,'event-1','assistant_message','Assistant','postgres durable orchestration')", [ids.tenantA, ids.executionA]);
+  const search = await client.query("SELECT run_id FROM app.run_trace_events WHERE tenant_id=$1 AND search_vector @@ plainto_tsquery('english',$2)", [ids.tenantA, "orchestration"]);
   if (search.rowCount !== 1) throw new Error("tenant-scoped full-text search failed");
   let isolated = false;
   await client.query("SAVEPOINT cross_tenant");

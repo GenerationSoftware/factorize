@@ -1,4 +1,6 @@
 import type { Env, OAuthProps } from "./types";
+import { databaseFor } from "./postgres/database";
+import { AccessTokenRepository } from "./postgres/access-token-repository";
 
 export const ACCESS_SCOPES = ["flows:read", "flows:write", "runs:read", "runs:write"] as const;
 export type AccessScope = typeof ACCESS_SCOPES[number];
@@ -30,10 +32,5 @@ export async function authenticateAccessToken(request: Request, env: Env): Promi
   if (!authorization?.startsWith("Bearer fzt_")) return null;
   const token = authorization.slice(7), tenantId = accessTokenTenant(token);
   if (!tenantId) return null;
-  const stub = env.TENANTS.get(env.TENANTS.idFromName(`tenant:${tenantId}`));
-  const response = await stub.fetch("https://tenant/access-tokens/authenticate", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ digest: await accessTokenDigest(token), tenantId }),
-  });
-  if (!response.ok) return null;
-  return response.json<OAuthProps>();
+  return new AccessTokenRepository(databaseFor(env), tenantId).authenticate(await accessTokenDigest(token));
 }

@@ -65,6 +65,7 @@ export interface JobRun {
   state: JobRunState;
   /** Persisted form is encrypted; repositories decrypt only at an authorized read boundary. */
   encryptedPrompt: string;
+  runName?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -127,7 +128,7 @@ export class InvocationService {
     if (!input.triggerId || !input.context || typeof input.context !== "object" || Array.isArray(input.context)) throw new InvocationError("invalid_invocation", "A trigger and structured context are required.");
     const createdAt = this.clock();
     const invocation: Invocation = { id: this.makeId(), jobId, source: input.source, claimKey: input.claimKey, triggerId: input.triggerId, context: input.context, ...(input.occurrence ? { occurrence: input.occurrence } : {}), createdAt };
-    const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input.context)), createdAt, updatedAt: createdAt };
+    const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input.context)), runName: renderRunName(job.runNameTemplate ?? "", input.context, job.name), createdAt, updatedAt: createdAt };
     if (!await this.repository.insertInvocationAndRun(invocation, run)) {
       const winner = await this.repository.findInvocation(jobId, input.claimKey);
       if (!winner) throw new Error("Invocation claim was lost without a persisted winner.");
@@ -144,7 +145,7 @@ export class InvocationService {
   }
 }
 
-/** Fresh v2 Durable Object schema. There are deliberately no legacy Flow migrations. */
+/** Historical schema contract retained only for domain-level compatibility tests; production uses PostgreSQL migrations. */
 export const JOB_SCHEMA = `
   CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, encrypted_prompt_template TEXT NOT NULL, encrypted_run_name_template TEXT NOT NULL DEFAULT '',

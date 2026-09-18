@@ -13,6 +13,7 @@ export interface BackendCommandResult {
 export interface LaunchRequest {
   runId: string;
   prompt: string;
+  harness?: { executable: string; args: string[]; env: Record<string, string> };
 }
 
 /** Opaque to orchestration. Only the backend that created it may interpret id. */
@@ -36,6 +37,7 @@ export interface PromptDeliveryReceipt {
   state: Exclude<PromptDeliveryState, "pending" | "submitting">;
   command?: BackendCommandResult;
 }
+export interface ArtifactCollectionReceipt { ok: boolean; detail?: string; command?: BackendCommandResult; }
 
 /** Provider-neutral boundary. Output and recovery are opt-in capabilities. */
 export interface ExecutionBackend {
@@ -46,6 +48,7 @@ export interface ExecutionBackend {
   stop(handle: RunHandle): Promise<ExecutionObservation>;
   deliverPrompt?(handle: RunHandle, prompt: string): Promise<PromptDeliveryReceipt>;
   readOutput?(handle: RunHandle): Promise<string | null>;
+  collectArtifact?(handle: RunHandle, request: { uploadUrl: string; discoverCommand: string; contentType: string }): Promise<ArtifactCollectionReceipt>;
 }
 
 /** Maps persisted execution states onto the public contract. */
