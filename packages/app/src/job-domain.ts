@@ -1,4 +1,5 @@
 import Mustache from "mustache";
+import { renderTextTemplate } from "./text-template";
 
 export type TriggerKind = "manual" | "schedule" | "webhook" | "jobLifecycle";
 export type InvocationSource = "manual" | TriggerKind;
@@ -91,7 +92,7 @@ export class InvocationError extends Error {
 export function renderJobPrompt(job: Pick<Job, "promptTemplate">, context: Record<string, unknown>): string {
   try {
     Mustache.parse(job.promptTemplate);
-    return Mustache.render(job.promptTemplate, context);
+    return renderTextTemplate(job.promptTemplate, context);
   } catch (error) {
     if (error instanceof InvocationError) throw error;
     throw new InvocationError("invalid_template", "The job prompt is not valid Mustache.");
@@ -102,7 +103,7 @@ export function renderRunName(template: string, context: Record<string, unknown>
   if (!template.trim()) return fallback;
   try {
     Mustache.parse(template);
-    const name = Mustache.render(template, context).trim();
+    const name = renderTextTemplate(template, context).trim();
     return name || fallback;
   } catch {
     return fallback;
