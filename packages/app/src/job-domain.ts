@@ -1,4 +1,5 @@
 import Mustache from "mustache";
+import { renderTextTemplate } from "./text-template";
 
 export type TriggerKind = "manual" | "schedule" | "webhook" | "jobLifecycle";
 export type InvocationSource = "manual" | TriggerKind;
@@ -40,6 +41,8 @@ export interface Job {
 
 export interface InvocationRequest {
   source: InvocationSource;
+  /** Optional display name for a manual run; takes precedence over the template. */
+  name?: string;
   triggerId: string;
   context: Record<string, unknown>;
   /** Stable, source-owned key used to claim this occurrence exactly once. */
@@ -89,7 +92,7 @@ export class InvocationError extends Error {
 export function renderJobPrompt(job: Pick<Job, "promptTemplate">, context: Record<string, unknown>): string {
   try {
     Mustache.parse(job.promptTemplate);
-    return Mustache.render(job.promptTemplate, context);
+    return renderTextTemplate(job.promptTemplate, context);
   } catch (error) {
     if (error instanceof InvocationError) throw error;
     throw new InvocationError("invalid_template", "The job prompt is not valid Mustache.");
@@ -100,7 +103,7 @@ export function renderRunName(template: string, context: Record<string, unknown>
   if (!template.trim()) return fallback;
   try {
     Mustache.parse(template);
-    const name = Mustache.render(template, context).trim();
+    const name = renderTextTemplate(template, context).trim();
     return name || fallback;
   } catch {
     return fallback;
@@ -129,7 +132,7 @@ export class InvocationService {
     if (!input.triggerId || !input.context || typeof input.context !== "object" || Array.isArray(input.context)) throw new InvocationError("invalid_invocation", "A trigger and structured context are required.");
     const createdAt = this.clock();
     const invocation: Invocation = { id: this.makeId(), jobId, source: input.source, claimKey: input.claimKey, triggerId: input.triggerId, context: input.context, ...(input.occurrence ? { occurrence: input.occurrence } : {}), createdAt };
-    const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input.context)), runName: renderRunName(job.runNameTemplate ?? "", input.context, job.name), createdAt, updatedAt: createdAt };
+    const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input.context)), runName: (input.source === "manual" ? input.name?.trim() : undefined) || renderRunName(job.runNameTemplate ?? "", input.context, job.name), createdAt, updatedAt: createdAt };
     if (!await this.repository.insertInvocationAndRun(invocation, run)) {
       const winner = await this.repository.findInvocation(jobId, input.claimKey);
       if (!winner) throw new Error("Invocation claim was lost without a persisted winner.");

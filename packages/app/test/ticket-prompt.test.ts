@@ -32,6 +32,13 @@ Create \`WHOA.md\` with \`it works!\`.`);
     expect(prompt).toBe("bug-fixes: GEN-1979 — Use `extra` context. (2026.09)");
   });
 
+  it("preserves URLs and code in double-brace custom context templates", () => {
+    expect(renderContextTemplate("{{ticket.description}} {{custom.url}} {{flow.name}}", {
+      description: 'Use <tag> & "quotes".',
+      custom: { url: "https://example.com/a?x=1&y=2" },
+    }, "bugs & fixes")).toBe('Use <tag> & "quotes". https://example.com/a?x=1&y=2 bugs & fixes');
+  });
+
   it("decodes HTML entities in ticket content before rendering the prompt", () => {
     const prompt = linearTicketPrompt({
       identifier: "GEN-2063", title: "Run prompt formatting",
