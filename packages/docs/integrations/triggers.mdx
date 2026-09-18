@@ -5,6 +5,10 @@ description: Configure schedules, provider webhooks, and lifecycle triggers.
 
 Schedule config is `{cron, timezone}`. Webhook config supports `linear` (`projectId`, non-empty `matchRules`), `clickup` (`listId`, rules), `github` (`installationId`, `repositoryId`, and rules or event/action), and `cloudflareTail` (`integrationId`). Match rule types are `owner`, `creator`, `status`, `label`, and `assignee`, each with a `targetId`.
 
-Lifecycle config is `{sourceJobIds, states}`, where states are `succeeded`, `failed`, or `stopped`. Triggers have stable server-generated slugs (`trigger-1`, `trigger-2`, …); use them in Mustache templates. Disabled triggers do not fire.
+Lifecycle config is `{sourceJobIds, states}`, where states are `succeeded`, `failed`, `stopped`, or `edited`. Triggers have stable server-generated slugs (`trigger-1`, `trigger-2`, …); use them in Mustache templates. Disabled triggers do not fire.
 
 Linear webhooks require a fresh HMAC timestamp/signature and configured OAuth subscription. ClickUp uses its OAuth connection and signed webhook. GitHub uses the connected App installation. Cloudflare Tail sends sanitized, signed delivery data to the generated destination.
+
+Choose **Job lifecycle → Edited** and one or more source jobs to run a job when another job is saved (including enable/disable saves). Creation and run status changes do not produce edit events. Each successful save is an event, even if the submitted values are unchanged. Only enabled subscribers in the same tenant are matched; a job cannot subscribe to its own edits.
+
+Edited events expose `{{trigger-1.source_job_id}}`, `{{trigger-1.event}}` (`edited`), and `{{trigger-1.edited_at}}`. Events are recorded in the save transaction and delivered by the scheduler with retry deduplication. Subscribers added later do not receive earlier edits. Pending events wait while the destination is disabled or no longer matches; removing a trigger or deleting its source job discards them.

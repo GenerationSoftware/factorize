@@ -76,13 +76,14 @@ export interface InvocationResult { invocation: Invocation; run: JobRun; duplica
 export interface JobRepository {
   getJob(id: string): Promise<Job | null>;
   findInvocation(jobId: string, claimKey: string): Promise<{ invocation: Invocation; run: JobRun } | null>;
+  /** Atomically enforce one queued run per job; reject overflow with queue_full. */
   insertInvocationAndRun(invocation: Invocation, run: JobRun): Promise<boolean>;
   countActiveRuns(jobId: string): Promise<number>;
   markRunRunning(runId: string, startedAt: string): Promise<JobRun>;
 }
 
 export class InvocationError extends Error {
-  constructor(public code: "job_not_found" | "job_disabled" | "invalid_invocation" | "invalid_template", message: string) { super(message); }
+  constructor(public code: "queue_full" | "job_not_found" | "job_disabled" | "invalid_invocation" | "invalid_template", message: string) { super(message); }
 }
 
 export function renderJobPrompt(job: Pick<Job, "promptTemplate">, context: Record<string, unknown>): string {

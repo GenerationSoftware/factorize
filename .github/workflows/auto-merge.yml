@@ -1,46 +1,55 @@
 name: Auto-merge
 
 on:
-  pull_request_target:
-    branches:
-      - main
+  workflow_run:
+    workflows:
+      - CI
     types:
-      - opened
-      - reopened
-      - synchronize
-      - ready_for_review
+      - completed
 
 jobs:
-  enable:
-    name: Enable auto-merge
+  enqueue:
+    name: Add pull request to merge queue
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.pull_requests[0] != null
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: write
       pull-requests: write
     steps:
-      # This workflow intentionally does not check out or execute PR code.
-      - name: Check whether the author has write access
-        id: author-permission
+      # workflow_run executes from the default branch. Do not check out or run PR code.
+      - name: Check whether the pull request is eligible
+        id: eligibility
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
         run: |
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+          author=$(jq -r '.user.login' <<< "$pr")
+          is_draft=$(jq -r '.draft' <<< "$pr")
           can_push=$(gh api \
-            "repos/$GITHUB_REPOSITORY/collaborators/$PR_AUTHOR/permission" \
+            "repos/$GITHUB_REPOSITORY/collaborators/$author/permission" \
             --jq '.user.permissions.push')
 
-          echo "can-push=$can_push" >> "$GITHUB_OUTPUT"
-          if [ "$can_push" != "true" ]; then
-            echo "Skipping pull request: $PR_AUTHOR does not have write access."
+          eligible=false
+          if [ "$is_draft" = "false" ] && [ "$can_push" = "true" ]; then
+            eligible=true
           fi
 
-      - name: Merge after required checks pass
-        if: >-
-          github.event.pull_request.draft == false &&
-          steps.author-permission.outputs.can-push == 'true'
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+          if [ "$eligible" != "true" ]; then
+            echo "Skipping pull request: draft=$is_draft, author-can-push=$can_push."
+          fi
+
+      - name: Add pull request to merge queue
+        if: steps.eligibility.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
         run: |
-          gh pr merge --auto --merge "$PR_URL"
+          gh pr merge "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --merge
