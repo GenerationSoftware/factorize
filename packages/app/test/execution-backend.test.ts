@@ -50,6 +50,8 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("cd /home/exedev/workspace");
     expect(requests[1]).not.toContain("git clone");
     expect(requests[1]).toContain("codex");
+    expect(requests[1]).toContain("--color");
+    expect(requests[1]).toContain("always");
     expect(requests[1]).toContain("model_provider=exe-llm");
     expect(requests[1]).toContain("model_providers.exe-llm.base_url=\"https://llm.int.exe.xyz/v1\"");
     expect(requests[1]).not.toContain("& &&");
