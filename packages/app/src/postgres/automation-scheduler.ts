@@ -11,7 +11,7 @@ import { invokeCustomHandler } from "../custom-handler";
 /** Claims durable automatic signals in PostgreSQL. The alarm DO is only its clock. */
 export class AutomationScheduler {
   constructor(private database: Database, private env: Env) {}
-  async process(): Promise<void> { await this.githubVerifications(); await this.schedules(); await this.lifecycle(); }
+  async process(): Promise<void> { await this.githubVerifications(); await this.schedules(); await this.jobEdits(); await this.lifecycle(); }
   private repository(tenantId: string) { return new PostgresJobRepository(this.database, tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
   private async schedules() {
     for (let count = 0; count < 50; count++) {
@@ -29,6 +29,25 @@ export class AutomationScheduler {
       await service.invoke(due.job_id, { source: "schedule", triggerId: due.trigger_id, claimKey: `schedule:${due.trigger_id}:${occurredAt}`, context: { [due.slug]: occurrence }, occurrence });
     }
   }
+  private async jobEdits() {
+    const pending = await this.database.pool.query<any>(`SELECT d.*,t.job_id,t.slug FROM app.job_edit_deliveries d
+      JOIN app.triggers t ON t.tenant_id=d.tenant_id AND t.id=d.trigger_id
+      JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
+      WHERE t.enabled AND t.removed_at IS NULL AND j.enabled
+        AND t.config->'sourceJobIds' ? d.source_job_id::text AND t.config->'states' ? 'edited'
+      ORDER BY d.edited_at,d.event_id LIMIT 100`);
+    for (const row of pending.rows) {
+      const context = { source_job_id: row.source_job_id, event: "edited", edited_at: row.edited_at.toISOString() };
+      // Acknowledge only after invocation succeeds. Retrying after a crash uses
+      // the same claim key and returns the existing run.
+      await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.job_id, {
+        source: "jobLifecycle", triggerId: row.trigger_id, claimKey: `job-edited:${row.trigger_id}:${row.event_id}`,
+        context: { [row.slug]: context }, occurrence: { occurredAt: context.edited_at, externalId: row.event_id, metadata: context },
+      });
+      await this.database.pool.query("DELETE FROM app.job_edit_deliveries WHERE tenant_id=$1 AND event_id=$2 AND trigger_id=$3", [row.tenant_id, row.event_id, row.trigger_id]);
+    }
+  }
+
   private async lifecycle() {
     const rows = await this.database.pool.query<any>(`SELECT t.tenant_id,t.id trigger_id,t.job_id,t.slug,t.config,r.id source_run_id,r.job_id source_job_id,r.state,r.updated_at FROM app.triggers t JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id JOIN app.runs r ON r.tenant_id=t.tenant_id AND r.job_id=(t.config->>'sourceJobId')::uuid LEFT JOIN app.lifecycle_deliveries d ON d.tenant_id=t.tenant_id AND d.trigger_id=t.id AND d.source_run_id=r.id AND d.terminal_state=r.state WHERE t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled AND r.state IN ('succeeded','failed','stopped') AND d.source_run_id IS NULL ORDER BY r.updated_at LIMIT 100`);
     for (const row of rows.rows) {

@@ -60,7 +60,9 @@ export const triggerContextCatalog: Record<string, ContextPath[]> = {
     { path: "exceptions", type: "array", description: "Sanitized exception records." },
   ],
   jobLifecycle: [
-    { path: "source_job_id", type: "string", description: "Job whose run reached a final state." },
+    { path: "event", type: "string", description: "Event name: edited for a job edit." },
+    { path: "edited_at", type: "string", description: "Job save timestamp for an edited event (ISO 8601)." },
+    { path: "source_job_id", type: "string", description: "Job that was edited or whose run reached a final state." },
     { path: "source_run_id", type: "string", description: "Run that reached a final state." },
     { path: "final_state", type: "string", description: "Observed final state: succeeded, failed, or stopped." },
     { path: "transitioned_at", type: "string", description: "State transition as an ISO 8601 timestamp." },
