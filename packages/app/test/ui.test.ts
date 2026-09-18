@@ -36,8 +36,8 @@ describe("pages", () => {
     expect(html).toContain("&limit='+jobRunsPageSize");
     expect(html).toContain("jobRunsState.cursors[targetPage]=cursor");
     expect(html).toContain("const cursor=targetPage===currentPage+1?r.nextCursor:jobRunsState.cursors[targetPage]");
-    expect(html).toContain("jobRunsState.page=1;jobRunsState.cursors=[null];jobRunsState.runs=runs");
-    expect(html).toContain("refreshJobRunsPagination();if(hasActiveRuns");
+    expect(html).toContain("const cursor=jobRunsState.cursors[jobRunsState.page]");
+    expect(html).toContain("refreshJobRunsPagination);if(hasActiveRuns");
     expect(html).not.toContain("__factorizeLastRuns");
     expect(html).not.toContain("new MutationObserver");
     expect(html).not.toContain("jobRunsState.cursors[jobRunsState.page]=r.nextCursor");
@@ -418,7 +418,7 @@ describe("pages", () => {
     expect(run).toContain('font-mono text-xs leading-5');
     expect(run).toContain("Native '+esc(r.agent_kind||'agent')+' session");
     expect(run).toContain("esc(r.artifact_state||'pending')");
-    expect(run).toContain('setTimeout(refreshOutput,3000)');
+    expect(run).toContain('pageRefresh(async()=>');
     expect(run).toContain("Live · refreshes automatically");
     expect(run).toContain('data-run-elapsed');
     expect(run).toContain("+'s elapsed'");
