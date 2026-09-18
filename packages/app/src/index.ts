@@ -5,15 +5,11 @@ import { equalHmac, hmac } from "./crypto";
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
 import { apiKeysSettingsPage, authPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, loginPage, settingsPage } from "./ui";
 import type { Env } from "./types";
-import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
 import { databaseFor } from "./postgres/database";
 import { AuthRepository } from "./postgres/auth-repository";
 import { IdentityRepository } from "./postgres/identity-repository";
-import { AccessTokenRepository } from "./postgres/access-token-repository";
-import { IntegrationService } from "./postgres/integration-service";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { GitHubRepository } from "./postgres/github-repository";
-import { ProviderCatalog } from "./postgres/provider-catalog";
 import { WebhookService } from "./postgres/webhook-service";
 
 const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string } }>();
@@ -32,7 +28,7 @@ app.use("*", async (c, next) => {
 
 app.onError((error, c) => {
   console.error(JSON.stringify({ event: "factorize_unexpected_failure", path: c.req.path, message: error.message, factorizeTailSuppressed: c.req.path.startsWith("/webhooks/cloudflare/") }));
-  if (c.req.path.startsWith("/api/")) return c.json({ error: "Factorize could not complete this request. Try again shortly." }, 502);
+  if (c.req.path.startsWith("/api/v1/")) return c.json({ error: { code: "internal_error", message: "Factorize could not complete this request. Try again shortly." } }, 502);
   return c.text("Internal Server Error", 500);
 });
 
@@ -72,49 +68,8 @@ async function owner(c: any): Promise<Session | null> {
   return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? session : null;
 }
 
-app.get("/api/health", (c) => c.json({ ok: true }));
 app.get("/styles.css", (c) => c.env.ASSETS.fetch(c.req.raw));
-
-app.get("/api/access/authorized-clients", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  if (!c.env.OAUTH_PROVIDER) return c.json({ error: "OAuth management unavailable" }, 503);
-  const grants: any[] = []; let cursor: string | undefined;
-  do { const page = await c.env.OAUTH_PROVIDER.listUserGrants(session.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => !grant.expiresAt || grant.expiresAt > Math.floor(Date.now() / 1000))); cursor = page.cursor; } while (cursor);
-  const clients = await Promise.all([...new Set(grants.map(grant => grant.clientId))].map(async clientId => [clientId, await c.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const));
-  const byId = new Map(clients);
-  return c.json(grants.map(grant => ({ grantId: grant.id, clientId: grant.clientId, clientName: byId.get(grant.clientId)?.clientName ?? grant.clientId, scopes: grant.scope, authorizationDate: new Date(grant.createdAt * 1000).toISOString(), expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null })));
-});
-
-app.delete("/api/access/authorized-clients/:clientId", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  if (!c.env.OAUTH_PROVIDER) return c.json({ error: "OAuth management unavailable" }, 503);
-  const clientId = c.req.param("clientId"), grants: any[] = []; let cursor: string | undefined;
-  do { const page = await c.env.OAUTH_PROVIDER.listUserGrants(session.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => grant.clientId === clientId)); cursor = page.cursor; } while (cursor);
-  await Promise.all(grants.map(grant => c.env.OAUTH_PROVIDER!.revokeGrant(grant.id, session.userId)));
-  return c.json({ revoked: grants.length });
-});
-
-app.get("/api/access-tokens", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new AccessTokenRepository(databaseFor(c.env), session.tenantId).list());
-});
-
-app.post("/api/access-tokens", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const input = await c.req.json().catch(() => null) as any, name = typeof input?.name === "string" ? input.name.trim() : "";
-  const requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], expiryDays = Number(input?.expiryDays);
-  if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any)) || ![7, 30, 90].includes(expiryDays)) return c.json({ error: "A name, supported scopes, and expiryDays of 7, 30, or 90 are required." }, 400);
-  const token = issueAccessToken(session.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString();
-  const metadata = await new AccessTokenRepository(databaseFor(c.env), session.tenantId).create({ name, scopes: requested, expiresAt, digest: await accessTokenDigest(token), userId: session.userId, sessionVersion: session.sessionVersion });
-  if (!metadata) return c.json({ error: "The owner session is no longer active." }, 401);
-  return c.json({ ...metadata, token }, 201);
-});
-
-app.delete("/api/access-tokens/:id", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const revoked = await new AccessTokenRepository(databaseFor(c.env), session.tenantId).revoke(c.req.param("id"));
-  return revoked ? c.json({ revoked: true }) : c.json({ error: "Access token not found" }, 404);
-});
+app.get("/healthz", (c) => c.json({ ok: true }));
 
 app.get("/auth/linear", async (c) => {
   const state = crypto.randomUUID();
@@ -188,62 +143,6 @@ app.get("/auth/clickup/callback", async (c) => {
   return c.redirect("/settings/integrations");
 });
 
-app.get("/api/connections/status", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).status());
-});
-app.get("/api/connections/cloudflare-tail", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).tails());
-});
-app.post("/api/connections/cloudflare-tail", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).saveTail(await c.req.json()), 201);
-});
-app.put("/api/connections/cloudflare-tail/:id", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).saveTail({ ...await c.req.json() as any, integrationId: c.req.param("id") }));
-});
-app.post("/api/connections/cloudflare-tail/:id/test", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const result = await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).testTail(c.req.param("id")); return result ? c.json(result) : c.json({ error: "Not found" }, 404);
-});
-app.delete("/api/connections/cloudflare-tail/:id", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const deleted = await new ConnectionRepository(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).delete(`cloudflare-tail:${c.req.param("id")}`); return deleted ? c.body(null, 204) : c.json({ error: "Not found" }, 404);
-});
-app.get("/api/linear/projects", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).linearProjects());
-});
-app.get("/api/linear/options", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).linearOptions());
-});
-app.get("/api/clickup/lists", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).clickUpLists());
-});
-app.get("/api/clickup/options", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).clickUpOptions(c.req.query("listId") ?? ""));
-});
-app.get("/api/github/installations", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new GitHubRepository(databaseFor(c.env), session.tenantId).installations());
-});
-app.get("/api/github/installations/:id/repositories", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).githubRepositories(Number(c.req.param("id"))));
-});
-app.get("/api/github/installations/:installationId/repositories/:repositoryId/issue-options", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).githubIssueOptions(Number(c.req.param("installationId")), Number(c.req.param("repositoryId"))));
-});
-app.delete("/api/github/installations/:id", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return await new GitHubRepository(databaseFor(c.env), session.tenantId).delete(Number(c.req.param("id"))) ? c.json({ ok: true }) : c.json({ error: "Not found" }, 404);
-});
 app.get("/auth/github/install", async (c) => {
   const session = await owner(c); if (!session) return c.redirect("/auth/linear");
   if (!c.env.GITHUB_APP_SLUG) return c.text("GitHub App is not configured", 503);
@@ -266,30 +165,6 @@ app.get("/auth/github/setup", async (c) => {
   try { await new GitHubRepository(databaseFor(c.env), session.tenantId).save({ installationId, accountLogin: installation.account?.login, accountType: installation.account?.type, state: installation.suspended_at ? "suspended" : "active" }); }
   catch (error) { if (error instanceof Error && error.message === "installation_conflict") return c.text("This GitHub installation is already connected to another tenant", 409); throw error; }
   return c.redirect("/settings");
-});
-app.put("/api/connections/exe", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).saveExe(await c.req.json()));
-});
-app.post("/api/connections/exe/test", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).testExe(await c.req.json()));
-});
-app.delete("/api/connections/exe/:id", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const result = await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).remove("exe", c.req.param("id")); return result.conflict ? c.json({ error: "This integration is used by a job." }, 409) : result.deleted ? c.body(null, 204) : c.json({ error: "Not found" }, 404);
-});
-app.put("/api/connections/amp", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).saveAmp(await c.req.json()));
-});
-app.post("/api/connections/amp/test", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).testAmp(await c.req.json()));
-});
-app.delete("/api/connections/amp/:id", async (c) => {
-  const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const result = await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).remove("amp", c.req.param("id")); return result.conflict ? c.json({ error: "This integration is used by a job." }, 409) : result.deleted ? c.body(null, 204) : c.json({ error: "Not found" }, 404);
 });
 app.post("/webhooks/cloudflare/:tenantId/:jobId", async (c) => {
   const raw = await c.req.text();

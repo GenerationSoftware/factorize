@@ -32,5 +32,6 @@ export async function authenticateAccessToken(request: Request, env: Env): Promi
   if (!authorization?.startsWith("Bearer fzt_")) return null;
   const token = authorization.slice(7), tenantId = accessTokenTenant(token);
   if (!tenantId) return null;
-  return new AccessTokenRepository(databaseFor(env), tenantId).authenticate(await accessTokenDigest(token));
+  const auth = await new AccessTokenRepository(databaseFor(env), tenantId).authenticate(await accessTokenDigest(token));
+  return auth ? { ...auth, authMethod: "access_token" } : null;
 }

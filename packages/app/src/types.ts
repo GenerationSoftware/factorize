@@ -37,6 +37,7 @@ export type OAuthProps = {
   sessionVersion: number;
   scopes: string[];
   accessTokenId?: string;
+  authMethod?: "session" | "oauth" | "access_token";
 };
 
 export interface WorkItem {

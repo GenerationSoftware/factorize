@@ -56,7 +56,7 @@ const defaultHandler: ExportedHandler<Env> = {
         return Response.redirect(redirect, 302);
       }
       const granted = form.getAll("scope").map(String).filter(scope => parsed.scope.includes(scope) && scopes.includes(scope));
-      const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: granted };
+      const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: granted, authMethod: "oauth" };
       const { redirectTo } = await env.OAUTH_PROVIDER!.completeAuthorization({ request: parsed, userId: session.userId, metadata: { tenantId: session.tenantId }, scope: granted, props });
       return Response.redirect(redirectTo, 302);
     } catch (error) { if (error instanceof AuthorizationError) return oauthError(error); throw error; }
@@ -82,7 +82,7 @@ export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) 
   if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {
     const session = await currentOwner(request, env);
     if (!session) return Response.json({ error: { code: "invalid_token", message: "Unauthorized" } }, { status: 401 });
-    return protectedApiFetch(request, env, { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes }, ctx);
+    return protectedApiFetch(request, env, { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes, authMethod: "session" }, ctx);
   }
   if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1")) && request.headers.get("Authorization")?.startsWith("Bearer fzt_")) {
     const auth = await authenticateAccessToken(request, env);

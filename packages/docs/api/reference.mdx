@@ -5,7 +5,7 @@ description: Complete implementation-accurate operation inventory.
 
 All paths are relative to `APP_ORIGIN` and require a bearer token or browser owner session. Errors use `{ "error": { "code": "...", "message": "..." } }`; malformed JSON/schema input returns `400 invalid_request`, missing resources `404 not_found`, invalid/revoked tokens `401 invalid_token`, and missing scopes `403 insufficient_scope`.
 
-`GET /api/health` is the unauthenticated liveness check and returns `{ "ok": true }`.
+`GET /healthz` is the unauthenticated liveness check and returns `{ "ok": true }`. It is an infrastructure probe, not an application API operation.
 
 ## Discovery and read operations
 
@@ -21,6 +21,26 @@ All paths are relative to `APP_ORIGIN` and require a bearer token or browser own
 | GET | `/api/v1/jobs/{jobId}/events?limit=50` | runs:read | Webhook activity; limit 1–100 |
 | GET | `/api/v1/runs/{runId}` | runs:read | Full prompt, context, invocation, execution, output, activity |
 | GET | `/api/v1/runs/{runId}/diagnostics` | runs:read | Credential-safe lifecycle checks and activity |
+| GET | `/api/v1/runs/{runId}/trace` | runs:read | Paginated trace events |
+| GET | `/api/v1/search?q=` | runs:read | Search jobs, runs, and metadata |
+
+## Integrations and provider discovery
+
+| Method | Path | Scope | Result |
+| --- | --- | --- | --- |
+| GET | `/api/v1/integrations` | flows:read | Credential-safe installed integration status |
+| PUT/DELETE | `/api/v1/integrations/{exe\|amp}[/{connectionId}]` | flows:write | Save or remove an execution integration |
+| POST | `/api/v1/integrations/{exe\|amp}/test` | flows:write | Test supplied or saved credentials |
+| POST/PUT/DELETE | `/api/v1/integrations/cloudflare-tail[/{integrationId}]` | flows:write | Create, update, or remove a Tail integration |
+| POST | `/api/v1/integrations/cloudflare-tail/{integrationId}/test` | flows:write | Test a Tail integration |
+| GET | `/api/v1/providers/linear/{projects\|options}` | flows:read | Linear job-trigger resources |
+| GET | `/api/v1/providers/clickup/{lists\|options}` | flows:read | ClickUp job-trigger resources |
+| GET | `/api/v1/providers/github/installations` | flows:read | GitHub installations |
+| GET | `/api/v1/providers/github/installations/{installationId}/repositories` | flows:read | Installation repositories |
+| GET | `/api/v1/providers/github/installations/{installationId}/repositories/{repositoryId}/issue-options` | flows:read | GitHub issue-trigger resources |
+| DELETE | `/api/v1/providers/github/installations/{installationId}` | flows:write | Disconnect an installation |
+
+Access-token and authorized-client management under `/api/v1/access-tokens` and `/api/v1/access/authorized-clients` is versioned and uses the same error contract, but deliberately requires an interactive owner session to prevent bearer credentials from minting or revoking credentials.
 
 ## Writes and runs
 

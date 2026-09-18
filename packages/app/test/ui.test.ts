@@ -127,8 +127,8 @@ describe("pages", () => {
     expect(html).toContain("reservedSlugs=new Set(triggers.map(t=>t.slug));render();await refreshAvailability();loadProviderResources()");
     expect(html).toContain("if(availability.linear)");
     expect(html).toContain("if(availability.clickup)");
-    expect(html).not.toContain("request('/api/clickup/lists').catch(()=>[])");
-    expect(html).not.toContain("request('/api/linear/options').catch");
+    expect(html).toContain("request('/api/v1/providers/clickup/lists')");
+    expect(html).toContain("request('/api/v1/providers/linear/options')");
     expectInlineScriptsToParse(html);
   });
 
@@ -294,7 +294,7 @@ describe("pages", () => {
     expect(apiKeys).toContain("cannot be retrieved again");
     expect(apiKeys).toContain("Authorization: Bearer &lt;token&gt;");
     expect(apiKeys).toContain("All of its tokens will stop working immediately");
-    expect(apiKeys).toContain("/api/access-tokens");
+    expect(apiKeys).toContain("/api/v1/access-tokens");
     expectInlineScriptsToParse(apiKeys);
   });
 
@@ -320,7 +320,7 @@ describe("pages", () => {
     expect(settings).toContain('<dialog id="github-setup"');
     expect(settings).toContain('<dialog id="tail-setup"');
     expect(settings).toContain("+' installed'");
-    expect(settings).toContain("/api/connections/cloudflare-tail");
+    expect(settings).toContain("/api/v1/integrations/cloudflare-tail");
     expect(settings).toContain('data-disconnect-tail=');
     expect(settings).toContain('data-disconnect-github=');
     expect(settings).toContain("Reconnect");
