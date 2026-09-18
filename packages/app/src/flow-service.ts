@@ -17,6 +17,7 @@ import { installedTriggerAvailability } from "./trigger-availability";
 import { invokeCustomHandler } from "./custom-handler";
 import { validateWebhookHandler } from "./webhook-trigger";
 import { ProviderCatalog } from "./postgres/provider-catalog";
+import { ArtifactRepository } from "./postgres/artifact-repository";
 import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
 
 export class ServiceError extends Error {
@@ -47,10 +48,13 @@ export class ApiService {
     const prior = new Map(existing.map(trigger => [trigger.id, trigger])), used = new Set(existing.map(trigger => trigger.slug));
     let next = 1, timestamp = new Date().toISOString();
     return source.map(trigger => {
-      const old = trigger.id ? prior.get(trigger.id) : undefined;
+      // A trigger's kind is part of its identity. Changing kind is a removal
+      // plus an insertion, never an in-place mutation of historical identity.
+      const candidate = trigger.id ? prior.get(trigger.id) : undefined;
+      const old = candidate?.kind === trigger.kind ? candidate : undefined;
       while (used.has(`trigger-${next}`)) next++;
       const slug = old?.slug ?? trigger.slug ?? `trigger-${next++}`; used.add(slug);
-      return { id: old?.id ?? trigger.id ?? crypto.randomUUID(), jobId: old?.jobId ?? "", kind: trigger.kind, slug, enabled: trigger.enabled !== false, config: trigger.config, createdAt: old?.createdAt ?? timestamp, updatedAt: timestamp };
+      return { id: old?.id ?? crypto.randomUUID(), jobId: old?.jobId ?? "", kind: trigger.kind, slug, enabled: trigger.enabled !== false, config: trigger.config, createdAt: old?.createdAt ?? timestamp, updatedAt: timestamp };
     });
   }
 
@@ -97,15 +101,27 @@ export class ApiService {
     await this.authorize("flows:write"); const timestamp = new Date().toISOString(), id = crypto.randomUUID();
     const triggers = this.normalizedTriggers(input.triggers).map(trigger => ({ ...trigger, jobId: id }));
     const job: Job = { id, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", ...(input.effort ? { effort: input.effort } : {}), executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, createdAt: timestamp, updatedAt: timestamp };
-    try { return this.presentJob(await this.jobs().save(job)); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "Job slug is already in use"); throw error; }
+    try { return this.presentJob(await this.jobs().create(job)); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "Job slug is already in use"); throw error; }
   }
   async updateJob(jobId: string, input: JobInput) {
     await this.authorize("flows:write"); const repository = this.jobs(), current = await repository.getJob(jobId); if (!current) throw new ServiceError(404, "not_found", "Job not found");
     const triggers = this.normalizedTriggers(input.triggers, current.triggers).map(trigger => ({ ...trigger, jobId }));
-    return this.presentJob(await repository.save({ ...current, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", effort: input.effort, executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, triggers, updatedAt: new Date().toISOString() }));
+    return this.presentJob(await repository.update({ ...current, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", effort: input.effort, executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, triggers, updatedAt: new Date().toISOString() }));
   }
-  async deleteJob(jobId: string) { await this.authorize("flows:write"); if (!await this.jobs().delete(jobId)) throw new ServiceError(404, "not_found", "Job not found"); return { id: jobId, deleted: true }; }
-  async setJobEnabled(jobId: string, enabled: boolean) { await this.authorize("flows:write"); const repository = this.jobs(), job = await repository.getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found"); await repository.save({ ...job, enabled, updatedAt: new Date().toISOString() }); return { id: jobId, enabled }; }
+  async deleteJob(jobId: string) {
+    await this.authorize("flows:write");
+    const database = databaseFor(this.env), repository = this.jobs();
+    if (!await repository.getJob(jobId)) throw new ServiceError(404, "not_found", "Job not found");
+    const objectKeys = await new ArtifactRepository(database, this.auth.tenantId).keysForJob(jobId);
+    if (objectKeys.length && !this.env.RUN_ARTIFACTS) throw new ServiceError(503, "operation_failed", "Artifact storage is unavailable");
+    // R2 is outside the PostgreSQL transaction. Delete the objects first and
+    // retain the database aggregate if object deletion fails so the operation
+    // can be retried without losing the authoritative object-key inventory.
+    for (let offset = 0; offset < objectKeys.length; offset += 1_000) await this.env.RUN_ARTIFACTS!.delete(objectKeys.slice(offset, offset + 1_000));
+    if (!await repository.delete(jobId)) throw new ServiceError(404, "not_found", "Job not found");
+    return { id: jobId, deleted: true };
+  }
+  async setJobEnabled(jobId: string, enabled: boolean) { await this.authorize("flows:write"); const repository = this.jobs(); if (!await repository.setEnabled(jobId, enabled, new Date().toISOString())) throw new ServiceError(404, "not_found", "Job not found"); return { id: jobId, enabled }; }
   async invokeJob(jobId: string, input: ManualInvocationInput) {
     await this.authorize("runs:write"); const repository = this.jobs(), job = await repository.getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found");
     const trigger = job.triggers.find(value => value.kind === "manual" && value.enabled); if (!trigger) throw new ServiceError(409, "operation_failed", "The manual trigger is disabled");

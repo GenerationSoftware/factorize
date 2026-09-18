@@ -11,13 +11,15 @@
     "test": "vitest run",
     "deploy": "wrangler deploy",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:verify": "node scripts/verify-schema.mjs"
+    "db:verify": "node scripts/verify-schema.mjs",
+    "db:studio": "drizzle-kit studio --config drizzle.config.ts"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.10.3",
     "@modelcontextprotocol/hono": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "cron-parser": "^5.10.1",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.11.4",
     "mustache": "^4.2.0",
     "pg": "8.16.3",
@@ -30,6 +32,7 @@
     "@types/mustache": "^4.2.6",
     "@types/node": "^26.5.1",
     "@types/pg": "^8.15.5",
+    "drizzle-kit": "^0.31.10",
     "happy-dom": "^20.14.5",
     "tailwindcss": "^4.1.14",
     "typescript": "^5.9.3",

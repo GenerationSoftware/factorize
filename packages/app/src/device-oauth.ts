@@ -1,6 +1,9 @@
 import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { hmac } from "./crypto";
 import type { Env, OAuthProps } from "./types";
+import { and, eq, gt } from "drizzle-orm";
+import { databaseFor } from "./postgres/database";
+import { oauthDeviceAuthorizations } from "./postgres/schema";
 
 export const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 const DEVICE_TTL = 600;
@@ -84,12 +87,30 @@ async function authenticateDeviceClient(request: Request, env: Env, form: FormDa
   return Boolean(stored?.clientSecret && safeEqual(await sha256Hex(clientSecret), stored.clientSecret));
 }
 async function readDevice(env: Env, code: string): Promise<DeviceRecord | null> {
-  return env.OAUTH_KV?.get<DeviceRecord>(deviceKey(code), "json") ?? null;
+  if (!env.DATABASE && !env.HYPERDRIVE) return env.OAUTH_KV?.get<DeviceRecord>(deviceKey(code), "json") ?? null;
+  const [row] = await databaseFor(env).orm.select({ record: oauthDeviceAuthorizations.record }).from(oauthDeviceAuthorizations).where(and(eq(oauthDeviceAuthorizations.deviceCode, code), gt(oauthDeviceAuthorizations.expiresAt, new Date()))).limit(1);
+  return row?.record as DeviceRecord | undefined ?? null;
+}
+async function deviceCodeForUser(env: Env, userCode: string): Promise<string | null> {
+  if (!env.DATABASE && !env.HYPERDRIVE) return env.OAUTH_KV?.get(userKey(userCode)) ?? null;
+  const [row] = await databaseFor(env).orm.select({ deviceCode: oauthDeviceAuthorizations.deviceCode }).from(oauthDeviceAuthorizations).where(and(eq(oauthDeviceAuthorizations.userCode, normalizeUserCode(userCode)), gt(oauthDeviceAuthorizations.expiresAt, new Date()))).limit(1);
+  return row?.deviceCode ?? null;
+}
+async function writeDevice(env: Env, deviceCode: string, userCode: string, record: DeviceRecord): Promise<void> {
+  if (!env.DATABASE && !env.HYPERDRIVE) {
+    await Promise.all([env.OAUTH_KV!.put(deviceKey(deviceCode), JSON.stringify(record), { expirationTtl: Math.max(1, record.expiresAt - Math.floor(Date.now() / 1000)) }), env.OAUTH_KV!.put(userKey(userCode), deviceCode, { expirationTtl: Math.max(1, record.expiresAt - Math.floor(Date.now() / 1000)) })]);
+    return;
+  }
+  await databaseFor(env).orm.insert(oauthDeviceAuthorizations).values({ deviceCode, userCode: normalizeUserCode(userCode), record, expiresAt: new Date(record.expiresAt * 1000) }).onConflictDoUpdate({ target: oauthDeviceAuthorizations.deviceCode, set: { record, expiresAt: new Date(record.expiresAt * 1000), updatedAt: new Date() } });
+}
+async function deleteDevice(env: Env, deviceCode: string, userCode?: string): Promise<void> {
+  if (!env.DATABASE && !env.HYPERDRIVE) { await Promise.all([env.OAUTH_KV!.delete(deviceKey(deviceCode)), ...(userCode ? [env.OAUTH_KV!.delete(userKey(userCode))] : [])]); return; }
+  await databaseFor(env).orm.delete(oauthDeviceAuthorizations).where(eq(oauthDeviceAuthorizations.deviceCode, deviceCode));
 }
 
 export async function deviceAuthorization(request: Request, env: Env, oauth: OAuthHelpers, supportedScopes: string[]): Promise<Response> {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { Allow: "POST" } });
-  if (!env.OAUTH_KV) return oauthError("server_error", "OAuth storage is unavailable.", 500);
+  if (!env.OAUTH_KV && !env.DATABASE && !env.HYPERDRIVE) return oauthError("server_error", "OAuth storage is unavailable.", 500);
   const form = await request.formData();
   const basic = basicCredentials(request);
   const clientId = basic?.clientId ?? String(form.get("client_id") ?? "");
@@ -109,7 +130,7 @@ export async function deviceAuthorization(request: Request, env: Env, oauth: OAu
   let compactUserCode = "";
   for (let attempt = 0; attempt < 8; attempt++) {
     compactUserCode = Array.from(crypto.getRandomValues(new Uint8Array(8)), value => alphabet[value % alphabet.length]).join("");
-    if (!await env.OAUTH_KV.get(userKey(compactUserCode))) break;
+    if (!await deviceCodeForUser(env, compactUserCode)) break;
     compactUserCode = "";
   }
   if (!compactUserCode) return oauthError("server_error", "Could not allocate a user code.", 500);
@@ -119,10 +140,7 @@ export async function deviceAuthorization(request: Request, env: Env, oauth: OAu
     redirectUri: client.redirectUris[0], codeChallenge: await challenge(codeVerifier),
     createdAt: now, expiresAt: now + DEVICE_TTL, interval: DEFAULT_INTERVAL, status: "pending",
   };
-  await Promise.all([
-    env.OAUTH_KV.put(deviceKey(deviceCode), JSON.stringify(record), { expirationTtl: DEVICE_TTL }),
-    env.OAUTH_KV.put(userKey(compactUserCode), deviceCode, { expirationTtl: DEVICE_TTL }),
-  ]);
+  await writeDevice(env, deviceCode, compactUserCode, record);
   const verificationUri = `${env.APP_ORIGIN}/device`;
   const userCode = displayUserCode(compactUserCode);
   return json({
@@ -136,7 +154,7 @@ export async function deviceAuthorization(request: Request, env: Env, oauth: OAu
 }
 
 export async function deviceToken(request: Request, env: Env, oauthProvider: { fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> }, ctx: ExecutionContext): Promise<Response> {
-  if (!env.OAUTH_KV) return oauthError("server_error", "OAuth storage is unavailable.", 500);
+  if (!env.OAUTH_KV && !env.DATABASE && !env.HYPERDRIVE) return oauthError("server_error", "OAuth storage is unavailable.", 500);
   const form = await request.formData();
   const deviceCode = String(form.get("device_code") ?? "");
   const basic = basicCredentials(request);
@@ -164,17 +182,17 @@ export async function deviceToken(request: Request, env: Env, oauthProvider: { f
   const authorization = request.headers.get("Authorization");
   if (authorization) headers.set("Authorization", authorization);
   const response = await oauthProvider.fetch(new Request(`${env.APP_ORIGIN}/oauth/token`, { method: "POST", headers, body: exchange }), env, ctx);
-  if (response.ok) await env.OAUTH_KV.delete(deviceKey(deviceCode));
+  if (response.ok) await deleteDevice(env, deviceCode);
   return response;
 }
 
 export async function deviceVerification(request: Request, env: Env, oauth: OAuthHelpers, session: { tenantId: string; userId: string; email: string; sessionVersion: number }): Promise<Response> {
-  if (!env.OAUTH_KV) return new Response("OAuth storage is unavailable", { status: 500 });
+  if (!env.OAUTH_KV && !env.DATABASE && !env.HYPERDRIVE) return new Response("OAuth storage is unavailable", { status: 500 });
   const url = new URL(request.url);
   const form = request.method === "POST" ? await request.formData() : null;
   const suppliedCode = String(form?.get("user_code") ?? url.searchParams.get("user_code") ?? "");
   const normalized = normalizeUserCode(suppliedCode);
-  const deviceCode = normalized.length === 8 ? await env.OAUTH_KV.get(userKey(normalized)) : null;
+  const deviceCode = normalized.length === 8 ? await deviceCodeForUser(env, normalized) : null;
   const record = deviceCode ? await readDevice(env, deviceCode) : null;
   const valid = record && record.status === "pending" && record.expiresAt > Math.floor(Date.now() / 1000);
   if (request.method === "GET") {
@@ -185,7 +203,7 @@ export async function deviceVerification(request: Request, env: Env, oauth: OAut
   if (!valid || !deviceCode || !record) return new Response("Invalid or expired device code", { status: 400 });
   if (form?.get("decision") === "deny") {
     record.status = "denied";
-    await Promise.all([env.OAUTH_KV.put(deviceKey(deviceCode), JSON.stringify(record), { expirationTtl: Math.max(1, record.expiresAt - Math.floor(Date.now() / 1000)) }), env.OAUTH_KV.delete(userKey(normalized))]);
+    await writeDevice(env, deviceCode, normalized, record);
     return confirmation("Authorization denied", "You can close this window.");
   }
   if (form?.get("decision") !== "allow") return Response.redirect(`${env.APP_ORIGIN}/device?user_code=${encodeURIComponent(displayUserCode(normalized))}`, 303);
@@ -195,7 +213,7 @@ export async function deviceVerification(request: Request, env: Env, oauth: OAut
   record.status = "approved";
   record.authorizationCode = new URL(result.redirectTo).searchParams.get("code") ?? undefined;
   if (!record.authorizationCode) return new Response("Could not complete device authorization", { status: 500 });
-  await Promise.all([env.OAUTH_KV.put(deviceKey(deviceCode), JSON.stringify(record), { expirationTtl: Math.max(1, record.expiresAt - Math.floor(Date.now() / 1000)) }), env.OAUTH_KV.delete(userKey(normalized))]);
+  await writeDevice(env, deviceCode, normalized, record);
   return confirmation("Device connected", "Authorization is complete. You can close this window.");
 }
 

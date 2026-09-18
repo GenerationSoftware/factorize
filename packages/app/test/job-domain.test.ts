@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InvocationService, JOB_SCHEMA, renderJobPrompt, renderRunName, type Invocation, type Job, type JobRepository, type JobRun } from "../src/job-domain";
+import { InvocationService, renderJobPrompt, renderRunName, type Invocation, type Job, type JobRepository, type JobRun } from "../src/job-domain";
 
 const job = (overrides: Partial<Job> = {}): Job => ({
   id: "job-1", name: "Triage", slug: "triage", promptTemplate: "{{trigger-1.prompt}} · {{trigger-2.issue.title}}",
@@ -55,15 +55,4 @@ describe("job invocation domain", () => {
     expect(await service.startIfCapacity(second.run)).toBeNull();
   });
 
-  it("defines multiple triggers, per-trigger schedules, lifecycle claims, and coalescing state", () => {
-    expect(JOB_SCHEMA).toContain("kind IN ('manual','schedule','webhook','jobLifecycle')");
-    expect(JOB_SCHEMA).toContain("UNIQUE(job_id, slug)");
-    expect(JOB_SCHEMA).toContain("position INTEGER NOT NULL DEFAULT 0");
-    expect(JOB_SCHEMA).not.toContain("job_id TEXT NOT NULL UNIQUE REFERENCES jobs");
-    expect(JOB_SCHEMA).toContain("UNIQUE(job_id, claim_key)");
-    expect(JOB_SCHEMA).toContain("CREATE TABLE IF NOT EXISTS schedule_state");
-    expect(JOB_SCHEMA).toContain("CREATE TABLE IF NOT EXISTS automatic_wakes");
-    expect(JOB_SCHEMA).toContain("PRIMARY KEY(trigger_id,source_run_id,terminal_state)");
-    expect(JOB_SCHEMA).not.toContain("pipes");
-  });
 });

@@ -17,7 +17,7 @@ export class WebhookService {
     this.jobs = new PostgresJobRepository(database, tenantId, value => encrypt(value, env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, env.CREDENTIAL_ENCRYPTION_KEY));
   }
   private async candidates(provider: WebhookProvider): Promise<Array<{ job: Job; triggerId: string; triggerSlug: string; config: WebhookTriggerConfig }>> {
-    const rows = await this.database.pool.query<any>(`SELECT j.*,t.id trigger_id,t.slug trigger_slug,t.config trigger_config FROM app.jobs j JOIN app.triggers t ON t.tenant_id=j.tenant_id AND t.job_id=j.id WHERE j.tenant_id=$1 AND j.enabled AND t.enabled AND t.kind='webhook' AND t.config->>'provider'=$2`, [this.tenantId, provider]);
+    const rows = await this.database.pool.query<any>(`SELECT j.*,t.id trigger_id,t.slug trigger_slug,t.config trigger_config FROM app.jobs j JOIN app.triggers t ON t.tenant_id=j.tenant_id AND t.job_id=j.id WHERE j.tenant_id=$1 AND j.enabled AND t.enabled AND t.removed_at IS NULL AND t.kind='webhook' AND t.config->>'provider'=$2`, [this.tenantId, provider]);
     return rows.rows.map(row => ({ job: { id: row.id, name: row.name, slug: row.slug, promptTemplate: "", runNameTemplate: "", model: row.model, effort: row.effort, executionTarget: row.execution_target, concurrencyLimit: row.concurrency_limit, enabled: row.enabled, triggers: [], createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }, triggerId: row.trigger_id, triggerSlug: row.trigger_slug, config: row.trigger_config }));
   }
   private async ensure(provider: string, deliveryId: string, type: unknown, action: unknown) {

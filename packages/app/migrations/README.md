@@ -1,5 +1,10 @@
 # PostgreSQL migrations
 
+`../src/postgres/schema.ts` is the canonical Drizzle representation of the
+deployed `app` schema. These SQL files remain the immutable deployment history;
+schema changes must update both the Drizzle model and a forward-only migration.
+The application migration runner, rather than `drizzle-kit push`, applies them.
+
 These reviewed SQL migrations run outside Worker request handling. Apply them
 with a schema-owner connection:
 
