@@ -1,18 +1,22 @@
+import { terminalDiagnostics, safeDiagnosticText, type ExecutionDiagnostics } from "../harness-diagnostics";
+import type { ExecutionObservation } from "../execution";
 import type { ExecutionState, RunHandle } from "../execution";
 import type { Database, DatabaseClient } from "./database";
 
 export interface PersistedRun {
   tenantId: string; id: string; jobId: string; invocationId: string; state: ExecutionState;
   encryptedPrompt: string; executionTarget: Record<string, any>; executionHandle: RunHandle | null;
+  executionDiagnostics?: ExecutionDiagnostics | null; finalizationAttempt?: number;
   backendKind: string; capabilities: string[]; artifactState: string; createdAt: string; updatedAt: string;
 }
 
 interface RunRow {
   tenant_id: string; id: string; job_id: string; invocation_id: string; state: ExecutionState; encrypted_prompt: string;
   execution_target: Record<string, any>; execution_handle: RunHandle | null; execution_backend_kind: string;
+  execution_diagnostics: ExecutionDiagnostics | null; vm_cleanup_attempt: number;
   execution_capabilities: string[]; artifact_state: string; created_at: Date; updated_at: Date;
 }
-const mapped = (row: RunRow): PersistedRun => ({ tenantId: row.tenant_id, id: row.id, jobId: row.job_id, invocationId: row.invocation_id, state: row.state, encryptedPrompt: row.encrypted_prompt, executionTarget: row.execution_target, executionHandle: row.execution_handle, backendKind: row.execution_backend_kind, capabilities: row.execution_capabilities, artifactState: row.artifact_state, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() });
+const mapped = (row: RunRow): PersistedRun => ({ tenantId: row.tenant_id, id: row.id, jobId: row.job_id, invocationId: row.invocation_id, state: row.state, encryptedPrompt: row.encrypted_prompt, executionTarget: row.execution_target, executionHandle: row.execution_handle, executionDiagnostics: row.execution_diagnostics, finalizationAttempt: row.vm_cleanup_attempt, backendKind: row.execution_backend_kind, capabilities: row.execution_capabilities, artifactState: row.artifact_state, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() });
 
 export class RunRepository {
   constructor(private database: Database) {}
@@ -29,7 +33,7 @@ export class RunRepository {
         ), claimed AS (
           UPDATE app.job_runs r SET state='starting',launch_lease_expires_at=now()+interval '5 minutes',updated_at=now()
           FROM candidate c WHERE r.tenant_id=c.tenant_id AND r.id=c.id RETURNING r.*
-        ) SELECT c.tenant_id,c.id,c.job_id,c.invocation_id,c.state,c.encrypted_prompt,j.execution_target || jsonb_build_object('model',j.model,'effort',j.effort) execution_target,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.artifact_state,c.created_at,c.updated_at
+        ) SELECT c.tenant_id,c.id,c.job_id,c.invocation_id,c.state,c.encrypted_prompt,j.execution_target || jsonb_build_object('model',j.model,'effort',j.effort) execution_target,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.vm_cleanup_attempt,x.artifact_state,c.created_at,c.updated_at
           FROM claimed c JOIN app.jobs j ON j.tenant_id=c.tenant_id AND j.id=c.job_id JOIN app.runs x ON x.tenant_id=c.tenant_id AND x.id=c.id`, []);
       const row = result.rows[0];
       if (!row) return null;
@@ -39,7 +43,7 @@ export class RunRepository {
   }
 
   async dueForPoll(limit = 40): Promise<PersistedRun[]> {
-    const result = await this.database.pool.query<RunRow>(`SELECT r.tenant_id,r.id,r.job_id,r.invocation_id,r.state,r.encrypted_prompt,j.execution_target || jsonb_build_object('model',j.model,'effort',j.effort) execution_target,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.artifact_state,r.created_at,r.updated_at
+    const result = await this.database.pool.query<RunRow>(`SELECT r.tenant_id,r.id,r.job_id,r.invocation_id,r.state,r.encrypted_prompt,j.execution_target || jsonb_build_object('model',j.model,'effort',j.effort) execution_target,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.vm_cleanup_attempt,x.artifact_state,r.created_at,r.updated_at
       FROM app.job_runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.runs x ON x.tenant_id=r.tenant_id AND x.id=r.id
       WHERE r.state IN ('running','blocked','stopping') AND (r.next_poll_at IS NULL OR r.next_poll_at<=now()) ORDER BY r.next_poll_at NULLS FIRST,r.updated_at LIMIT $1`, [limit]);
     return result.rows.map(mapped);
@@ -59,20 +63,28 @@ export class RunRepository {
     });
   }
 
-  async terminal(run: PersistedRun, state: "succeeded" | "failed" | "stopped", artifactState: "stored" | "partial" | "failed", error?: string): Promise<void> {
+  async recordObservation(run: PersistedRun, observation: ExecutionObservation): Promise<ExecutionDiagnostics> {
+    const diagnostics = terminalDiagnostics(observation);
+    const result = await this.database.pool.query<{ execution_diagnostics: ExecutionDiagnostics }>(
+      "UPDATE app.runs SET execution_diagnostics=COALESCE(execution_diagnostics,$3::jsonb),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING execution_diagnostics",
+      [run.tenantId, run.id, JSON.stringify(diagnostics)]);
+    return result.rows[0].execution_diagnostics;
+  }
+
+  async terminal(run: PersistedRun, state: "succeeded" | "failed" | "stopped", artifactState: "stored" | "partial" | "failed", error?: string, cleanupComplete = false): Promise<void> {
     await this.database.transaction(async client => {
       await client.query("UPDATE app.job_runs SET state=$3,next_poll_at=NULL,launch_lease_expires_at=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state]);
-      await client.query("UPDATE app.runs SET state=$3,artifact_state=$4,artifact_error=$5,claim_released=true,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state, artifactState, error ?? null]);
+      await client.query("UPDATE app.runs SET state=$3,artifact_state=$4,artifact_error=$5,claim_released=true,vm_cleanup_complete=$6,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state, artifactState, error ? safeDiagnosticText(error) : null, cleanupComplete]);
       await client.query("DELETE FROM app.active_claims WHERE tenant_id=$1 AND run_id=$2", [run.tenantId, run.id]);
     });
   }
 
   async retryFinalization(run: PersistedRun, artifactState: "pending" | "collecting" | "stored" | "partial" | "failed", error: string): Promise<void> {
     await this.database.transaction(async client => {
-      const attempt = (await client.query<{ vm_cleanup_attempt: number }>("UPDATE app.runs SET artifact_state=$3,artifact_error=$4,vm_cleanup_attempt=vm_cleanup_attempt+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING vm_cleanup_attempt", [run.tenantId, run.id, artifactState, error])).rows[0]?.vm_cleanup_attempt ?? 1;
+      const attempt = (await client.query<{ vm_cleanup_attempt: number }>("UPDATE app.runs SET artifact_state=$3,artifact_error=$4,vm_cleanup_attempt=vm_cleanup_attempt+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING vm_cleanup_attempt", [run.tenantId, run.id, artifactState, safeDiagnosticText(error)])).rows[0]?.vm_cleanup_attempt ?? 1;
       const seconds = Math.min(60, 2 ** Math.min(attempt, 6));
       await client.query("UPDATE app.job_runs SET state='running',next_poll_at=now()+make_interval(secs=>$3),updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, seconds]);
-      await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'finalization_retry',$4)", [run.tenantId, crypto.randomUUID(), run.id, `Attempt ${attempt}: ${error}`]);
+      await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'finalization_retry',$4)", [run.tenantId, crypto.randomUUID(), run.id, `Attempt ${attempt}: ${safeDiagnosticText(error)}`]);
     });
   }
 

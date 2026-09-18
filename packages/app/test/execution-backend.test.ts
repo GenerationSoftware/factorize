@@ -61,6 +61,7 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("--property=RemainAfterExit=yes");
     expect(requests[1]).toContain("--property=StandardInput=file:/tmp/factorize-prompt.md");
     expect(requests[1]).toContain("--property=StandardOutput=append:/tmp/factorize.log");
+    expect(requests[1]).toContain("--property=StandardError=append:/tmp/factorize.stderr");
     expect(requests[1]).not.toContain("nohup");
     expect(requests[1]).toContain("; echo started");
     expect(requests[1]).toContain("systemctl show");
@@ -68,10 +69,10 @@ describe("ExeVmBackend", () => {
 
   it("uses the systemd unit as the authoritative run state", async () => {
     const states = [
-      "running",
-      "succeeded",
-      "failed",
-      "missing",
+      "LoadState=loaded\nActiveState=active\nSubState=running\nResult=success\nExecMainCode=0\nExecMainStatus=0",
+      "LoadState=loaded\nActiveState=active\nSubState=exited\nResult=success\nExecMainCode=1\nExecMainStatus=0",
+      "LoadState=loaded\nActiveState=failed\nSubState=failed\nResult=exit-code\nExecMainCode=1\nExecMainStatus=42",
+      "LoadState=not-found\nActiveState=inactive\nSubState=dead",
     ];
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
@@ -81,7 +82,7 @@ describe("ExeVmBackend", () => {
     const backend = new ExeVmBackend(connection), handle = { backendKind: "exe-vm", id: "factorize-run-1" };
     await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "running" });
     await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "succeeded" });
-    await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "failed", detail: expect.stringContaining("unsuccessfully") });
+    await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "failed", systemd: { result: "exit-code", execMainCode: 1, execMainStatus: 42, activeState: "failed", subState: "failed" }, detail: expect.stringContaining("unsuccessfully") });
     await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "failed", detail: expect.stringContaining("supervisor disappeared") });
     expect(requests.every(request => request.includes("systemctl show"))).toBe(true);
     expect(requests.every(request => !request.includes("factorize.status"))).toBe(true);

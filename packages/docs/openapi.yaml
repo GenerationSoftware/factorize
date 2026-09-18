@@ -25,6 +25,68 @@ components:
         model: { type: string, maxLength: 120 }
         effort: { type: string, maxLength: 40 }
         triggers: { type: array, maxItems: 50, items: { type: object }, description: "Job lifecycle config uses sourceJobIds and states (succeeded, failed, stopped, edited). Edited fires on successful job saves, including enable/disable; context contains source_job_id, event, and edited_at." }
+    ExecutionDiagnostics:
+      type: [object, 'null']
+      description: First terminal backend observation, retained independently of collection and cleanup errors. Null for older or nonterminal runs. Commands and raw backend responses are never included.
+      required: [state, detail, systemd]
+      properties:
+        state: { type: string, enum: [succeeded, failed, stopped] }
+        detail: { type: [string, 'null'], maxLength: 2048, description: Bounded credential-redacted backend observation detail }
+        systemd:
+          type: [object, 'null']
+          required: [loadState, activeState, subState, result, execMainCode, execMainStatus]
+          properties:
+            loadState: { type: string, maxLength: 64 }
+            activeState: { type: string, maxLength: 64 }
+            subState: { type: string, maxLength: 64 }
+            result: { type: string, maxLength: 64 }
+            execMainCode: { type: [integer, 'null'], description: systemd ExecMainCode (for example 1 for exit and 2 for signal) }
+            execMainStatus: { type: [integer, 'null'], description: systemd exit status or signal number; null if unavailable }
+    HarnessLog:
+      type: [object, 'null']
+      description: Stored redacted harness stderr artifact, or null if unavailable. Uses the combined log for older VMs. Retains at most the first 64 KiB, drops a truncated final line, and redacts recognizable credentials before storage. The object key is a storage locator, not a public or signed URL. This artifact remains available after VM deletion.
+      required: [id, kind, object_key, provider, format, byte_size, sha256, state, created_at]
+      properties:
+        id: { type: string }
+        kind: { type: string, const: terminal_log }
+        object_key: { type: string }
+        provider: { type: string }
+        format: { type: string, const: text }
+        format_version: { type: [string, 'null'] }
+        cli_version: { type: [string, 'null'] }
+        native_session_id: { type: [string, 'null'] }
+        byte_size: { type: [integer, string], description: Byte count (PostgreSQL bigint may serialize as a decimal string), maximum: 65536 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        state: { type: string, enum: [stored] }
+        created_at: { type: string, format: date-time }
+    RunDetail:
+      type: object
+      required: [id, state, execution_diagnostics, harness_log]
+      properties:
+        id: { type: string }
+        state: { type: string }
+        execution_diagnostics: { $ref: '#/components/schemas/ExecutionDiagnostics' }
+        harness_log: { $ref: '#/components/schemas/HarnessLog' }
+        artifact_error: { type: [string, 'null'], description: Secondary artifact or cleanup error; does not replace execution_diagnostics }
+    RunDiagnostics:
+      type: object
+      required: [runId, jobId, state, execution, harnessLog, artifact, activity]
+      properties:
+        runId: { type: string }
+        jobId: { type: string }
+        state: { type: string }
+        provider: { type: string }
+        backendKind: { type: string }
+        execution: { $ref: '#/components/schemas/ExecutionDiagnostics' }
+        harnessLog: { $ref: '#/components/schemas/HarnessLog' }
+        artifact:
+          type: object
+          properties:
+            state: { type: string }
+            error: { type: [string, 'null'], description: Secondary collection or cleanup error. Collection is retried up to three times before cleanup proceeds with partial artifacts. Cleanup failures remain retryable. }
+        activity: { type: array, items: { type: object } }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     RunPage: { type: object, required: [items], properties: { items: { type: array, items: { type: object } }, nextCursor: { type: string, nullable: true } } }
     ManualInvocation:
       type: object
@@ -82,9 +144,9 @@ paths:
   /api/v1/job-handlers/test: { post: { summary: Test webhook handler, responses: { '200': { description: Decision } } } }
   /api/v1/runs:
     get: { summary: List runs, parameters: [{ name: jobId, in: query, schema: { type: string } }, { name: state, in: query, schema: { type: string } }, { name: contextQuery, in: query, schema: { type: string } }, { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }, { name: cursor, in: query, schema: { type: string } }], responses: { '200': { description: Paginated runs, content: { application/json: { schema: { $ref: '#/components/schemas/RunPage' } } } } } }
-  /api/v1/runs/{runId}: { get: { summary: Get run, responses: { '200': { description: Run } } } }
+  /api/v1/runs/{runId}: { get: { summary: Get run, responses: { '200': { description: Run including durable execution diagnostics and harness artifact location, content: { application/json: { schema: { $ref: '#/components/schemas/RunDetail' } } } } } } }
   /api/v1/runs/{runId}/trace: { get: { summary: Get paginated run trace events, responses: { '200': { description: Trace page } } } }
-  /api/v1/runs/{runId}/diagnostics: { get: { summary: Get credential-safe run lifecycle diagnostics, responses: { '200': { description: Launch, prompt, output, claim, cleanup, and activity diagnostics } } } }
+  /api/v1/runs/{runId}/diagnostics: { get: { summary: Get credential-safe run lifecycle diagnostics, responses: { '200': { description: Credential-safe execution metadata and durable harness artifact location, content: { application/json: { schema: { $ref: '#/components/schemas/RunDiagnostics' } } } } } } }
   /api/v1/runs/{runId}/stop: { post: { summary: Stop run, responses: { '200': { description: Stopped } } } }
   /api/v1/runs/{runId}/kill: { post: { summary: Kill run and immediately release its concurrency slot, responses: { '200': { description: Killed } } } }
   /api/v1/schedules/preview: { post: { summary: Preview schedule, responses: { '200': { description: Next occurrence } } } }
