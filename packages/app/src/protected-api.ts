@@ -44,6 +44,8 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       if (request.method === "GET" && path === "/api/v1/job-trigger-availability") return Response.json(await service.listJobTriggerAvailability());
       if (request.method === "POST" && path === "/api/v1/schedules/preview") return Response.json(await service.previewSchedule(await request.json()));
       if (request.method === "GET" && path === "/api/v1/integrations/cloudflare-tail") return Response.json(await service.listTailIntegrations());
+      const exeDiagnosticMatch = path.match(/^\/api\/v1\/integrations\/exe\/([^/]+)\/diagnostics$/);
+      if (exeDiagnosticMatch && request.method === "POST") return Response.json(await service.diagnoseExeIntegration(decodeURIComponent(exeDiagnosticMatch[1])));
       if (request.method === "GET" && path === "/api/v1/jobs") return Response.json(await service.listJobs());
       if (request.method === "POST" && path === "/api/v1/jobs") return Response.json(await service.createJob(jobInputSchema.parse(await request.json())), { status: 201 });
       if (request.method === "POST" && path === "/api/v1/job-handlers/test") return Response.json(await service.testJobHandler(jobHandlerTestSchema.parse(await request.json())));
@@ -64,6 +66,8 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       if (webhookDeliveryMatch && request.method === "GET") return Response.json(await service.getWebhookDelivery(decodeURIComponent(webhookDeliveryMatch[1])));
       const runMatch = path.match(/^\/api\/v1\/runs\/([^/]+)$/);
       if (runMatch && request.method === "GET") return Response.json(await service.getRun(decodeURIComponent(runMatch[1])));
+      const runDiagnosticMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/diagnostics$/);
+      if (runDiagnosticMatch && request.method === "GET") return Response.json(await service.getRunDiagnostics(decodeURIComponent(runDiagnosticMatch[1])));
       const stopMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/stop$/);
       if (stopMatch && request.method === "POST") return Response.json(await service.stopRun(decodeURIComponent(stopMatch[1])));
       return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
@@ -82,6 +86,7 @@ function createMcpServer(service: ApiService): McpServer {
     tool("list_github_installations", "List connected GitHub App installations, including the installation IDs needed by GitHub Job triggers. Credentials are never returned.", z.object({}), () => service.listGitHubInstallations());
     tool("list_runs", "List authoritative job runs by job ID, state, and an optional case-insensitive literal substring of triggered context. Automatic webhook, schedule, and lifecycle signals coalesce, so query runs and the provider API for authoritative work. Context matches include only a bounded excerpt.", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
     tool("get_run", "Get a run with its rendered prompt, full triggered context, invocation metadata, execution metadata, output, and activity. For manual invocations, invocation.idempotency_key is the client-reusable value; invocation.claim_key is internal.", runIdSchema, ({ runId }: any) => service.getRun(runId));
+    tool("get_run_diagnostics", "Get credential-safe launch, prompt delivery, output capture, claim release, cleanup, and activity diagnostics for a run.", runIdSchema, ({ runId }: any) => service.getRunDiagnostics(runId));
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
     tool("list_jobs", "List jobs with their current run count and maximum concurrency", z.object({}), () => service.listJobs());
     tool("get_job", "Get a job with its current run count and maximum concurrency", jobIdSchema, ({ jobId }: any) => service.getJob(jobId));
@@ -96,6 +101,7 @@ function createMcpServer(service: ApiService): McpServer {
     tool("get_webhook_delivery", "Get a webhook delivery and its safe processing timeline. Secrets and payloads are never returned.", z.object({ deliveryId: z.string().min(1) }), ({ deliveryId }: any) => service.getWebhookDelivery(deliveryId));
     tool("test_job_webhook_handler", "Test an isolated synchronous Job webhook handler without creating a run. Returns the decision and never accepts credentials.", jobHandlerTestSchema, (input: any) => service.testJobHandler(input));
     tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
+    tool("diagnose_exe_integration", "Probe a saved exe.dev connection's permissions and a disposable tagged VM's agent/model integration. The disposable VM is deleted before the tool returns.", z.object({ connectionId: z.string().min(1) }), ({ connectionId }: any) => service.diagnoseExeIntegration(connectionId));
     tool("list_cloudflare_tail_integrations", "List installed Cloudflare Tail integrations and reference counts. Signing secrets are never returned.", z.object({}), () => service.listTailIntegrations());
     return server;
 }

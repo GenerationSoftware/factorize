@@ -20,6 +20,7 @@ All paths are relative to `APP_ORIGIN` and require a bearer token or browser own
 | GET | `/api/v1/jobs/{jobId}` | flows:read | One job |
 | GET | `/api/v1/jobs/{jobId}/events?limit=50` | runs:read | Webhook activity; limit 1–100 |
 | GET | `/api/v1/runs/{runId}` | runs:read | Full prompt, context, invocation, execution, output, activity |
+| GET | `/api/v1/runs/{runId}/diagnostics` | runs:read | Credential-safe lifecycle checks and activity |
 
 ## Writes and runs
 
@@ -31,6 +32,7 @@ All paths are relative to `APP_ORIGIN` and require a bearer token or browser own
 | POST | `/api/v1/jobs/{jobId}/enable` | flows:write | Enable |
 | POST | `/api/v1/jobs/{jobId}/disable` | flows:write | Disable |
 | POST | `/api/v1/job-handlers/test` | flows:write | Isolated synchronous test; no run |
+| POST | `/api/v1/integrations/exe/{connectionId}/diagnostics` | flows:write | Probe permissions and a disposable VM's agent/model integration |
 | POST | `/api/v1/jobs/{jobId}/invocations` | runs:write | Manual invocation; returns `202` |
 | GET | `/api/v1/runs?jobId=&state=&contextQuery=&limit=&cursor=` | runs:read | `{items,nextCursor}`; limit 1–100 |
 | POST | `/api/v1/runs/{runId}/stop` | runs:write | Stop an active run |

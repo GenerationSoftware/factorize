@@ -174,6 +174,10 @@ curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" \
 
 Job CRUD is available at `/jobs` and `/jobs/:id`; job metadata includes `currentRuns` and `maxConcurrency`. Run collections return `{ "items": [...], "nextCursor": "..." }`; pass `nextCursor` back as the `cursor` query parameter. Runs can be filtered by `jobId`, `state`, and `contextQuery`; context queries use case-insensitive literal substring matching and matching items contain a bounded `context_excerpt`, never the full context. `GET /runs/:runId` returns the rendered `prompt`, complete structured trigger `context`, and invocation metadata, including the firing `trigger_id`. The canonical Job prompt contract is documented in [docs/job-trigger-context.md](docs/job-trigger-context.md). Errors consistently use `{ "error": { "code": "...", "message": "..." } }`.
 
+Production diagnostics are authenticated and tenant-scoped. `GET /api/v1/runs/:runId/diagnostics` reports generic run lifecycle checks without returning credentials or internal command payloads. `POST /api/v1/integrations/exe/:connectionId/diagnostics` checks saved exe.dev permissions and creates then deletes a disposable tagged VM to verify the configured agent and managed model integration.
+
+The Wrangler-backed E2E suite loads the complete Worker and Durable Objects from `wrangler.jsonc`. Its exe.dev lifecycle tests disable external networking and use a stateful command-API stub to cover successful completion, masked shell-launch failures, run diagnostics, integration diagnostics, output capture, and VM cleanup without creating a real VM or calling an LLM.
+
 ## MCP clients
 
 Configure a compatible remote MCP client with this single URL:
