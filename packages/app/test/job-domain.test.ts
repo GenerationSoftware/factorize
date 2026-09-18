@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import Mustache from "mustache";
 import { InvocationService, renderJobPrompt, renderRunName, type Invocation, type Job, type JobRepository, type JobRun } from "../src/job-domain";
 
 const job = (overrides: Partial<Job> = {}): Job => ({
@@ -20,6 +21,27 @@ class MemoryRepository implements JobRepository {
 }
 
 describe("job invocation domain", () => {
+  it("preserves plain text without decoding literal entities or changing HTML renderers", () => {
+    const value = 'https://linear.app/generation/issue/GEN-2108/run-page?a=1&b=2\n{"title":"Fix it"} <script>alert("x")</script> `code` = &amp; &#x2F;';
+    const context = { "trigger-1": { prompt: value }, "trigger-2": false };
+    for (const substitution of ["{{trigger-1.prompt}}", "{{{trigger-1.prompt}}}", "{{&trigger-1.prompt}}"]) {
+      expect(renderJobPrompt({ promptTemplate: "{{#trigger-1}}<task>\n" + substitution + "\n</task>{{/trigger-1}}{{^trigger-2}} done{{/trigger-2}}" }, context))
+        .toBe("<task>\n" + value + "\n</task> done");
+    }
+    expect(renderRunName("Review {{trigger-1.prompt}}", context, "fallback")).toBe("Review " + value);
+    expect(Mustache.render("{{value}}", { value: "<script>&" })).toBe("&lt;script&gt;&amp;");
+  });
+
+  it("encrypts and persists the original manual task text at invocation time", async () => {
+    const repository = new MemoryRepository();
+    repository.jobs.set("job-1", job({ promptTemplate: "<task>\n{{trigger-1.prompt}}\n</task>" }));
+    const service = new InvocationService(repository, async value => `encrypted:${value}`);
+    const prompt = 'https://linear.app/generation/issue/GEN-2108/run-page\n{"task":"Fix quotes & slashes"}';
+    const result = await service.invoke("job-1", { source: "manual", triggerId: "manual-1", claimKey: "plain-text", context: { "trigger-1": { prompt } } });
+    expect(result.run.encryptedPrompt).toBe(`encrypted:<task>\n${prompt}\n</task>`);
+    expect(repository.claims.get("job-1:plain-text")?.run.encryptedPrompt).toBe(result.run.encryptedPrompt);
+  });
+
   it("renders run names with active and inactive trigger conditionals", () => {
     expect(renderRunName("{{#trigger-2}}{{trigger-2.issue.identifier}}{{/trigger-2}}{{^trigger-2}}manual{{/trigger-2}}", { "trigger-1": { prompt: "go" }, "trigger-2": false }, "fallback")).toBe("manual");
     expect(renderRunName("{{#trigger-2}}{{trigger-2.issue.identifier}}{{/trigger-2}}", { "trigger-1": false, "trigger-2": { issue: { identifier: "GEN-1" } } }, "fallback")).toBe("GEN-1");
