@@ -16,6 +16,8 @@ import { OperationsRepository } from "./postgres/operations-repository";
 import { installedTriggerAvailability } from "./trigger-availability";
 import { invokeCustomHandler } from "./custom-handler";
 import { validateWebhookHandler } from "./webhook-trigger";
+import { ProviderCatalog } from "./postgres/provider-catalog";
+import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
 
 export class ServiceError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -65,6 +67,7 @@ export class ApiService {
     const tokenActive = !this.auth.accessTokenId || await new AccessTokenRepository(database, this.auth.tenantId).active(this.auth.accessTokenId);
     if (member?.role !== "owner" || member.sessionVersion !== this.auth.sessionVersion || !tokenActive) throw new ServiceError(401, "invalid_token", "The request is not authorized.");
   }
+  private async authorizeOwnerSession(scope: Scope): Promise<void> { await this.authorize(scope); if (this.auth.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required."); }
 
   private publicJob(value: any) {
     for (const trigger of value?.triggers ?? []) {
@@ -128,4 +131,38 @@ export class ApiService {
       throw new ServiceError(400, "invalid_request", error instanceof Error ? error.message : "Invalid schedule");
     }
   }
+
+  private integrations() { return new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+  private providers() { return new ProviderCatalog(databaseFor(this.env), this.env, this.auth.tenantId); }
+
+  async integrationStatus() { await this.authorize("flows:read"); return this.integrations().status(); }
+  async saveExeIntegration(input: any) { await this.authorize("flows:write"); return this.integrations().saveExe(input); }
+  async testExeIntegration(input: any) { await this.authorize("flows:write"); return this.integrations().testExe(input); }
+  async removeIntegration(kind: "exe" | "amp", id: string) { await this.authorize("flows:write"); const result = await this.integrations().remove(kind, id); if (result.conflict) throw new ServiceError(409, "conflict", "This integration is used by a job."); if (!result.deleted) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
+  async saveAmpIntegration(input: any) { await this.authorize("flows:write"); return this.integrations().saveAmp(input); }
+  async testAmpIntegration(input: any) { await this.authorize("flows:write"); return this.integrations().testAmp(input); }
+  async saveTailIntegration(input: any) { await this.authorize("flows:write"); return this.integrations().saveTail(input); }
+  async testTailIntegration(id: string) { await this.authorize("flows:write"); const result = await this.integrations().testTail(id); if (!result) throw new ServiceError(404, "not_found", "Integration not found"); return result; }
+  async removeTailIntegration(id: string) { await this.authorize("flows:write"); if (!await this.connections().delete(`cloudflare-tail:${id}`)) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
+  async linearProjects() { await this.authorize("flows:read"); return this.providers().linearProjects(); }
+  async linearOptions() { await this.authorize("flows:read"); return this.providers().linearOptions(); }
+  async clickUpLists() { await this.authorize("flows:read"); return this.providers().clickUpLists(); }
+  async clickUpOptions(listId: string) { await this.authorize("flows:read"); return this.providers().clickUpOptions(listId); }
+  async githubRepositories(installationId: number) { await this.authorize("flows:read"); return this.providers().githubRepositories(installationId); }
+  async githubIssueOptions(installationId: number, repositoryId: number) { await this.authorize("flows:read"); return this.providers().githubIssueOptions(installationId, repositoryId); }
+  async removeGitHubInstallation(id: number) { await this.authorize("flows:write"); if (!await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).delete(id)) throw new ServiceError(404, "not_found", "Installation not found"); return { id, deleted: true }; }
+
+  async listAuthorizedClients() {
+    await this.authorizeOwnerSession("flows:read");
+    if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503, "operation_failed", "OAuth management unavailable");
+    const grants: any[] = []; let cursor: string | undefined;
+    do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => !grant.expiresAt || grant.expiresAt > Math.floor(Date.now() / 1000))); cursor = page.cursor; } while (cursor);
+    const clients = await Promise.all([...new Set(grants.map(grant => grant.clientId))].map(async clientId => [clientId, await this.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const));
+    const byId = new Map(clients);
+    return grants.map(grant => ({ grantId: grant.id, clientId: grant.clientId, clientName: byId.get(grant.clientId)?.clientName ?? grant.clientId, scopes: grant.scope, authorizationDate: new Date(grant.createdAt * 1000).toISOString(), expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null }));
+  }
+  async revokeAuthorizedClient(clientId: string) { await this.authorizeOwnerSession("flows:write"); if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503, "operation_failed", "OAuth management unavailable"); const grants: any[] = []; let cursor: string | undefined; do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => grant.clientId === clientId)); cursor = page.cursor; } while (cursor); await Promise.all(grants.map(grant => this.env.OAUTH_PROVIDER!.revokeGrant(grant.id, this.auth.userId))); return { revoked: grants.length }; }
+  async listAccessTokens() { await this.authorizeOwnerSession("flows:read"); return new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).list(); }
+  async createAccessToken(input: any) { await this.authorizeOwnerSession("flows:write"); const name = typeof input?.name === "string" ? input.name.trim() : "", requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], expiryDays = Number(input?.expiryDays); if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any)) || ![7, 30, 90].includes(expiryDays)) throw new ServiceError(400, "invalid_request", "A name, supported scopes, and expiryDays of 7, 30, or 90 are required."); const token = issueAccessToken(this.auth.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString(); const metadata = await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).create({ name, scopes: requested, expiresAt, digest: await accessTokenDigest(token), userId: this.auth.userId, sessionVersion: this.auth.sessionVersion }); if (!metadata) throw new ServiceError(401, "invalid_token", "The owner session is no longer active."); return { ...metadata, token }; }
+  async revokeAccessToken(id: string) { await this.authorizeOwnerSession("flows:write"); if (!await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).revoke(id)) throw new ServiceError(404, "not_found", "Access token not found"); return { revoked: true }; }
 }

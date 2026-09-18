@@ -37,9 +37,9 @@ describe("rendered access token form", () => {
     const pendingCreate = new Promise<Response>((resolve) => { finishCreate = resolve; });
     const fetchMock = vi.fn((input: unknown, init?: RequestInit) => {
       const path = String(input);
-      if (path === "/api/access/authorized-clients") return Promise.resolve(json([]));
-      if (path === "/api/access-tokens" && init?.method === "POST") return pendingCreate;
-      if (path === "/api/access-tokens") return Promise.resolve(json([]));
+      if (path === "/api/v1/access/authorized-clients") return Promise.resolve(json([]));
+      if (path === "/api/v1/access-tokens" && init?.method === "POST") return pendingCreate;
+      if (path === "/api/v1/access-tokens") return Promise.resolve(json([]));
       throw new Error(`Unexpected request: ${path}`);
     });
     const form = renderPage(fetchMock);
@@ -48,7 +48,7 @@ describe("rendered access token form", () => {
 
     form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: submit }));
     expect(submit.disabled).toBe(true);
-    expect(fetchMock.mock.calls.filter(([url, init]) => url === "/api/access-tokens" && init?.method === "POST")).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([url, init]) => url === "/api/v1/access-tokens" && init?.method === "POST")).toHaveLength(1);
 
     finishCreate(json({ token: "fact_once_only" }, 201));
     await flush();
@@ -56,16 +56,16 @@ describe("rendered access token form", () => {
 
     expect(document.querySelector("#new-token-value")?.textContent).toBe("fact_once_only");
     expect(document.querySelector("#new-token")?.classList.contains("hidden")).toBe(false);
-    expect(fetchMock.mock.calls.filter(([url, init]) => url === "/api/access-tokens" && !init?.method)).toHaveLength(2);
+    expect(fetchMock.mock.calls.filter(([url, init]) => url === "/api/v1/access-tokens" && !init?.method)).toHaveLength(2);
     expect(submit.disabled).toBe(false);
   });
 
   it("shows API errors in the form and restores the button", async () => {
     const fetchMock = vi.fn((input: unknown, init?: RequestInit) => {
       const path = String(input);
-      if (path === "/api/access/authorized-clients") return Promise.resolve(json([]));
-      if (path === "/api/access-tokens" && init?.method === "POST") return Promise.resolve(json({ error: "Token name already exists" }, 422));
-      if (path === "/api/access-tokens") return Promise.resolve(json([]));
+      if (path === "/api/v1/access/authorized-clients") return Promise.resolve(json([]));
+      if (path === "/api/v1/access-tokens" && init?.method === "POST") return Promise.resolve(json({ error: "Token name already exists" }, 422));
+      if (path === "/api/v1/access-tokens") return Promise.resolve(json([]));
       throw new Error(`Unexpected request: ${path}`);
     });
     const form = renderPage(fetchMock);

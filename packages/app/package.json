@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "npm run build:css && wrangler dev",
     "build:css": "tailwindcss -i ./src/tailwind.css -o ./public/styles.css --minify",
-    "check": "tsc --noEmit && vitest run && wrangler deploy --dry-run",
+    "check": "npm run check:api-boundaries && tsc --noEmit && vitest run && wrangler deploy --dry-run",
+    "check:api-boundaries": "node scripts/check-api-boundaries.mjs",
     "test": "vitest run",
     "deploy": "wrangler deploy",
     "db:migrate": "node scripts/migrate.mjs",
