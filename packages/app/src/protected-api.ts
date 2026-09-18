@@ -1,3 +1,4 @@
+import { InvocationError } from "./job-domain";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
@@ -8,6 +9,7 @@ import type { Env, OAuthProps } from "./types";
 import { isDeclaredApiOperation } from "./api-contract";
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof InvocationError && error.code === "queue_full") return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
   if (error instanceof z.ZodError) return Response.json({ error: { code: "invalid_request", message: "Request validation failed", details: error.issues } }, { status: 400 });
   if (error instanceof ServiceError) {
     const headers = error.code === "insufficient_scope" ? { "WWW-Authenticate": `Bearer error="insufficient_scope"` } : undefined;
@@ -133,7 +135,7 @@ function createMcpServer(service: ApiService): McpServer {
     tool("delete_job", "Delete a job and its queued invocation history", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));
     tool("enable_job", "Enable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, true));
     tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
-    tool("invoke_job", "Invoke a job's manual trigger with an optional display name, prompt, and JSON data exposed beneath that trigger's stable slug. Manual invocations are never coalesced. idempotencyKey is a client value and must not include the internal manual: claim-key prefix; reuse invocation.idempotency_key from get_run.", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
+    tool("invoke_job", "Invoke a job's manual trigger with an optional display name, prompt, and JSON data exposed beneath that trigger's stable slug. Manual invocations are never coalesced; a full job queue returns queue_full. idempotencyKey is a client value and must not include the internal manual: claim-key prefix; reuse invocation.idempotency_key from get_run.", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
     tool("list_job_webhook_activity", "List matching, rejected, duplicate, and accepted webhook activity for a job", z.object({ jobId: z.string().min(1), limit: z.number().int().min(1).max(100).default(50) }), ({ jobId, limit }: any) => service.listJobEvents(jobId, limit));
     tool("list_webhook_deliveries", "Search tenant-scoped webhook deliveries by provider, delivery ID, event, outcome, job, time range, or safe diagnostic text. Results are newest first and cursor paginated.", z.object({ provider: z.string().optional(), deliveryId: z.string().optional(), event: z.string().optional(), action: z.string().optional(), outcome: z.string().optional(), jobId: z.string().optional(), q: z.string().optional(), from: z.string().optional(), to: z.string().optional(), limit: z.number().int().min(1).max(100).default(50), cursor: z.string().optional() }), (input: any) => service.listWebhookDeliveries(queryOf(input)));
     tool("get_webhook_delivery", "Get a webhook delivery and its safe processing timeline. Secrets and payloads are never returned.", z.object({ deliveryId: z.string().min(1) }), ({ deliveryId }: any) => service.getWebhookDelivery(deliveryId));

@@ -10,22 +10,22 @@ const row = { invocation_id: invocation.id, job_id: invocation.jobId, source: in
 
 describe("InvocationRepository", () => {
   it("creates invocation, run, and wake hint in one transaction", async () => {
-    const query = vi.fn().mockResolvedValueOnce({ rows: [{ id: invocation.id }], rowCount: 1 }).mockResolvedValueOnce({ rows: [], rowCount: 1 }).mockResolvedValueOnce({ rows: [], rowCount: 1 }).mockResolvedValueOnce({ rows: [row], rowCount: 1 });
+    const query = vi.fn().mockResolvedValueOnce({ rows: [], rowCount: 0 }).mockResolvedValueOnce({ rows: [{ id: invocation.id }], rowCount: 1 }).mockResolvedValueOnce({ rows: [], rowCount: 0 }).mockResolvedValueOnce({ rows: [], rowCount: 1 }).mockResolvedValueOnce({ rows: [], rowCount: 1 }).mockResolvedValueOnce({ rows: [row], rowCount: 1 });
     const database = { pool: {}, transaction: (work: (client: { query: typeof query }) => unknown) => work({ query }) } as unknown as Database;
     const result = await new InvocationRepository(database, tenantId).create(invocation, run);
     expect(result.duplicate).toBe(false);
-    expect(query).toHaveBeenCalledTimes(4);
+    expect(query).toHaveBeenCalledTimes(6);
     expect(query.mock.calls[0][1][0]).toBe(tenantId);
-    expect(query.mock.calls[2][0]).toContain("app.wake_hints");
-    expect(query.mock.calls[3][1]).toEqual([tenantId, invocation.jobId, invocation.claimKey]);
+    expect(query.mock.calls[4][0]).toContain("app.wake_hints");
+    expect(query.mock.calls[5][1]).toEqual([tenantId, invocation.jobId, invocation.claimKey]);
   });
 
   it("returns the canonical winner without creating a second run", async () => {
-    const query = vi.fn().mockResolvedValueOnce({ rows: [], rowCount: 0 }).mockResolvedValueOnce({ rows: [row], rowCount: 1 });
+    const query = vi.fn().mockResolvedValueOnce({ rows: [], rowCount: 0 }).mockResolvedValueOnce({ rows: [], rowCount: 0 }).mockResolvedValueOnce({ rows: [row], rowCount: 1 });
     const database = { pool: {}, transaction: (work: (client: { query: typeof query }) => unknown) => work({ query }) } as unknown as Database;
     const result = await new InvocationRepository(database, tenantId).create(invocation, run);
     expect(result.duplicate).toBe(true);
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenCalledTimes(3);
   });
 
   it("rejects construction without tenant scope", () => {

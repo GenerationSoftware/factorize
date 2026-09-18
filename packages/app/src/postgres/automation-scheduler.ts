@@ -1,5 +1,5 @@
 import { decrypt, encrypt } from "../crypto";
-import { InvocationService } from "../job-domain";
+import { InvocationError, InvocationService } from "../job-domain";
 import { catchUpOccurrence, nextOccurrence, validateScheduleConfig } from "../schedule";
 import type { Env } from "../types";
 import type { Database } from "./database";
@@ -7,6 +7,10 @@ import { PostgresJobRepository } from "./job-repository";
 import { githubHeaders, installationToken } from "../github";
 import { adaptWebhook, type WebhookTriggerConfig } from "../webhook-trigger";
 import { invokeCustomHandler } from "../custom-handler";
+
+function skipFullQueue(error: unknown): void {
+  if (!(error instanceof InvocationError) || error.code !== "queue_full") throw error;
+}
 
 /** Claims durable automatic signals in PostgreSQL. The alarm DO is only its clock. */
 export class AutomationScheduler {
@@ -26,7 +30,7 @@ export class AutomationScheduler {
       if (!due) break;
       const service = new InvocationService(this.repository(due.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY));
       const occurredAt = due.occurrence.occurredAt.toISOString(), occurrence = { occurredAt, externalId: occurredAt, metadata: { timezone: due.config.timezone } };
-      await service.invoke(due.job_id, { source: "schedule", triggerId: due.trigger_id, claimKey: `schedule:${due.trigger_id}:${occurredAt}`, context: { [due.slug]: occurrence }, occurrence });
+      await service.invoke(due.job_id, { source: "schedule", triggerId: due.trigger_id, claimKey: `schedule:${due.trigger_id}:${occurredAt}`, context: { [due.slug]: occurrence }, occurrence }).catch(skipFullQueue);
     }
   }
   private async lifecycle() {
@@ -35,7 +39,7 @@ export class AutomationScheduler {
       const states: string[] = row.config.states ?? row.config.terminalStates ?? ["succeeded", "failed", "stopped"]; if (!states.includes(row.state)) continue;
       const inserted = await this.database.pool.query("INSERT INTO app.lifecycle_deliveries(tenant_id,trigger_id,source_run_id,terminal_state) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING", [row.tenant_id, row.trigger_id, row.source_run_id, row.state]); if (!inserted.rowCount) continue;
       const context = { sourceRunId: row.source_run_id, sourceJobId: row.source_job_id, state: row.state, completedAt: row.updated_at.toISOString() }, occurrence = { occurredAt: context.completedAt, externalId: `${row.source_run_id}:${row.state}`, metadata: context };
-      await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.job_id, { source: "jobLifecycle", triggerId: row.trigger_id, claimKey: `lifecycle:${row.trigger_id}:${row.source_run_id}:${row.state}`, context: { [row.slug]: context }, occurrence });
+      await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.job_id, { source: "jobLifecycle", triggerId: row.trigger_id, claimKey: `lifecycle:${row.trigger_id}:${row.source_run_id}:${row.state}`, context: { [row.slug]: context }, occurrence }).catch(skipFullQueue);
     }
   }
 
@@ -70,6 +74,7 @@ export class AutomationScheduler {
         const result = await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.job_id, { source: "webhook", triggerId: row.trigger_id, claimKey: `webhook:${row.trigger_id}:${invocation.claimKey}`, context: { [row.trigger_slug]: context }, occurrence: { ...invocation.occurrence, metadata: { ...invocation.occurrence.metadata, triggerId: row.trigger_id, mergeable: false } } });
         await finish(result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Verified occurrence was already claimed." : "Merge-conflicted pull request queued through canonical job invocation.");
       } catch (error) {
+        if (error instanceof InvocationError && error.code === "queue_full") { await finish("queue_full", "Job already has a queued run; occurrence skipped."); continue; }
         const attempt = Number(row.attempt) + 1, detail = error instanceof Error ? error.message : "GitHub verification failed";
         if (attempt >= 8) await finish("verification_failed", detail); else await this.database.pool.query("UPDATE app.pending_verifications SET attempt=$3,next_attempt_at=now()+make_interval(secs=>least(60,5*$3)) WHERE tenant_id=$1 AND id=$2", [row.tenant_id, row.id, attempt]);
       }
