@@ -954,9 +954,9 @@ export class TenantV2 extends DurableObject<Env> {
       if (typeof run.exec_response === "string" && run.exec_response) run.exec_response = await decrypt(run.exec_response, this.env.CREDENTIAL_ENCRYPTION_KEY);
       if (typeof run.prompt_delivery_request === "string" && run.prompt_delivery_request) run.prompt_delivery_request = await decrypt(run.prompt_delivery_request, this.env.CREDENTIAL_ENCRYPTION_KEY);
       if (typeof run.prompt_delivery_response === "string" && run.prompt_delivery_response) run.prompt_delivery_response = await decrypt(run.prompt_delivery_response, this.env.CREDENTIAL_ENCRYPTION_KEY);
-      // Duplicate-webhook records predate encrypted results and deliberately retain
-      // a plain-text explanation. Only completed/failed agent output is encrypted.
-      if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
+      // New transcripts are scrubbed plaintext; readTranscript keeps legacy
+      // encrypted rows accessible during migration.
+      if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await this.readTranscript(run.result);
     }));
     return json({ flow, events, runs, pagination: { page, hasNext } });
   }
@@ -986,9 +986,10 @@ export class TenantV2 extends DurableObject<Env> {
     const run = this.one("SELECT runs.*, pipes.name AS flow_name FROM runs JOIN pipes ON pipes.id = runs.pipe_id WHERE runs.id = ?", runId);
     if (!run) return new Response("Not found", { status: 404 });
     await this.backfillRunIssueDetails([run]);
-    for (const field of ["prompt", "exec_request", "exec_response", "prompt_delivery_request", "prompt_delivery_response", "result"] as const) {
+    for (const field of ["prompt", "exec_request", "exec_response", "prompt_delivery_request", "prompt_delivery_response"] as const) {
       if (run.state !== "ignored" && typeof run[field] === "string" && run[field]) run[field] = await decrypt(String(run[field]), this.env.CREDENTIAL_ENCRYPTION_KEY);
     }
+    if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await this.readTranscript(run.result);
     return json(run);
   }
 
@@ -1082,7 +1083,7 @@ export class TenantV2 extends DurableObject<Env> {
     }
     for (const run of this.rows(`SELECT r.id,r.pipe_id,r.issue_id,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.session,r.result,r.created_at FROM runs r ORDER BY r.created_at DESC LIMIT 1000`)) {
       const title = String(run.run_name || run.issue_title || `Run ${String(run.id).slice(0, 8)}`);
-      const session = run.session ? await decrypt(String(run.session), this.env.CREDENTIAL_ENCRYPTION_KEY) : (run.result ? await decrypt(String(run.result), this.env.CREDENTIAL_ENCRYPTION_KEY) : "");
+      const session = run.session ? await this.readTranscript(String(run.session)) : (run.result ? await this.readTranscript(String(run.result)) : "");
       add("run", run.id, title, `${run.state} · ${run.agent_name || run.agent_kind || run.provider || "run"}`, `/job-runs/${encodeURIComponent(String(run.id))}`, { job: run.pipe_id, issue_id: run.issue_id, issue_title: run.issue_title, run_name: run.run_name, agent: run.agent_name, agent_kind: run.agent_kind, session });
     }
     for (const event of this.rows("SELECT id,job_id,provider,delivery_id,outcome,detail,received_at FROM job_events ORDER BY received_at DESC LIMIT 1000")) {
@@ -1115,8 +1116,8 @@ export class TenantV2 extends DurableObject<Env> {
     for (const key of ["invocation_id", "invocation_job_id", "invocation_source", "invocation_trigger_id", "invocation_claim_key", "invocation_occurrence", "invocation_created_at"]) delete run[key];
     if (typeof run.encrypted_prompt === "string" && run.encrypted_prompt) run.prompt = await decrypt(run.encrypted_prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     delete run.encrypted_prompt;
-    if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await decrypt(run.result, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    if (run.state !== "ignored" && typeof run.session === "string" && run.session) run.session = await decrypt(run.session, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    if (run.state !== "ignored" && typeof run.result === "string" && run.result) run.result = await this.readTranscript(run.result);
+    if (run.state !== "ignored" && typeof run.session === "string" && run.session) run.session = await this.readTranscript(run.session);
     if (!run.session && run.result) run.session = run.result;
     run.activity = this.rows("SELECT action, detail, created_at FROM run_activity WHERE run_id = ? ORDER BY created_at, id", runId);
     this.presentExecution(run);
@@ -1133,7 +1134,7 @@ export class TenantV2 extends DurableObject<Env> {
               const scrubbed = safeSession(output);
               if (scrubbed !== null) {
                 run.live_output = scrubbed;
-                this.ctx.storage.sql.exec("UPDATE runs SET session=? WHERE id=?", await encrypt(scrubbed, this.env.CREDENTIAL_ENCRYPTION_KEY), run.id);
+                this.ctx.storage.sql.exec("UPDATE runs SET session=? WHERE id=?", scrubbed, run.id);
               }
             }
           } catch {
@@ -1195,7 +1196,7 @@ export class TenantV2 extends DurableObject<Env> {
         }
       }
     }
-    this.ctx.storage.sql.exec("UPDATE runs SET state = 'stopped', result = ?, updated_at = ? WHERE id = ?", await encrypt("Stopped by user", this.env.CREDENTIAL_ENCRYPTION_KEY), now(), runId);
+    this.ctx.storage.sql.exec("UPDATE runs SET state = 'stopped', result = ?, updated_at = ? WHERE id = ?", "Stopped by user", now(), runId);
     this.ctx.storage.sql.exec("UPDATE job_runs SET state='stopped',updated_at=? WHERE id=?", now(), runId);
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id = ?", runId);
     await this.afterJobTerminal(String(run.pipe_id), runId, "stopped");
@@ -1216,7 +1217,7 @@ export class TenantV2 extends DurableObject<Env> {
 
     // Terminalize first. Backend deletion is cleanup work and must never keep a
     // dead run holding a concurrency slot.
-    const result = await encrypt("Killed by user", this.env.CREDENTIAL_ENCRYPTION_KEY);
+    const result = "Killed by user";
     this.ctx.storage.sql.exec("UPDATE runs SET state='stopped',result=?,claim_released=1,updated_at=? WHERE id=?", result, timestamp, runId);
     this.ctx.storage.sql.exec("UPDATE job_runs SET state='stopped',updated_at=? WHERE id=?", timestamp, runId);
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id=?", runId);
@@ -1617,6 +1618,13 @@ export class TenantV2 extends DurableObject<Env> {
     this.ctx.storage.sql.exec("INSERT INTO run_activity VALUES (?,?,?,?,?)", id(), runId, action, detail.slice(0, 1000), now());
   }
 
+  /** New transcripts are scrubbed plaintext; decrypt only legacy AES-GCM rows. */
+  private async readTranscript(value: string): Promise<string> {
+    if (!/^[A-Za-z0-9+/]{16}=*\.[A-Za-z0-9+/]+=*$/.test(value)) return value;
+    try { return await decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+    catch { return value; }
+  }
+
   private diagnosticExcerpt(body: string): string {
     return body.slice(-700)
       .replace(/("(?:authorization|cookie|token|secret|credential|prompt|body)"\s*:\s*")[^"]*/gi, "$1[redacted]")
@@ -1636,9 +1644,8 @@ export class TenantV2 extends DurableObject<Env> {
     const transitionedAt = now();
     const scrubbed = safeSession(result);
     const safeResult = scrubbed ?? "The run completed without a persistable transcript.";
-    const encryptedResult = await encrypt(safeResult, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    const encryptedSession = scrubbed && outputCaptured ? await encrypt(scrubbed, this.env.CREDENTIAL_ENCRYPTION_KEY) : null;
-    this.ctx.storage.sql.exec("UPDATE runs SET state = ?, result = ?, session = COALESCE(?, session), output_captured=?, updated_at = ? WHERE id = ?", state, encryptedResult, encryptedSession, encryptedSession ? 1 : Number(run.output_captured || 0), transitionedAt, run.id);
+    const session = scrubbed && outputCaptured ? scrubbed : null;
+    this.ctx.storage.sql.exec("UPDATE runs SET state = ?, result = ?, session = COALESCE(?, session), output_captured=?, updated_at = ? WHERE id = ?", state, safeResult, session, session ? 1 : Number(run.output_captured || 0), transitionedAt, run.id);
     this.ctx.storage.sql.exec("UPDATE job_runs SET state=?,updated_at=? WHERE id=?", state === "done" ? "succeeded" : "failed", transitionedAt, run.id);
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE pipe_id = ? AND issue_id = ?", run.pipe_id, run.claim_key || run.issue_id);
     this.ctx.storage.sql.exec("UPDATE runs SET claim_released=1 WHERE id=?", run.id);
@@ -1667,7 +1674,7 @@ export class TenantV2 extends DurableObject<Env> {
         this.ctx.storage.sql.exec("UPDATE runs SET vm_cleanup_complete=1,vm_cleanup_attempt=?,vm_cleanup_next_at=NULL,updated_at=? WHERE id=?", attempt, now(), run.id);
         this.activity(run.id, "vm_deleted", `Deleted the run-owned VM on attempt ${attempt}.`);
         if (String(run.state) === "stopping") {
-          this.ctx.storage.sql.exec("UPDATE runs SET state='stopped',result=?,updated_at=? WHERE id=?", await encrypt("Stopped by user", this.env.CREDENTIAL_ENCRYPTION_KEY), now(), run.id);
+          this.ctx.storage.sql.exec("UPDATE runs SET state='stopped',result=?,updated_at=? WHERE id=?", "Stopped by user", now(), run.id);
           this.ctx.storage.sql.exec("UPDATE job_runs SET state='stopped',updated_at=? WHERE id=?", now(), run.id);
           this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id=?", run.id);
           await this.afterJobTerminal(String(run.pipe_id), String(run.id), "stopped");

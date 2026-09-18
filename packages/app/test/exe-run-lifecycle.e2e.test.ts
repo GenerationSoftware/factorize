@@ -10,6 +10,7 @@ const origin = "https://app.factorize.sh";
 describe("exe.dev run lifecycle", () => {
   const vms = new Map<string, { comment: string; state?: "running" | "succeeded" | "failed" }>();
   let scenario: "success" | "launch-failure" = "success";
+  let agentOutput = "Hello from the stubbed agent!";
 
   beforeAll(() => {
     fetchMock.activate();
@@ -35,13 +36,15 @@ describe("exe.dev run lifecycle", () => {
         const name = command.match(/^ssh '([^']+)'/)?.[1] ?? "", state = vms.get(name)?.state ?? "running";
         return { statusCode: 200, data: state, responseOptions: { headers } };
       }
-      if (command.startsWith("ssh ") && command.includes("cat /tmp/factorize.log")) return { statusCode: 200, data: "Hello from the stubbed agent!", responseOptions: { headers } };
+      if (command.startsWith("ssh ") && command.includes("cat /tmp/factorize.log")) return { statusCode: 200, data: agentOutput, responseOptions: { headers } };
       return { statusCode: 422, data: `unexpected command: ${command}` };
     }).persist();
   });
 
-  it("runs through the Worker, Durable Object, stubbed exe backend, diagnostics, and cleanup", async () => {
+  it("stores a completed large transcript as scrubbed plaintext and reaches cleanup end to end", async () => {
     scenario = "success";
+    const secret = "sk-this-must-never-be-stored";
+    agentOutput = `Hello from the stubbed agent!\nAuthorization: Bearer ${secret}\n${"large transcript line 🐝\n".repeat(12_000)}`;
     const tenantId = `exe-e2e-${crypto.randomUUID()}`, userId = "owner";
     const tenant = env.TENANTS.get(env.TENANTS.idFromName(`tenant:${tenantId}`));
     await tenant.fetch("https://tenant/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, email: "owner@example.com" }) });
@@ -66,7 +69,21 @@ describe("exe.dev run lifecycle", () => {
 
     const inspected = await SELF.fetch(`${origin}/api/v1/runs/${run.runId}`, { headers });
     expect(inspected.status, await inspected.clone().text()).toBe(200);
-    await expect(inspected.json()).resolves.toMatchObject({ id: run.runId, state: "succeeded", result: expect.stringContaining("Hello from the stubbed agent!") });
+    const body = await inspected.json<{ id: string; state: string; result: string; session: string }>();
+    expect(body).toMatchObject({ id: run.runId, state: "succeeded" });
+    expect(body.result).toContain("Hello from the stubbed agent!");
+    expect(body.result).toContain("[REDACTED]");
+    expect(body.result).not.toContain(secret);
+    expect(body.result.length).toBeGreaterThan(250_000);
+    expect(body.session).toBe(body.result);
+    const stored = await runInDurableObject(tenant, (_instance, state) => {
+      const [row] = [...state.storage.sql.exec<{ result: string; session: string }>("SELECT result,session FROM runs WHERE id=?", run.runId)];
+      return row;
+    });
+    expect(stored.result).toBe(body.result);
+    expect(stored.session).toBe(body.session);
+    expect(stored.result).toContain("[REDACTED]");
+    expect(stored.result).not.toContain(secret);
     const diagnostics = await SELF.fetch(`${origin}/api/v1/runs/${run.runId}/diagnostics`, { headers });
     expect(diagnostics.status, await diagnostics.clone().text()).toBe(200);
     await expect(diagnostics.json()).resolves.toMatchObject({ runId: run.runId, state: "succeeded", checks: { launchAcknowledged: true, promptAccepted: true, outputCaptured: true, claimReleased: true, cleanupComplete: true } });
@@ -75,6 +92,7 @@ describe("exe.dev run lifecycle", () => {
 
   it("reports an HTTP-200 shell launch failure without calling an LLM", async () => {
     scenario = "launch-failure";
+    agentOutput = "Hello from the stubbed agent!";
     const tenantId = `exe-failure-${crypto.randomUUID()}`, userId = "owner";
     const tenant = env.TENANTS.get(env.TENANTS.idFromName(`tenant:${tenantId}`));
     await tenant.fetch("https://tenant/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, email: "owner@example.com" }) });
@@ -94,6 +112,7 @@ describe("exe.dev run lifecycle", () => {
 
   it("repairs lost alarms, recovers stale starts, and kills queued runs without holding capacity", async () => {
     scenario = "success";
+    agentOutput = "Hello from the stubbed agent!";
     const tenantId = `durability-${crypto.randomUUID()}`, userId = "owner";
     const tenant = env.TENANTS.get(env.TENANTS.idFromName(`tenant:${tenantId}`));
     await tenant.fetch("https://tenant/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, email: "owner@example.com" }) });
