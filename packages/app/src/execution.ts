@@ -20,6 +20,7 @@ export interface LaunchRequest {
 export interface RunHandle { backendKind: string; id: string; }
 
 export interface ExecutionObservation {
+  systemd?: import("./harness-diagnostics").ExecutionDiagnostics["systemd"];
   state: ExecutionState;
   detail?: string;
   command?: BackendCommandResult;
