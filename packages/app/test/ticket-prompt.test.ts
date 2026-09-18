@@ -1,6 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
+import { describe, expect, it } from "vitest";
 
 import { linearTicketPrompt, renderContextTemplate } from "../src/linear-source";
 

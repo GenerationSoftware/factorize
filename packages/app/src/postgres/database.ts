@@ -9,7 +9,10 @@ export class Database {
   readonly pool: Pool;
 
   constructor(config: PoolConfig) {
-    this.pool = new Pool({ max: 5, connectionTimeoutMillis: 10_000, idleTimeoutMillis: 30_000, ...config });
+    // Workers may reuse an isolate, but sockets opened for one request cannot be
+    // safely retained by node-postgres for a later request. Hyperdrive makes a
+    // fresh connection inexpensive, so retire every checkout on release.
+    this.pool = new Pool({ max: 5, maxUses: 1, allowExitOnIdle: true, connectionTimeoutMillis: 10_000, idleTimeoutMillis: 1_000, ...config });
   }
 
   async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {

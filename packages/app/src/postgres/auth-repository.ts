@@ -12,7 +12,7 @@ export class AuthRepository {
     try {
       await this.database.transaction(async client => {
         await client.query("INSERT INTO app.auth_users(id,email,email_verified) VALUES ($1,$2,false)", [userId, email]);
-        await client.query("INSERT INTO app.auth_accounts(id,user_id,provider,provider_account_id,password_hash) VALUES ($1,$2,'credential',$2,$3)", [crypto.randomUUID(), userId, await hashPassword(password)]);
+        await client.query("INSERT INTO app.auth_accounts(id,user_id,provider,provider_account_id,password_hash) VALUES ($1,$2::uuid,'credential',$2::uuid::text,$3)", [crypto.randomUUID(), userId, await hashPassword(password)]);
       });
     } catch (error: any) {
       if (error?.code === "23505") return { status: 409, body: { error: "An account already exists for that email." } };

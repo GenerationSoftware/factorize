@@ -13,6 +13,9 @@ const ids = {
 await client.connect();
 try {
   await client.query("BEGIN");
+  const authUser = "70000000-0000-4000-8000-000000000001";
+  await client.query("INSERT INTO app.auth_users(id,email) VALUES ($1,'schema-probe@example.invalid')", [authUser]);
+  await client.query("INSERT INTO app.auth_accounts(id,user_id,provider,provider_account_id,password_hash) VALUES (gen_random_uuid(),$1::uuid,'credential',$1::uuid::text,'probe')", [authUser]);
   await client.query("INSERT INTO app.tenants(id) VALUES ($1),($2)", [ids.tenantA, ids.tenantB]);
   await client.query("INSERT INTO app.jobs(tenant_id,id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,'A','same-slug','cipher','{}',1),($3,$4,'B','same-slug','cipher','{}',1)", [ids.tenantA, ids.jobA, ids.tenantB, ids.jobB]);
   await client.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES ($1,$2,$3,'manual','manual')", [ids.tenantA, ids.triggerA, ids.jobA]);
