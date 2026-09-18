@@ -33,13 +33,18 @@ export class Database {
   async close(): Promise<void> { await this.pool.end(); }
 }
 
-let shared: Database | undefined;
-
-/** One small pool per Worker isolate, connected through Hyperdrive. */
+/**
+ * Create a request-local pool connected through Hyperdrive.
+ *
+ * Cloudflare Workers may reuse an isolate, but network objects created while
+ * handling one request cannot be used by another request. Keeping a Pool in
+ * module state lets concurrent requests exchange clients through the pool's
+ * waiter queue even when every checked-out client has maxUses=1.
+ */
 export function databaseFor(env: Env): Database {
   if (env.DATABASE) return env.DATABASE;
   if (!env.HYPERDRIVE?.connectionString) throw new Error("PostgreSQL Hyperdrive is not configured");
-  return shared ??= new Database({ connectionString: env.HYPERDRIVE.connectionString });
+  return new Database({ connectionString: env.HYPERDRIVE.connectionString });
 }
 
-export function resetDatabaseForTests(): void { shared = undefined; }
+export function resetDatabaseForTests(): void { /* Production databases are not cached. */ }

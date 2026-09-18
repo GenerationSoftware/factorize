@@ -121,6 +121,17 @@ describe("pages", () => {
     expectInlineScriptsToParse(html);
   });
 
+  it("renders core job fields before loading optional provider resources", () => {
+    const html = jobPage({ email: "owner@example.com" });
+    expect(html).toContain("const [targets,jobs,current]=await Promise.all");
+    expect(html).toContain("reservedSlugs=new Set(triggers.map(t=>t.slug));render();await refreshAvailability();loadProviderResources()");
+    expect(html).toContain("if(availability.linear)");
+    expect(html).toContain("if(availability.clickup)");
+    expect(html).not.toContain("request('/api/clickup/lists').catch(()=>[])");
+    expect(html).not.toContain("request('/api/linear/options').catch");
+    expectInlineScriptsToParse(html);
+  });
+
   it("offers simple UTC schedule intervals while preserving advanced schedules", () => {
     const html = jobPage({ email: "owner@example.com" });
     expect(html).toContain('name="scheduleMode" value="simple" checked');
