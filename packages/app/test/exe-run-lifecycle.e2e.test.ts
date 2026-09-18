@@ -1,4 +1,4 @@
-import { env, fetchMock, runDurableObjectAlarm, SELF } from "cloudflare:test";
+import { env, fetchMock, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { signSession } from "../src/index";
 import type { Env as FactorizeEnv } from "../src/types";
@@ -87,5 +87,54 @@ describe("exe.dev run lifecycle", () => {
     const diagnostics = await SELF.fetch(`${origin}/api/v1/runs/${run.runId}/diagnostics`, { headers });
     await expect(diagnostics.json()).resolves.toMatchObject({ state: "failed", checks: { launchAcknowledged: false, promptAccepted: false, claimReleased: true, cleanupComplete: true }, activity: expect.arrayContaining([expect.objectContaining({ detail: expect.stringContaining("bash: syntax error") })]) });
     expect(vms.size).toBe(0);
+  });
+
+  it("repairs lost alarms, recovers stale starts, and kills queued runs without holding capacity", async () => {
+    scenario = "success";
+    const tenantId = `durability-${crypto.randomUUID()}`, userId = "owner";
+    const tenant = env.TENANTS.get(env.TENANTS.idFromName(`tenant:${tenantId}`));
+    await tenant.fetch("https://tenant/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, email: "owner@example.com" }) });
+    const session = await signSession({ tenantId, userId, email: "owner@example.com", exp: Math.floor(Date.now() / 1000) + 60, sessionVersion: 1 }, "e2e-session-secret");
+    const headers = { cookie: `factorize_session=${session}`, "content-type": "application/json" };
+    await SELF.fetch(`${origin}/api/connections/exe`, { method: "PUT", headers, body: JSON.stringify({ connectionId: "exe-test", apiToken: "exe1-test", agentKind: "codex", tags: ["factorize"] }) });
+    const created = await SELF.fetch(`${origin}/api/v1/jobs`, { method: "POST", headers, body: JSON.stringify({ name: "Durable queue", slug: "durable-queue", promptTemplate: "{{trigger-1.prompt}}", concurrencyLimit: 1, executionTargetId: "exe-test", model: "gpt-test", effort: "low", triggers: [{ kind: "manual", slug: "trigger-1", config: {} }] }) });
+    const job = await created.json<{ id: string }>();
+    const firstResponse = await SELF.fetch(`${origin}/api/v1/jobs/${job.id}/invocations`, { method: "POST", headers, body: JSON.stringify({ prompt: "first" }) });
+    const secondResponse = await SELF.fetch(`${origin}/api/v1/jobs/${job.id}/invocations`, { method: "POST", headers, body: JSON.stringify({ prompt: "second" }) });
+    const first = await firstResponse.json<{ runId: string }>(), second = await secondResponse.json<{ runId: string }>();
+
+    // Workerd may eagerly deliver zero-delay alarms during the request. Put
+    // both persisted records back into the pre-alarm state for this recovery
+    // scenario.
+    await runInDurableObject(tenant, async (_instance, state) => {
+      await state.storage.deleteAlarm();
+      for (const runId of [first.runId, second.runId]) {
+        state.storage.sql.exec("UPDATE runs SET state='queued',execution_handle=NULL,prompt_accepted=0,prompt_delivery_state='pending',updated_at=? WHERE id=?", new Date().toISOString(), runId);
+        state.storage.sql.exec("UPDATE job_runs SET state='queued',started_at=NULL,updated_at=? WHERE id=?", new Date().toISOString(), runId);
+      }
+    });
+
+    const killed = await SELF.fetch(`${origin}/api/v1/runs/${first.runId}/kill`, { method: "POST", headers });
+    expect(killed.status, await killed.clone().text()).toBe(200);
+    await expect(killed.json()).resolves.toMatchObject({ id: first.runId, state: "stopped", killed: true, cleanupPending: false });
+
+    // Simulate a deployment losing the alarm and interrupting the remaining
+    // run after dequeue but before the backend acknowledged its launch.
+    const alarmAfterDelete = await runInDurableObject(tenant, async (_instance, state) => {
+      await state.storage.deleteAlarm();
+      const stale = new Date(Date.now() - 3 * 60_000).toISOString();
+      state.storage.sql.exec("UPDATE runs SET state='starting',prompt_accepted=0,updated_at=? WHERE id=?", stale, second.runId);
+      state.storage.sql.exec("UPDATE job_runs SET state='running',started_at=?,updated_at=? WHERE id=?", stale, stale, second.runId);
+      return state.storage.getAlarm();
+    });
+    expect(alarmAfterDelete).toBeNull();
+
+    const inspected = await SELF.fetch(`${origin}/api/v1/runs/${second.runId}`, { headers });
+    expect(inspected.status, await inspected.clone().text()).toBe(200);
+    expect(await runInDurableObject(tenant, (_instance, state) => state.storage.getAlarm())).not.toBeNull();
+    for (let attempt = 0; attempt < 4; attempt++) await runDurableObjectAlarm(tenant);
+
+    const recovered = await SELF.fetch(`${origin}/api/v1/runs/${second.runId}`, { headers });
+    await expect(recovered.json()).resolves.toMatchObject({ id: second.runId, state: "succeeded", result: expect.stringContaining("Hello from the stubbed agent!"), activity: expect.arrayContaining([expect.objectContaining({ action: "launch_lease_recovered" })]) });
   });
 });

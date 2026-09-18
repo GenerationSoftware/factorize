@@ -21,5 +21,6 @@ description: Every tool exposed at /mcp.
 | `test_job_webhook_handler` | flows:write | `{handlerCode,payload}` |
 | `invoke_job` | runs:write | `{jobId,name?,prompt?,data?,idempotencyKey?}` |
 | `stop_run` | runs:write | `{runId}` |
+| `kill_run` | runs:write | `{runId}` |
 
 `list_runs` uses case-insensitive literal substring matching for `contextQuery`; matching rows contain only a bounded excerpt. `get_run` contains the complete context and the reusable `invocation.idempotency_key`, while its internal `claim_key` must not be reused.

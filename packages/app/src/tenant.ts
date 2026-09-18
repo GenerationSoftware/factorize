@@ -10,7 +10,7 @@ import { githubClaimKey, githubCollection, githubHeaders, installationToken, nor
 import type { WorkItem } from "./types";
 import { invokeCustomHandler } from "./custom-handler";
 import { generateTailSecret, sanitizeTailEvent, signTailDelivery, suppressTailEvent, tailFingerprint, verifyTailDelivery } from "./cloudflare-tail";
-import { ExeVmBackend } from "./exe-vm-backend";
+import { ExeVmBackend, vmNameFor } from "./exe-vm-backend";
 import { AmpBackend, type AmpConnection } from "./amp-backend";
 import { DEFAULT_CONTEXT_TEMPLATE, LinearSourceAdapter, linearTicketPrompt, renderContextTemplate } from "./linear-source";
 import { JOB_SCHEMA, renderJobPrompt, renderRunName } from "./job-domain";
@@ -31,6 +31,8 @@ const now = () => new Date().toISOString();
 const id = () => crypto.randomUUID();
 const FLOW_NAME = /^[a-z][a-z0-9_-]{0,29}$/;
 const JOB_SLUG = /^[a-z][a-z0-9_-]{0,29}$/;
+const QUEUE_WATCHDOG_MS = 15_000;
+const STARTING_LEASE_MS = 2 * 60_000;
 
 // Keep the index definitions next to the query they support. Every listRuns
 // variant can use the same descending keyset order without a table scan or a
@@ -212,6 +214,7 @@ export class TenantV2 extends DurableObject<Env> {
       if (request.method === "GET" && /^\/v1\/runs\/[^/]+$/.test(url.pathname)) return await this.getRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && /^\/v1\/runs\/[^/]+\/diagnostics$/.test(url.pathname)) return this.getRunDiagnostics(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) return await this.stopRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
+      if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/kill$/.test(url.pathname)) return await this.killRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/v1/execution-targets") return await this.executionTargets();
       const exeDiagnosticMatch = url.pathname.match(/^\/v1\/integrations\/exe\/([^/]+)\/diagnostics$/);
       if (request.method === "POST" && exeDiagnosticMatch) return await this.exeIntegrationDiagnostics(decodeURIComponent(exeDiagnosticMatch[1]));
@@ -283,37 +286,70 @@ export class TenantV2 extends DurableObject<Env> {
     } catch (error) {
       console.error(JSON.stringify({ event: "factorize_unexpected_failure", component: "tenant", path: url.pathname, message: error instanceof Error ? error.message : "Unknown error", factorizeTailSuppressed: url.pathname.startsWith("/webhook/cloudflare/") }));
       return Response.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 400 });
+    } finally {
+      // Persisted work is authoritative. Any API traffic repairs a missing
+      // wake-up without doing launch work in the request itself.
+      if (url.pathname.startsWith("/v1/")) await this.ensureAlarm().catch(error => console.error(JSON.stringify({ event: "factorize_alarm_reconciliation_failed", message: error instanceof Error ? error.message : "Unknown error" })));
     }
   }
 
   async alarm(): Promise<void> {
-    await this.processGitHubVerifications();
-    await this.processDueSchedules();
-    const cleanup = this.rows("SELECT * FROM runs WHERE execution_backend_kind='exe-vm' AND execution_handle IS NOT NULL AND vm_cleanup_complete=0 AND vm_cleanup_attempt<8 AND COALESCE(vm_cleanup_next_at,0)<=? AND state IN ('done','failed','stopped','stopping') ORDER BY updated_at LIMIT 20", Date.now());
-    for (const run of cleanup) await this.cleanupRunVm(run);
-    // Release completed slots before looking at the queue, so capacity is used
-    // immediately rather than waiting for the next polling alarm.
-    const running = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('starting','running','blocked') ORDER BY updated_at LIMIT 40");
-    for (const run of running) await this.pollRun(run);
-    const queued = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state = 'queued' ORDER BY created_at LIMIT 20");
-    for (const run of queued) {
-      const pipe = this.executionConfig(run.pipe_id);
-      if (!pipe) continue;
-      const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id = ? AND state IN ('starting','running','blocked')", pipe.id) as Row;
-      if (Number(active.count) >= Number(pipe.max_concurrency)) continue;
-      const name = `${String(pipe.workspace_name).slice(0, 20)}-${String(run.id).replaceAll("-", "").slice(0, 8)}`;
-      this.ctx.storage.sql.exec("UPDATE runs SET state = 'starting', agent_name = ?, workspace_name = ?, updated_at = ? WHERE id = ? AND state = 'queued'", name, pipe.workspace_name, now(), run.id);
-      this.ctx.storage.sql.exec("UPDATE job_runs SET state='running',started_at=?,updated_at=? WHERE id=? AND state='queued'", now(), now(), run.id);
-      await this.startRun({ ...run, agent_name: name, workspace_name: pipe.workspace_name }, pipe);
+    try {
+      await this.processGitHubVerifications();
+      await this.processDueSchedules();
+      await this.requeueStaleStarts();
+      const cleanup = this.rows("SELECT * FROM runs WHERE execution_backend_kind='exe-vm' AND execution_handle IS NOT NULL AND vm_cleanup_complete=0 AND vm_cleanup_attempt<8 AND COALESCE(vm_cleanup_next_at,0)<=? AND state IN ('done','failed','stopped','stopping') ORDER BY updated_at LIMIT 20", Date.now());
+      for (const run of cleanup) await this.cleanupRunVm(run);
+      // Release completed slots before looking at the queue, so capacity is used
+      // immediately rather than waiting for the next polling alarm.
+      // A starting run has no authoritative backend handle until launch is
+      // acknowledged. Leave it to the launch lease instead of mis-polling a
+      // derived handle after an interrupted deployment.
+      const running = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('running','blocked') ORDER BY updated_at LIMIT 40");
+      for (const run of running) await this.pollRun(run);
+      const queued = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state = 'queued' ORDER BY created_at LIMIT 20");
+      for (const run of queued) {
+        const pipe = this.executionConfig(run.pipe_id);
+        if (!pipe) continue;
+        const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id = ? AND state IN ('starting','running','blocked')", pipe.id) as Row;
+        if (Number(active.count) >= Number(pipe.max_concurrency)) continue;
+        const name = `${String(pipe.workspace_name).slice(0, 20)}-${String(run.id).replaceAll("-", "").slice(0, 8)}`;
+        const startedAt = now();
+        this.ctx.storage.sql.exec("UPDATE runs SET state = 'starting', agent_name = ?, workspace_name = ?, updated_at = ? WHERE id = ? AND state = 'queued'", name, pipe.workspace_name, startedAt, run.id);
+        this.ctx.storage.sql.exec("UPDATE job_runs SET state='running',started_at=?,updated_at=? WHERE id=? AND state='queued'", startedAt, startedAt, run.id);
+        await this.startRun({ ...run, state: "starting", agent_name: name, workspace_name: pipe.workspace_name, updated_at: startedAt }, pipe);
+      }
+    } finally {
+      // Even if polling or launch throws, unfinished persisted work retains a
+      // watchdog. This also repairs wake-ups interrupted by deployments.
+      await this.ensureAlarm();
     }
+  }
 
-    const pending = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('queued','starting','running','blocked')") as Row;
-    const verification = this.one("SELECT min(next_attempt_at) AS next_attempt_at FROM pending_verifications") as Row;
-    const nextVerification = Number(verification?.next_attempt_at || 0);
-    const schedule = this.one("SELECT min(next_run_at) AS next_run_at FROM schedule_state") as Row;
-    const cleanupDue = this.one("SELECT min(vm_cleanup_next_at) AS next_at FROM runs WHERE vm_cleanup_complete=0 AND vm_cleanup_attempt<8 AND vm_cleanup_next_at IS NOT NULL") as Row;
-    const candidates = [Number(pending.count) > 0 ? Date.now() + 15_000 : 0, nextVerification, Number(schedule?.next_run_at || 0), Number(cleanupDue?.next_at || 0)].filter(Boolean);
-    if (candidates.length) await this.ctx.storage.setAlarm(Math.min(...candidates));
+  private async ensureAlarm(): Promise<void> {
+    const pending = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('queued','starting','running','blocked','stopping')") as Row;
+    const verification = this.one("SELECT min(next_attempt_at) AS next_at FROM pending_verifications") as Row;
+    const schedule = this.one("SELECT min(next_run_at) AS next_at FROM schedule_state") as Row;
+    const cleanup = this.one("SELECT min(vm_cleanup_next_at) AS next_at FROM runs WHERE vm_cleanup_complete=0 AND vm_cleanup_attempt<8 AND vm_cleanup_next_at IS NOT NULL") as Row;
+    const candidates = [Number(pending.count) > 0 ? Date.now() + QUEUE_WATCHDOG_MS : 0, Number(verification?.next_at || 0), Number(schedule?.next_at || 0), Number(cleanup?.next_at || 0)].filter(value => value > 0);
+    if (!candidates.length) return;
+    const desired = Math.min(...candidates), current = await this.ctx.storage.getAlarm();
+    if (current === null || current > desired) await this.ctx.storage.setAlarm(desired);
+  }
+
+  private async requeueStaleStarts(): Promise<void> {
+    const cutoff = new Date(Date.now() - STARTING_LEASE_MS).toISOString();
+    const stale = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state='starting' AND prompt_accepted=0 AND updated_at<=?", cutoff);
+    for (const run of stale) {
+      if (String(run.execution_backend_kind || "exe-vm") === "exe-vm") {
+        const pipe = this.executionConfig(run.pipe_id), connection = pipe ? await this.connectionForPipe(pipe) : null;
+        if (connection) await new ExeVmBackend(connection).stop({ backendKind: "exe-vm", id: vmNameFor(String(run.id)) }).catch(() => undefined);
+      }
+      const timestamp = now();
+      this.ctx.storage.sql.exec("UPDATE runs SET state='queued',execution_handle=NULL,prompt_delivery_state='pending',updated_at=? WHERE id=? AND state='starting' AND prompt_accepted=0", timestamp, run.id);
+      this.ctx.storage.sql.exec("UPDATE job_runs SET state='queued',started_at=NULL,updated_at=? WHERE id=? AND state='running'", timestamp, run.id);
+      this.activity(run.id, "launch_lease_recovered", "A stale unacknowledged launch was returned to the queue.");
+    }
   }
 
   private async saveLinear(input: unknown): Promise<Response> {
@@ -1146,6 +1182,42 @@ export class TenantV2 extends DurableObject<Env> {
     this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id = ?", runId);
     await this.afterJobTerminal(String(run.pipe_id), runId, "stopped");
     return json({ id: runId, state: "stopped", stopped: true });
+  }
+
+  private async killRun(runId: string): Promise<Response> {
+    let run = this.one("SELECT * FROM runs WHERE id = ?", runId);
+    if (!run) return new Response("Not found", { status: 404 });
+    if (["done", "failed", "stopped", "succeeded"].includes(String(run.state))) return json({ id: runId, state: normalizeExecutionState(run.state), killed: false, alreadyTerminal: true });
+
+    const priorState = String(run.state), timestamp = now();
+    if (String(run.execution_backend_kind || "exe-vm") === "exe-vm" && priorState !== "queued" && !run.execution_handle) {
+      const handle = { backendKind: "exe-vm", id: vmNameFor(runId) };
+      this.ctx.storage.sql.exec("UPDATE runs SET execution_handle=? WHERE id=?", JSON.stringify(handle), runId);
+      run = { ...run, execution_handle: JSON.stringify(handle) };
+    }
+
+    // Terminalize first. Backend deletion is cleanup work and must never keep a
+    // dead run holding a concurrency slot.
+    const result = await encrypt("Killed by user", this.env.CREDENTIAL_ENCRYPTION_KEY);
+    this.ctx.storage.sql.exec("UPDATE runs SET state='stopped',result=?,claim_released=1,updated_at=? WHERE id=?", result, timestamp, runId);
+    this.ctx.storage.sql.exec("UPDATE job_runs SET state='stopped',updated_at=? WHERE id=?", timestamp, runId);
+    this.ctx.storage.sql.exec("DELETE FROM active_claims WHERE run_id=?", runId);
+    this.activity(runId, "run_killed", `Killed by user while ${priorState}. The concurrency slot was released before backend cleanup.`);
+    await this.afterJobTerminal(String(run.pipe_id), runId, "stopped", timestamp);
+
+    let cleanupPending = false;
+    if (priorState !== "queued") {
+      const pipe = this.executionConfig(run.pipe_id);
+      if (pipe && String(pipe.execution_backend_kind) === "amp") {
+        const connection = await this.connection<AmpConnection>(`amp:${String(pipe.execution_connection_id)}`);
+        if (connection) {
+          const stopped = await new AmpBackend(connection).stop(this.executionHandle(run, "amp")).catch(() => ({ state: "failed" as const }));
+          cleanupPending = stopped.state !== "stopped";
+        } else cleanupPending = true;
+      } else if (run.execution_handle) cleanupPending = !await this.cleanupRunVm({ ...run, state: "stopped" });
+    }
+    await this.ctx.storage.setAlarm(Date.now());
+    return json({ id: runId, state: "stopped", killed: true, cleanupPending });
   }
 
   private async linearProjects(): Promise<Response> {

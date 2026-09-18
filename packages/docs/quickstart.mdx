@@ -31,4 +31,4 @@ curl -X POST "$APP_ORIGIN/api/v1/jobs/JOB_ID/invocations" \
   -d '{"prompt":"Review the latest commit","idempotencyKey":"review-2026-09-17"}'
 ```
 
-The response is `202`. Query `/runs` and then `/runs/RUN_ID`; stop an active run with `/runs/RUN_ID/stop`.
+The response is `202`. Query `/runs` and then `/runs/RUN_ID`; stop an active run with `/runs/RUN_ID/stop`, or force any non-terminal run to release its slot with `/runs/RUN_ID/kill`.

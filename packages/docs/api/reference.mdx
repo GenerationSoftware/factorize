@@ -36,6 +36,7 @@ All paths are relative to `APP_ORIGIN` and require a bearer token or browser own
 | POST | `/api/v1/jobs/{jobId}/invocations` | runs:write | Manual invocation; returns `202` |
 | GET | `/api/v1/runs?jobId=&state=&contextQuery=&limit=&cursor=` | runs:read | `{items,nextCursor}`; limit 1–100 |
 | POST | `/api/v1/runs/{runId}/stop` | runs:write | Stop an active run |
+| POST | `/api/v1/runs/{runId}/kill` | runs:write | Immediately terminalize a non-terminal run, release capacity, and clean up its backend |
 | POST | `/api/v1/schedules/preview` | flows:read | `{nextRunAt}` for `{cron,timezone}` |
 
 Job creation requires `name` (1–120), `slug` (lowercase, up to 30), `promptTemplate` (1–50,000), `executionTargetId`, and optional `model`, `effort`, `concurrencyLimit`, and `triggers`. Manual invocation accepts an optional display `name` (1–120), `prompt` (default empty), an optional JSON object `data` (default `{}`), and an optional unique `idempotencyKey` (1–200; never prefix it with reserved `manual:`). The display name is used for the run when supplied; prompt and data are exposed under the manual trigger slug, for example `{{trigger-1.data.name}}`. Run states are `queued`, `starting`, `running`, `done`, `blocked`, `failed`, and `ignored`.
