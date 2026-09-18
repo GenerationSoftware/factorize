@@ -18,7 +18,6 @@ export class RunScheduler {
   async process(): Promise<void> {
     await this.runs.consumeWakeHint();
     await new AutomationScheduler(this.database, this.env).process();
-    await this.runs.requeueExpiredStarts();
     for (const run of await this.runs.dueForPoll()) await this.poll(run).catch(error => this.fail(run, error));
     for (let count = 0; count < 20; count++) { const run = await this.runs.claimNext(); if (!run) break; await this.launch(run).catch(error => this.fail(run, error)); }
   }

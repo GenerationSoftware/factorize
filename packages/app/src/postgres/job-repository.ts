@@ -1,3 +1,4 @@
+import { lockJobQueue, requireQueueCapacity } from "./queue-admission";
 import type { Invocation, Job, JobRepository, JobRun, Trigger } from "../job-domain";
 import type { Database, DatabaseClient } from "./database";
 import { nextOccurrence, validateScheduleConfig } from "../schedule";
@@ -90,8 +91,10 @@ export class PostgresJobRepository implements JobRepository {
   }
   async insertInvocationAndRun(invocation: Invocation, run: JobRun): Promise<boolean> {
     return this.database.transaction(async client => {
+      await lockJobQueue(client, this.tenantId, invocation.jobId);
       const inserted = await client.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context,occurrence,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (tenant_id,job_id,claim_key) DO NOTHING", [this.tenantId, invocation.id, invocation.jobId, invocation.source, invocation.claimKey, invocation.triggerId, invocation.context, invocation.occurrence ?? null, invocation.createdAt]);
       if (!inserted.rowCount) return false;
+      await requireQueueCapacity(client, this.tenantId, invocation.jobId);
       await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,run_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_capabilities,created_at,updated_at)
         SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_target->>'agentKind',$7,
