@@ -402,7 +402,7 @@ describe("pages", () => {
     expect(run).toContain('<nav aria-label="Breadcrumb">');
     expect(run).toContain("request('/api/v1/jobs/'+encodeURIComponent(r.job_id))");
     expect(run).toContain("esc(j.name)");
-    expect(run).toContain("runLabel='Run '+r.id.slice(0,8)");
+    expect(run).toContain("runLabel=r.name||r.run_name||r.issue_title||'Run '+r.id.slice(0,8)");
     expect(run).not.toContain("destination_url");
     expect(run).not.toContain("Observation");
     expect(run).toContain("/trace?after=");
