@@ -40,6 +40,13 @@ describe("job invocation domain", () => {
     expect(JSON.stringify(first)).not.toContain('"prompt":"Hi');
   });
 
+  it("renders and persists the configured run name at invocation time", async () => {
+    const repository = new MemoryRepository(); repository.jobs.set("job-1", job({ runNameTemplate: "Review {{trigger-2.issue.identifier}}" }));
+    const service = new InvocationService(repository, async value => value, () => crypto.randomUUID(), () => "2026-09-16T00:00:00.000Z");
+    const result = await service.invoke("job-1", { source: "webhook", triggerId: "webhook-1", claimKey: "delivery-name", context: { "trigger-2": { issue: { identifier: "GEN-2113" } } } });
+    expect(result.run.runName).toBe("Review GEN-2113");
+  });
+
   it("starts queued runs only while the job has capacity", async () => {
     const repository = new MemoryRepository(); const service = new InvocationService(repository, async value => value, undefined, () => "then");
     const first = await service.invoke("job-1", { source: "manual", triggerId: "manual-1", claimKey: "one", context: { "trigger-1": { prompt: "go" } } });

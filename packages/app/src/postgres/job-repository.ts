@@ -47,21 +47,21 @@ export class PostgresJobRepository implements JobRepository {
 
   async delete(id: string): Promise<boolean> { return Boolean((await this.database.pool.query("DELETE FROM app.jobs WHERE tenant_id=$1 AND id=$2", [this.tenantId, id])).rowCount); }
   async findInvocation(jobId: string, claimKey: string) {
-    const result = await this.database.pool.query<any>(`SELECT i.id invocation_id,i.job_id,i.source,i.claim_key,i.trigger_id,i.context,i.occurrence,i.created_at invocation_created_at,r.id run_id,r.state run_state,r.encrypted_prompt,r.created_at run_created_at,r.updated_at run_updated_at,r.started_at
+    const result = await this.database.pool.query<any>(`SELECT i.id invocation_id,i.job_id,i.source,i.claim_key,i.trigger_id,i.context,i.occurrence,i.created_at invocation_created_at,r.id run_id,r.state run_state,r.encrypted_prompt,r.run_name,r.created_at run_created_at,r.updated_at run_updated_at,r.started_at
       FROM app.invocations i JOIN app.job_runs r ON r.tenant_id=i.tenant_id AND r.invocation_id=i.id WHERE i.tenant_id=$1 AND i.job_id=$2 AND i.claim_key=$3`, [this.tenantId, jobId, claimKey]);
     const row = result.rows[0]; if (!row) return null;
-    return { invocation: { id: row.invocation_id, jobId: row.job_id, source: row.source, claimKey: row.claim_key, triggerId: row.trigger_id, context: row.context, ...(row.occurrence ? { occurrence: row.occurrence } : {}), createdAt: row.invocation_created_at.toISOString() } as Invocation, run: { id: row.run_id, jobId: row.job_id, invocationId: row.invocation_id, state: row.run_state, encryptedPrompt: row.encrypted_prompt, createdAt: row.run_created_at.toISOString(), updatedAt: row.run_updated_at.toISOString(), ...(row.started_at ? { startedAt: row.started_at.toISOString() } : {}) } as JobRun };
+    return { invocation: { id: row.invocation_id, jobId: row.job_id, source: row.source, claimKey: row.claim_key, triggerId: row.trigger_id, context: row.context, ...(row.occurrence ? { occurrence: row.occurrence } : {}), createdAt: row.invocation_created_at.toISOString() } as Invocation, run: { id: row.run_id, jobId: row.job_id, invocationId: row.invocation_id, state: row.run_state, encryptedPrompt: row.encrypted_prompt, ...(row.run_name ? { runName: row.run_name } : {}), createdAt: row.run_created_at.toISOString(), updatedAt: row.run_updated_at.toISOString(), ...(row.started_at ? { startedAt: row.started_at.toISOString() } : {}) } as JobRun };
   }
   async insertInvocationAndRun(invocation: Invocation, run: JobRun): Promise<boolean> {
     return this.database.transaction(async client => {
       const inserted = await client.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context,occurrence,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (tenant_id,job_id,claim_key) DO NOTHING", [this.tenantId, invocation.id, invocation.jobId, invocation.source, invocation.claimKey, invocation.triggerId, invocation.context, invocation.occurrence ?? null, invocation.createdAt]);
       if (!inserted.rowCount) return false;
-      await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.createdAt, run.updatedAt]);
+      await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,run_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_capabilities,created_at,updated_at)
-        SELECT $1,$2,$3,$4,$5,$6,'','',j.slug,j.execution_target->>'agentKind',$7,
+        SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_target->>'agentKind',$7,
           CASE WHEN j.execution_target->>'agentKind'='Amp' THEN 'amp' ELSE 'exe-vm' END,
-          CASE WHEN j.execution_target->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,$8,$9
-        FROM app.jobs j WHERE j.tenant_id=$1 AND j.id=$3`, [this.tenantId, run.id, run.jobId, run.invocationId, invocation.source, invocation.claimKey, run.state, run.createdAt, run.updatedAt]);
+          CASE WHEN j.execution_target->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,$9,$10
+        FROM app.jobs j WHERE j.tenant_id=$1 AND j.id=$3`, [this.tenantId, run.id, run.jobId, run.invocationId, invocation.source, invocation.claimKey, run.state, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");
       return true;
     });

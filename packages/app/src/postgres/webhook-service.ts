@@ -2,6 +2,7 @@ import { clickUpJson, matchingClickUpTask } from "../clickup";
 import { verifyTailDelivery, sanitizeTailEvent, suppressTailEvent } from "../cloudflare-tail";
 import { decrypt, equalHmac, encrypt } from "../crypto";
 import { InvocationService, type Job } from "../job-domain";
+import { invokeCustomHandler } from "../custom-handler";
 import type { Env } from "../types";
 import { adaptWebhook, type WebhookProvider, type WebhookTriggerConfig } from "../webhook-trigger";
 import { ConnectionRepository } from "./connection-repository";
@@ -29,13 +30,23 @@ export class WebhookService {
     await this.database.pool.query("INSERT INTO app.webhook_delivery_events(tenant_id,id,delivery_id,job_id,outcome,detail) VALUES ($1,$2,$3,$4,$5,$6)", [this.tenantId, crypto.randomUUID(), deliveryPk, jobId, outcome, detail]);
     await this.database.pool.query("UPDATE app.webhook_deliveries SET outcome=$4,detail=$5 WHERE tenant_id=$1 AND id=$2 AND delivery_id=$3", [this.tenantId, deliveryPk, deliveryId, outcome, detail]);
   }
-  private async invoke(provider: WebhookProvider, deliveryId: string, payload: Record<string, any>, eventName?: string) {
-    const deliveryPk = await this.ensure(provider, deliveryId, eventName ?? payload.type, payload.action);
+  private async invoke(provider: WebhookProvider, deliveryId: string, source: Record<string, any> | ((config: WebhookTriggerConfig) => Record<string, any>), eventName?: string) {
+    const base = typeof source === "function" ? {} : source;
+    const deliveryPk = await this.ensure(provider, deliveryId, eventName ?? base.type, base.action);
     for (const candidate of await this.candidates(provider)) {
+      const payload = typeof source === "function" ? source(candidate.config) : source;
       const invocation = adaptWebhook(candidate.config, provider, deliveryId, payload, eventName);
       if (!invocation) { await this.event(deliveryPk, candidate.job.id, provider, deliveryId, "ignored", "Webhook did not match this job trigger."); continue; }
+      let context: Record<string, unknown> = invocation.payload;
+      if (candidate.config.handlerCode) {
+        if (!this.env.CUSTOM_HANDLER_LOADER) { await this.event(deliveryPk, candidate.job.id, provider, deliveryId, "platform_error", "Webhook handler platform is unavailable; no run was created."); continue; }
+        const decision = await invokeCustomHandler(this.env.CUSTOM_HANDLER_LOADER, { handlerCode: candidate.config.handlerCode }, payload);
+        if (!decision.ok) { await this.event(deliveryPk, candidate.job.id, provider, deliveryId, decision.category, "Webhook handler failed closed; no run was created."); continue; }
+        if (decision.decision === false) { await this.event(deliveryPk, candidate.job.id, provider, deliveryId, "rejected", "Handler returned false; no run was created."); continue; }
+        if (decision.decision !== true) context = decision.decision;
+      }
       const service = new InvocationService(this.jobs, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY));
-      const result = await service.invoke(candidate.job.id, { source: "webhook", triggerId: candidate.triggerId, claimKey: `webhook:${candidate.triggerId}:${invocation.claimKey}`, context: { [candidate.triggerSlug]: invocation.payload }, occurrence: { ...invocation.occurrence, metadata: { ...invocation.occurrence?.metadata, triggerId: candidate.triggerId } } });
+      const result = await service.invoke(candidate.job.id, { source: "webhook", triggerId: candidate.triggerId, claimKey: `webhook:${candidate.triggerId}:${invocation.claimKey}`, context: { [candidate.triggerSlug]: context }, occurrence: { ...invocation.occurrence, metadata: { ...invocation.occurrence?.metadata, triggerId: candidate.triggerId } } });
       await this.event(deliveryPk, candidate.job.id, provider, deliveryId, result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Webhook occurrence was already claimed." : "Webhook occurrence queued through canonical job invocation.");
     }
     await this.database.pool.query("UPDATE app.webhook_deliveries SET outcome='ignored',detail='Delivery was received but did not match an enabled trigger.' WHERE tenant_id=$1 AND id=$2 AND outcome='received'", [this.tenantId, deliveryPk]);
@@ -50,9 +61,22 @@ export class WebhookService {
     const relevant = event.event === "taskCreated" || ["taskStatusUpdated", "taskAssigneeUpdated", "taskTagUpdated", "taskMoved"].includes(String(event.event)) || (event.event === "taskUpdated" && (event.history_items ?? []).some((item: any) => ["status", "assignee", "tags", "list_id", "creator"].includes(String(item.field))));
     if (!relevant) return;
     const task = await clickUpJson(connection.accessToken, `/task/${encodeURIComponent(String(event.task_id))}`), deliveryId = `clickup:${event.webhook_id}:${event.event}:${event.history_items?.[0]?.date ?? event.task_id}`;
-    for (const candidate of await this.candidates("clickup")) { const payload = { ...event, task, matches: matchingClickUpTask(task, String(candidate.config.listId), candidate.config.matchRules ?? []) }; await this.invoke("clickup", deliveryId, payload, event.event); break; }
+    await this.invoke("clickup", deliveryId, config => ({ ...event, task, matches: matchingClickUpTask(task, String(config.listId), config.matchRules ?? []) }), event.event);
   }
-  async github(event: Record<string, any>, deliveryId: string, eventName: string) { await this.invoke("github", deliveryId, event, eventName); }
+  async github(event: Record<string, any>, deliveryId: string, eventName: string) {
+    if (eventName !== "pull_request" || event.action !== "dequeued") { await this.invoke("github", deliveryId, event, eventName); return; }
+    const deliveryPk = await this.ensure("github", deliveryId, eventName, event.action), installationId = event.installation?.id, repositoryId = event.repository?.id, pull = event.pull_request;
+    if (!Number.isSafeInteger(installationId) || !Number.isSafeInteger(repositoryId) || !Number.isSafeInteger(pull?.number)) return;
+    let matched = false;
+    for (const candidate of await this.candidates("github")) {
+      if (!adaptWebhook(candidate.config, "github", deliveryId, event, eventName) || pull.state !== "open" || pull.base?.ref !== "main") continue;
+      matched = true;
+      await this.database.pool.query(`INSERT INTO app.pending_verifications(tenant_id,id,job_id,trigger_id,delivery_id,installation_id,repository_id,repository_owner,repository_name,pull_number,next_attempt_at,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),$11)`, [this.tenantId, crypto.randomUUID(), candidate.job.id, candidate.triggerId, deliveryId, installationId, repositoryId, event.repository.owner?.login ?? "", event.repository.name ?? "", pull.number, event]);
+      await this.event(deliveryPk, candidate.job.id, "github", deliveryId, "candidate", "Candidate received; waiting for GitHub mergeability verification.");
+    }
+    if (!matched) await this.database.pool.query("UPDATE app.webhook_deliveries SET outcome='ignored',detail='Delivery was received but did not match an enabled trigger.' WHERE tenant_id=$1 AND id=$2", [this.tenantId, deliveryPk]);
+    await this.wake();
+  }
   async tail(jobId: string, raw: string, headers: Headers) {
     const candidate = (await this.candidates("cloudflareTail")).find(value => value.job.id === jobId); if (!candidate?.config.integrationId) throw new Error("not_found");
     const connection = await this.connections.get<any>(`cloudflare-tail:${candidate.config.integrationId}`), timestamp = headers.get("x-factorize-timestamp") ?? "", delivery = headers.get("x-factorize-delivery") ?? "", signature = headers.get("x-factorize-signature") ?? "";

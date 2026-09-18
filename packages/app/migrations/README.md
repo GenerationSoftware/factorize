@@ -20,3 +20,6 @@ uses a tenant-qualified key so a child row cannot reference another tenant's
 record. Native sessions live in object storage. `run_artifacts` records exact
 keys and checksums, while `run_trace_events` is the bounded projection used by
 the cursor-paginated UI and PostgreSQL search.
+
+The destructive artifact cutover is `0002`; `0003` completes runtime queue
+ownership by binding deferred GitHub verification to an exact trigger.

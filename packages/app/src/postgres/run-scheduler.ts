@@ -46,8 +46,9 @@ export class RunScheduler {
       const agentKind = run.executionTarget.agentKind as AgentKind, locator = agentDriver(agentKind).launch(run.id, {}).artifacts;
       const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path: "native/session.jsonl", contentType: "application/x-ndjson", provider: agentKind, format: "jsonl", nativeSessionId: agentKind === "codex" ? undefined : run.id, expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
       const collected = await backend.collectArtifact!(run.executionHandle, { discoverCommand: locator.discoverCommand, contentType: "application/x-ndjson", uploadUrl: `${this.env.APP_ORIGIN}/internal/run-artifacts/${encodeURIComponent(token)}` });
-      if (!collected.ok) { artifactState = "failed"; artifactError = collected.detail; }
-      const stopped = await backend.stop(run.executionHandle); if (stopped.state !== "stopped") { artifactState = artifactState === "stored" ? "partial" : artifactState; artifactError = [artifactError, stopped.detail].filter(Boolean).join("; "); }
+      if (!collected.ok) { await this.runs.retryFinalization(run, "failed", collected.detail ?? "Native session upload failed"); return; }
+      const stopped = await backend.stop(run.executionHandle);
+      if (stopped.state !== "stopped") { await this.runs.retryFinalization(run, "stored", stopped.detail ?? "VM deletion failed after artifact upload"); return; }
     }
     const state = observation.state === "succeeded" ? "succeeded" : observation.state === "stopped" ? "stopped" : "failed";
     await this.runs.terminal(run, state, artifactState, artifactError);

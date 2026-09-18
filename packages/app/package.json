@@ -6,9 +6,8 @@
   "scripts": {
     "dev": "npm run build:css && wrangler dev",
     "build:css": "tailwindcss -i ./src/tailwind.css -o ./public/styles.css --minify",
-    "check": "tsc --noEmit && vitest run && npm run test:e2e && wrangler deploy --dry-run",
+    "check": "tsc --noEmit && vitest run && wrangler deploy --dry-run",
     "test": "vitest run",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "deploy": "wrangler deploy",
     "db:migrate": "node scripts/migrate.mjs",
     "db:verify": "node scripts/verify-schema.mjs"

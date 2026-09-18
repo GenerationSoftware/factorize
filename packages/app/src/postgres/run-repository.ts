@@ -65,6 +65,15 @@ export class RunRepository {
     });
   }
 
+  async retryFinalization(run: PersistedRun, artifactState: "pending" | "collecting" | "stored" | "partial" | "failed", error: string): Promise<void> {
+    await this.database.transaction(async client => {
+      const attempt = (await client.query<{ vm_cleanup_attempt: number }>("UPDATE app.runs SET artifact_state=$3,artifact_error=$4,vm_cleanup_attempt=vm_cleanup_attempt+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING vm_cleanup_attempt", [run.tenantId, run.id, artifactState, error])).rows[0]?.vm_cleanup_attempt ?? 1;
+      const seconds = Math.min(60, 2 ** Math.min(attempt, 6));
+      await client.query("UPDATE app.job_runs SET state='running',next_poll_at=now()+make_interval(secs=>$3),updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, seconds]);
+      await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'finalization_retry',$4)", [run.tenantId, crypto.randomUUID(), run.id, `Attempt ${attempt}: ${error}`]);
+    });
+  }
+
   async requeueExpiredStarts(): Promise<number> {
     return this.database.transaction(async client => {
       const expired = await client.query<{ tenant_id: string; id: string }>("UPDATE app.job_runs SET state='queued',launch_lease_expires_at=NULL,updated_at=now() WHERE state='starting' AND launch_lease_expires_at<now() RETURNING tenant_id,id");

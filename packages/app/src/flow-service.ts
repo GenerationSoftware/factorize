@@ -52,8 +52,10 @@ export class ApiService {
     });
   }
 
-  private presentJob(job: Job) {
-    return { ...job, runNameTemplate: job.runNameTemplate ?? "", executionTargetId: `${job.executionTarget.agentKind === "Amp" ? "amp:" : ""}${job.executionTarget.connectionId}`, agentKind: job.executionTarget.agentKind, runningCount: 0, currentRuns: 0, maxConcurrency: job.concurrencyLimit, lastRunState: null };
+  private async presentJob(job: Job) {
+    const stats = (await databaseFor(this.env).pool.query<{ running_count: string; last_run_state: string | null }>(`SELECT count(*) FILTER (WHERE state IN ('starting','running','blocked','stopping'))::text running_count,(array_agg(state ORDER BY created_at DESC))[1] last_run_state FROM app.job_runs WHERE tenant_id=$1 AND job_id=$2`, [this.auth.tenantId, job.id])).rows[0];
+    const runningCount = Number(stats?.running_count ?? 0);
+    return { ...job, runNameTemplate: job.runNameTemplate ?? "", executionTargetId: `${job.executionTarget.agentKind === "Amp" ? "amp:" : ""}${job.executionTarget.connectionId}`, agentKind: job.executionTarget.agentKind, runningCount, currentRuns: runningCount, maxConcurrency: job.concurrencyLimit, lastRunState: stats?.last_run_state ?? null };
   }
 
   private async authorize(scope: Scope): Promise<void> {
