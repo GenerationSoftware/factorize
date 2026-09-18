@@ -54,8 +54,35 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("always");
     expect(requests[1]).toContain("model_provider=exe-llm");
     expect(requests[1]).toContain("model_providers.exe-llm.base_url=\"https://llm.int.exe.xyz/v1\"");
-    expect(requests[1]).not.toContain("& &&");
-    expect(requests[1]).toContain("& echo started");
+    expect(requests[1]).toContain("sudo systemd-run");
+    expect(requests[1]).toContain("--property=Type=exec");
+    expect(requests[1]).toContain("--property=RemainAfterExit=yes");
+    expect(requests[1]).toContain("--property=StandardInput=file:/tmp/factorize-prompt.md");
+    expect(requests[1]).toContain("--property=StandardOutput=append:/tmp/factorize.log");
+    expect(requests[1]).not.toContain("nohup");
+    expect(requests[1]).toContain("; echo started");
+    expect(requests[1]).toContain("systemctl show");
+  });
+
+  it("uses the systemd unit as the authoritative run state", async () => {
+    const states = [
+      "running",
+      "succeeded",
+      "failed",
+      "missing",
+    ];
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      requests.push(String(init.body));
+      return new Response(states.shift(), { headers: { "X-Exe-Exit": "0" } });
+    }));
+    const backend = new ExeVmBackend(connection), handle = { backendKind: "exe-vm", id: "factorize-run-1" };
+    await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "running" });
+    await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "succeeded" });
+    await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "failed", detail: expect.stringContaining("unsuccessfully") });
+    await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "failed", detail: expect.stringContaining("supervisor disappeared") });
+    expect(requests.every(request => request.includes("systemctl show"))).toBe(true);
+    expect(requests.every(request => !request.includes("factorize.status"))).toBe(true);
   });
 
   it("rejects an HTTP-successful launch whose shell did not acknowledge startup", async () => {

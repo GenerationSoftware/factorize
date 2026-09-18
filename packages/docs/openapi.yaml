@@ -63,4 +63,5 @@ paths:
   /api/v1/runs/{runId}: { get: { summary: Get run, responses: { '200': { description: Run } } } }
   /api/v1/runs/{runId}/diagnostics: { get: { summary: Get credential-safe run lifecycle diagnostics, responses: { '200': { description: Launch, prompt, output, claim, cleanup, and activity diagnostics } } } }
   /api/v1/runs/{runId}/stop: { post: { summary: Stop run, responses: { '200': { description: Stopped } } } }
+  /api/v1/runs/{runId}/kill: { post: { summary: Kill run and immediately release its concurrency slot, responses: { '200': { description: Killed } } } }
   /api/v1/schedules/preview: { post: { summary: Preview schedule, responses: { '200': { description: Next occurrence } } } }

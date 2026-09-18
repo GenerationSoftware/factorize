@@ -70,6 +70,8 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       if (runDiagnosticMatch && request.method === "GET") return Response.json(await service.getRunDiagnostics(decodeURIComponent(runDiagnosticMatch[1])));
       const stopMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/stop$/);
       if (stopMatch && request.method === "POST") return Response.json(await service.stopRun(decodeURIComponent(stopMatch[1])));
+      const killMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/kill$/);
+      if (killMatch && request.method === "POST") return Response.json(await service.killRun(decodeURIComponent(killMatch[1])));
       return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
     } catch (error) { return errorResponse(error); }
 }
@@ -88,6 +90,7 @@ function createMcpServer(service: ApiService): McpServer {
     tool("get_run", "Get a run with its rendered prompt, full triggered context, invocation metadata, execution metadata, output, and activity. For manual invocations, invocation.idempotency_key is the client-reusable value; invocation.claim_key is internal.", runIdSchema, ({ runId }: any) => service.getRun(runId));
     tool("get_run_diagnostics", "Get credential-safe launch, prompt delivery, output capture, claim release, cleanup, and activity diagnostics for a run.", runIdSchema, ({ runId }: any) => service.getRunDiagnostics(runId));
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
+    tool("kill_run", "Force a run in any non-terminal state to stop immediately, release its concurrency slot, and clean up its backend asynchronously.", runIdSchema, ({ runId }: any) => service.killRun(runId));
     tool("list_jobs", "List jobs with their current run count and maximum concurrency", z.object({}), () => service.listJobs());
     tool("get_job", "Get a job with its current run count and maximum concurrency", jobIdSchema, ({ jobId }: any) => service.getJob(jobId));
     tool("create_job", "Create a job using an executionTargetId returned by list_execution_targets. Credentials are never accepted or returned.", jobInputSchema, (input: any) => service.createJob(input));

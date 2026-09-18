@@ -52,6 +52,7 @@ export class ApiService {
   getRun(runId: string) { return this.call("runs:read", `/v1/runs/${encodeURIComponent(runId)}`); }
   getRunDiagnostics(runId: string) { return this.call("runs:read", `/v1/runs/${encodeURIComponent(runId)}/diagnostics`); }
   stopRun(runId: string) { return this.call("runs:write", `/v1/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" }); }
+  killRun(runId: string) { return this.call("runs:write", `/v1/runs/${encodeURIComponent(runId)}/kill`, { method: "POST" }); }
   async listJobs() { return (await this.call("flows:read", "/v1/jobs") as any[]).map(value => this.publicJob(value)); }
   async getJob(jobId: string) { return this.publicJob(await this.call("flows:read", `/v1/jobs/${encodeURIComponent(jobId)}`)); }
   listJobEvents(jobId: string, limit = 50) { return this.call("runs:read", `/v1/jobs/${encodeURIComponent(jobId)}/events?limit=${limit}`); }
