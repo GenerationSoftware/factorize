@@ -23,6 +23,7 @@ function shellWords(value: string): string[] {
 function agentCommand(connection: ExeRunConnection): string {
   const args = shellWords(connection.agentCommand?.trim() || defaultAgentCommand(connection.agentKind));
   if (connection.agentKind === "codex") args.push(
+    "--color", "always",
     "-c", "model_provider=exe-llm",
     "-c", 'model_providers.exe-llm.name="exe-llm"',
     "-c", 'model_providers.exe-llm.base_url="https://llm.int.exe.xyz/v1"',
