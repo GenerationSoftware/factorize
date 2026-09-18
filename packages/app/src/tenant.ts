@@ -299,31 +299,49 @@ export class TenantV2 extends DurableObject<Env> {
       await this.processDueSchedules();
       await this.requeueStaleStarts();
       const cleanup = this.rows("SELECT * FROM runs WHERE execution_backend_kind='exe-vm' AND execution_handle IS NOT NULL AND vm_cleanup_complete=0 AND vm_cleanup_attempt<8 AND COALESCE(vm_cleanup_next_at,0)<=? AND state IN ('done','failed','stopped','stopping') ORDER BY updated_at LIMIT 20", Date.now());
-      for (const run of cleanup) await this.cleanupRunVm(run);
+      for (const run of cleanup) {
+        try { await this.cleanupRunVm(run); }
+        catch (error) { this.alarmRunFailure("cleanup", run, error); }
+      }
       // Release completed slots before looking at the queue, so capacity is used
       // immediately rather than waiting for the next polling alarm.
       // A starting run has no authoritative backend handle until launch is
       // acknowledged. Leave it to the launch lease instead of mis-polling a
       // derived handle after an interrupted deployment.
       const running = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state IN ('running','blocked') ORDER BY updated_at LIMIT 40");
-      for (const run of running) await this.pollRun(run);
+      for (const run of running) {
+        try { await this.pollRun(run); }
+        catch (error) { this.alarmRunFailure("poll", run, error); }
+      }
       const queued = this.rows("SELECT * FROM runs WHERE pipe_id IN (SELECT id FROM jobs) AND state = 'queued' ORDER BY created_at LIMIT 20");
       for (const run of queued) {
-        const pipe = this.executionConfig(run.pipe_id);
-        if (!pipe) continue;
-        const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id = ? AND state IN ('starting','running','blocked')", pipe.id) as Row;
-        if (Number(active.count) >= Number(pipe.max_concurrency)) continue;
-        const name = `${String(pipe.workspace_name).slice(0, 20)}-${String(run.id).replaceAll("-", "").slice(0, 8)}`;
-        const startedAt = now();
-        this.ctx.storage.sql.exec("UPDATE runs SET state = 'starting', agent_name = ?, workspace_name = ?, updated_at = ? WHERE id = ? AND state = 'queued'", name, pipe.workspace_name, startedAt, run.id);
-        this.ctx.storage.sql.exec("UPDATE job_runs SET state='running',started_at=?,updated_at=? WHERE id=? AND state='queued'", startedAt, startedAt, run.id);
-        await this.startRun({ ...run, state: "starting", agent_name: name, workspace_name: pipe.workspace_name, updated_at: startedAt }, pipe);
+        try {
+          const pipe = this.executionConfig(run.pipe_id);
+          if (!pipe) continue;
+          const active = this.one("SELECT count(*) AS count FROM runs WHERE pipe_id = ? AND state IN ('starting','running','blocked')", pipe.id) as Row;
+          if (Number(active.count) >= Number(pipe.max_concurrency)) continue;
+          const name = `${String(pipe.workspace_name).slice(0, 20)}-${String(run.id).replaceAll("-", "").slice(0, 8)}`;
+          const startedAt = now();
+          this.ctx.storage.sql.exec("UPDATE runs SET state = 'starting', agent_name = ?, workspace_name = ?, updated_at = ? WHERE id = ? AND state = 'queued'", name, pipe.workspace_name, startedAt, run.id);
+          this.ctx.storage.sql.exec("UPDATE job_runs SET state='running',started_at=?,updated_at=? WHERE id=? AND state='queued'", startedAt, startedAt, run.id);
+          await this.startRun({ ...run, state: "starting", agent_name: name, workspace_name: pipe.workspace_name, updated_at: startedAt }, pipe);
+        } catch (error) { this.alarmRunFailure("launch", run, error); }
       }
     } finally {
       // Even if polling or launch throws, unfinished persisted work retains a
       // watchdog. This also repairs wake-ups interrupted by deployments.
       await this.ensureAlarm();
     }
+  }
+
+  private alarmRunFailure(phase: "cleanup" | "poll" | "launch", run: Row, error: unknown): void {
+    console.error(JSON.stringify({
+      event: "factorize_alarm_run_failed",
+      phase,
+      runId: String(run.id),
+      jobId: String(run.pipe_id),
+      message: error instanceof Error ? error.message : "Unknown error",
+    }));
   }
 
   private async ensureAlarm(): Promise<void> {
