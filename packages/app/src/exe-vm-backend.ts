@@ -134,9 +134,16 @@ export class ExeVmBackend implements ExecutionBackend {
   }
 
   async collectArtifact(handle: RunHandle, request: { uploadUrl: string; discoverCommand: string; contentType: string }) {
-    const remote = `file=$(${request.discoverCommand}); test -n "$file"; test -f "$file"; size=$(wc -c < "$file" | tr -d ' '); sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H ${shellAtom(`Content-Type: ${request.contentType}`)} -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(request.uploadUrl)}`;
+    const remote = `file=$(${request.discoverCommand}); test -n "$file"; test -f "$file"; snapshot=$(mktemp); trap 'rm -f "$snapshot"' EXIT; cp "$file" "$snapshot"; size=$(wc -c < "$snapshot" | tr -d ' '); sha=$(sha256sum "$snapshot" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H ${shellAtom(`Content-Type: ${request.contentType}`)} -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$snapshot" ${shellAtom(request.uploadUrl)}`;
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
     return { ok: result.ok, detail: result.ok ? undefined : `Native session upload failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
+  }
+
+  async collectTraceChunk(handle: RunHandle, request: { uploadUrl: string; discoverCommand: string; generation: string | null; offset: number; previousHash: string }) {
+    const expectedGeneration = request.generation ?? "", zeroHash = "0".repeat(64);
+    const remote = `file=$(${request.discoverCommand}); test -n "$file"; test -f "$file"; generation=$(stat -c '%d:%i:%W' "$file"); start=${request.offset}; previous=${shellAtom(request.previousHash)}; if [ -n ${shellAtom(expectedGeneration)} ] && [ "$generation" != ${shellAtom(expectedGeneration)} ]; then start=0; previous=${shellAtom(zeroHash)}; fi; total=$(wc -c < "$file" | tr -d ' '); if [ "$total" -le "$start" ]; then printf 'no-change'; exit 0; fi; count=$((total-start)); if [ "$count" -gt 4194304 ]; then count=4194304; fi; chunk=$(mktemp); trap 'rm -f "$chunk"' EXIT; dd if="$file" of="$chunk" iflag=skip_bytes,count_bytes skip="$start" count="$count" status=none; size=$(wc -c < "$chunk" | tr -d ' '); sha=$(sha256sum "$chunk" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H "Content-Length: $size" -H "X-Trace-Generation: $generation" -H ${shellAtom(`X-Trace-Expected-Generation: ${expectedGeneration}`)} -H "X-Trace-Start: $start" -H "X-Trace-SHA256: $sha" -H "X-Trace-Previous-Hash: $previous" --data-binary @"$chunk" ${shellAtom(request.uploadUrl)}`;
+    const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
+    return { ok: result.ok, detail: result.ok ? undefined : `Live trace upload failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
   }
 
   async stop(handle: RunHandle): Promise<ExecutionObservation> {

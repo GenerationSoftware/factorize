@@ -13,6 +13,7 @@ export interface ArtifactUploadGrant {
   provider: "codex" | "claude" | "pi";
   format: "jsonl";
   nativeSessionId?: string;
+  purpose?: "artifact" | "trace_chunk";
   expiresAt: number;
 }
 
@@ -46,7 +47,7 @@ export async function artifactUpload(request: Request, env: Env, token: string):
   if (request.method !== "PUT") return new Response("Method not allowed", { status: 405, headers: { Allow: "PUT" } });
   if (!env.RUN_ARTIFACTS) return new Response("Artifact storage is unavailable", { status: 503 });
   const grant = await readArtifactUploadGrant(token, env.SESSION_SIGNING_SECRET);
-  if (!grant) return new Response("Invalid or expired artifact upload grant", { status: 401 });
+  if (!grant || grant.purpose === "trace_chunk") return new Response("Invalid or expired artifact upload grant", { status: 401 });
   if (!request.body) return new Response("Artifact body is required", { status: 400 });
   const sha256 = request.headers.get("X-Artifact-SHA256")?.toLowerCase() ?? "", size = Number(request.headers.get("Content-Length"));
   if (!/^[0-9a-f]{64}$/.test(sha256) || !Number.isSafeInteger(size) || size < 0) return new Response("Artifact checksum and size are required", { status: 400 });

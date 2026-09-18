@@ -86,6 +86,36 @@ describe("ExeVmBackend", () => {
     expect(requests.every(request => !request.includes("factorize.status"))).toBe(true);
   });
 
+  it("uploads an immutable snapshot of a session that may still be growing", async () => {
+    let request = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      request = String(init.body);
+      return new Response("uploaded", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    const result = await new ExeVmBackend(connection).collectArtifact(
+      { backendKind: "exe-vm", id: "factorize-run-1" },
+      { discoverCommand: "find sessions -name '*.jsonl' | head -1", contentType: "application/x-ndjson", uploadUrl: "https://app.example/upload" },
+    );
+    expect(result.ok).toBe(true);
+    expect(request).toContain("snapshot=$(mktemp)");
+    expect(request).toContain('cp "$file" "$snapshot"');
+    expect(request).toContain('--data-binary @"$snapshot"');
+  });
+
+  it("uploads only the uncommitted byte range for a live trace", async () => {
+    let request = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => { request = String(init.body); return new Response("uploaded", { headers: { "X-Exe-Exit": "0" } }); }));
+    const result = await new ExeVmBackend(connection).collectTraceChunk(
+      { backendKind: "exe-vm", id: "factorize-run-1" },
+      { discoverCommand: "find sessions -name '*.jsonl' | head -1", generation: "1:2:3", offset: 1234, previousHash: "a".repeat(64), uploadUrl: "https://app.example/chunk" },
+    );
+    expect(result.ok).toBe(true);
+    expect(request).toContain("start=1234");
+    expect(request).toContain("iflag=skip_bytes,count_bytes");
+    expect(request).toContain("X-Trace-Expected-Generation: 1:2:3");
+    expect(request).toContain("X-Trace-Previous-Hash: $previous");
+  });
+
   it("rejects an HTTP-successful launch whose shell did not acknowledge startup", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {

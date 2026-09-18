@@ -6,6 +6,7 @@ import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegis
 import type { Env, OAuthProps } from "./types";
 import { authenticateAccessToken } from "./access-tokens";
 import { artifactUpload } from "./artifact-upload";
+import { traceChunkUpload } from "./trace-chunk-upload";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 
@@ -77,6 +78,8 @@ export { AlarmCoordinator } from "./alarm-coordinator";
 export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   const oauth = provider(env);
   const url = new URL(request.url);
+  const traceChunkMatch = url.pathname.match(/^\/internal\/run-trace-chunks\/([^/]+)$/);
+  if (traceChunkMatch) return traceChunkUpload(request, env, decodeURIComponent(traceChunkMatch[1]!));
   const artifactMatch = url.pathname.match(/^\/internal\/run-artifacts\/([^/]+)$/);
   if (artifactMatch) return artifactUpload(request, env, decodeURIComponent(artifactMatch[1]!));
   if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {

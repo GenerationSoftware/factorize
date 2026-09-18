@@ -9,6 +9,7 @@ import type { Database } from "./database";
 import { RunRepository, type PersistedRun } from "./run-repository";
 import { AutomationScheduler } from "./automation-scheduler";
 import { agentDriver, type AgentKind } from "../agent-driver";
+import { LiveTraceRepository } from "./live-trace-repository";
 
 export class RunScheduler {
   private runs: RunRepository;
@@ -40,18 +41,34 @@ export class RunScheduler {
   private async poll(run: PersistedRun) {
     const backend = await this.backend(run); if (!run.executionHandle) throw new Error("Execution handle is missing");
     const observation = await backend.inspect(run.executionHandle);
-    if (["running", "blocked", "stopping"].includes(observation.state)) return this.runs.schedulePoll(run, observation.state as "running" | "blocked" | "stopping");
+    if (["running", "blocked", "stopping"].includes(observation.state)) {
+      if (backend instanceof ExeVmBackend) await this.collectTraceChunk(run, backend).catch(() => undefined);
+      return this.runs.schedulePoll(run, observation.state as "running" | "blocked" | "stopping");
+    }
     let artifactState: "stored" | "partial" | "failed" = "stored", artifactError: string | undefined;
     if (backend instanceof ExeVmBackend) {
-      const agentKind = run.executionTarget.agentKind as AgentKind, locator = agentDriver(agentKind).launch(run.id, {}).artifacts;
-      const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path: "native/session.jsonl", contentType: "application/x-ndjson", provider: agentKind, format: "jsonl", nativeSessionId: agentKind === "codex" ? undefined : run.id, expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
-      const collected = await backend.collectArtifact!(run.executionHandle, { discoverCommand: locator.discoverCommand, contentType: "application/x-ndjson", uploadUrl: `${this.env.APP_ORIGIN}/internal/run-artifacts/${encodeURIComponent(token)}` });
+      const collected = await this.collectArtifact(run, backend);
       if (!collected.ok) { await this.runs.retryFinalization(run, "failed", collected.detail ?? "Native session upload failed"); return; }
       const stopped = await backend.stop(run.executionHandle);
       if (stopped.state !== "stopped") { await this.runs.retryFinalization(run, "stored", stopped.detail ?? "VM deletion failed after artifact upload"); return; }
     }
     const state = observation.state === "succeeded" ? "succeeded" : observation.state === "stopped" ? "stopped" : "failed";
     await this.runs.terminal(run, state, artifactState, artifactError);
+  }
+
+  private async collectArtifact(run: PersistedRun, backend: ExeVmBackend) {
+    if (!run.executionHandle) throw new Error("Execution handle is missing");
+    const agentKind = run.executionTarget.agentKind as AgentKind, locator = agentDriver(agentKind).launch(run.id, {}).artifacts;
+    const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path: "native/session.jsonl", contentType: "application/x-ndjson", provider: agentKind, format: "jsonl", nativeSessionId: agentKind === "codex" ? undefined : run.id, expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
+    return backend.collectArtifact(run.executionHandle, { discoverCommand: locator.discoverCommand, contentType: "application/x-ndjson", uploadUrl: `${this.env.APP_ORIGIN}/internal/run-artifacts/${encodeURIComponent(token)}` });
+  }
+
+  private async collectTraceChunk(run: PersistedRun, backend: ExeVmBackend) {
+    if (!run.executionHandle) throw new Error("Execution handle is missing");
+    const agentKind = run.executionTarget.agentKind as AgentKind, locator = agentDriver(agentKind).launch(run.id, {}).artifacts;
+    const cursor = await new LiveTraceRepository(this.database, run.tenantId).cursor(run.id);
+    const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path: "native/live.jsonl", contentType: "application/octet-stream", provider: agentKind, format: "jsonl", nativeSessionId: agentKind === "codex" ? undefined : run.id, purpose: "trace_chunk", expiresAt: Date.now() + 60_000 }, this.env.SESSION_SIGNING_SECRET);
+    return backend.collectTraceChunk(run.executionHandle, { discoverCommand: locator.discoverCommand, generation: cursor.generation, offset: cursor.offset, previousHash: cursor.rollingHash, uploadUrl: `${this.env.APP_ORIGIN}/internal/run-trace-chunks/${encodeURIComponent(token)}` });
   }
 
   private async fail(run: PersistedRun, error: unknown) { await this.runs.terminal(run, "failed", "failed", error instanceof Error ? error.message : "Run processing failed"); }
