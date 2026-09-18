@@ -106,7 +106,9 @@ export class ApiService {
   async updateJob(jobId: string, input: JobInput) {
     await this.authorize("flows:write"); const repository = this.jobs(), current = await repository.getJob(jobId); if (!current) throw new ServiceError(404, "not_found", "Job not found");
     const triggers = this.normalizedTriggers(input.triggers, current.triggers).map(trigger => ({ ...trigger, jobId }));
-    return this.presentJob(await repository.update({ ...current, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", effort: input.effort, executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, triggers, updatedAt: new Date().toISOString() }));
+    const updated = await repository.update({ ...current, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", effort: input.effort, executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, triggers, updatedAt: new Date().toISOString() });
+    await this.wakeScheduler();
+    return this.presentJob(updated);
   }
   async deleteJob(jobId: string) {
     await this.authorize("flows:write");
@@ -121,7 +123,10 @@ export class ApiService {
     if (!await repository.delete(jobId)) throw new ServiceError(404, "not_found", "Job not found");
     return { id: jobId, deleted: true };
   }
-  async setJobEnabled(jobId: string, enabled: boolean) { await this.authorize("flows:write"); const repository = this.jobs(); if (!await repository.setEnabled(jobId, enabled, new Date().toISOString())) throw new ServiceError(404, "not_found", "Job not found"); return { id: jobId, enabled }; }
+  private async wakeScheduler() {
+    if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" });
+  }
+  async setJobEnabled(jobId: string, enabled: boolean) { await this.authorize("flows:write"); const repository = this.jobs(); if (!await repository.setEnabled(jobId, enabled, new Date().toISOString())) throw new ServiceError(404, "not_found", "Job not found"); await this.wakeScheduler(); return { id: jobId, enabled }; }
   async invokeJob(jobId: string, input: ManualInvocationInput) {
     await this.authorize("runs:write"); const repository = this.jobs(), job = await repository.getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found");
     const trigger = job.triggers.find(value => value.kind === "manual" && value.enabled); if (!trigger) throw new ServiceError(409, "operation_failed", "The manual trigger is disabled");

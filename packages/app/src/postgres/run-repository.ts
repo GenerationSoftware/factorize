@@ -23,10 +23,12 @@ export class RunRepository {
 
   async claimNext(): Promise<PersistedRun | null> {
     return this.database.transaction(async client => {
+      // Retry expired launches in their existing active slot. Requeuing them
+      // would compete with the single waiting run and could overflow the queue.
       const result = await client.query<RunRow>(`WITH candidate AS (
           SELECT r.tenant_id,r.id FROM app.job_runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id
-          WHERE r.state='queued' AND j.enabled
-            AND (SELECT count(*) FROM app.job_runs active WHERE active.tenant_id=r.tenant_id AND active.job_id=r.job_id AND active.state IN ('starting','running','blocked','stopping')) < j.concurrency_limit
+          WHERE j.enabled AND ((r.state='starting' AND r.launch_lease_expires_at<now())
+            OR (r.state='queued' AND (SELECT count(*) FROM app.job_runs active WHERE active.tenant_id=r.tenant_id AND active.job_id=r.job_id AND active.state IN ('starting','running','blocked','stopping')) < j.concurrency_limit))
           ORDER BY r.created_at FOR UPDATE OF r SKIP LOCKED LIMIT 1
         ), claimed AS (
           UPDATE app.job_runs r SET state='starting',launch_lease_expires_at=now()+interval '5 minutes',updated_at=now()
@@ -83,14 +85,6 @@ export class RunRepository {
       const seconds = Math.min(60, 2 ** Math.min(attempt, 6));
       await client.query("UPDATE app.job_runs SET state='running',next_poll_at=now()+make_interval(secs=>$3),updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, seconds]);
       await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'finalization_retry',$4)", [run.tenantId, crypto.randomUUID(), run.id, `Attempt ${attempt}: ${safeDiagnosticText(error)}`]);
-    });
-  }
-
-  async requeueExpiredStarts(): Promise<number> {
-    return this.database.transaction(async client => {
-      const expired = await client.query<{ tenant_id: string; id: string }>("UPDATE app.job_runs SET state='queued',launch_lease_expires_at=NULL,updated_at=now() WHERE state='starting' AND launch_lease_expires_at<now() RETURNING tenant_id,id");
-      for (const row of expired.rows) await client.query("UPDATE app.runs SET state='queued',execution_handle=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2", [row.tenant_id, row.id]);
-      return expired.rowCount ?? 0;
     });
   }
 

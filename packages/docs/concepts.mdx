@@ -3,7 +3,7 @@ title: Jobs, triggers, and runs
 description: The durable execution model and prompt contract.
 ---
 
-A Job contains a prompt template, execution target, model/effort options, concurrency limit (1–50), and up to 50 triggers. Every job has a server-generated manual trigger. A Run is a queued or executing instance. Automatic webhook, schedule, and lifecycle signals coalesce; manual invocations never coalesce.
+A Job contains a prompt template, execution target, model/effort options, concurrency limit (1–50), and up to 50 triggers. Every job has a server-generated manual trigger. A Run is a queued or executing instance. Automatic webhook, schedule, and lifecycle signals coalesce; manual invocations never coalesce. Each job admits at most one queued run in addition to its active runs. When a run is already queued, new automatic occurrences are skipped and manual requests return `409 queue_full`. Retrying an accepted idempotency key still returns its original run. Queued runs retain their original prompt and context. Any backlog accepted before this policy was deployed drains normally.
 
 Templates are Mustache and render only against the firing trigger's stable slug, such as `{{trigger-1.issue.title}}`. Missing paths become empty strings. Run inspection returns the complete persisted `context`, rendered `prompt`, `invocation.trigger_id`, execution metadata, output, and activity.
 
