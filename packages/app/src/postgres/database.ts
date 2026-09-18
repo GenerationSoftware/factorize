@@ -1,5 +1,7 @@
 import { Pool, type PoolClient, type PoolConfig, type QueryResultRow } from "pg";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { Env } from "../types";
+import { databaseSchema } from "./schema";
 
 export interface DatabaseClient {
   query<Row extends QueryResultRow = QueryResultRow>(text: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number | null }>;
@@ -7,12 +9,14 @@ export interface DatabaseClient {
 
 export class Database {
   readonly pool: Pool;
+  readonly orm: NodePgDatabase<typeof databaseSchema>;
 
   constructor(config: PoolConfig) {
     // Workers may reuse an isolate, but sockets opened for one request cannot be
     // safely retained by node-postgres for a later request. Hyperdrive makes a
     // fresh connection inexpensive, so retire every checkout on release.
     this.pool = new Pool({ max: 5, maxUses: 1, allowExitOnIdle: true, connectionTimeoutMillis: 10_000, idleTimeoutMillis: 1_000, ...config });
+    this.orm = drizzle(this.pool, { schema: databaseSchema, casing: "snake_case" });
   }
 
   async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {

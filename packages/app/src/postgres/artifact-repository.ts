@@ -1,5 +1,7 @@
 import type { ArtifactKind, ArtifactState } from "../artifacts";
 import type { Database } from "./database";
+import { and, eq } from "drizzle-orm";
+import { runArtifacts, runs } from "./schema";
 
 export class ArtifactRepository {
   constructor(private database: Database, private tenantId: string) { if (!tenantId) throw new Error("tenantId is required"); }
@@ -13,4 +15,8 @@ export class ArtifactRepository {
     });
   }
   async list(runId: string) { return (await this.database.pool.query("SELECT id,kind,object_key,provider,format,format_version,cli_version,native_session_id,byte_size,sha256,state,created_at FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2 ORDER BY created_at,id", [this.tenantId, runId])).rows; }
+  async keysForJob(jobId: string): Promise<string[]> {
+    const rows = await this.database.orm.select({ key: runArtifacts.objectKey }).from(runArtifacts).innerJoin(runs, and(eq(runs.tenantId, runArtifacts.tenantId), eq(runs.id, runArtifacts.runId))).where(and(eq(runArtifacts.tenantId, this.tenantId), eq(runs.jobId, jobId)));
+    return rows.map(row => row.key);
+  }
 }
