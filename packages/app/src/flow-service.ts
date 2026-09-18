@@ -131,7 +131,7 @@ export class ApiService {
     await this.authorize("runs:write"); const repository = this.jobs(), job = await repository.getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found");
     const trigger = job.triggers.find(value => value.kind === "manual" && value.enabled); if (!trigger) throw new ServiceError(409, "operation_failed", "The manual trigger is disabled");
     const service = new InvocationService(repository, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY));
-    const result = await service.invoke(jobId, { source: "manual", triggerId: trigger.id, claimKey: input.idempotencyKey ? `manual:${input.idempotencyKey}` : `manual:${crypto.randomUUID()}`, context: { [trigger.slug]: { prompt: input.prompt, data: input.data ?? {} } } });
+    const result = await service.invoke(jobId, { source: "manual", name: input.name, triggerId: trigger.id, claimKey: input.idempotencyKey ? `manual:${input.idempotencyKey}` : `manual:${crypto.randomUUID()}`, context: { [trigger.slug]: { prompt: input.prompt, data: input.data ?? {} } } });
     if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" });
     return { invocationId: result.invocation.id, runId: result.run.id, state: result.run.state, duplicate: result.duplicate };
   }

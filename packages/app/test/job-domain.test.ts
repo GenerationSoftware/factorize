@@ -47,6 +47,31 @@ describe("job invocation domain", () => {
     expect(result.run.runName).toBe("Review GEN-2113");
   });
 
+  it("persists explicit manual names and returns the original name on replay", async () => {
+    const repository = new MemoryRepository();
+    repository.jobs.set("job-1", job({ runNameTemplate: "Template name" }));
+    const service = new InvocationService(repository, async value => value);
+    const request = { source: "manual" as const, name: "GEN-2106 — Issue title", triggerId: "manual-1", claimKey: "manual:issue", context: { "trigger-1": { data: { identifier: "GEN-2106" } } } };
+    const first = await service.invoke("job-1", request);
+    expect((await repository.findInvocation("job-1", request.claimKey))?.run.runName).toBe(request.name);
+    const retry = await service.invoke("job-1", { ...request, name: "Changed name" });
+    expect(retry).toEqual({ ...first, duplicate: true });
+  });
+
+  it.each(["webhook", "schedule", "jobLifecycle"] as const)("keeps %s names template-derived", async source => {
+    const repository = new MemoryRepository();
+    repository.jobs.set("job-1", job({ runNameTemplate: "Automatic" }));
+    const result = await new InvocationService(repository, async value => value).invoke("job-1", { source, name: "Manual override", triggerId: "trigger", claimKey: "event", context: {} });
+    expect(result.run.runName).toBe("Automatic");
+  });
+
+  it.each(["", "   "])("uses the template for an empty manual domain name %j", async name => {
+    const repository = new MemoryRepository();
+    repository.jobs.set("job-1", job({ runNameTemplate: "{{trigger-1.data.identifier}}" }));
+    const result = await new InvocationService(repository, async value => value).invoke("job-1", { source: "manual", name, triggerId: "manual-1", claimKey: "event", context: { "trigger-1": { data: { identifier: "GEN-2106" } } } });
+    expect(result.run.runName).toBe("GEN-2106");
+  });
+
   it("starts queued runs only while the job has capacity", async () => {
     const repository = new MemoryRepository(); const service = new InvocationService(repository, async value => value, undefined, () => "then");
     const first = await service.invoke("job-1", { source: "manual", triggerId: "manual-1", claimKey: "one", context: { "trigger-1": { prompt: "go" } } });
