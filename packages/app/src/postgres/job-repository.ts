@@ -3,7 +3,7 @@ import type { Invocation, Job, JobRepository, JobRun, Trigger } from "../job-dom
 import type { Database, DatabaseClient } from "./database";
 import { nextOccurrence, validateScheduleConfig } from "../schedule";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { invocations, jobs, lifecycleDeliveries, pendingVerifications, scheduleState, triggers } from "./schema";
+import { invocations, jobs, jobEditDeliveries, lifecycleDeliveries, pendingVerifications, scheduleState, triggers } from "./schema";
 
 type Crypt = (value: string) => Promise<string>;
 type JobRow = typeof jobs.$inferSelect;
@@ -45,6 +45,7 @@ export class PostgresJobRepository implements JobRepository {
       const existing: TriggerRow[] = await tx.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, job.id), isNull(triggers.removedAt))).orderBy(triggers.position);
       const [row] = await tx.update(jobs).set({ name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionTarget: job.executionTarget, model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, updatedAt: new Date(job.updatedAt) }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, job.id))).returning();
       await this.reconcileTriggers(tx, job, existing);
+      await this.recordEdit(tx, job.id, job.updatedAt);
       return this.mapped(row!, tx);
     });
   }
@@ -55,8 +56,20 @@ export class PostgresJobRepository implements JobRepository {
       if (!job) return false;
       const schedules: TriggerRow[] = await tx.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, id), eq(triggers.kind, "schedule"), isNull(triggers.removedAt)));
       for (const trigger of schedules) await tx.update(scheduleState).set({ nextRunAt: enabled && trigger.enabled ? nextOccurrence(validateScheduleConfig(trigger.config), new Date()) : null }).where(and(eq(scheduleState.tenantId, this.tenantId), eq(scheduleState.triggerId, trigger.id)));
+      await this.recordEdit(tx, id, changedAt);
       return true;
     });
+  }
+
+  private async recordEdit(tx: any, sourceJobId: string, editedAt: string): Promise<void> {
+    // Snapshot matching subscribers with the edit, so later subscriptions cannot
+    // replay old edits. The outbox commits or rolls back with the job update.
+    await tx.execute(sql`INSERT INTO app.job_edit_deliveries(tenant_id,event_id,trigger_id,source_job_id,edited_at)
+      SELECT t.tenant_id,${crypto.randomUUID()}::uuid,t.id,${sourceJobId}::uuid,${editedAt}::timestamptz
+      FROM app.triggers t JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
+      WHERE t.tenant_id=${this.tenantId}::uuid AND t.job_id<>${sourceJobId}::uuid
+        AND t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
+        AND t.config->'sourceJobIds' ? ${sourceJobId} AND t.config->'states' ? 'edited'`);
   }
 
   private async reconcileTriggers(tx: any, job: Job, existing: TriggerRow[]): Promise<void> {
@@ -65,6 +78,7 @@ export class PostgresJobRepository implements JobRepository {
       const referenced = await tx.select({ value: sql<number>`1` }).from(invocations).where(and(eq(invocations.tenantId, this.tenantId), eq(invocations.triggerId, old.id))).limit(1)
         .then((rows: unknown[]) => rows.length > 0) || await tx.select({ value: sql<number>`1` }).from(lifecycleDeliveries).where(and(eq(lifecycleDeliveries.tenantId, this.tenantId), eq(lifecycleDeliveries.triggerId, old.id))).limit(1).then((rows: unknown[]) => rows.length > 0)
         || await tx.select({ value: sql<number>`1` }).from(pendingVerifications).where(and(eq(pendingVerifications.tenantId, this.tenantId), eq(pendingVerifications.triggerId, old.id))).limit(1).then((rows: unknown[]) => rows.length > 0);
+      await tx.delete(jobEditDeliveries).where(and(eq(jobEditDeliveries.tenantId, this.tenantId), eq(jobEditDeliveries.triggerId, old.id)));
       if (referenced) await tx.update(triggers).set({ enabled: false, removedAt: new Date(job.updatedAt), updatedAt: new Date(job.updatedAt) }).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.id, old.id)));
       else await tx.delete(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.id, old.id)));
       await tx.delete(scheduleState).where(and(eq(scheduleState.tenantId, this.tenantId), eq(scheduleState.triggerId, old.id)));

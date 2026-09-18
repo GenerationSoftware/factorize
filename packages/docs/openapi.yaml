@@ -24,7 +24,7 @@ components:
         executionTargetId: { type: string, minLength: 1 }
         model: { type: string, maxLength: 120 }
         effort: { type: string, maxLength: 40 }
-        triggers: { type: array, maxItems: 50, items: { type: object } }
+        triggers: { type: array, maxItems: 50, items: { type: object }, description: "Job lifecycle config uses sourceJobIds and states (succeeded, failed, stopped, edited). Edited fires on successful job saves, including enable/disable; context contains source_job_id, event, and edited_at." }
     RunPage: { type: object, required: [items], properties: { items: { type: array, items: { type: object } }, nextCursor: { type: string, nullable: true } } }
     ManualInvocation:
       type: object
