@@ -22,6 +22,11 @@ function shellWords(value: string): string[] {
 
 function agentCommand(connection: ExeRunConnection): string {
   const args = shellWords(connection.agentCommand?.trim() || defaultAgentCommand(connection.agentKind));
+  if (connection.agentKind === "codex") args.push(
+    "-c", "model_provider=exe-llm",
+    "-c", 'model_providers.exe-llm.name="exe-llm"',
+    "-c", 'model_providers.exe-llm.base_url="https://llm.int.exe.xyz/v1"',
+  );
   if (connection.model?.trim()) args.push("--model", connection.model.trim());
   if (connection.effort?.trim() && connection.agentKind === "codex") args.push("-c", `model_reasoning_effort=${connection.effort.trim()}`);
   return args.map(shellAtom).join(" ");
@@ -105,15 +110,15 @@ export class ExeVmBackend implements ExecutionBackend {
     const prompt = base64(request.prompt), output = "/tmp/factorize.log", status = "/tmp/factorize.status";
     const work = [
       "set -eu",
-      "mkdir -p /workspace",
-      "cd /workspace",
+      "mkdir -p /home/exedev/workspace",
+      "cd /home/exedev/workspace",
       `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
-      `setsid nohup sh -c ${shellAtom(`set +e; ${agentCommand(connection)} < /tmp/factorize-prompt.md > ${output} 2>&1; code=$?; printf '%s' "$code" > ${status}`)} >/dev/null 2>&1 &`,
-      "echo started",
-    ].join(" && ");
+      `setsid nohup sh -c ${shellAtom(`set +e; ${agentCommand(connection)} < /tmp/factorize-prompt.md > ${output} 2>&1; code=$?; printf '%s' "$code" > ${status}`)} >/dev/null 2>&1 & echo started`,
+    ].join("; ");
     let started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
-    for (let attempt = 1; !started.ok && attempt < 5; attempt++) started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
-    if (!started.ok) {
+    const accepted = (result: BackendCommandResult) => result.ok && result.body.trim() === "started";
+    for (let attempt = 1; !accepted(started) && attempt < 5; attempt++) started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
+    if (!accepted(started)) {
       const cleanup = await this.deleteVm(vm);
       const detail = `VM provisioning failed (${started.status}): ${started.body.slice(0, 500)}${cleanup.ok ? "" : `; cleanup also failed: ${cleanup.body.slice(0, 200)}`}`;
       return { handle: { backendKind: this.kind, id: vm }, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail, command: started }, command: started };

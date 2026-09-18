@@ -2,7 +2,7 @@ import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
 
 export default defineWorkersConfig({
   test: {
-    include: ["test/device-oauth.e2e.test.ts", "test/fresh-namespace.e2e.test.ts"],
+    include: ["test/device-oauth.e2e.test.ts", "test/fresh-namespace.e2e.test.ts", "test/exe-run-lifecycle.e2e.test.ts"],
     poolOptions: {
       workers: {
         isolatedStorage: false,

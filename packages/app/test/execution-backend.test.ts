@@ -47,9 +47,27 @@ describe("ExeVmBackend", () => {
     expect(requests[0]).toContain("new --name='factorize-run-1'");
     expect(requests[0]).toContain("--tag='github'");
     expect(requests[0]).toContain("--tag='llm'");
-    expect(requests[1]).toContain("cd /workspace");
+    expect(requests[1]).toContain("cd /home/exedev/workspace");
     expect(requests[1]).not.toContain("git clone");
     expect(requests[1]).toContain("codex");
+    expect(requests[1]).toContain("model_provider=exe-llm");
+    expect(requests[1]).toContain("model_providers.exe-llm.base_url=\"https://llm.int.exe.xyz/v1\"");
+    expect(requests[1]).not.toContain("& &&");
+    expect(requests[1]).toContain("& echo started");
+  });
+
+  it("rejects an HTTP-successful launch whose shell did not acknowledge startup", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      requests.push(String(init.body));
+      if (requests.length === 1) return new Response("created", { headers: { "X-Exe-Exit": "0" } });
+      if (requests.length <= 6) return new Response("bash: syntax error");
+      if (String(init.body) === "ls --json") return new Response(JSON.stringify({ vms: [{ name: "factorize-run-1", comment: "Factorize VM factorize-run-1" }] }), { headers: { "X-Exe-Exit": "0" } });
+      return new Response("removed", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work" });
+    expect(launched.observation.state).toBe("failed");
+    expect(launched.observation.detail).toContain("bash: syntax error");
   });
 
   it("validates Codex and loads models in a temporary tagged VM that is deleted", async () => {

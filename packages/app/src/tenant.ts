@@ -210,8 +210,11 @@ export class TenantV2 extends DurableObject<Env> {
       const webhookDeliveryMatch = url.pathname.match(/^\/v1\/webhooks\/deliveries\/([^/]+)$/);
       if (request.method === "GET" && webhookDeliveryMatch) return this.getWebhookDelivery(decodeURIComponent(webhookDeliveryMatch[1]));
       if (request.method === "GET" && /^\/v1\/runs\/[^/]+$/.test(url.pathname)) return await this.getRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
+      if (request.method === "GET" && /^\/v1\/runs\/[^/]+\/diagnostics$/.test(url.pathname)) return this.getRunDiagnostics(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "POST" && /^\/v1\/runs\/[^/]+\/stop$/.test(url.pathname)) return await this.stopRun(decodeURIComponent(url.pathname.split("/")[3] ?? ""));
       if (request.method === "GET" && url.pathname === "/v1/execution-targets") return await this.executionTargets();
+      const exeDiagnosticMatch = url.pathname.match(/^\/v1\/integrations\/exe\/([^/]+)\/diagnostics$/);
+      if (request.method === "POST" && exeDiagnosticMatch) return await this.exeIntegrationDiagnostics(decodeURIComponent(exeDiagnosticMatch[1]));
       if (request.method === "GET" && url.pathname === "/v1/job-trigger-availability") return await this.triggerAvailability();
       if (request.method === "GET" && url.pathname === "/v1/jobs") return json(await this.publicJobs(this.rows("SELECT * FROM jobs ORDER BY created_at DESC")));
       if (request.method === "POST" && url.pathname === "/v1/jobs") return await this.createJob(await request.json());
@@ -356,6 +359,20 @@ export class TenantV2 extends DurableObject<Env> {
     return json({ ok: result.ok, missingPermissions: result.missingPermissions, tags: result.tags, checks: result.checks.map(check => ({ command: check.requestBody, ok: check.ok, httpStatus: check.status, exitCode: check.exitCode, output: check.body })) });
   }
 
+  private async exeIntegrationDiagnostics(connectionId: string): Promise<Response> {
+    const connection = await this.exeConnection(connectionId);
+    if (!connection) return new Response("Not found", { status: 404 });
+    const backend = new ExeVmBackend(connection), permissions = await backend.testPermissions();
+    const permissionSummary = { ok: permissions.ok, missing: permissions.missingPermissions, tags: permissions.tags, checks: permissions.checks.map(check => ({ command: check.requestBody, ok: check.ok, httpStatus: check.status, exitCode: check.exitCode })) };
+    if (!permissions.ok) return json({ ok: false, connectionId, agentKind: connection.agentKind, permissions: permissionSummary, agent: null });
+    try {
+      const validation = await backend.validateAgentAndModels(connection.agentKind);
+      return json({ ok: true, connectionId, agentKind: connection.agentKind, permissions: permissionSummary, agent: { ok: true, models: validation.models, httpStatus: validation.command.status, exitCode: validation.command.exitCode } });
+    } catch (error) {
+      return json({ ok: false, connectionId, agentKind: connection.agentKind, permissions: permissionSummary, agent: { ok: false, error: error instanceof Error ? error.message.slice(0, 500) : "Agent validation failed" } });
+    }
+  }
+
   private async removeExecutionConnection(kind: "exe" | "amp", connectionId: string): Promise<Response> {
     const referenced = this.rows("SELECT id,execution_target FROM jobs").some(row => {
       try { const target = JSON.parse(String(row.execution_target)); return target.backendKind === (kind === "exe" ? "exe-vm" : "amp") && String(target.connectionId) === connectionId; } catch { return false; }
@@ -494,7 +511,7 @@ export class TenantV2 extends DurableObject<Env> {
       kind: "exe-vm",
       name: "Ephemeral exe.dev VMs",
       workspace: "ephemeral",
-      cwd: "/workspace",
+      cwd: "/home/exedev/workspace",
       agentKind: connection.agentKind,
       models: connection.models ?? [],
       modelsRefreshedAt: connection.modelsRefreshedAt ?? null,
@@ -597,7 +614,7 @@ export class TenantV2 extends DurableObject<Env> {
     }
     const target = (await this.exeConnections()).find(item => item.connectionId === targetId);
     if (!target) throw new Error("Execution target not found");
-    return { connectionId: target.connectionId, backendKind: "exe-vm", workspace: "ephemeral", cwd: "/workspace", agentKind: target.agentKind };
+    return { connectionId: target.connectionId, backendKind: "exe-vm", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: target.agentKind };
   }
 
   private validateJobInput(input: any): void {
@@ -1075,6 +1092,23 @@ export class TenantV2 extends DurableObject<Env> {
     return json(run);
   }
 
+  private getRunDiagnostics(runId: string): Response {
+    const run = this.one(`SELECT id,pipe_id AS job_id,state,provider,execution_backend_kind AS backend_kind,prompt_delivery_state,prompt_accepted,output_captured,claim_released,exec_status,exec_exit_code,vm_cleanup_complete,vm_cleanup_attempt,vm_cleanup_next_at,created_at,updated_at FROM runs WHERE id=?`, runId) as Row | undefined;
+    if (!run) return new Response("Not found", { status: 404 });
+    const activity = this.rows("SELECT action,detail,created_at FROM run_activity WHERE run_id=? ORDER BY created_at,id", runId);
+    const checks = {
+      launchAcknowledged: Boolean(run.prompt_accepted),
+      promptAccepted: Boolean(run.prompt_accepted), outputCaptured: Boolean(run.output_captured), claimReleased: Boolean(run.claim_released), cleanupComplete: Boolean(run.vm_cleanup_complete),
+    };
+    return json({
+      runId: run.id, jobId: run.job_id, state: normalizeExecutionState(run.state), provider: run.provider, backendKind: run.backend_kind, checks,
+      launch: { httpStatus: run.exec_status == null ? null : Number(run.exec_status), exitCode: run.exec_exit_code == null ? null : Number(run.exec_exit_code) },
+      promptDelivery: { state: run.prompt_delivery_state ?? null },
+      cleanup: { complete: checks.cleanupComplete, attempts: Number(run.vm_cleanup_attempt || 0), nextAttemptAt: run.vm_cleanup_next_at == null ? null : new Date(Number(run.vm_cleanup_next_at)).toISOString() },
+      activity, createdAt: run.created_at, updatedAt: run.updated_at,
+    });
+  }
+
   private listEvents(url: URL): Response {
     const limit = this.pageSize(url), cursor = this.cursor(url), flowId = url.searchParams.get("flowId");
     const clauses: string[] = [], args: unknown[] = [];
@@ -1450,6 +1484,7 @@ export class TenantV2 extends DurableObject<Env> {
     const execResponse = await encrypt(safeSession(result.body) ?? "Agent command response unavailable.", this.env.CREDENTIAL_ENCRYPTION_KEY);
     this.ctx.storage.sql.exec("UPDATE runs SET exec_request = ?, exec_response = ?, exec_status = ?, exec_exit_code = ?, updated_at = ? WHERE id = ?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
     this.commandActivity(run.id, "initial agent start", result);
+    if (launched.observation.state === "failed") return this.finishRun(run, "failed", launched.observation.detail ?? `Unable to start the ephemeral VM agent (exe.dev HTTP ${result.status}).`);
     if (!result.ok || (result.exitCode !== null && result.exitCode !== 0)) return this.finishRun(run, "failed", `Unable to start the ephemeral VM agent (exe.dev HTTP ${result.status}, VM exit ${result.exitCode ?? "not reported"}): ${result.body.slice(0, 800)}`);
     this.ctx.storage.sql.exec("UPDATE runs SET prompt_delivery_state='accepted',prompt_delivery_request=?,prompt_delivery_response=?,prompt_delivery_status=?,prompt_delivery_exit_code=?,prompt_accepted=1,updated_at=? WHERE id=?", execRequest, execResponse, result.status, result.exitCode, now(), run.id);
     this.activity(run.id, "prompt_delivered_at_launch", "The initial prompt was written to the run-owned VM and the agent was detached.");

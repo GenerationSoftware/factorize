@@ -50,6 +50,7 @@ export class ApiService {
   listRuns(query: URLSearchParams) { return this.call("runs:read", `/v1/runs?${query}`); }
   search(query: string) { return this.call("runs:read", `/v1/search?q=${encodeURIComponent(query)}`); }
   getRun(runId: string) { return this.call("runs:read", `/v1/runs/${encodeURIComponent(runId)}`); }
+  getRunDiagnostics(runId: string) { return this.call("runs:read", `/v1/runs/${encodeURIComponent(runId)}/diagnostics`); }
   stopRun(runId: string) { return this.call("runs:write", `/v1/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" }); }
   async listJobs() { return (await this.call("flows:read", "/v1/jobs") as any[]).map(value => this.publicJob(value)); }
   async getJob(jobId: string) { return this.publicJob(await this.call("flows:read", `/v1/jobs/${encodeURIComponent(jobId)}`)); }
@@ -63,6 +64,7 @@ export class ApiService {
   setJobEnabled(jobId: string, enabled: boolean) { return this.call("flows:write", `/v1/jobs/${encodeURIComponent(jobId)}/${enabled ? "enable" : "disable"}`, { method: "POST" }); }
   invokeJob(jobId: string, input: ManualInvocationInput) { return this.call("runs:write", `/v1/jobs/${encodeURIComponent(jobId)}/invocations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
   listExecutionTargets() { return this.call("flows:read", "/v1/execution-targets"); }
+  diagnoseExeIntegration(connectionId: string) { return this.call("flows:write", `/v1/integrations/exe/${encodeURIComponent(connectionId)}/diagnostics`, { method: "POST" }); }
   listJobTriggerAvailability() { return this.call("flows:read", "/v1/job-trigger-availability"); }
   async previewSchedule(input: unknown) {
     await this.authorize("flows:read");
