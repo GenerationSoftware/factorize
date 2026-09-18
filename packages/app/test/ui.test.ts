@@ -423,7 +423,7 @@ describe("pages", () => {
     expect(run).toContain('data-run-elapsed');
     expect(run).toContain("+'s elapsed'");
     expect(run).toContain('mt-6 min-w-0 overflow-hidden p-6');
-    expect(run).toContain('max-h-96 overflow-auto whitespace-pre-wrap');
+    expect(run).toContain('trace-code');
     expect(run).toContain('block truncate font-medium');
     expect(run).not.toContain("__name");
     for (const stateClass of ['bg-blue-100', 'bg-amber-100', 'bg-green-100', 'bg-red-100']) {
