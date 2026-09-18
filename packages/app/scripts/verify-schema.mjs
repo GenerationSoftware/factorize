@@ -21,8 +21,9 @@ try {
   if (duplicate.rowCount !== 0) throw new Error("invocation deduplication constraint failed");
   await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'queued','cipher')", [ids.tenantA, ids.runA, ids.jobA, ids.invocationA]);
   await client.query("INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,agent_name,state) VALUES ($1,$2,$3,$4,'linear','GEN-2113','codex','running')", [ids.tenantA, ids.executionA, ids.jobA, ids.invocationA]);
-  await client.query("INSERT INTO app.run_transcripts(tenant_id,run_id,transcript,byte_size) VALUES ($1,$2,'postgres durable orchestration',30)", [ids.tenantA, ids.executionA]);
-  const search = await client.query("SELECT run_id FROM app.run_transcripts WHERE tenant_id=$1 AND search_vector @@ plainto_tsquery('english',$2)", [ids.tenantA, "orchestration"]);
+  await client.query("INSERT INTO app.run_artifacts(tenant_id,run_id,id,kind,object_key,provider,format,byte_size,sha256,state) VALUES ($1,$2,gen_random_uuid(),'native_session','tenants/a/runs/one/native/session.jsonl','codex','jsonl',10,$3,'stored')", [ids.tenantA, ids.executionA, "a".repeat(64)]);
+  await client.query("INSERT INTO app.run_trace_events(tenant_id,run_id,sequence,id,event_type,title,preview_text) VALUES ($1,$2,1,'event-1','assistant_message','Assistant','postgres durable orchestration')", [ids.tenantA, ids.executionA]);
+  const search = await client.query("SELECT run_id FROM app.run_trace_events WHERE tenant_id=$1 AND search_vector @@ plainto_tsquery('english',$2)", [ids.tenantA, "orchestration"]);
   if (search.rowCount !== 1) throw new Error("tenant-scoped full-text search failed");
   let isolated = false;
   await client.query("SAVEPOINT cross_tenant");

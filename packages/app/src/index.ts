@@ -2,12 +2,19 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { parse } from "hono/utils/cookie";
 import { equalHmac, hmac } from "./crypto";
-import { Tenant, TenantV2 } from "./tenant";
-import { GitHubInstallationRegistry, GitHubInstallationRegistryV2 } from "./github-registry";
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
 import { apiKeysSettingsPage, authPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, loginPage, settingsPage } from "./ui";
 import type { Env } from "./types";
 import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
+import { databaseFor } from "./postgres/database";
+import { AuthRepository } from "./postgres/auth-repository";
+import { IdentityRepository } from "./postgres/identity-repository";
+import { AccessTokenRepository } from "./postgres/access-token-repository";
+import { IntegrationService } from "./postgres/integration-service";
+import { ConnectionRepository } from "./postgres/connection-repository";
+import { GitHubRepository } from "./postgres/github-repository";
+import { ProviderCatalog } from "./postgres/provider-catalog";
+import { WebhookService } from "./postgres/webhook-service";
 
 const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string } }>();
 
@@ -46,25 +53,23 @@ export const requestCookie = (request: Request, name: string) => {
   return header ? parse(header, name)[name] : undefined;
 };
 
-function tenant(c: { env: Env }, tenantId: string) { return c.env.TENANTS.get(c.env.TENANTS.idFromName(`tenant:${tenantId}`)); }
-function githubRegistry(c: { env: Env }) { if (!c.env.GITHUB_INSTALLATIONS) throw new Error("GitHub registry is not configured"); return c.env.GITHUB_INSTALLATIONS.get(c.env.GITHUB_INSTALLATIONS.idFromName("github-installations")); }
-function auth(c: { env: Env }) { if (!c.env.AUTH) throw new Error("Authentication is not configured"); return c.env.AUTH.get(c.env.AUTH.idFromName("auth")); }
-async function authIdentity(c: any, path: string, input: Record<string, unknown>) { const response = await auth(c).fetch(`https://auth${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); return { response, body: await response.json().catch(() => ({})) as any }; }
+async function authIdentity(c: any, path: string, input: Record<string, unknown>) {
+  const auth = new AuthRepository(databaseFor(c.env), c.env);
+  const result = path === "/signup" ? await auth.signup(input) : path === "/login" ? await auth.login(input) : path === "/reset/request" ? await auth.requestReset(input) : await auth.completeReset(input);
+  return { response: new Response(JSON.stringify(result.body), { status: result.status, headers: { "Content-Type": "application/json" } }), body: result.body as any };
+}
 async function establishSession(c: any, identity: { userId: string; email: string; tenantId: string }) {
-  const member = await tenant(c, identity.tenantId).fetch("https://tenant/members", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: identity.userId, email: identity.email }) });
-  const data = await member.json() as { role: string; session_version: number };
+  const data = await new IdentityRepository(databaseFor(c.env), identity.tenantId).upsertOwner(identity.userId, identity.email);
   if (data.role !== "owner") return false;
   const lifetime = 60 * 60 * 24 * 7;
-  setCookie(c, "factorize_session", await signSession({ tenantId: identity.tenantId, userId: identity.userId, email: identity.email, exp: Math.floor(Date.now() / 1000) + lifetime, sessionVersion: data.session_version }, c.env.SESSION_SIGNING_SECRET), { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: lifetime });
+  setCookie(c, "factorize_session", await signSession({ tenantId: identity.tenantId, userId: identity.userId, email: identity.email, exp: Math.floor(Date.now() / 1000) + lifetime, sessionVersion: data.sessionVersion }, c.env.SESSION_SIGNING_SECRET), { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: lifetime });
   return true;
 }
 async function authed(c: any): Promise<Session | null> { return readSession(getCookie(c, "factorize_session"), c.env.SESSION_SIGNING_SECRET); }
 async function owner(c: any): Promise<Session | null> {
   const session = await authed(c); if (!session) return null;
-  const response = await tenant(c, session.tenantId).fetch(`https://tenant/members/${session.userId}`);
-  if (!response.ok) return null;
-  const member = await response.json() as { role: string; session_version: number };
-  return member.role === "owner" && member.session_version === session.sessionVersion ? session : null;
+  const member = await new IdentityRepository(databaseFor(c.env), session.tenantId).member(session.userId);
+  return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? session : null;
 }
 
 app.get("/api/health", (c) => c.json({ ok: true }));
@@ -91,24 +96,24 @@ app.delete("/api/access/authorized-clients/:clientId", async (c) => {
 
 app.get("/api/access-tokens", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/access-tokens");
+  return c.json(await new AccessTokenRepository(databaseFor(c.env), session.tenantId).list());
 });
 
 app.post("/api/access-tokens", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
   const input = await c.req.json().catch(() => null) as any, name = typeof input?.name === "string" ? input.name.trim() : "";
-  const requested = Array.isArray(input?.scopes) ? [...new Set(input.scopes)] : [], expiryDays = Number(input?.expiryDays);
+  const requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], expiryDays = Number(input?.expiryDays);
   if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any)) || ![7, 30, 90].includes(expiryDays)) return c.json({ error: "A name, supported scopes, and expiryDays of 7, 30, or 90 are required." }, 400);
   const token = issueAccessToken(session.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString();
-  const response = await tenant(c, session.tenantId).fetch("https://tenant/access-tokens", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, scopes: requested, expiresAt, digest: await accessTokenDigest(token), userId: session.userId, sessionVersion: session.sessionVersion }) });
-  const metadata = await response.json() as Record<string, unknown>;
-  if (!response.ok) return c.json(metadata, response.status as any);
-  return c.json({ ...metadata, token }, response.status as any);
+  const metadata = await new AccessTokenRepository(databaseFor(c.env), session.tenantId).create({ name, scopes: requested, expiresAt, digest: await accessTokenDigest(token), userId: session.userId, sessionVersion: session.sessionVersion });
+  if (!metadata) return c.json({ error: "The owner session is no longer active." }, 401);
+  return c.json({ ...metadata, token }, 201);
 });
 
 app.delete("/api/access-tokens/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/access-tokens/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
+  const revoked = await new AccessTokenRepository(databaseFor(c.env), session.tenantId).revoke(c.req.param("id"));
+  return revoked ? c.json({ revoked: true }) : c.json({ error: "Access token not found" }, 404);
 });
 
 app.get("/auth/linear", async (c) => {
@@ -134,13 +139,11 @@ app.get("/auth/linear/callback", async (c) => {
   const organization = me.data?.organization;
   const viewer = me.data?.viewer;
   if (!organization?.id || !viewer?.id) return c.text("Could not identify Linear workspace", 502);
-  const stub = tenant(c, organization.id);
-  const memberResponse = await stub.fetch("https://tenant/members", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: viewer.id, email: viewer.email }) });
-  const member = await memberResponse.json() as { role: string; session_version: number };
+  const member = await new IdentityRepository(databaseFor(c.env), organization.id).upsertOwner(viewer.id, viewer.email, organization.name);
   if (member.role !== "owner") return c.text("This Factorize tenant requires an owner invitation.", 403);
-  await stub.fetch("https://tenant/connections/linear", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accessToken: tokens.access_token, refreshToken: tokens.refresh_token, organizationId: organization.id, organizationName: organization.name, viewerId: viewer.id, viewerEmail: viewer.email }) });
+  await new ConnectionRepository(databaseFor(c.env), organization.id, c.env.CREDENTIAL_ENCRYPTION_KEY).put("linear", { accessToken: tokens.access_token, refreshToken: tokens.refresh_token, organizationId: organization.id, organizationName: organization.name, viewerId: viewer.id, viewerEmail: viewer.email });
   const lifetime = 60 * 60 * 24 * 7;
-  setCookie(c, "factorize_session", await signSession({ tenantId: organization.id, userId: viewer.id, email: viewer.email, exp: Math.floor(Date.now() / 1000) + lifetime, sessionVersion: member.session_version }, c.env.SESSION_SIGNING_SECRET), { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: lifetime });
+  setCookie(c, "factorize_session", await signSession({ tenantId: organization.id, userId: viewer.id, email: viewer.email, exp: Math.floor(Date.now() / 1000) + lifetime, sessionVersion: member.sessionVersion }, c.env.SESSION_SIGNING_SECRET), { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: lifetime });
   const oauthReturn = getCookie(c, "factorize_oauth_return");
   if (oauthReturn?.startsWith("/authorize?") || oauthReturn?.startsWith("/device")) { deleteCookie(c, "factorize_oauth_return", { path: "/" }); return c.redirect(oauthReturn); }
   return c.redirect("/jobs");
@@ -180,75 +183,73 @@ app.get("/auth/clickup/callback", async (c) => {
   const hookResponse = await fetch(`https://api.clickup.com/api/v2/team/${encodeURIComponent(team.id)}/webhook`, { method: "POST", headers: { Authorization: tokens.access_token, "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: `${c.env.APP_ORIGIN}/webhooks/clickup/${encodeURIComponent(session.tenantId)}`, events: ["taskCreated", "taskUpdated", "taskStatusUpdated", "taskAssigneeUpdated", "taskTagUpdated", "taskMoved"] }) });
   const hook = await hookResponse.json() as any;
   if (!hookResponse.ok || !hook.id) return c.text("Could not register the ClickUp webhook", 502);
-  await tenant(c, session.tenantId).fetch("https://tenant/connections/clickup", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accessToken: tokens.access_token, teamId: String(team.id), teamName: team.name, webhookId: String(hook.id), webhookSecret: hook.secret }) });
+  await new ConnectionRepository(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).put("clickup", { accessToken: tokens.access_token, teamId: String(team.id), teamName: team.name, webhookId: String(hook.id), webhookSecret: hook.secret });
   deleteCookie(c, "clickup_oauth_state", { path: "/auth/clickup" });
   return c.redirect("/settings/integrations");
 });
 
 app.get("/api/connections/status", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/connections/status");
+  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).status());
 });
 app.get("/api/connections/cloudflare-tail", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/connections/cloudflare-tail");
+  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).tails());
 });
 app.post("/api/connections/cloudflare-tail", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/connections/cloudflare-tail", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).saveTail(await c.req.json()), 201);
 });
 app.put("/api/connections/cloudflare-tail/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/connections/cloudflare-tail/${encodeURIComponent(c.req.param("id"))}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).saveTail({ ...await c.req.json() as any, integrationId: c.req.param("id") }));
 });
 app.post("/api/connections/cloudflare-tail/:id/test", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/connections/cloudflare-tail/${encodeURIComponent(c.req.param("id"))}/test`, { method: "POST" });
+  const result = await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).testTail(c.req.param("id")); return result ? c.json(result) : c.json({ error: "Not found" }, 404);
 });
 app.delete("/api/connections/cloudflare-tail/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/connections/cloudflare-tail/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
+  const deleted = await new ConnectionRepository(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).delete(`cloudflare-tail:${c.req.param("id")}`); return deleted ? c.body(null, 204) : c.json({ error: "Not found" }, 404);
 });
 app.get("/api/linear/projects", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/linear/projects");
+  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).linearProjects());
 });
 app.get("/api/linear/options", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/linear/options");
+  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).linearOptions());
 });
 app.get("/api/clickup/lists", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/clickup/lists");
+  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).clickUpLists());
 });
 app.get("/api/clickup/options", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/clickup/options?listId=${encodeURIComponent(c.req.query("listId") ?? "")}`);
+  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).clickUpOptions(c.req.query("listId") ?? ""));
 });
 app.get("/api/github/installations", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/github/installations");
+  return c.json(await new GitHubRepository(databaseFor(c.env), session.tenantId).installations());
 });
 app.get("/api/github/installations/:id/repositories", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/github/installations/${encodeURIComponent(c.req.param("id"))}/repositories`);
+  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).githubRepositories(Number(c.req.param("id"))));
 });
 app.get("/api/github/installations/:installationId/repositories/:repositoryId/issue-options", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/github/installations/${encodeURIComponent(c.req.param("installationId"))}/repositories/${encodeURIComponent(c.req.param("repositoryId"))}/issue-options`);
+  return c.json(await new ProviderCatalog(databaseFor(c.env), c.env, session.tenantId).githubIssueOptions(Number(c.req.param("installationId")), Number(c.req.param("repositoryId"))));
 });
 app.delete("/api/github/installations/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  const response = await tenant(c, session.tenantId).fetch(`https://tenant/github/installations/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
-  if (response.ok) await githubRegistry(c).fetch(`https://registry/installations/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
-  return response;
+  return await new GitHubRepository(databaseFor(c.env), session.tenantId).delete(Number(c.req.param("id"))) ? c.json({ ok: true }) : c.json({ error: "Not found" }, 404);
 });
 app.get("/auth/github/install", async (c) => {
   const session = await owner(c); if (!session) return c.redirect("/auth/linear");
   if (!c.env.GITHUB_APP_SLUG) return c.text("GitHub App is not configured", 503);
   const nonce = crypto.randomUUID();
   const state = await signSetupState({ tenantId: session.tenantId, userId: session.userId, nonce, exp: Math.floor(Date.now() / 1000) + 600 }, c.env.SESSION_SIGNING_SECRET);
-  await tenant(c, session.tenantId).fetch("https://tenant/github/setup-state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce, exp: Math.floor(Date.now() / 1000) + 600 }) });
+  await new GitHubRepository(databaseFor(c.env), session.tenantId).saveSetupState(nonce, Math.floor(Date.now() / 1000) + 600);
   return c.redirect(`https://github.com/apps/${encodeURIComponent(c.env.GITHUB_APP_SLUG)}/installations/new?state=${encodeURIComponent(state)}`);
 });
 app.get("/auth/github/setup", async (c) => {
@@ -256,48 +257,45 @@ app.get("/auth/github/setup", async (c) => {
   const state = await readSetupState(c.req.query("state") ?? "", c.env.SESSION_SIGNING_SECRET);
   const installationId = Number(c.req.query("installation_id"));
   if (!state || state.tenantId !== session.tenantId || state.userId !== session.userId || !Number.isSafeInteger(installationId)) return c.text("Invalid or expired setup state", 400);
-  const consume = await tenant(c, session.tenantId).fetch("https://tenant/github/setup-state/consume", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce: state.nonce }) });
-  if (!consume.ok) return c.text("Setup state was already used", 400);
+  if (!await new GitHubRepository(databaseFor(c.env), session.tenantId).consumeSetupState(state.nonce)) return c.text("Setup state was already used", 400);
   if (!c.env.GITHUB_APP_ID || !c.env.GITHUB_APP_PRIVATE_KEY) return c.text("GitHub App is not configured", 503);
   const jwt = await createAppJwt(c.env.GITHUB_APP_ID, c.env.GITHUB_APP_PRIVATE_KEY.replaceAll("\\n", "\n"));
   const gh = await fetch(`https://api.github.com/app/installations/${installationId}`, { headers: githubHeaders(jwt) });
   const installation = await gh.json() as any;
   if (!gh.ok || installation.id !== installationId) return c.text("Could not verify GitHub installation", 502);
-  const bind = await githubRegistry(c).fetch(`https://registry/installations/${installationId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId: session.tenantId, accountLogin: installation.account?.login, accountType: installation.account?.type, state: installation.suspended_at ? "suspended" : "active" }) });
-  if (!bind.ok) return c.text("This GitHub installation is already connected to another tenant", 409);
-  await tenant(c, session.tenantId).fetch("https://tenant/github/installations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ installationId, accountLogin: installation.account?.login, accountType: installation.account?.type, state: installation.suspended_at ? "suspended" : "active" }) });
+  try { await new GitHubRepository(databaseFor(c.env), session.tenantId).save({ installationId, accountLogin: installation.account?.login, accountType: installation.account?.type, state: installation.suspended_at ? "suspended" : "active" }); }
+  catch (error) { if (error instanceof Error && error.message === "installation_conflict") return c.text("This GitHub installation is already connected to another tenant", 409); throw error; }
   return c.redirect("/settings");
 });
 app.put("/api/connections/exe", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/connections/exe", { method: "PUT", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).saveExe(await c.req.json()));
 });
 app.post("/api/connections/exe/test", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/connections/exe/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).testExe(await c.req.json()));
 });
 app.delete("/api/connections/exe/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/connections/exe/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
+  const result = await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).remove("exe", c.req.param("id")); return result.conflict ? c.json({ error: "This integration is used by a job." }, 409) : result.deleted ? c.body(null, 204) : c.json({ error: "Not found" }, 404);
 });
 app.put("/api/connections/amp", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/connections/amp", { method: "PUT", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).saveAmp(await c.req.json()));
 });
 app.post("/api/connections/amp/test", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch("https://tenant/connections/amp/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: await c.req.text() });
+  return c.json(await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).testAmp(await c.req.json()));
 });
 app.delete("/api/connections/amp/:id", async (c) => {
   const session = await owner(c); if (!session) return c.json({ error: "Unauthorized" }, 401);
-  return tenant(c, session.tenantId).fetch(`https://tenant/connections/amp/${encodeURIComponent(c.req.param("id"))}`, { method: "DELETE" });
+  const result = await new IntegrationService(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).remove("amp", c.req.param("id")); return result.conflict ? c.json({ error: "This integration is used by a job." }, 409) : result.deleted ? c.body(null, 204) : c.json({ error: "Not found" }, 404);
 });
 app.post("/webhooks/cloudflare/:tenantId/:jobId", async (c) => {
   const raw = await c.req.text();
   if (new TextEncoder().encode(raw).byteLength > 262_144) return c.text("Payload too large", 413);
-  return tenant(c, c.req.param("tenantId")).fetch(`https://tenant/webhook/cloudflare/${encodeURIComponent(c.req.param("jobId"))}`, {
-    method: "POST", headers: { "Content-Type": "application/json", "X-Factorize-Timestamp": c.req.header("X-Factorize-Timestamp") ?? "", "X-Factorize-Delivery": c.req.header("X-Factorize-Delivery") ?? "", "X-Factorize-Signature": c.req.header("X-Factorize-Signature") ?? "" }, body: raw,
-  });
+  try { await new WebhookService(databaseFor(c.env), c.env, c.req.param("tenantId")).tail(c.req.param("jobId"), raw, c.req.raw.headers); return c.body(null, 202); }
+  catch (error) { return c.text(error instanceof Error && error.message === "not_found" ? "Not found" : "Invalid signature", error instanceof Error && error.message === "not_found" ? 404 : 401); }
 });
 
 app.post("/webhooks/linear", async (c) => {
@@ -312,14 +310,14 @@ app.post("/webhooks/linear", async (c) => {
   if (typeof organizationId !== "string" || !organizationId) return c.text("Missing organization ID", 400);
   const deliveryId = c.req.header("linear-delivery");
   if (!deliveryId) return c.text("Missing delivery ID", 400);
-  return tenant(c, organizationId).fetch("https://tenant/webhook/linear", { method: "POST", headers: { "Content-Type": "application/json", "Linear-Delivery": `linear:${deliveryId}` }, body: raw });
+  await new WebhookService(databaseFor(c.env), c.env, organizationId).linear(event, `linear:${deliveryId}`); return c.body(null, 200);
 });
 
 app.post("/webhooks/clickup/:tenantId", async (c) => {
   const raw = await c.req.text();
   if (new TextEncoder().encode(raw).byteLength > 262_144) return c.text("Payload too large", 413);
   try { JSON.parse(raw); } catch { return c.text("Invalid JSON", 400); }
-  return tenant(c, c.req.param("tenantId")).fetch("https://tenant/webhook/clickup", { method: "POST", headers: { "Content-Type": "application/json", "X-Signature": c.req.header("X-Signature") ?? "" }, body: raw });
+  try { await new WebhookService(databaseFor(c.env), c.env, c.req.param("tenantId")).clickup(raw, c.req.header("X-Signature") ?? ""); return c.body(null, 200); } catch { return c.text("Invalid signature", 401); }
 });
 
 app.post("/webhooks/github", async (c) => {
@@ -332,17 +330,16 @@ app.post("/webhooks/github", async (c) => {
   let event: any; try { event = JSON.parse(raw); } catch { return c.text("Invalid JSON", 400); }
   const installationId = event.installation?.id;
   if (!Number.isSafeInteger(installationId)) return c.text("Missing installation ID", 400);
-  const registryResponse = await githubRegistry(c).fetch(`https://registry/installations/${installationId}`);
-  if (!registryResponse.ok) { console.info(JSON.stringify({ event: "github_webhook_unrouted", installationId, delivery, eventName })); return c.body(null, 202); }
-  const registration = await registryResponse.json() as any;
+  const registration = await GitHubRepository.locate(databaseFor(c.env), installationId);
+  if (!registration) { console.info(JSON.stringify({ event: "github_webhook_unrouted", installationId, delivery, eventName })); return c.body(null, 202); }
   if (eventName === "installation" && ["deleted", "suspend", "unsuspend"].includes(event.action)) {
-    const state = event.action === "unsuspend" ? "active" : event.action === "suspend" ? "suspended" : "removed";
-    await tenant(c, registration.tenant_id).fetch(`https://tenant/github/installations/${installationId}/state`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state }) });
-    await githubRegistry(c).fetch(`https://registry/installations/${installationId}`, event.action === "deleted" ? { method: "DELETE" } : { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state }) });
+    const state: "active" | "suspended" = event.action === "unsuspend" ? "active" : "suspended";
+    const repository = new GitHubRepository(databaseFor(c.env), registration.tenant_id);
+    if (event.action === "deleted") await repository.delete(installationId); else await repository.updateState(installationId, state);
     return c.body(null, 202);
   }
   if (registration.state !== "active") return c.body(null, 202);
-  return tenant(c, registration.tenant_id).fetch("https://tenant/webhook/github", { method: "POST", headers: { "Content-Type": "application/json", "GitHub-Delivery": `github:${delivery}`, "GitHub-Event": eventName }, body: raw });
+  await new WebhookService(databaseFor(c.env), c.env, registration.tenant_id).github(event, `github:${delivery}`, eventName); return c.body(null, 202);
 });
 
 const render = (page: string, nonce: string) => page.replaceAll("<script>", `<script nonce="${nonce}">`);
@@ -363,7 +360,4 @@ app.get("/settings", async (c) => { const session = await owner(c); return sessi
 app.get("/settings/integrations", async (c) => { const session = await owner(c); return session ? c.html(render(settingsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
 app.get("/settings/api-keys", async (c) => { const session = await owner(c); return session ? c.html(render(apiKeysSettingsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/linear"); });
 
-// Keep the legacy export names available until the follow-up retirement deployment.
-// Worker traffic is bound exclusively to the fresh V2 namespaces below.
-export { TenantV2, Tenant, GitHubInstallationRegistryV2, GitHubInstallationRegistry };
 export default app;

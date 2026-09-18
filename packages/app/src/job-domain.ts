@@ -144,7 +144,7 @@ export class InvocationService {
   }
 }
 
-/** Fresh v2 Durable Object schema. There are deliberately no legacy Flow migrations. */
+/** Historical schema contract retained only for domain-level compatibility tests; production uses PostgreSQL migrations. */
 export const JOB_SCHEMA = `
   CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, encrypted_prompt_template TEXT NOT NULL, encrypted_run_name_template TEXT NOT NULL DEFAULT '',

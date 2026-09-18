@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 
-import { linearTicketPrompt, renderContextTemplate } from "../src/tenant";
+import { linearTicketPrompt, renderContextTemplate } from "../src/linear-source";
 
 describe("Linear ticket prompt", () => {
   it("uses concise frontmatter, title, and description instead of webhook JSON", () => {

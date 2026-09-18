@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExeVmBackend, isOwnedVmName, tagsFromInventory, vmNameFor } from "../src/exe-vm-backend";
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
 import type { ExeRunConnection } from "../src/exe";
+import { agentDriver } from "../src/agent-driver";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -42,7 +43,7 @@ describe("ExeVmBackend", () => {
       requests.push(String(init.body));
       return new Response(requests.length === 1 ? '{"name":"factorize-run-1"}' : "started", { headers: { "X-Exe-Exit": "0" } });
     }));
-    const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work" });
+    const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work", harness: agentDriver("codex").launch("run-1", {}) });
     expect(launched.handle).toEqual({ backendKind: "exe-vm", id: "factorize-run-1" });
     expect(requests[0]).toContain("new --name='factorize-run-1'");
     expect(requests[0]).toContain("--tag='github'");
@@ -51,7 +52,7 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).not.toContain("git clone");
     expect(requests[1]).toContain("codex");
     expect(requests[1]).toContain("--color");
-    expect(requests[1]).toContain("always");
+    expect(requests[1]).toContain("never");
     expect(requests[1]).toContain("model_provider=exe-llm");
     expect(requests[1]).toContain("model_providers.exe-llm.base_url=\"https://llm.int.exe.xyz/v1\"");
     expect(requests[1]).toContain("sudo systemd-run");
@@ -94,7 +95,7 @@ describe("ExeVmBackend", () => {
       if (String(init.body) === "ls --json") return new Response(JSON.stringify({ vms: [{ name: "factorize-run-1", comment: "Factorize VM factorize-run-1" }] }), { headers: { "X-Exe-Exit": "0" } });
       return new Response("removed", { headers: { "X-Exe-Exit": "0" } });
     }));
-    const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work" });
+    const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work", harness: agentDriver("codex").launch("run-1", {}) });
     expect(launched.observation.state).toBe("failed");
     expect(launched.observation.detail).toContain("bash: syntax error");
   });

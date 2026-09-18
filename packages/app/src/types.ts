@@ -3,8 +3,7 @@ export interface MatchRule { type: FilterType; targetId: string; }
 export type RunState = "queued" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "stopping" | "stopped" | "succeeded";
 
 export interface Env {
-  TENANTS: DurableObjectNamespace;
-  GITHUB_INSTALLATIONS?: DurableObjectNamespace;
+  SCHEDULER?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
   MARKETING_ORIGIN?: string;
@@ -26,7 +25,10 @@ export interface Env {
   OAUTH_KV?: KVNamespace;
   OAUTH_PROVIDER?: import("@cloudflare/workers-oauth-provider").OAuthHelpers;
   AUTH_RESET_RETURN_TOKEN?: string;
-  AUTH?: DurableObjectNamespace;
+  RUN_ARTIFACTS?: R2Bucket;
+  HYPERDRIVE?: Hyperdrive;
+  /** Test-only injection point; production uses HYPERDRIVE. */
+  DATABASE?: import("./postgres/database").Database;
 }
 
 export type OAuthProps = {
@@ -53,7 +55,7 @@ export interface ExeConnectionInput {
   connectionId?: string;
   apiToken: string;
   tags?: string[];
-  agentKind: "codex" | "claude";
+  agentKind: "codex" | "claude" | "pi";
 }
 
 export interface AmpConnectionInput { connectionId?: string; accessToken: string; project: string; apiBaseUrl?: string; }
