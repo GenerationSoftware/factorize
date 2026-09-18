@@ -1,4 +1,4 @@
-import type { TraceEvent } from "../trace";
+import { consumeTraceStream, type TraceEvent } from "../trace";
 import type { Database, DatabaseClient } from "./database";
 
 export interface TracePage { items: TraceEvent[]; nextCursor: number | null; }
@@ -31,6 +31,13 @@ export class TraceRepository {
     await this.database.transaction(async client => {
       await client.query("DELETE FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2", [this.tenantId, runId]);
       for (let offset = 0; offset < events.length; offset += 250) await this.insertBatch(client, runId, events.slice(offset, offset + 250));
+    });
+  }
+
+  async replaceStream(runId: string, provider: "codex" | "claude" | "pi", stream: ReadableStream<Uint8Array>): Promise<number> {
+    return this.database.transaction(async client => {
+      await client.query("DELETE FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2", [this.tenantId, runId]);
+      return consumeTraceStream(provider, stream, items => this.insertBatch(client, runId, items));
     });
   }
 

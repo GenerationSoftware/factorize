@@ -91,23 +91,32 @@ export function parseTrace(provider: "codex" | "claude" | "pi", jsonl: string): 
   return events.map((item, index) => ({ ...item, sequence: index + 1 }));
 }
 
-/** Incrementally parses JSONL without loading the native artifact as one string. */
-export async function parseTraceStream(provider: "codex" | "claude" | "pi", stream: ReadableStream<Uint8Array>): Promise<TraceEvent[]> {
-  const reader = stream.getReader(), decoder = new TextDecoder(), events: TraceEvent[] = [];
+/** Incrementally parses JSONL and emits bounded batches without loading the artifact or projection in full. */
+export async function consumeTraceStream(provider: "codex" | "claude" | "pi", stream: ReadableStream<Uint8Array>, consumeBatch: (events: TraceEvent[]) => Promise<void>, batchSize = 250): Promise<number> {
+  const reader = stream.getReader(), decoder = new TextDecoder();
+  let batch: TraceEvent[] = [], sequence = 0;
   let pending = "";
-  const consume = (line: string) => {
+  const flush = async () => { if (!batch.length) return; const ready = batch; batch = []; await consumeBatch(ready); };
+  const consume = async (line: string) => {
     if (!line.trim()) return;
     const parsed = parseTrace(provider, line);
-    for (const item of parsed) events.push({ ...item, sequence: events.length + 1 });
+    for (const item of parsed) { batch.push({ ...item, sequence: ++sequence }); if (batch.length >= batchSize) await flush(); }
   };
   for (;;) {
     const { value, done } = await reader.read();
     pending += decoder.decode(value, { stream: !done });
     let newline: number;
-    while ((newline = pending.indexOf("\n")) >= 0) { consume(pending.slice(0, newline)); pending = pending.slice(newline + 1); }
+    while ((newline = pending.indexOf("\n")) >= 0) { await consume(pending.slice(0, newline)); pending = pending.slice(newline + 1); }
     if (done) break;
-    if (pending.length > 16 * 1024 * 1024) { events.push(event(events.length + 1, "warning", "Oversized session record", "A native JSONL record exceeded the 16 MiB trace parsing limit.", {})); pending = ""; }
+    if (pending.length > 16 * 1024 * 1024) { batch.push(event(++sequence, "warning", "Oversized session record", "A native JSONL record exceeded the 16 MiB trace parsing limit.", {})); pending = ""; if (batch.length >= batchSize) await flush(); }
   }
-  consume(pending);
+  await consume(pending); await flush();
+  return sequence;
+}
+
+/** Convenience collector for tests and bounded callers. Production ingestion uses consumeTraceStream. */
+export async function parseTraceStream(provider: "codex" | "claude" | "pi", stream: ReadableStream<Uint8Array>): Promise<TraceEvent[]> {
+  const events: TraceEvent[] = [];
+  await consumeTraceStream(provider, stream, async batch => { events.push(...batch); });
   return events;
 }

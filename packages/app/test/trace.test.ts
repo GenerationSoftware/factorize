@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTrace } from "../src/trace";
+import { consumeTraceStream, parseTrace } from "../src/trace";
 
 describe("parseTrace", () => {
   it("normalizes Codex messages and tool activity", () => {
@@ -34,5 +34,13 @@ describe("parseTrace", () => {
     const result = parseTrace("pi", `{bad}\n${JSON.stringify({ type: "message", id: "m", message: { role: "user", content: "x".repeat(40_000) } })}`);
     expect(result[0]?.type).toBe("warning");
     expect(result[1]?.preview.length).toBeLessThan(33_000);
+  });
+
+  it("streams large projections in bounded, contiguous batches", async () => {
+    const jsonl = Array.from({ length: 7 }, (_, index) => JSON.stringify({ type: "message", id: `m${index}`, message: { role: "user", content: `message ${index}` } })).join("\n");
+    const batches: number[][] = [], stream = new Blob([jsonl]).stream() as ReadableStream<Uint8Array>;
+    const count = await consumeTraceStream("pi", stream, async items => { batches.push(items.map(item => item.sequence)); }, 3);
+    expect(count).toBe(7);
+    expect(batches).toEqual([[1, 2, 3], [4, 5, 6], [7]]);
   });
 });

@@ -4,7 +4,6 @@ import type { Env } from "./types";
 import { databaseFor } from "./postgres/database";
 import { ArtifactRepository } from "./postgres/artifact-repository";
 import { TraceRepository } from "./postgres/trace-repository";
-import { parseTraceStream } from "./trace";
 
 export interface ArtifactUploadGrant {
   tenantId: string;
@@ -59,6 +58,6 @@ export async function artifactUpload(request: Request, env: Env, token: string):
   await new ArtifactRepository(databaseFor(env), grant.tenantId).record({ runId: grant.runId, kind: "native_session", objectKey: key, provider: grant.provider, format: grant.format, nativeSessionId: grant.nativeSessionId, byteSize: size, sha256 });
   const stored = await env.RUN_ARTIFACTS.get(key);
   if (!stored) return new Response("Artifact disappeared after upload", { status: 502 });
-  await new TraceRepository(databaseFor(env), grant.tenantId).replace(grant.runId, await parseTraceStream(grant.provider, stored.body));
+  await new TraceRepository(databaseFor(env), grant.tenantId).replaceStream(grant.runId, grant.provider, stored.body);
   return Response.json({ key, etag: object.httpEtag }, { status: 201 });
 }
