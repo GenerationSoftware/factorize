@@ -25,6 +25,13 @@ components:
         model: { type: string, maxLength: 120 }
         effort: { type: string, maxLength: 40 }
         triggers: { type: array, maxItems: 50, items: { type: object }, description: "Job lifecycle config uses sourceJobIds and states (succeeded, failed, stopped, edited). Edited fires on successful job saves, including enable/disable; context contains source_job_id, event, and edited_at." }
+    Run:
+      type: object
+      properties:
+        created_at: { type: string, format: date-time, description: Time the run was created and queued. }
+        started_at: { type: [string, 'null'], format: date-time, description: Time execution launch succeeded. Null until started or when unknown. Runtime starts here; the difference from created_at is queue time including launch preparation. }
+        updated_at: { type: string, format: date-time, description: Last run update; used as the elapsed runtime endpoint for terminal runs. }
+    RunPage: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Run' } }, nextCursor: { type: string, nullable: true } } }
     ExecutionDiagnostics:
       type: [object, 'null']
       description: First terminal backend observation, retained independently of collection and cleanup errors. Null for older or nonterminal runs. Commands and raw backend responses are never included.
@@ -60,6 +67,8 @@ components:
         state: { type: string, enum: [stored] }
         created_at: { type: string, format: date-time }
     RunDetail:
+      allOf:
+        - $ref: '#/components/schemas/Run'
       type: object
       required: [id, state, execution_diagnostics, harness_log]
       properties:
@@ -87,7 +96,6 @@ components:
         activity: { type: array, items: { type: object } }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-    RunPage: { type: object, required: [items], properties: { items: { type: array, items: { type: object } }, nextCursor: { type: string, nullable: true } } }
     ManualInvocation:
       type: object
       additionalProperties: false
