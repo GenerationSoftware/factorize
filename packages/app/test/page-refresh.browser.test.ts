@@ -150,12 +150,15 @@ describe("lifecycle page refresh", () => {
     expect(document.querySelector('[aria-current="page"]').textContent).toBe(current.name);
     expect(document.title).toBe(current.name + ' — Factorize');
     const trace = document.querySelector('[data-run-trace]');
+    expect(trace.classList.contains('trace-list')).toBe(true);
+    expect(trace.classList.contains('trace-at-end')).toBe(true);
     const first = trace.firstElementChild;
     document.querySelector('[data-run-prompt-details]').open = true;
     for (const state of ['starting', 'running', 'blocked', 'stopping', 'succeeded']) {
       current = { ...current, state, artifact_state: state === 'succeeded' ? 'stored' : 'collecting' };
       await vi.advanceTimersByTimeAsync(3000);
       expect(document.querySelector('[data-run-state]').textContent).toBe(state);
+      expect(document.querySelector('#run-detail').classList.contains('trace-running')).toBe(state === 'running');
       expect(document.querySelector('#run-detail h1').textContent).toBe(current.name);
       expect(document.title).toBe(current.name + ' — Factorize');
     }
@@ -193,6 +196,7 @@ describe("lifecycle page refresh", () => {
     finishTrace(json({ items: [event(3)], nextCursor: 3 })); await flush();
     expect(document.querySelector('[data-run-trace]').children).toHaveLength(3);
     expect(document.querySelector('[data-trace-more]').classList.contains('hidden')).toBe(false);
+    expect(document.querySelector('[data-run-trace]').classList.contains('trace-at-end')).toBe(false);
     await vi.advanceTimersByTimeAsync(30000);
     expect(traces).toBe(3);
   });
