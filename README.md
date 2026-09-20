@@ -78,13 +78,33 @@ Fill `.dev.vars` with the Linear OAuth credentials, webhook signing secret, and 
 openssl rand -base64 32
 ```
 
-## Configure Linear
-
 ## Account authentication
 
-Factorize stores first-party accounts in the `AuthStore` Durable Object. Users can create an account and sign in with an email address and a password of at least 12 characters at `/auth/signup` and `/auth/login`; the existing Linear connection remains available from the same sign-in page. Passwords are salted PBKDF2-SHA-256 hashes and reset tokens are single-use, expire after one hour, and revoke existing sessions when consumed.
+Factorize owns authentication in PostgreSQL. Create a native account at `/auth/signup` with a unique username (3–32 letters, numbers, underscores or hyphens), an email address, and a password of 12–200 characters. Usernames and emails are case-insensitive. Verify the email before signing in at `/auth/login`; username or email plus password are accepted. Linear is connected after sign-in from **Settings → Integrations**, only for Linear-backed jobs.
 
-The `v4-auth-store` Durable Object migration must be deployed before using first-party authentication. Configure `SESSION_SIGNING_SECRET` as usual. For local development only, `AUTH_RESET_RETURN_TOKEN=true` makes the reset endpoint return its token so the flow can be exercised without an email provider; leave it unset or false in production. Transactional email delivery can consume reset events from the auth store without exposing whether an address is registered.
+Postmark sends one-hour, single-use verification and password-reset links. `/auth/verify/request` resends verification; `/auth/password-reset` handles recovery. Links never appear in application responses or logs. Passwords use salted PBKDF2-SHA-256. **Change password** in the account menu requires the current password. Password reset, password change and sign-out invalidate existing sessions via membership session versions, including delegated API credentials.
+
+Before deploying, configure these **production GitHub environment secrets** (the deployment copies them to Worker secrets):
+
+| Setting | Required value |
+| --- | --- |
+| `POSTMARK_SERVER_TOKEN` | Postmark **server** API token for the sending server; never an account token or a committed value |
+| `POSTMARK_FROM_EMAIL` | Plain email address on a verified Postmark sender signature or verified domain |
+| `POSTMARK_MESSAGE_STREAM` | Active **transactional** stream ID, commonly `outbound` |
+
+`APP_ORIGIN` must be the canonical HTTPS origin, without a trailing slash. Deploy runs `npm run auth:validate-email --workspace=factorize` **before migrations**: it checks the server token/stream with Postmark and sends one preflight email from/to the configured sender, rejecting unverified senders or sending failures. It prints no credentials. Missing configuration stops deployment. Runtime signup and recovery also fail closed if configuration or delivery fails; users can resend verification after a delivery failure. Local mail testing needs an HTTPS origin and a separate Postmark test server/sender; automated tests mock Postmark and never send mail.
+
+### Existing account migration
+
+Apply `0008_native_accounts.sql` before deploying this code. It rejects ambiguous legacy emails that differ only in case (reconcile those identities before retrying migration), preserves tenant IDs, memberships, jobs and encrypted Linear connections, and backfills explicit Linear organization-to-workspace mappings. Existing Linear-only users choose **Forgot password or previously signed in with Linear?**, receive a reset email at their existing address, and choose a username and password. Email possession is required; signup cannot replace an existing account's credentials. Existing native users keep their passwords and may sign in by email; unverified accounts must verify first. A reset never promotes a member to owner. An account with multiple existing owner memberships currently opens the oldest workspace; no new workspace-switching UI is introduced.
+
+Linear OAuth requires an authenticated owner, binds state to that user/workspace, stores the connection there, and never creates a Factorize session. A Linear organization already bound to another workspace cannot be claimed. Existing webhook routes resolve the explicit mapping. Do not delete that binding to work around an account-recovery problem.
+
+### Authentication verification
+
+`npm run check` runs unit/contract tests and Postmark preflight tests. CI also runs the real PostgreSQL authentication suite against a disposable service. To run it locally, set `AUTH_TEST_DATABASE_URL` to an isolated PostgreSQL server whose user can create/drop test databases, then run `npm test --workspace=factorize -- --run test/native-auth.postgres.test.ts`. The suite creates and removes its own database and applies every migration, including a legacy connection fixture before the auth migration.
+
+## Configure Linear
 
 Use authorization-code OAuth and enable **Webhooks** on the OAuth application. Configure:
 
@@ -147,7 +167,7 @@ Read the complete, implementation-accurate API and MCP documentation at [docs.fa
 
 API clients use OAuth 2.1 authorization code flow with PKCE S256 or the OAuth 2.0 Device Authorization Grant for headless environments. Factorize publishes authorization-server and protected-resource discovery metadata, supports Client ID Metadata Documents, and retains dynamic client registration at `/oauth/register` for older clients. Access tokens last one hour and may be refreshed for up to 30 days; RFC 7009 revocation is advertised by discovery metadata.
 
-Available scopes are `flows:read`, `flows:write`, `runs:read`, and `runs:write`. The resource owner must sign in through the normal Linear-backed Factorize session and explicitly approve the requested scopes. Factorize rechecks owner membership and session version on every service call.
+Available scopes are `flows:read`, `flows:write`, `runs:read`, and `runs:write`. The resource owner must sign in through the native Factorize session and explicitly approve the requested scopes. Factorize rechecks owner membership and session version on every service call.
 
 The versioned API is rooted at `/api/v1`:
 
@@ -186,7 +206,7 @@ Configure a compatible remote MCP client with this single URL:
 https://app.factorize.sh/mcp
 ```
 
-The client discovers OAuth automatically, opens Factorize in a browser, completes Linear sign-in if necessary, requests consent, and returns to the client after PKCE authorization. No Linear or exe.dev credential is copied into the MCP client. The server is stateless Streamable HTTP and exposes Job CRUD, run inspection/filtering, provider webhook activity, and active-run stopping tools.
+The client discovers OAuth automatically, opens Factorize in a browser, completes native Factorize sign-in if necessary, requests consent, and returns to the client after PKCE authorization. No Linear or exe.dev credential is copied into the MCP client. The server is stateless Streamable HTTP and exposes Job CRUD, run inspection/filtering, provider webhook activity, and active-run stopping tools.
 
 Factorize also supports the OAuth 2.0 Device Authorization Grant (RFC 8628) for headless clients. Discovery advertises `device_authorization_endpoint`; clients obtain a code from `POST /oauth/device_authorization`, direct the user to `/device`, and poll `/oauth/token` with grant type `urn:ietf:params:oauth:grant-type:device_code`. Device codes expire after ten minutes, polling is rate-limited, and approved grants use the same scoped access and refresh tokens, tenant checks, and revocation behavior as browser PKCE authorization.
 

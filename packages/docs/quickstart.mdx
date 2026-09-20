@@ -5,9 +5,9 @@ description: Configure authentication and create a job end to end.
 
 ## Prerequisites
 
-You need a Cloudflare Worker deployment, a Linear OAuth application, and an exe.dev account-level HTTPS API token allowed to run `ls`, `new`, `ssh`, and `rm`. Agents are installed on each newly-created VM. Set `APP_ORIGIN`, OAuth credentials, `LINEAR_WEBHOOK_SIGNING_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, and `SESSION_SIGNING_SECRET`.
+You need a Cloudflare Worker deployment, a Postmark server with a verified sender and transactional message stream, and an exe.dev account-level HTTPS API token allowed to run `ls`, `new`, `ssh`, and `rm`. Agents are installed on each newly-created VM. For Linear-driven jobs, also configure a Linear OAuth application. Set `POSTMARK_SERVER_TOKEN`, `POSTMARK_FROM_EMAIL`, `POSTMARK_MESSAGE_STREAM`, `APP_ORIGIN`, OAuth credentials, `LINEAR_WEBHOOK_SIGNING_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, and `SESSION_SIGNING_SECRET`.
 
-Sign in to the dashboard and configure an exe.dev execution target with its token, repository URL, optional checkout ref, agent, and VM tags. Tags attach the integrations required by the repository and agent. Use `list_execution_targets` or `GET /api/v1/execution-targets` before submitting `executionTargetId`.
+Create a native Factorize account with a username, email and password. Verify your email, sign in, connect Linear if needed in Settings → Integrations, and configure an exe.dev execution target with its token, repository URL, optional checkout ref, agent, and VM tags. Tags attach the integrations required by the repository and agent. Use `list_execution_targets` or `GET /api/v1/execution-targets` before submitting `executionTargetId`.
 
 ## First API call
 

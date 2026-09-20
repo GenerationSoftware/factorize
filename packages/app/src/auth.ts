@@ -27,3 +27,6 @@ export async function verifyPassword(password: string, encoded: string): Promise
 }
 
 export async function tokenDigest(token: string, secret: string): Promise<string> { return hmac(token, secret); }
+
+export const normalizeUsername = (value: string): string => value.trim().toLowerCase();
+export const validUsername = (value: string): boolean => /^[a-z0-9_][a-z0-9_-]{2,31}$/.test(value);

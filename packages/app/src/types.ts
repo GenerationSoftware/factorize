@@ -24,7 +24,9 @@ export interface Env {
   RECOVERY_MAX_ATTEMPTS?: string;
   OAUTH_KV?: KVNamespace;
   OAUTH_PROVIDER?: import("@cloudflare/workers-oauth-provider").OAuthHelpers;
-  AUTH_RESET_RETURN_TOKEN?: string;
+  POSTMARK_SERVER_TOKEN?: string;
+  POSTMARK_FROM_EMAIL?: string;
+  POSTMARK_MESSAGE_STREAM?: string;
   RUN_ARTIFACTS?: R2Bucket;
   HYPERDRIVE?: Hyperdrive;
   /** Test-only injection point; production uses HYPERDRIVE. */

@@ -40,7 +40,7 @@ export function deviceLoginRedirect(appOrigin: string, returnTo: string): Respon
     status: 302,
     headers: {
       "Cache-Control": "no-store",
-      Location: `${appOrigin}/auth/linear`,
+      Location: `${appOrigin}/auth/login`,
       "Set-Cookie": `factorize_oauth_return=${encodeURIComponent(returnTo)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
     },
   });

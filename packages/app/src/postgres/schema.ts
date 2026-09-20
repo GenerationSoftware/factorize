@@ -17,11 +17,11 @@ export const schemaMigrations = app.table("schema_migrations", {
 });
 
 export const tenants = app.table("tenants", { id: uuid("id").primaryKey(), name: text("name"), createdAt: createdAt(), updatedAt: updatedAt() });
-export const authUsers = app.table("auth_users", { id: uuid("id").primaryKey(), email: text("email").notNull().unique(), emailVerified: boolean("email_verified").notNull().default(false), createdAt: createdAt() });
+export const authUsers = app.table("auth_users", { id: uuid("id").primaryKey(), email: text("email").notNull().unique(), username: text("username").unique(), emailVerified: boolean("email_verified").notNull().default(false), createdAt: createdAt() }, t => [uniqueIndex("auth_users_email_normalized").on(sql`lower(${t.email})`), check("auth_users_username_check", sql`${t.username} IS NULL OR ${t.username} ~ '^[a-z0-9_][a-z0-9_-]{2,31}$'`)]);
 export const authAccounts = app.table("auth_accounts", {
   id: uuid("id").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), provider: text("provider").notNull(), providerAccountId: text("provider_account_id").notNull(), passwordHash: text("password_hash"),
 }, t => [unique().on(t.provider, t.providerAccountId)]);
-export const authResetTokens = app.table("auth_reset_tokens", { digest: text("digest").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), usedAt: timestamp("used_at", { withTimezone: true }) });
+export const authResetTokens = app.table("auth_reset_tokens", { purpose: text("purpose").$type<"verify" | "reset">().notNull().default("reset"), digest: text("digest").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), usedAt: timestamp("used_at", { withTimezone: true }) }, t => [check("auth_reset_tokens_purpose_check", sql`${t.purpose} IN ('verify','reset')`)]);
 export const authSessions = app.table("auth_sessions", { id: uuid("id").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }) });
 export const oauthDeviceAuthorizations = app.table("oauth_device_authorizations", {
   deviceCode: text("device_code").primaryKey(), userCode: text("user_code").notNull().unique(), record: jsonb("record").$type<Record<string, unknown>>().notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), createdAt: createdAt(), updatedAt: updatedAt(),
@@ -34,6 +34,7 @@ export const accessTokens = app.table("access_tokens", {
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), foreignKey({ columns: [t.tenantId, t.userId], foreignColumns: [members.tenantId, members.userId] }).onDelete("cascade")]);
 
 export const connections = app.table("connections", { tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), kind: text("kind").notNull(), encryptedValue: text("encrypted_value").notNull(), updatedAt: updatedAt() }, t => [primaryKey({ columns: [t.tenantId, t.kind] })]);
+export const linearWorkspaces = app.table("linear_workspaces", { organizationId: uuid("organization_id").primaryKey(), tenantId: uuid("tenant_id").notNull().unique().references(() => tenants.id, { onDelete: "cascade" }) });
 export const githubInstallations = app.table("github_installations", { installationId: bigint("installation_id", { mode: "number" }).primaryKey(), tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), accountLogin: text("account_login").notNull(), accountType: text("account_type").notNull(), state: text("state").$type<"active" | "suspended">().notNull(), updatedAt: updatedAt() }, t => [unique().on(t.tenantId, t.installationId), check("github_installations_state_check", sql`${t.state} in ('active','suspended')`)]);
 export const githubSetupStates = app.table("github_setup_states", { tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), nonce: text("nonce").notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), usedAt: timestamp("used_at", { withTimezone: true }) }, t => [primaryKey({ columns: [t.tenantId, t.nonce] })]);
 
@@ -99,7 +100,7 @@ export const runRelations = relations(runs, ({ one, many }) => ({
 
 export const databaseSchema = {
   schemaMigrations, tenants, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
-  connections, githubInstallations, githubSetupStates, jobs, triggers, invocations, jobRuns, runs, runArtifacts,
+  connections, linearWorkspaces, githubInstallations, githubSetupStates, jobs, triggers, invocations, jobRuns, runs, runArtifacts,
   runTraceEvents, runActivity, activeClaims, scheduleState, automaticWakes, lifecycleDeliveries, jobEditDeliveries, jobEvents,
   webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints, runTraceCursors, runTraceChunks,
   tenantRelations, jobRelations, triggerRelations, invocationRelations, runRelations,
