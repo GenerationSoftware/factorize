@@ -46,13 +46,13 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
   }
   function token(index = sent.length - 1) { return new URL(sent[index]!.TextBody.match(/https:\/\/\S+/)![0]).searchParams.get("token")!; }
   async function registered() {
-    mail(); const username = `user_${crypto.randomUUID().slice(0, 8)}`, email = `${username}@example.test`;
-    expect((await auth.signup({ username, email, password })).status).toBe(201);
-    return { username, email, verification: token() };
+    mail(); const email = `user_${crypto.randomUUID().slice(0, 8)}@example.test`;
+    expect((await auth.signup({ email, password })).status).toBe(201);
+    return { email, verification: token() };
   }
   async function verified() { const user = await registered(); expect((await auth.completeVerification(user.verification)).status).toBe(200); return user; }
-  async function sessionFor(username: string) {
-    const login = await auth.login({ username, password }); expect(login.status).toBe(200);
+  async function sessionFor(email: string) {
+    const login = await auth.login({ email, password }); expect(login.status).toBe(200);
     const identity = login.body as { tenantId: string; userId: string; email: string };
     const member = await new IdentityRepository(db, identity.tenantId).member(identity.userId);
     const session = { ...identity, sessionVersion: member!.sessionVersion, exp: Math.floor(Date.now() / 1000) + 3600 };
@@ -62,28 +62,28 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     return app.request(path, { method: "POST", headers: { Origin: origin, Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body) }, env);
   }
 
-  it("requires username, delivers verification, and denies access before verification", async () => {
+  it("requires an email, delivers verification, and denies access before verification", async () => {
     mail(); expect((await auth.signup({ email: "bad@example.test", password })).status).toBe(400);
     const user = await registered();
     expect(sent[0]!.Subject).toBe("Verify your Factorize email");
-    expect((await auth.login({ username: user.username, password })).status).toBe(403);
+    expect((await auth.login({ email: user.email, password })).status).toBe(403);
     expect((await auth.completeReset({ token: user.verification, password })).status).toBe(400);
     expect((await auth.completeVerification(user.verification)).status).toBe(200);
     expect((await auth.completeVerification(user.verification)).status).toBe(400);
-    expect((await auth.login({ username: user.username.toUpperCase(), password })).status).toBe(200);
-    expect((await auth.login({ username: user.username, password: "incorrect password" })).status).toBe(401);
-    expect((await auth.signup({ username: user.username.toUpperCase(), email: "other@example.test", password })).status).toBe(409);
+    expect((await auth.login({ email: user.email.toUpperCase(), password })).status).toBe(200);
+    expect((await auth.login({ email: user.email, password: "incorrect password" })).status).toBe(401);
+    expect((await auth.signup({ email: user.email.toUpperCase(), password })).status).toBe(409);
   });
   it("signup never sets a session; email link GET does not consume verification", async () => {
-    mail(); const username = `route_${crypto.randomUUID().slice(0, 8)}`;
-    const response = await post("/auth/signup", { username, email: `${username}@example.test`, password });
+    mail(); const email = `route_${crypto.randomUUID().slice(0, 8)}@example.test`;
+    const response = await post("/auth/signup", { email, password });
     expect(response.status).toBe(201); expect(response.headers.get("set-cookie")).toBeNull();
     const link = token(); expect((await app.request(`/auth/verify?token=${link}`, {}, env)).status).toBe(200);
-    expect((await auth.login({ username, password })).status).toBe(403);
+    expect((await auth.login({ email, password })).status).toBe(403);
     expect((await post("/auth/verify", { token: link })).status).toBe(303);
-    const login = await post("/auth/login", { username, password }); expect(login.status).toBe(303);
+    const login = await post("/auth/login", { email, password }); expect(login.status).toBe(303);
     expect(login.headers.get("location")).toBe("/settings/integrations"); expect(login.headers.get("set-cookie")).toContain("HttpOnly");
-    const loggedIn = await sessionFor(username);
+    const loggedIn = await sessionFor(email);
     expect(await (await app.request("/jobs", { headers: { Cookie: loggedIn.cookie } }, env)).text()).toContain('href="/settings/password"');
   });
   it("expires verification and supports resending without changing credentials", async () => {
@@ -94,15 +94,15 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect((await auth.completeVerification(token())).status).toBe(200);
   });
   it("sends reset email, enforces purpose and expiry, consumes once, and revokes browser sessions", async () => {
-    const user = await verified(), session = await sessionFor(user.username);
+    const user = await verified(), session = await sessionFor(user.email);
     expect((await app.request("/jobs", { headers: { Cookie: session.cookie } }, env)).status).toBe(200);
     await auth.requestReset({ email: user.email }); const reset = token();
     expect((await auth.completeVerification(reset)).status).toBe(400);
     const newPassword = "replacement long password";
     expect((await auth.completeReset({ token: reset, password: newPassword })).status).toBe(200);
     expect((await auth.completeReset({ token: reset, password })).status).toBe(400);
-    expect((await auth.login({ username: user.username, password })).status).toBe(401);
-    expect((await auth.login({ username: user.username, password: newPassword })).status).toBe(200);
+    expect((await auth.login({ email: user.email, password })).status).toBe(401);
+    expect((await auth.login({ email: user.email, password: newPassword })).status).toBe(200);
     expect((await app.request("/jobs", { headers: { Cookie: session.cookie } }, env)).headers.get("location")).toBe("/auth/login");
     await auth.requestReset({ email: user.email }); const expired = token();
     await db.pool.query("UPDATE app.auth_reset_tokens SET expires_at=now()-interval '1 second' WHERE digest=$1", [await tokenDigest(expired, env.SESSION_SIGNING_SECRET)]);
@@ -115,7 +115,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect(outcomes.map(r => r.status).sort()).toEqual([200, 400]);
   });
   it("serializes different reset links and invalidates delegated API access", async () => {
-    const user = await verified(), session = await sessionFor(user.username);
+    const user = await verified(), session = await sessionFor(user.email);
     const service = new ApiService(env, { ...session, scopes: ["flows:read"], authMethod: "oauth" });
     expect(await service.listJobs()).toEqual([]);
     await expect(new ApiService(env, { ...session, tenantId: legacyTenant, scopes: ["flows:read"], authMethod: "oauth" }).listJobs()).rejects.toMatchObject({ status: 401 });
@@ -126,23 +126,22 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     await expect(service.listJobs()).rejects.toMatchObject({ status: 401 });
   });
   it("requires current password for change, rejects CSRF, and invalidates sessions on logout", async () => {
-    const user = await verified(), session = await sessionFor(user.username);
+    const user = await verified(), session = await sessionFor(user.email);
     expect((await post("/auth/password-change", { currentPassword: password, password }, session.cookie, "https://evil.test")).status).toBe(403);
     expect((await post("/auth/password-change", { currentPassword: "incorrect password", password }, session.cookie)).status).toBe(401);
     const changed = await post("/auth/password-change", { currentPassword: password, password: "new changed password" }, session.cookie);
-    expect(changed.status).toBe(303); expect((await auth.login({ username: user.username, password: "new changed password" })).status).toBe(200);
+    expect(changed.status).toBe(303); expect((await auth.login({ email: user.email, password: "new changed password" })).status).toBe(200);
     expect((await app.request("/jobs", { headers: { Cookie: session.cookie } }, env)).headers.get("location")).toBe("/auth/login");
-    const other = await verified(), active = await sessionFor(other.username);
+    const other = await verified(), active = await sessionFor(other.email);
     expect((await post("/auth/logout", {}, active.cookie)).status).toBe(302);
     expect((await app.request("/jobs", { headers: { Cookie: active.cookie } }, env)).headers.get("location")).toBe("/auth/login");
   });
   it("migrates legacy Linear users through email proof while preserving workspace and connection", async () => {
     mail();
-    expect((await auth.signup({ username: "legacy_imposter", email: "legacy@example.test", password })).status).toBe(409);
+    expect((await auth.signup({ email: "legacy@example.test", password })).status).toBe(409);
     await auth.requestReset({ email: "legacy@example.test" });
-    expect((await auth.completeReset({ token: token(), password })).status).toBe(400);
-    expect((await auth.completeReset({ token: token(), password, username: "legacy_owner" })).status).toBe(200);
-    const login = await auth.login({ username: "legacy_owner", password });
+    expect((await auth.completeReset({ token: token(), password })).status).toBe(200);
+    const login = await auth.login({ email: "legacy@example.test", password });
     expect(login.body).toMatchObject({ userId: legacyUser, tenantId: legacyTenant });
     expect(await new ConnectionRepository(db, legacyTenant, env.CREDENTIAL_ENCRYPTION_KEY).get("linear")).toMatchObject({ accessToken: "existing-token" });
     expect((await db.pool.query("SELECT tenant_id FROM app.linear_workspaces WHERE organization_id=$1", [legacyTenant])).rows[0].tenant_id).toBe(legacyTenant);
@@ -150,9 +149,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
   it("does not promote legacy members on reset or accept a cookie for another tenant", async () => {
     const userId = crypto.randomUUID(); await new IdentityRepository(db, legacyTenant).upsertOwner(userId, "member@example.test");
     mail(); await auth.requestReset({ email: "member@example.test" });
-    expect((await auth.completeReset({ token: token(), password, username: "legacy_member" })).status).toBe(200);
-    expect((await auth.login({ username: "legacy_member", password })).status).toBe(403);
-    const user = await verified(), session = await sessionFor(user.username);
+    expect((await auth.completeReset({ token: token(), password })).status).toBe(200);
+    expect((await auth.login({ email: "member@example.test", password })).status).toBe(403);
+    const user = await verified(), session = await sessionFor(user.email);
     const forgedTenantCookie = await signSession({ ...session, tenantId: legacyTenant }, env.SESSION_SIGNING_SECRET);
     expect((await app.request("/jobs", { headers: { Cookie: `factorize_session=${forgedTenantCookie}` } }, env)).headers.get("location")).toBe("/auth/login");
   });
@@ -163,7 +162,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect((await app.request("/auth/linear/callback?code=fake&state=fake", {}, env)).status).toBe(400);
   });
   it("binds Linear OAuth to the authenticated account and routes webhooks through the explicit mapping", async () => {
-    const user = await verified(), session = await sessionFor(user.username), organizationId = crypto.randomUUID();
+    const user = await verified(), session = await sessionFor(user.email), organizationId = crypto.randomUUID();
     const start = await app.request("/auth/linear", { headers: { Cookie: session.cookie } }, env);
     const state = new URL(start.headers.get("location")!).searchParams.get("state")!;
     const cookie = `${session.cookie}; linear_oauth_state=${encodeURIComponent(state)}`;
@@ -177,7 +176,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     const webhook = await app.request("/webhooks/linear", { method: "POST", body: raw, headers: { "linear-delivery": "delivery", "linear-signature": Buffer.from(await hmac(raw, env.LINEAR_WEBHOOK_SIGNING_SECRET), "base64").toString("hex") } }, env);
     expect(webhook.status).toBe(200);
     expect((await db.pool.query("SELECT tenant_id FROM app.webhook_deliveries WHERE delivery_id='linear:delivery'")).rows[0].tenant_id).toBe(session.tenantId);
-    const other = await verified(), otherSession = await sessionFor(other.username);
+    const other = await verified(), otherSession = await sessionFor(other.email);
     expect((await app.request(`/auth/linear/callback?code=code&state=${encodeURIComponent(state)}`, { headers: { Cookie: `${otherSession.cookie}; linear_oauth_state=${encodeURIComponent(state)}` } }, env)).status).toBe(400);
     expect(await new ConnectionRepository(db, otherSession.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).putLinear(organizationId, {})).toBe(false);
     expect(await new ConnectionRepository(db, otherSession.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).get("linear")).toBeNull();
@@ -187,10 +186,10 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
   });
   it("fails closed on missing Postmark configuration and allows retry after delivery failure", async () => {
     const broken = new AuthRepository(db, { ...env, POSTMARK_SERVER_TOKEN: undefined });
-    await expect(broken.signup({ username: "missing_config", email: "config@example.test", password })).rejects.toThrow("Authentication email requires");
+    await expect(broken.signup({ email: "config@example.test", password })).rejects.toThrow("Authentication email requires");
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ErrorCode: 400 }, { status: 422 })));
-    await expect(auth.signup({ username: "delivery_retry", email: "retry@example.test", password })).rejects.toThrow("Postmark");
-    expect((await auth.login({ username: "delivery_retry", password })).status).toBe(403);
+    await expect(auth.signup({ email: "retry@example.test", password })).rejects.toThrow("Postmark");
+    expect((await auth.login({ email: "retry@example.test", password })).status).toBe(403);
     mail(); await auth.requestEmail({ email: "retry@example.test" }, "verify");
     expect((await auth.completeVerification(token())).status).toBe(200);
   });
