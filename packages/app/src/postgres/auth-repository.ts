@@ -1,4 +1,4 @@
-import { hashPassword, normalizeEmail, normalizeUsername, tokenDigest, validEmail, validPassword, validUsername, verifyPassword } from "../auth";
+import { hashPassword, normalizeEmail, tokenDigest, validEmail, validPassword, verifyPassword } from "../auth";
 import { sendAuthEmail, validateAuthEmailConfig } from "../auth-email";
 import type { Env } from "../types";
 import type { Database, DatabaseClient } from "./database";
@@ -10,17 +10,17 @@ export class AuthRepository {
   constructor(private database: Database, private env: Env) {}
 
   async signup(input: Record<string, unknown>) {
-    const email = normalizeEmail(String(input.email ?? "")), password = String(input.password ?? ""), username = normalizeUsername(String(input.username ?? ""));
-    if (!validEmail(email) || !validPassword(password) || !validUsername(username)) return { status: 400, body: { error: "Use a valid email, a 3–32 character username (letters, numbers, underscores or hyphens), and a password of 12–200 characters." } };
+    const email = normalizeEmail(String(input.email ?? "")), password = String(input.password ?? "");
+    if (!validEmail(email) || !validPassword(password)) return { status: 400, body: { error: "Use a valid email and a password of 12–200 characters." } };
     validateAuthEmailConfig(this.env);
     const userId = crypto.randomUUID(), passwordHash = await hashPassword(password);
     try {
       await this.database.transaction(async client => {
-        await client.query("INSERT INTO app.auth_users(id,email,username,email_verified) VALUES ($1,$2,$3,false)", [userId, email, username]);
+        await client.query("INSERT INTO app.auth_users(id,email,email_verified) VALUES ($1,$2,false)", [userId, email]);
         await client.query("INSERT INTO app.auth_accounts(id,user_id,provider,provider_account_id,password_hash) VALUES ($1,$2::uuid,'credential',$2::uuid::text,$3)", [crypto.randomUUID(), userId, passwordHash]);
       });
     } catch (error: any) {
-      if (error?.code === "23505") return { status: 409, body: { error: "That username or email is already registered. Sign in, resend verification, or reset your password." } };
+      if (error?.code === "23505") return { status: 409, body: { error: "That email is already registered. Sign in, resend verification, or reset your password." } };
       throw error;
     }
     await this.issueEmail(userId, email, "verify");
@@ -28,11 +28,11 @@ export class AuthRepository {
   }
 
   async login(input: Record<string, unknown>) {
-    const identity = normalizeUsername(String(input.username ?? input.email ?? "")), password = String(input.password ?? "");
+    const email = normalizeEmail(String(input.email ?? "")), password = String(input.password ?? "");
     return this.database.transaction(async client => {
-      const row = (await client.query<{ id: string; email: string; email_verified: boolean }>("SELECT id,email,email_verified FROM app.auth_users WHERE username=$1 OR lower(email)=$1 FOR UPDATE", [identity])).rows[0];
+      const row = (await client.query<{ id: string; email: string; email_verified: boolean }>("SELECT id,email,email_verified FROM app.auth_users WHERE lower(email)=$1 FOR UPDATE", [email])).rows[0];
       const account = row ? (await client.query<{ password_hash: string }>("SELECT password_hash FROM app.auth_accounts WHERE user_id=$1 AND provider='credential'", [row.id])).rows[0] : null;
-      if (!validPassword(password) || !row || !account?.password_hash || !(await verifyPassword(password, account.password_hash))) return { status: 401, body: { error: "Invalid username or password." } };
+      if (!validPassword(password) || !row || !account?.password_hash || !(await verifyPassword(password, account.password_hash))) return { status: 401, body: { error: "Invalid email or password." } };
       if (!row.email_verified) return { status: 403, body: { error: "Verify your email before signing in. You can resend the verification email below." } };
       // Existing accounts keep their existing workspace; never derive tenancy from OAuth.
       const member = (await client.query<{ tenant_id: string; session_version: number }>("SELECT tenant_id,session_version FROM app.members WHERE user_id=$1 AND role='owner' ORDER BY created_at,tenant_id LIMIT 1", [row.id])).rows[0];
@@ -67,25 +67,23 @@ export class AuthRepository {
 
   async completeVerification(token: string) { return this.consumeToken(token, "verify"); }
   async completeReset(input: Record<string, unknown>) {
-    const password = String(input.password ?? ""), username = normalizeUsername(String(input.username ?? ""));
-    if (!validPassword(password) || (username && !validUsername(username))) return { status: 400, body: { error: "Use a password of 12–200 characters and a valid username." } };
-    return this.consumeToken(String(input.token ?? ""), "reset", await hashPassword(password), username);
+    const password = String(input.password ?? "");
+    if (!validPassword(password)) return { status: 400, body: { error: "Use a password of 12–200 characters." } };
+    return this.consumeToken(String(input.token ?? ""), "reset", await hashPassword(password));
   }
-  private async consumeToken(token: string, purpose: "verify" | "reset", passwordHash?: string, username?: string) {
+  private async consumeToken(token: string, purpose: "verify" | "reset", passwordHash?: string) {
     if (!token) return invalidLink();
     const digest = await tokenDigest(token, this.env.SESSION_SIGNING_SECRET);
     try {
       const completed = await this.database.transaction(async client => {
         // Always lock the user before tokens/accounts, including across different
         // reset links. Recheck the token after the lock to prevent concurrent reuse.
-        const row = (await client.query<{ user_id: string; email: string; username: string | null }>(`SELECT u.id user_id,u.email,u.username FROM app.auth_users u WHERE u.id=(
+        const row = (await client.query<{ user_id: string; email: string }>(`SELECT u.id user_id,u.email FROM app.auth_users u WHERE u.id=(
           SELECT user_id FROM app.auth_reset_tokens WHERE digest=$1 AND purpose=$2 AND used_at IS NULL AND expires_at>now()) FOR UPDATE`, [digest, purpose])).rows[0];
         if (!row) return false;
         const active = await client.query("SELECT digest FROM app.auth_reset_tokens WHERE digest=$1 AND purpose=$2 AND used_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE", [digest, purpose]);
         if (!active.rows.length) return false;
         if (purpose === "reset") {
-          if (!row.username && !username) return false;
-          if (!row.username) await client.query("UPDATE app.auth_users SET username=$1 WHERE id=$2", [username, row.user_id]);
           // Email possession lets legacy Linear-only users establish native credentials.
           await client.query(`INSERT INTO app.auth_accounts(id,user_id,provider,provider_account_id,password_hash) VALUES ($1,$2::uuid,'credential',$2::uuid::text,$3)
             ON CONFLICT (provider,provider_account_id) DO UPDATE SET password_hash=excluded.password_hash`, [crypto.randomUUID(), row.user_id, passwordHash]);
@@ -98,10 +96,7 @@ export class AuthRepository {
         return true;
       });
       return completed ? ok() : invalidLink();
-    } catch (error: any) {
-      if (error?.code === "23505") return { status: 409, body: { error: "That username is unavailable." } };
-      throw error;
-    }
+    } catch (error) { throw error; }
   }
 
   async changePassword(userId: string, input: Record<string, unknown>) {

@@ -17,7 +17,7 @@ export const schemaMigrations = app.table("schema_migrations", {
 });
 
 export const tenants = app.table("tenants", { id: uuid("id").primaryKey(), name: text("name"), createdAt: createdAt(), updatedAt: updatedAt() });
-export const authUsers = app.table("auth_users", { id: uuid("id").primaryKey(), email: text("email").notNull().unique(), username: text("username").unique(), emailVerified: boolean("email_verified").notNull().default(false), createdAt: createdAt() }, t => [uniqueIndex("auth_users_email_normalized").on(sql`lower(${t.email})`), check("auth_users_username_check", sql`${t.username} IS NULL OR ${t.username} ~ '^[a-z0-9_][a-z0-9_-]{2,31}$'`)]);
+export const authUsers = app.table("auth_users", { id: uuid("id").primaryKey(), email: text("email").notNull().unique(), emailVerified: boolean("email_verified").notNull().default(false), createdAt: createdAt() }, t => [uniqueIndex("auth_users_email_normalized").on(sql`lower(${t.email})`)]);
 export const authAccounts = app.table("auth_accounts", {
   id: uuid("id").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), provider: text("provider").notNull(), providerAccountId: text("provider_account_id").notNull(), passwordHash: text("password_hash"),
 }, t => [unique().on(t.provider, t.providerAccountId)]);
