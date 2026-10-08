@@ -19,7 +19,9 @@ app.use("*", async (c, next) => {
   c.set("cspNonce", nonce);
   await next();
   c.header("Content-Security-Policy", `default-src 'self'; script-src 'nonce-${nonce}'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`);
-  c.header("Referrer-Policy", "no-referrer");
+  // Keep Origin on same-origin form POSTs; no-referrer makes it "null" in
+  // browsers and breaks the auth CSRF check. External requests still omit Referer.
+  c.header("Referrer-Policy", "same-origin");
   c.header("X-Content-Type-Options", "nosniff");
   c.header("X-Frame-Options", "DENY");
   c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
