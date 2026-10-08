@@ -12,6 +12,7 @@ describe("browser auth form origin protection", () => {
     expect(html).toContain('action="/auth/password-reset/complete"');
     expect(html).toContain('name="token" value="reset-token"');
     expect(html).toContain('name="password"');
+    expect(html).not.toContain('name="username"');
   });
 
   it("renders the reset request form when no token is supplied", async () => {
@@ -21,6 +22,14 @@ describe("browser auth form origin protection", () => {
     expect(html).toContain('action="/auth/password-reset"');
     expect(html).toContain('name="email"');
     expect(html).not.toContain('action="/auth/password-reset/complete"');
+  });
+
+  it("uses email rather than usernames for signup and login", async () => {
+    for (const path of ["/auth/signup", "/auth/login"]) {
+      const html = await (await app.request(`${env.APP_ORIGIN}${path}`)).text();
+      expect(html).toContain('name="email"');
+      expect(html).not.toContain('name="username"');
+    }
   });
 
   it("keeps same-origin form origins while suppressing external referrers", async () => {

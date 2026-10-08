@@ -17,9 +17,7 @@ ${error ? `<p role="alert" class="mt-4 text-sm text-red-700">${escapeHtml(error)
 ${mode === "reset" || mode === "verify-request" ? `<p class="mt-2 text-sm">If an eligible account exists, we’ll send a link valid for one hour.</p>` : ""}
 <form method="post" action="${actions[mode]}" class="mt-6 space-y-4">
 ${mode === "complete" || mode === "verify" ? `<input type="hidden" name="token" value="${escapeHtml(value)}">` : ""}
-${mode === "signup" || mode === "login" ? input(mode === "login" ? "Username or email" : "Username", "username", "text", "username", mode === "signup" ? 'minlength="3" maxlength="32" pattern="[A-Za-z0-9_][A-Za-z0-9_-]{2,31}"' : `value="${escapeHtml(value)}"`) : ""}
-${mode === "signup" || mode === "reset" || mode === "verify-request" ? input("Email", "email", "email", "email") : ""}
-${mode === "complete" ? `<p class="text-sm">Migrating from Linear sign-in? Choose a username to keep using your existing workspace.</p><label class="block text-sm font-medium">Username (required for older accounts)<input type="text" name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[A-Za-z0-9_][A-Za-z0-9_-]{2,31}" class="field mt-2 w-full"></label>` : ""}
+${mode === "signup" || mode === "login" || mode === "reset" || mode === "verify-request" ? input("Email", "email", "email", "email", mode === "login" ? `value="${escapeHtml(value)}"` : "") : ""}
 ${mode === "change" ? input("Current password", "currentPassword", "password", "current-password", 'maxlength="200"') : ""}
 ${["signup", "login", "complete", "change"].includes(mode) ? input(mode === "change" || mode === "complete" ? "New password" : "Password", "password", "password", mode === "login" ? "current-password" : "new-password", 'minlength="12" maxlength="200"') : ""}
 <button class="w-full rounded-xl bg-slate-950 px-4 py-3 font-semibold text-white dark:bg-white dark:text-slate-950">${labels[mode]}</button></form>
