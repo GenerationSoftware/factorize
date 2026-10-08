@@ -23,6 +23,8 @@
   "vars": {
     "APP_ORIGIN": "https://app.factorize.sh",
     "MARKETING_ORIGIN": "https://factorize.sh",
-    "LINEAR_OAUTH_SCOPES": "read,write"
+    "LINEAR_OAUTH_SCOPES": "read,write",
+    "POSTMARK_FROM_EMAIL": "contact@g9software.xyz",
+    "POSTMARK_MESSAGE_STREAM": "outbound"
   }
 }

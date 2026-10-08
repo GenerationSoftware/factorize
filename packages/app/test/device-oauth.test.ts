@@ -28,7 +28,7 @@ describe("OAuth device authorization", () => {
     const response = deviceLoginRedirect("https://factorize.test", "/device?user_code=ABCD-2345");
     expect(response.status).toBe(302);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(response.headers.get("location")).toBe("https://factorize.test/auth/linear");
+    expect(response.headers.get("location")).toBe("https://factorize.test/auth/login");
     expect(response.headers.get("set-cookie")).toContain("factorize_oauth_return=%2Fdevice%3Fuser_code%3DABCD-2345");
   });
 

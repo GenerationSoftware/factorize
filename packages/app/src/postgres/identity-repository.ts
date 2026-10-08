@@ -9,7 +9,7 @@ export class IdentityRepository {
 
   async member(userId: string): Promise<Member | null> {
     const result = await this.database.pool.query<{ user_id: string; email: string; role: Member["role"]; session_version: number }>(
-      "SELECT user_id,email,role,session_version FROM app.members WHERE tenant_id=$1 AND user_id=$2", [this.tenantId, userId]);
+      "SELECT m.user_id,m.email,m.role,m.session_version FROM app.members m JOIN app.auth_users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND u.email_verified", [this.tenantId, userId]);
     const row = result.rows[0];
     return row ? { userId: row.user_id, email: row.email, role: row.role, sessionVersion: row.session_version } : null;
   }

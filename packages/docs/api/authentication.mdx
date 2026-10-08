@@ -5,6 +5,12 @@ description: OAuth 2.1, device authorization, and access-token rules.
 
 Protected API and MCP requests use `Authorization: Bearer <token>`. Browser users may also use their signed Factorize session cookie. Access is tenant-bound; owner membership and session version are rechecked on every service call.
 
+## Browser accounts
+
+Create a username/password account at `/auth/signup` and verify the email delivered by Postmark before signing in at `/auth/login`. Recovery is at `/auth/password-reset`; legacy Linear-only users use that flow to choose a username/password while retaining their workspace. Change your password from the account menu. Resetting/changing passwords or signing out invalidates existing sessions and delegated credentials.
+
+Linear OAuth is an integration connection available only after native sign-in. Workspace membership, not the connected Linear identity, controls authorization.
+
 ## Scopes
 
 | Scope | Allows |
