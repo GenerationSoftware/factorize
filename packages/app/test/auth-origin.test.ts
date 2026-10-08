@@ -5,6 +5,24 @@ import type { Env } from "../src/types";
 const env = { APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "test-secret" } as Env;
 
 describe("browser auth form origin protection", () => {
+  it("renders the password completion form for a reset link token", async () => {
+    const response = await app.request(`${env.APP_ORIGIN}/auth/password-reset?token=reset-token`);
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(html).toContain('action="/auth/password-reset/complete"');
+    expect(html).toContain('name="token" value="reset-token"');
+    expect(html).toContain('name="password"');
+  });
+
+  it("renders the reset request form when no token is supplied", async () => {
+    const response = await app.request(`${env.APP_ORIGIN}/auth/password-reset`);
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(html).toContain('action="/auth/password-reset"');
+    expect(html).toContain('name="email"');
+    expect(html).not.toContain('action="/auth/password-reset/complete"');
+  });
+
   it("keeps same-origin form origins while suppressing external referrers", async () => {
     const page = await app.request(`${env.APP_ORIGIN}/auth/login`, {}, env);
     expect(page.status).toBe(200);

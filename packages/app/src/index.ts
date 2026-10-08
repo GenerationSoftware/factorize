@@ -257,7 +257,10 @@ app.get("/", async (c) => {
 });
 app.get("/auth/signup", (c) => c.html(render(authPage("Create your Factorize account", "signup"), c.get("cspNonce"))));
 app.get("/auth/login", (c) => c.html(render(authPage("Sign in to Factorize", "login"), c.get("cspNonce"))));
-app.get("/auth/password-reset", (c) => c.html(render(authPage("Reset your password", "reset"), c.get("cspNonce"))));
+app.get("/auth/password-reset", (c) => {
+  const token = c.req.query("token") ?? "";
+  return c.html(render(authPage("Reset your password", token ? "complete" : "reset", token), c.get("cspNonce")));
+});
 app.get("/jobs", async (c) => { const session = await owner(c); return session ? c.html(render(jobsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/login"); });
 app.get("/jobs/new", async (c) => { const session = await owner(c); return session ? c.html(render(jobPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/login"); });
 app.get("/jobs/:id", async (c) => { const session = await owner(c); return session ? c.html(render(jobDetailPage({ email: session.email }, c.req.param("id")), c.get("cspNonce"))) : c.redirect("/auth/login"); });
