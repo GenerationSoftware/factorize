@@ -84,7 +84,7 @@ Factorize owns authentication in PostgreSQL. Create a native account at `/auth/s
 
 Postmark sends one-hour, single-use verification and password-reset links. `/auth/verify/request` resends verification; `/auth/password-reset` handles recovery. Links never appear in application responses or logs. Passwords use salted PBKDF2-SHA-256. **Change password** in the account menu requires the current password. Password reset, password change and sign-out invalidate existing sessions via membership session versions, including delegated API credentials.
 
-Before deploying, configure these **production GitHub environment secrets** (the deployment copies them to Worker secrets):
+Before deploying, configure these **production GitHub environment secrets** for the Postmark preflight. The deployment copies only `POSTMARK_SERVER_TOKEN` to a Worker secret; the verified sender and transactional message stream are non-secret Worker vars in `packages/app/wrangler.jsonc`.
 
 | Setting | Required value |
 | --- | --- |

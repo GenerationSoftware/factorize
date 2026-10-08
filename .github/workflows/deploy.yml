@@ -38,16 +38,14 @@ jobs:
         run: npm run db:migrate --workspace=factorize
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      - name: Configure authentication email Worker secrets
+      - name: Configure authentication email Worker secret
         working-directory: packages/app
         run: |
-          node -e 'process.stdout.write(JSON.stringify(Object.fromEntries(["POSTMARK_SERVER_TOKEN", "POSTMARK_FROM_EMAIL", "POSTMARK_MESSAGE_STREAM"].map(key => [key, process.env[key]]))))' | npx wrangler secret bulk
+          node -e 'process.stdout.write(JSON.stringify({ POSTMARK_SERVER_TOKEN: process.env.POSTMARK_SERVER_TOKEN }))' | npx wrangler secret bulk
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           POSTMARK_SERVER_TOKEN: ${{ secrets.POSTMARK_SERVER_TOKEN }}
-          POSTMARK_FROM_EMAIL: ${{ secrets.POSTMARK_FROM_EMAIL }}
-          POSTMARK_MESSAGE_STREAM: ${{ secrets.POSTMARK_MESSAGE_STREAM }}
       - name: Deploy app Worker
         run: npm run deploy:app
         env:
