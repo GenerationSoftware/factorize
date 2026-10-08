@@ -63,7 +63,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
   }
 
   it("requires an email, delivers verification, and denies access before verification", async () => {
-    mail(); expect((await auth.signup({ email: "bad@example.test", password })).status).toBe(400);
+    mail(); expect((await auth.signup({ email: "not-an-email", password })).status).toBe(400);
     const user = await registered();
     expect(sent[0]!.Subject).toBe("Verify your Factorize email");
     expect((await auth.login({ email: user.email, password })).status).toBe(403);
