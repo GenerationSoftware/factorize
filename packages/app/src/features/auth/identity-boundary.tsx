@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "../../shared/query-client";
 import { sessionQuery } from "./session";
@@ -10,13 +10,14 @@ export function IdentityBoundary({ children }: { children: ReactNode }) {
   const identity = session.data?.authenticated
     ? session.data.user.id + ":" + session.data.workspace.id + ":" + session.data.expiresAt
     : session.data ? "anonymous" : undefined;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (identity === undefined) return;
     if (previous.current !== undefined && previous.current !== identity) {
       void queryClient.cancelQueries({ predicate: query => query.queryKey[0] !== "session" });
       queryClient.removeQueries({ predicate: query => query.queryKey[0] !== "session" });
+      queryClient.getMutationCache().clear();
     }
     previous.current = identity;
   }, [identity]);
-  return children;
+  return <Fragment key={identity}>{children}</Fragment>;
 }

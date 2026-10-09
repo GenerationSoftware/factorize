@@ -1,3 +1,6 @@
+import { SearchLauncher } from "../search/launcher";
+import { ThemeToggle } from "../../shared/theme";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf, refreshIdentity, sessionQuery } from "./session";
@@ -15,7 +18,7 @@ export function AccountBar() {
   if (!session.data?.authenticated) return null;
   return (
     <aside className="flex flex-wrap items-center justify-end gap-3 border-b p-3" aria-label="Your account">
-      <span>{session.data.user.email}</span>
+      <Link to="/jobs" search={{ q: "" }}>Jobs</Link><Link to="/settings">Settings</Link><span>{session.data.user.email}</span><ThemeToggle /><SearchLauncher />
       <button onClick={() => logout.mutate()} disabled={logout.isPending}>
         {logout.isPending ? "Signing out…" : "Sign out"}
       </button>

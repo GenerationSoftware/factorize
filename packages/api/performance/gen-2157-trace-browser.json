@@ -1,0 +1,11 @@
+{
+  "date": "2026-10-09",
+  "browser": "156.0.8078.4",
+  "fixtureEvents": 20000,
+  "traceRequests": 102,
+  "peakMountedEvents": 38,
+  "loadAllPagesMs": 13159.14,
+  "expandedStatePreserved": true,
+  "liveRevisionResetObserved": true,
+  "scope": "One compiled-SPA Chromium sample with mocked HTTP trace pages, includes Playwright scrolling and selector waits; no production network/DB or frame-time claim."
+}

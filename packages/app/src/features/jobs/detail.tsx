@@ -1,3 +1,5 @@
+import { DeleteJob } from "./delete";
+import { RunHistory } from "../runs/history";
 import { useParams, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
@@ -15,10 +17,12 @@ export function JobDetail() {
   return <main className="mx-auto max-w-4xl p-6"><Link to="/jobs" search={{ q: "" }}>Jobs</Link>
     {query.isPending && <p role="status">Loading job…</p>}{query.error && <p role="alert">{query.error.message}</p>}
     {job && <><h1 className="text-3xl font-semibold">{job.name}</h1><p>{job.agentKind} · {job.model || "Default model"} · {job.runningCount}/{job.concurrencyLimit} running</p>
+      <Link to="/jobs/$jobId/edit" params={{ jobId: job.id }}>Edit job</Link>
       <button disabled={enabled.isPending} onClick={() => enabled.mutate(!job.enabled)}>{job.enabled ? "Disable job" : "Enable job"}</button>
       {enabled.error && <p role="alert">{enabled.error.message}</p>}
       <details><summary>Prompt template</summary><pre className="whitespace-pre-wrap break-words">{job.promptTemplate}</pre></details>
-      <InvokeJob jobId={job.id} enabled={job.enabled} />
+      <section><h2>Triggers</h2><ul>{job.triggers.map(trigger => <li key={trigger.id}>{trigger.slug} · {trigger.kind} · {trigger.enabled ? "Enabled" : "Disabled"}{trigger.kind === "webhook" && trigger.config.provider === "cloudflareTail" && trigger.config.destination && <><p>Tail webhook destination</p><code className="break-all">{trigger.config.destination}</code></>}</li>)}</ul></section>
+      <InvokeJob jobId={job.id} enabled={job.enabled} /><RunHistory jobId={job.id} /><DeleteJob jobId={job.id} name={job.name} />
     </>}
   </main>;
 }

@@ -1,0 +1,42 @@
+import { before, after, test } from "node:test";
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { chromium } from "playwright";
+let server, origin, browser;
+const jobId = "00000000-0000-4000-8000-000000000001", runId = "00000000-0000-4000-8000-000000000002", time = "2026-10-09T12:00:00Z";
+before(async () => { server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = path.startsWith("/assets/") ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } }); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true }); });
+after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
+async function setup() { const context = await browser.newContext(), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
+test("job run history puts search, state and cursors in the URL and restores them on direct refresh", async () => {
+  const { context, page } = await setup(); const requests = [];
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Job", enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: 0, promptTemplate: "Prompt", triggers: [] } }));
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: [{ id: runId, run_name: url.searchParams.has("cursor") ? "Second run" : "First run", state: "succeeded", created_at: time, agent_kind: "codex" }], nextCursor: url.searchParams.has("cursor") ? null : "next-cursor" } }); });
+  await page.goto(origin + `/jobs/${jobId}?state=succeeded&contextQuery=needle`); await page.getByRole("link", { name: "First run", exact: true }).waitFor(); await page.getByRole("link", { name: "Next run page" }).click(); await page.getByRole("link", { name: "Second run", exact: true }).waitFor(); await page.reload(); await page.getByRole("link", { name: "Second run", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("cursor"), "next-cursor"); assert.ok(requests.every(url => url.searchParams.get("jobId") === jobId && url.searchParams.get("limit") === "30" && url.searchParams.get("contextQuery") === "needle")); await context.close();
+});
+test("prompt/provenance and diagnostics are lazy, terminal replay retries reuse a stable key and reset the visible trace", async () => {
+  const { context, page } = await setup(); let revision = "old", detailReads = 0, diagnosticReads = 0; const replays = [];
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Job", run_name: "Run", state: "succeeded", finalizing: false, trace_revision: revision, artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [{ id: revision, sequence: 1, type: "assistant_message", title: revision === "old" ? "Old trace" : "Replayed trace", preview: "# Safe message\n[unsafe](javascript:alert(1))\n<script>alert(1)</script>", display: {} }], nextCursor: null, revision, reset: false } }));
+  await page.route(`**/api/v1/runs/${runId}`, route => { detailReads++; return route.fulfill({ json: { prompt: "Private prompt", invocation: { source: "manual", context: { build: 42 } }, activity: [{ action: "started", detail: "Launched", created_at: time }] } }); });
+  await page.route(`**/api/v1/runs/${runId}/diagnostics`, route => { diagnosticReads++; return route.fulfill({ json: { state: "succeeded", artifact: { state: "stored" }, harnessLog: { object_key: "retained/log.txt" }, execution: { detail: "Safe diagnostic" } } }); });
+  await page.route(`**/api/v1/runs/${runId}/trace/replay`, route => { replays.push(route.request().postDataJSON()); if (replays.length === 1) return route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Retry replay" } } }); revision = "new"; return route.fulfill({ json: { status: "projected" } }); });
+  await page.goto(origin + "/job-runs/" + runId); await page.getByText("Old trace · assistant_message", { exact: true }).click(); assert.equal(detailReads, 0); assert.equal(diagnosticReads, 0);
+  assert.equal(await page.locator('a[href^="javascript:"]').count(), 0); assert.equal(await page.locator("main script").count(), 0);
+  await page.getByText("Prompt, context and provenance", { exact: true }).click(); await page.getByText("Private prompt", { exact: true }).waitFor(); await page.getByText("Diagnostics and artifacts", { exact: true }).click(); await page.getByText(/retained\/log.txt/).waitFor(); assert.equal(detailReads, 1); assert.equal(diagnosticReads, 1);
+  await page.getByText("Replay trace", { exact: true }).click(); page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "Replay retained trace" }).click(); await page.getByRole("alert").filter({ hasText: "Retry replay" }).waitFor(); page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "Replay retained trace" }).click(); await page.getByText("Replayed trace · assistant_message", { exact: true }).waitFor();
+  assert.equal(replays[0].requestId, replays[1].requestId); assert.equal(await page.getByText("Old trace · assistant_message", { exact: true }).count(), 0); await context.close();
+});
+test("stopping a run submits once, observes stopping state and keeps terminal finalization visible", async () => {
+  const { context, page } = await setup(); let state = "running", stops = 0, releaseStop; const pendingStop = new Promise(resolve => { releaseStop = resolve; });
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Job", run_name: "Run", state, finalizing: state === "stopped", trace_revision: "rev", artifact_state: "collecting", created_at: time, updated_at: time, started_at: time, destination_url: "https://example.test/run" } }));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [{ id: "command", sequence: 1, type: "command", title: "Build command", preview: '\x1b[31m<script>untrusted</script>\x1b[0m', display: {} }], nextCursor: null, revision: "rev", reset: false } }));
+  await page.route(`**/api/v1/runs/${runId}/stop`, async route => { stops++; state = "stopping"; await pendingStop; return route.fulfill({ json: { state } }); });
+  await page.goto(origin + "/job-runs/" + runId); await page.getByText("Build command · command", { exact: true }).click();
+  const output = page.getByText("<script>untrusted</script>", { exact: true }); await output.waitFor(); assert.equal(await output.evaluate(node => getComputedStyle(node).color), "rgb(239, 68, 68)"); assert.equal(await page.locator("main script").count(), 0);
+  await page.getByRole("button", { name: "Stop run", exact: true }).click(); await page.waitForFunction(() => Array.from(document.querySelectorAll("button")).some(button => button.textContent === "Stop run" && button.disabled)); releaseStop();
+  await page.getByRole("status").filter({ hasText: /^stopping$/ }).waitFor(); assert.equal(stops, 1); state = "stopped";
+  await page.getByText("stopped · Finalizing trace and artifacts", { exact: true }).waitFor(); assert.equal(await page.getByRole("button", { name: "Stop run", exact: true }).count(), 0);
+  await context.close();
+});

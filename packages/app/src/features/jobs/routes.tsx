@@ -13,8 +13,12 @@ export function jobsRoutes(root: AnyRootRoute) {
     component: lazyRouteComponent(() => import("./list"), "JobsList"),
   });
   const job = createRoute({ getParentRoute: () => root, path: "/jobs/$jobId", beforeLoad: guard,
+    validateSearch: (s: Record<string, unknown>) => ({ cursor: typeof s.cursor === "string" ? s.cursor : undefined, state: typeof s.state === "string" ? s.state : undefined, contextQuery: typeof s.contextQuery === "string" ? s.contextQuery.slice(0, 50_000) : undefined }),
     loader: ({ params }) => queryClient.ensureQueryData(jobQuery(params.jobId)),
     component: lazyRouteComponent(() => import("./detail"), "JobDetail"),
   });
-  return [jobs, job];
+  const create = createRoute({ getParentRoute: () => root, path: "/jobs/new", beforeLoad: guard, component: lazyRouteComponent(() => import("./editor"), "JobEditor") });
+  const edit = createRoute({ getParentRoute: () => root, path: "/jobs/$jobId/edit", beforeLoad: guard,
+    loader: ({ params }) => queryClient.ensureQueryData(jobQuery(params.jobId)), component: lazyRouteComponent(() => import("./editor"), "JobEditor") });
+  return [jobs, job, create, edit];
 }

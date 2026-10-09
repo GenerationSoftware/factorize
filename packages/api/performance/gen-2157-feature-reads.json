@@ -7,263 +7,683 @@
   "scope": "Service-level calls incl authorization; requests are equivalent API requests, not browser navigation measurements. Large fixture: 205 jobs/50k prompts/50k run context/20k trace events.",
   "report": [
     {
+      "sample_ms": [
+        26.310199999999895,
+        22.98316499999987,
+        20.792189000000008,
+        20.043088000000125,
+        20.3160170000001
+      ],
+      "query_samples": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "byte_samples": [
+        9435,
+        9435,
+        9435,
+        9435,
+        9435
+      ],
       "jobs": 10,
       "trace_events": 0,
       "operation": "legacy_jobs",
       "requests": 1,
       "queries": 4,
       "bytes": 9435,
-      "median_ms": 18.31,
+      "median_ms": 20.79,
       "range_ms": [
-        14.97,
-        20.64
+        20.04,
+        26.31
       ]
     },
     {
+      "sample_ms": [
+        9.107628000000204,
+        9.095299999999952,
+        8.321853000000146,
+        7.958208999999897,
+        8.152628999999934
+      ],
+      "query_samples": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "byte_samples": [
+        2733,
+        2733,
+        2733,
+        2733,
+        2733
+      ],
       "jobs": 10,
       "trace_events": 0,
       "operation": "summary_jobs",
       "requests": 1,
       "queries": 2,
       "bytes": 2733,
-      "median_ms": 7.54,
+      "median_ms": 8.32,
       "range_ms": [
-        6.54,
-        12.57
+        7.96,
+        9.11
       ]
     },
     {
+      "sample_ms": [
+        17.970960000000105,
+        16.91041499999983,
+        16.312992000000122,
+        16.56998599999997,
+        23.949039999999968
+      ],
+      "query_samples": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "byte_samples": [
+        946,
+        946,
+        946,
+        946,
+        946
+      ],
       "jobs": 10,
       "trace_events": 0,
       "operation": "job_detail",
       "requests": 1,
       "queries": 4,
       "bytes": 946,
-      "median_ms": 15.7,
+      "median_ms": 16.91,
       "range_ms": [
-        14.38,
-        17.82
+        16.31,
+        23.95
       ]
     },
     {
+      "sample_ms": [
+        23.809070000000247,
+        25.183915999999954,
+        24.013676000000032,
+        37.21445399999993,
+        28.50173700000005
+      ],
+      "query_samples": [
+        8,
+        8,
+        8,
+        8,
+        8
+      ],
+      "byte_samples": [
+        10384,
+        10384,
+        10384,
+        10384,
+        10384
+      ],
       "jobs": 10,
       "trace_events": 0,
       "operation": "legacy_editor_job_and_all_jobs",
       "requests": 2,
       "queries": 8,
       "bytes": 10384,
-      "median_ms": 27.84,
+      "median_ms": 25.18,
       "range_ms": [
-        23.26,
-        32.85
+        23.81,
+        37.21
       ]
     },
     {
+      "sample_ms": [
+        21.523561999999856,
+        18.779860999999983,
+        20.095708000000286,
+        24.286433000000216,
+        21.864972999999736
+      ],
+      "query_samples": [
+        6,
+        6,
+        6,
+        6,
+        6
+      ],
+      "byte_samples": [
+        1888,
+        1888,
+        1888,
+        1888,
+        1888
+      ],
       "jobs": 10,
       "trace_events": 0,
       "operation": "bounded_editor_job_and_selector",
       "requests": 2,
       "queries": 6,
       "bytes": 1888,
-      "median_ms": 20.1,
+      "median_ms": 21.52,
       "range_ms": [
-        17.98,
-        23.33
+        18.78,
+        24.29
       ]
     },
     {
+      "sample_ms": [
+        31.79145500000004,
+        28.596528000000035,
+        26.6319910000002,
+        32.48185700000022,
+        26.161837000000105
+      ],
+      "query_samples": [
+        10,
+        10,
+        10,
+        10,
+        10
+      ],
+      "byte_samples": [
+        6712,
+        6712,
+        6712,
+        6712,
+        6712
+      ],
       "jobs": 10,
       "trace_events": 0,
       "operation": "static_editor_configuration",
       "requests": 4,
       "queries": 10,
       "bytes": 6712,
-      "median_ms": 27.15,
+      "median_ms": 28.6,
       "range_ms": [
-        24.8,
-        31.35
+        26.16,
+        32.48
       ]
     },
     {
+      "sample_ms": [
+        7.006546000000071,
+        7.498811999999816,
+        8.104589000000033,
+        6.787148000000343,
+        7.483979999999974
+      ],
+      "query_samples": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "byte_samples": [
+        939,
+        939,
+        939,
+        939,
+        939
+      ],
       "jobs": 10,
       "trace_events": 0,
       "operation": "static_lifecycle_selector",
       "requests": 1,
       "queries": 2,
       "bytes": 939,
-      "median_ms": 9.14,
+      "median_ms": 7.48,
       "range_ms": [
-        7.73,
-        9.33
+        6.79,
+        8.1
       ]
     },
     {
+      "sample_ms": [
+        15.712484000000131,
+        17.310743000000002,
+        15.804701000000023,
+        16.729064000000108,
+        22.629125999999815
+      ],
+      "query_samples": [
+        6,
+        6,
+        6,
+        6,
+        6
+      ],
+      "byte_samples": [
+        1351,
+        1351,
+        1351,
+        1351,
+        1351
+      ],
       "jobs": 10,
       "trace_events": 0,
       "operation": "legacy_run_poll",
       "requests": 1,
       "queries": 6,
       "bytes": 1351,
-      "median_ms": 20.54,
+      "median_ms": 16.73,
       "range_ms": [
-        17.05,
-        25.46
+        15.71,
+        22.63
       ]
     },
     {
+      "sample_ms": [
+        8.108594000000267,
+        8.069676000000072,
+        6.569183000000066,
+        7.992391000000225,
+        7.291392999999971
+      ],
+      "query_samples": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "byte_samples": [
+        360,
+        360,
+        360,
+        360,
+        360
+      ],
       "jobs": 10,
       "trace_events": 0,
       "operation": "lightweight_status_poll",
       "requests": 1,
       "queries": 2,
       "bytes": 360,
-      "median_ms": 7.9,
+      "median_ms": 7.99,
       "range_ms": [
-        6.96,
-        8.23
+        6.57,
+        8.11
       ]
     },
     {
+      "sample_ms": [
+        7.96372700000029,
+        8.539678999999978,
+        7.028558999999859,
+        7.692050999999992,
+        6.982440999999653
+      ],
+      "query_samples": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "byte_samples": [
+        88,
+        88,
+        88,
+        88,
+        88
+      ],
       "jobs": 10,
       "trace_events": 0,
       "operation": "revision_trace_page",
       "requests": 1,
       "queries": 2,
       "bytes": 88,
-      "median_ms": 7.17,
+      "median_ms": 7.69,
       "range_ms": [
-        6.87,
-        7.5
+        6.98,
+        8.54
       ]
     },
     {
+      "sample_ms": [
+        739.4635589999998,
+        729.1292779999994,
+        745.8092079999997,
+        719.7077710000003,
+        767.6228360000005
+      ],
+      "query_samples": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "byte_samples": [
+        10347884,
+        10347884,
+        10347884,
+        10347884,
+        10347884
+      ],
       "jobs": 205,
       "trace_events": 20000,
       "operation": "legacy_jobs",
       "requests": 1,
       "queries": 4,
       "bytes": 10347884,
-      "median_ms": 751.1,
+      "median_ms": 739.46,
       "range_ms": [
-        725.95,
-        775.75
+        719.71,
+        767.62
       ]
     },
     {
+      "sample_ms": [
+        9.623789999999644,
+        9.709197000000131,
+        8.962331000000631,
+        10.002966999998534,
+        9.090131999999358
+      ],
+      "query_samples": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "byte_samples": [
+        8623,
+        8623,
+        8623,
+        8623,
+        8623
+      ],
       "jobs": 205,
       "trace_events": 20000,
       "operation": "summary_jobs",
       "requests": 1,
       "queries": 2,
-      "bytes": 8591,
-      "median_ms": 9.84,
+      "bytes": 8623,
+      "median_ms": 9.62,
       "range_ms": [
-        8.66,
-        14.63
+        8.96,
+        10
       ]
     },
     {
+      "sample_ms": [
+        22.21664899999996,
+        22.110599999999977,
+        22.35985299999993,
+        19.95539800000006,
+        20.326152999999977
+      ],
+      "query_samples": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "byte_samples": [
+        50940,
+        50940,
+        50940,
+        50940,
+        50940
+      ],
       "jobs": 205,
       "trace_events": 20000,
       "operation": "job_detail",
       "requests": 1,
       "queries": 4,
       "bytes": 50940,
-      "median_ms": 22.84,
+      "median_ms": 22.11,
       "range_ms": [
-        19.8,
-        51.63
+        19.96,
+        22.36
       ]
     },
     {
+      "sample_ms": [
+        724.4078690000006,
+        744.6739529999995,
+        723.9835359999997,
+        805.8122299999995,
+        753.3043890000008
+      ],
+      "query_samples": [
+        8,
+        8,
+        8,
+        8,
+        8
+      ],
+      "byte_samples": [
+        10398827,
+        10398827,
+        10398827,
+        10398827,
+        10398827
+      ],
       "jobs": 205,
       "trace_events": 20000,
       "operation": "legacy_editor_job_and_all_jobs",
       "requests": 2,
       "queries": 8,
       "bytes": 10398827,
-      "median_ms": 772.74,
+      "median_ms": 744.67,
       "range_ms": [
-        720.82,
-        801.41
+        723.98,
+        805.81
       ]
     },
     {
+      "sample_ms": [
+        26.42352899999969,
+        34.85347399999955,
+        25.96983,
+        24.1469560000005,
+        19.362090999999054
+      ],
+      "query_samples": [
+        6,
+        6,
+        6,
+        6,
+        6
+      ],
+      "byte_samples": [
+        54196,
+        54196,
+        54196,
+        54196,
+        54196
+      ],
       "jobs": 205,
       "trace_events": 20000,
       "operation": "bounded_editor_job_and_selector",
       "requests": 2,
       "queries": 6,
-      "bytes": 54164,
-      "median_ms": 23.44,
+      "bytes": 54196,
+      "median_ms": 25.97,
       "range_ms": [
-        20.45,
-        30.53
+        19.36,
+        34.85
       ]
     },
     {
+      "sample_ms": [
+        25.699156000000585,
+        28.28454099999908,
+        31.340061000000787,
+        28.466334000000643,
+        37.43268999999964
+      ],
+      "query_samples": [
+        10,
+        10,
+        10,
+        10,
+        10
+      ],
+      "byte_samples": [
+        56706,
+        56706,
+        56706,
+        56706,
+        56706
+      ],
       "jobs": 205,
       "trace_events": 20000,
       "operation": "static_editor_configuration",
       "requests": 4,
       "queries": 10,
       "bytes": 56706,
-      "median_ms": 33.11,
+      "median_ms": 28.47,
       "range_ms": [
-        28.14,
-        33.26
+        25.7,
+        37.43
       ]
     },
     {
+      "sample_ms": [
+        7.569438000000446,
+        8.284057000000757,
+        7.597529999999097,
+        7.713553999999931,
+        9.649117000000842
+      ],
+      "query_samples": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "byte_samples": [
+        3253,
+        3253,
+        3253,
+        3253,
+        3253
+      ],
       "jobs": 205,
       "trace_events": 20000,
       "operation": "static_lifecycle_selector",
       "requests": 1,
       "queries": 2,
-      "bytes": 3221,
-      "median_ms": 8.29,
+      "bytes": 3253,
+      "median_ms": 7.71,
       "range_ms": [
-        6.5,
-        14.09
+        7.57,
+        9.65
       ]
     },
     {
+      "sample_ms": [
+        21.076774999999543,
+        24.765440000001036,
+        26.34469100000024,
+        22.33176099999946,
+        23.367921000000933
+      ],
+      "query_samples": [
+        6,
+        6,
+        6,
+        6,
+        6
+      ],
+      "byte_samples": [
+        151363,
+        151363,
+        151363,
+        151363,
+        151363
+      ],
       "jobs": 205,
       "trace_events": 20000,
       "operation": "legacy_run_poll",
       "requests": 1,
       "queries": 6,
       "bytes": 151363,
-      "median_ms": 20.13,
+      "median_ms": 23.37,
       "range_ms": [
-        18.37,
-        21.1
+        21.08,
+        26.34
       ]
     },
     {
+      "sample_ms": [
+        8.507170999999289,
+        7.821495000000141,
+        8.717835999999807,
+        8.76709899999878,
+        9.86457899999914
+      ],
+      "query_samples": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "byte_samples": [
+        360,
+        360,
+        360,
+        360,
+        360
+      ],
       "jobs": 205,
       "trace_events": 20000,
       "operation": "lightweight_status_poll",
       "requests": 1,
       "queries": 2,
       "bytes": 360,
-      "median_ms": 7.61,
+      "median_ms": 8.72,
       "range_ms": [
-        7.05,
-        9.04
+        7.82,
+        9.86
       ]
     },
     {
+      "sample_ms": [
+        19.620065999999497,
+        13.485984999999346,
+        9.733213999999862,
+        9.250261000001046,
+        8.035133999999744
+      ],
+      "query_samples": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "byte_samples": [
+        59670,
+        59670,
+        59670,
+        59670,
+        59670
+      ],
       "jobs": 205,
       "trace_events": 20000,
       "operation": "revision_trace_page",
       "requests": 1,
       "queries": 2,
       "bytes": 59670,
-      "median_ms": 8.24,
+      "median_ms": 9.73,
       "range_ms": [
-        7.67,
-        8.64
+        8.04,
+        19.62
       ]
     }
   ]

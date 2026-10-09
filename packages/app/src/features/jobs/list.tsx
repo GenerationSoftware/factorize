@@ -6,7 +6,7 @@ export function JobsList() {
   const navigate = useNavigate();
   const query = useQuery(jobsQuery(search));
   return <main className="mx-auto max-w-5xl p-6">
-    <h1 className="text-3xl font-semibold">Jobs</h1>
+    <h1 className="text-3xl font-semibold">Jobs</h1><Link to="/jobs/new">Create job</Link>
     <form onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); const enabled = form.get("enabled"); void navigate({ to: "/jobs", search: { q: String(form.get("q") ?? ""), enabled: enabled === "true" || enabled === "false" ? enabled : undefined, cursor: undefined } }); }} className="my-4 flex flex-wrap gap-3">
       <label>Search jobs <input name="q" defaultValue={search.q} maxLength={120} /></label>
       <label>Status <select name="enabled" defaultValue={search.enabled ?? ""}><option value="">All</option><option value="true">Enabled</option><option value="false">Disabled</option></select></label>

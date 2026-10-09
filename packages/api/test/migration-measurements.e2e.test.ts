@@ -44,7 +44,7 @@ describe.skipIf(!url)("migration API measurements", () => {
             timings.push(performance.now() - started); queries.push(spy.mock.calls.length); bytes.push(new TextEncoder().encode(JSON.stringify(result)).length);
           } } finally { spy.mockRestore(); }
           const median = (values: number[]) => Number([...values].sort((a,b)=>a-b)[2].toFixed(2));
-          report.push({ jobs: size, trace_events: size > 10 ? 20000 : 0, operation: name, requests, queries: median(queries), bytes: median(bytes), median_ms: median(timings), range_ms: [Math.min(...timings), Math.max(...timings)].map(n=>Number(n.toFixed(2))) });
+          report.push({ sample_ms: timings, query_samples: queries, byte_samples: bytes, jobs: size, trace_events: size > 10 ? 20000 : 0, operation: name, requests, queries: median(queries), bytes: median(bytes), median_ms: median(timings), range_ms: [Math.min(...timings), Math.max(...timings)].map(n=>Number(n.toFixed(2))) });
           if (name === "summary_jobs" || name === "bounded_editor_job_and_selector") expect(median(bytes)).toBeLessThan(70000);
           if (name === "summary_jobs" || name === "lightweight_status_poll" || name === "revision_trace_page") expect(median(queries)).toBe(2);
         }

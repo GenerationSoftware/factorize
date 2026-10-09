@@ -15,6 +15,7 @@ export default defineConfig({
           bypass(request) {
             // Only native-auth GET screens are owned by Vite in this stage.
             // Provider callbacks, legacy POST forms and protocols stay on the API.
+            if (request.method === "GET" && /^(?:\/authorize|\/device)(?:\?|$)/.test(request.url ?? "")) return "/index.html";
             if (request.method === "GET" && /^\/auth\/(?:login|signup|password-reset|verify(?:\/request)?)(?:\?|$)/.test(request.url ?? "")) return "/index.html";
           },
         }],

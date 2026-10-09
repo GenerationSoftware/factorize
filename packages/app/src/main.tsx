@@ -1,3 +1,6 @@
+import { ChunkRecovery } from "./shared/chunk-recovery";
+import { protocolRoutes } from "./features/auth/protocol-routes";
+import { settingsRoutes } from "./features/settings/routes";
 import { jobsRoutes } from "./features/jobs/routes";
 import { runRoutes } from "./features/runs/routes";
 import React from "react";
@@ -14,7 +17,7 @@ import { queryClient } from "./shared/query-client";
 import "./styles.css";
 
 const rootRoute = createRootRoute({
-  component: () => <IdentityBoundary><AccountBar /><Outlet /></IdentityBoundary>,
+  component: () => <IdentityBoundary><ChunkRecovery /><AccountBar /><Outlet /></IdentityBoundary>,
 });
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -30,7 +33,7 @@ const router = createRouter({
     </main>
   ),
   defaultNotFoundComponent: () => <main className="p-6"><h1>Page not found</h1></main>,
-  routeTree: rootRoute.addChildren([indexRoute, ...authRoutes(rootRoute), ...jobsRoutes(rootRoute), ...runRoutes(rootRoute)]),
+  routeTree: rootRoute.addChildren([indexRoute, ...authRoutes(rootRoute), ...protocolRoutes(rootRoute), ...jobsRoutes(rootRoute), ...runRoutes(rootRoute), ...settingsRoutes(rootRoute)]),
 });
 declare module "@tanstack/react-router" {
   interface Register { router: typeof router }
