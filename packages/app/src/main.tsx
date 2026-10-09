@@ -1,3 +1,4 @@
+import { Button, Card, Page } from "./shared/ui";
 import { ChunkRecovery } from "./shared/chunk-recovery";
 import { protocolRoutes } from "./features/auth/protocol-routes";
 import { settingsRoutes } from "./features/settings/routes";
@@ -17,7 +18,7 @@ import { queryClient } from "./shared/query-client";
 import "./styles.css";
 
 const rootRoute = createRootRoute({
-  component: () => <IdentityBoundary><ChunkRecovery /><AccountBar /><Outlet /></IdentityBoundary>,
+  component: () => <IdentityBoundary><ChunkRecovery /><AccountBar /><Outlet /><footer className="mt-auto border-t border-stone-200 bg-white px-4 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400"><div className="mx-auto flex max-w-6xl flex-wrap justify-between gap-3"><p>Open-source software factories for everybody.</p><a href="https://github.com/GenerationSoftware/factorize" className="font-medium hover:text-factorize-700 dark:hover:text-factorize-500">View on GitHub ↗</a></div></footer></IdentityBoundary>,
 });
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -25,14 +26,14 @@ const indexRoute = createRoute({
   component: lazyRouteComponent(() => import("./routes/index"), "MigrationIndex"),
 });
 const router = createRouter({
-  defaultPendingComponent: () => <p role="status" className="p-6">Loading…</p>,
+  defaultPendingComponent: () => <Page><Card><p role="status">Loading…</p></Card></Page>,
   defaultErrorComponent: ({ error, reset }) => (
-    <main className="p-6">
+    <Page><Card><h1>Could not load this page</h1>
       <p role="alert">{error instanceof Error ? error.message : "Could not load this page."}</p>
-      <button onClick={reset}>Try again</button>
-    </main>
+      <Button onClick={reset}>Try again</Button>
+    </Card></Page>
   ),
-  defaultNotFoundComponent: () => <main className="p-6"><h1>Page not found</h1></main>,
+  defaultNotFoundComponent: () => <Page><Card><h1>Page not found</h1><p className="text-sm text-slate-600 dark:text-slate-400">Check the address or return to your software factory.</p><a href="/" className="mt-4 inline-block rounded-lg bg-factorize-500 px-4 py-2 text-sm font-semibold text-slate-950">Go to Factorize</a></Card></Page>,
   routeTree: rootRoute.addChildren([indexRoute, ...authRoutes(rootRoute), ...protocolRoutes(rootRoute), ...jobsRoutes(rootRoute), ...runRoutes(rootRoute), ...settingsRoutes(rootRoute)]),
 });
 declare module "@tanstack/react-router" {

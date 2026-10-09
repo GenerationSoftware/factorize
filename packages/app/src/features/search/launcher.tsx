@@ -1,3 +1,4 @@
+import { Button } from "../../shared/ui";
 import { lazy, Suspense, useEffect, useState } from "react";
 const Dialog = lazy(() => import("./dialog"));
 export function SearchLauncher() {
@@ -10,5 +11,5 @@ export function SearchLauncher() {
     };
     window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler);
   }, []);
-  return <><button aria-label="Search jobs and runs" onClick={() => setOpen(true)}>Search (/)</button>{open && <Suspense fallback={<p role="status">Loading search…</p>}><Dialog close={() => setOpen(false)} /></Suspense>}</>;
+  return <><Button aria-label="Search jobs and runs" onClick={() => setOpen(true)}>Search (/)</Button>{open && <Suspense fallback={<p role="status">Loading search…</p>}><Dialog close={() => setOpen(false)} /></Suspense>}</>;
 }

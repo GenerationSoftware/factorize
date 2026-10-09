@@ -1,3 +1,5 @@
+import { traceClasses } from "./event-body";
+import { Disclosure, Summary, Badge, Button, Input, Label, Page } from "../../shared/ui";
 import { EventBody } from "./event-body";
 import { ContinuousTrace } from "./continuous-trace";
 import { ExpandedRunDetail } from "./expanded-detail";
@@ -47,32 +49,32 @@ export function RunDetail() {
     const { error } = await api.POST("/api/v1/runs/{runId}/stop", { params: { path: { runId: runId! } } });
     if (error) throw new Error(messageOf(error));
   }, onSuccess: () => cache.invalidateQueries({ queryKey: ["runs", runId] }) });
-  return <main className="mx-auto max-w-4xl p-6">
+  return <Page className="max-w-6xl">
     {status.isPending && <p role="status">Loading run…</p>}{status.error && <p role="alert">{status.error.message}</p>}
     {status.data && <><Link to="/jobs/$jobId" params={{ jobId: status.data.job_id }}>{status.data.job_name}</Link>
-      <h1 className="text-3xl font-semibold">{status.data.run_name || "Run"}</h1><p role="status">{status.data.state}{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}</p>
-      <p>Created {status.data.created_at} · Started {status.data.started_at ?? "Not yet"}</p>
-      {status.data.started_at && <p>Queue time: {Math.max(0, Math.round((Date.parse(status.data.started_at) - Date.parse(status.data.created_at)) / 1000))}s · Runtime: {Math.max(0, Math.round(((active ? Date.now() : Date.parse(status.data.updated_at)) - Date.parse(status.data.started_at)) / 1000))}s</p>}
+      <h1 className="mt-5 text-3xl font-semibold">{status.data.run_name || "Run"}</h1><p role="status" className="mb-4"><Badge active={active}>{status.data.state}</Badge>{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}</p>
+      <p className="text-sm text-slate-600 dark:text-slate-400">Created {new Date(status.data.created_at).toLocaleString()} · Started {status.data.started_at ? new Date(status.data.started_at).toLocaleString() : "Not yet"}</p>
+      {status.data.started_at && <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Queue time: {Math.max(0, Math.round((Date.parse(status.data.started_at) - Date.parse(status.data.created_at)) / 1000))}s · Runtime: {Math.max(0, Math.round(((active ? Date.now() : Date.parse(status.data.updated_at)) - Date.parse(status.data.started_at)) / 1000))}s</p>}
       {active && <p role="status">{trace.data?.items.at(-1)?.type === "reasoning" ? "Thinking…" : trace.data?.items.at(-1)?.title ? `Activity: ${trace.data.items.at(-1)!.title}` : "Waiting for execution activity…"}</p>}
       {status.data.destination_url && /^https?:\/\//.test(status.data.destination_url) && <a href={status.data.destination_url} target="_blank" rel="noopener noreferrer">Execution destination</a>}
-      {["starting", "running", "blocked", "stopping"].includes(status.data.state) && <button disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</button>}
+      {["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}
     </>}
     <ExpandedRunDetail runId={runId!} />{status.data && !active && <ReplayTrace runId={runId!} />}
     {stop.error && <p role="alert">{stop.error.message}</p>}
     <h2 className="my-4 text-xl font-semibold">Trace</h2>
-    <label><input type="checkbox" checked={continuous} onChange={e => setContinuous(e.target.checked)} /> Continuous virtualized trace</label>
+    <Label><Input type="checkbox" checked={continuous} onChange={e => setContinuous(e.target.checked)} /> Continuous virtualized trace</Label>
     {continuous && <ContinuousTrace key={revision} runId={runId!} revision={revision} active={active} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />}
     {!continuous && trace.error && <p role="alert">{trace.error.message}</p>}
     {!continuous && trace.isPending && <p role="status">Loading trace…</p>}
     {!continuous && trace.data && trace.data.revision === revision && <>
       {!trace.data.items.length && <p>No trace events yet.</p>}
-      <ol className="grid gap-3">{trace.data.items.map(event => <li key={`${revision}:${event.id}:${event.sequence}`}><details>
-        <summary>{event.title} · {event.type}</summary><EventBody event={event} />
-      </details></li>)}</ol>
+      <ol className="grid gap-3">{trace.data.items.map(event => <li key={`${revision}:${event.id}:${event.sequence}`}><Disclosure className={traceClasses(event.type)}>
+        <Summary>{event.title} · {event.type}</Summary><EventBody event={event} />
+      </Disclosure></li>)}</ol>
       <nav aria-label="Trace pages" className="my-4 flex gap-4">
         {!!search.after && <Link to="/job-runs/$runId" params={{ runId: runId! }} search={{ after: 0 }}>First trace page</Link>}
         {trace.data.nextCursor !== null && <Link to="/job-runs/$runId" params={{ runId: runId! }} search={{ after: trace.data.nextCursor }}>Next trace page</Link>}
       </nav>
     </>}
-  </main>;
+  </Page>;
 }

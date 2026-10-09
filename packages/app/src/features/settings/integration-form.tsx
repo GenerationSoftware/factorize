@@ -1,3 +1,4 @@
+import { Button, Input, Select, Label, Card } from "../../shared/ui";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
@@ -18,13 +19,13 @@ export function IntegrationForm({ kind, connectionId, initialName = "", initialA
     if (!data || error) throw new Error(messageOf(error)); setGeneratedSecret(data.generatedSecret ?? ""); return { saved: true };
   }, onSuccess: async () => { setCredential(""); test.reset(); await cache.invalidateQueries({ queryKey: integrationsQuery.queryKey }); await cache.invalidateQueries({ queryKey: ["providers"] }); await cache.invalidateQueries({ queryKey: ["editor"] }); } });
   return <form className="my-4 grid gap-3" onSubmit={e => { e.preventDefault(); save.mutate(); }}>
-    {kind !== "exe" && <label>{kind === "amp" ? "Amp project" : "Tail name"} <input required value={name} onChange={e => setName(e.target.value)} /></label>}
-    <label>{kind === "exe" ? "exe.dev account token" : kind === "amp" ? "Amp access token" : "Tail signing secret (leave blank to generate or retain)"} <input type="password" autoComplete="new-password" required={kind !== "cloudflareTail"} value={credential} onChange={e => { setCredential(e.target.value); test.reset(); }} /></label>
-    {kind === "exe" && <><label>Agent <select value={agentKind} onChange={e => setAgentKind(e.target.value as typeof agentKind)}><option value="codex">Codex</option><option value="claude">Claude</option><option value="pi">Pi</option></select></label><label>VM tags <select multiple value={tags} disabled={!test.data?.ok} onChange={e => setTags(Array.from(e.target.selectedOptions, option => option.value))}>{Array.from(new Set([...initialTags, ...(test.data?.tags ?? [])])).map(tag => <option key={tag}>{tag}</option>)}</select></label><p>Saving validates the agent and models on a temporary VM.</p></>}
-    {kind !== "cloudflareTail" && <button type="button" disabled={test.isPending || save.isPending} onClick={() => test.mutate()}>Test credentials</button>}
+    {kind !== "exe" && <Label>{kind === "amp" ? "Amp project" : "Tail name"} <Input required value={name} onChange={e => setName(e.target.value)} /></Label>}
+    <Label>{kind === "exe" ? "exe.dev account token" : kind === "amp" ? "Amp access token" : "Tail signing secret (leave blank to generate or retain)"} <Input type="password" autoComplete="new-password" required={kind !== "cloudflareTail"} value={credential} onChange={e => { setCredential(e.target.value); test.reset(); }} /></Label>
+    {kind === "exe" && <><Label>Agent <Select value={agentKind} onChange={e => setAgentKind(e.target.value as typeof agentKind)}><option value="codex">Codex</option><option value="claude">Claude</option><option value="pi">Pi</option></Select></Label><Label>VM tags <Select multiple value={tags} disabled={!test.data?.ok} onChange={e => setTags(Array.from(e.target.selectedOptions, option => option.value))}>{Array.from(new Set([...initialTags, ...(test.data?.tags ?? [])])).map(tag => <option key={tag}>{tag}</option>)}</Select></Label><p>Saving validates the agent and models on a temporary VM.</p></>}
+    {kind !== "cloudflareTail" && <Button type="button" disabled={test.isPending || save.isPending} onClick={() => test.mutate()}>Test credentials</Button>}
     {test.data && <p role="status">{test.data.ok ? "Credentials verified" : "Credential test failed"}</p>}
-    <button disabled={save.isPending || test.isPending}>{save.isPending ? "Saving…" : "Save integration"}</button>
+    <Button variant="primary" disabled={save.isPending || test.isPending}>{save.isPending ? "Saving…" : "Save integration"}</Button>
     {save.isSuccess && <p role="status">Integration saved</p>}{[test.error, save.error].filter(Boolean).map((error, index) => <p key={index} role="alert">{error?.message}</p>)}
-    {generatedSecret && <section role="status"><p>Copy this signing secret now; it is displayed only once.</p><pre className="whitespace-pre-wrap break-all">{generatedSecret}</pre><button type="button" onClick={() => setGeneratedSecret("")}>Dismiss secret</button></section>}
+    {generatedSecret && <Card role="status"><p>Copy this signing secret now; it is displayed only once.</p><pre className="whitespace-pre-wrap break-all">{generatedSecret}</pre><Button type="button" onClick={() => setGeneratedSecret("")}>Dismiss secret</Button></Card>}
   </form>;
 }

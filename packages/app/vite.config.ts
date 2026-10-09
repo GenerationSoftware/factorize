@@ -1,9 +1,23 @@
+import { createHash } from "node:crypto";
 import { readFileSync, existsSync } from "node:fs";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 
+const themeSource = readFileSync(new URL("./src/shared/theme-init.js", import.meta.url), "utf8");
+const themeAsset = `assets/theme-init-${createHash("sha256").update(themeSource).digest("hex").slice(0, 12)}.js`;
 export default defineConfig({
-  plugins: [tailwindcss()],
+  plugins: [tailwindcss(), {
+    name: "factorize-initial-theme",
+    // A classic blocking script must precede CSS; module scripts are deferred.
+    transformIndexHtml() { return [{ tag: "script", attrs: { src: "/" + themeAsset }, injectTo: "head-prepend" }]; },
+    generateBundle() { this.emitFile({ type: "asset", fileName: themeAsset, source: themeSource }); },
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        if (request.url?.split("?")[0] !== "/" + themeAsset) return next();
+        response.setHeader("Content-Type", "application/javascript"); response.end(themeSource);
+      });
+    },
+  }],
   // No server environment variables are exposed to browser bundles.
   envPrefix: [],
   server: {

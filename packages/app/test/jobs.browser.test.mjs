@@ -9,7 +9,7 @@ const summary = { id: jobId, name: "Review builds", slug: "review-builds", enabl
 before(async () => {
   server = createServer(async (req, res) => {
     const path = new URL(req.url, "http://local").pathname;
-    const file = path.startsWith("/assets/") ? path : "/index.html";
+    const file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html";
     try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); }
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -55,6 +55,7 @@ test("invocation validates JSON, preserves retry idempotency and navigates to li
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Review builds", run_name: "Manual run", state: "succeeded", finalizing: false, trace_revision: "rev-1", artifact_state: "stored", started_at: null, created_at: summary.createdAt, updated_at: summary.updatedAt, destination_url: null } }));
   await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [{ id: "e1", sequence: 1, type: "reasoning", title: "Thinking", preview: "<script>alert('xss')</script>", display: {} }], nextCursor: null, revision: "rev-1", reset: false } }));
   await page.goto(origin + "/jobs/" + jobId);
+  await page.getByRole("button", { name: "Run job", exact: true }).click();
   await page.getByLabel("JSON data (optional)").fill("[]"); await page.getByRole("button", { name: "Invoke", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "JSON data must be an object" }).waitFor(); assert.equal(inputs.length, 0);
   await page.getByLabel("JSON data (optional)").fill('{"build":42}'); await page.getByLabel("Prompt", { exact: true }).fill("Review");
@@ -98,6 +99,18 @@ test("20k-event continuous trace keeps DOM bounded, retains expanded details on 
   }
   assert.ok(await region.locator("li").count() < 60); assert.ok(traceRequests <= 110);
   await region.evaluate(el => { el.scrollTop = 0; }); await page.getByText("large event 1 · assistant_message", { exact: true }).waitFor(); assert.equal(await region.locator("details").first().getAttribute("open"), "");
+  const firstSummary = page.getByText("large event 1 · assistant_message", { exact: true });
+  await firstSummary.focus(); await region.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  assert.equal(await firstSummary.evaluate(el => el === document.activeElement), true);
+  assert.ok(await region.locator("li").count() < 60);
+  await region.evaluate(el => { el.scrollTop = 0; }); await firstSummary.waitFor();
+  await region.locator("li[data-index='0'] .trace-content p").evaluate(el => window.getSelection().selectAllChildren(el));
+  await region.focus(); await region.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  assert.equal(await page.evaluate(() => window.getSelection().toString()), "Safe text");
+  assert.equal(await page.evaluate(() => window.getSelection().anchorNode.isConnected), true);
+  assert.ok(await region.locator("li").count() < 60);
+  await page.evaluate(() => window.getSelection().removeAllRanges());
+
   const loadMs = performance.now() - started, loadedRequests = traceRequests;
   revision = "replayed";
   await page.getByText("replayed event 1 · assistant_message", { exact: true }).waitFor(); assert.equal(await page.getByText("large event 1 · assistant_message", { exact: true }).count(), 0);

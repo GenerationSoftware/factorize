@@ -23,7 +23,7 @@ export async function loadingFixture(url: string) {
     env = { ASSETS: { fetch: async (request: Request) => {
       const path = new URL(request.url).pathname;
       if (path !== "/index.html" && !/^\/assets\/[A-Za-z0-9_.-]+$/.test(path)) return new Response("Not found", { status: 404 });
-      try { return new Response(request.method === "HEAD" ? null : await readFile(new URL("../../../app/dist" + path, import.meta.url)), { headers: { "Content-Type": path.endsWith(".js") ? "application/javascript" : path.endsWith(".css") ? "text/css" : "text/html" } }); }
+      try { return new Response(request.method === "HEAD" ? null : await readFile(new URL("../../../app/dist" + path, import.meta.url)), { headers: { "Content-Type": path.endsWith(".js") ? "application/javascript" : path.endsWith(".css") ? "text/css" : path.endsWith(".png") ? "image/png" : path.endsWith(".ico") ? "image/x-icon" : "text/html" } }); }
       catch { return new Response("Not found", { status: 404 }); }
     } } as unknown as Fetcher, DATABASE: db, APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "local-test-signing", OAUTH_PROVIDER: { listUserGrants: async () => ({ items: [] }) } as any, CREDENTIAL_ENCRYPTION_KEY: btoa("a".repeat(32)) } as Env;
     await new IdentityRepository(db, tenantId).upsertOwner(userId, "owner@example.test");

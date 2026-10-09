@@ -45,5 +45,12 @@ jobs:
       - name: Install browser for static application checks
         run: npx playwright install --with-deps chromium
       - run: npm run check
+      - name: Upload visual comparison failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: factorize-visual-failures
+          path: packages/app/test-results
+          if-no-files-found: ignore
       - name: Exercise compiled jobs/invocation/run slice against PostgreSQL
         run: npm run test:static-slice --workspace=factorize

@@ -7,7 +7,7 @@ let server, origin, browser;
 const id = "00000000-0000-4000-8000-000000000001", triggerId = "00000000-0000-4000-8000-000000000003";
 const initial = { id, name: "Review builds", slug: "review-builds", enabled: true, promptTemplate: "Original prompt", runNameTemplate: "", executionTargetId: "vm", executionTarget: { connectionId: "vm", agentKind: "codex" }, model: "gpt-6", effort: "high", concurrencyLimit: 2, runningCount: 0, currentRuns: 0, maxConcurrency: 2, agentKind: "codex", lastRunState: null, triggers: [{ id: triggerId, jobId: id, slug: "trigger-1", kind: "manual", enabled: true, config: {}, createdAt: "2026-10-09T12:00:00.000Z", updatedAt: "2026-10-09T12:00:00.000Z" }], createdAt: "2026-10-09T12:00:00.000Z", updatedAt: "2026-10-09T12:00:00.000Z" };
 before(async () => {
-  server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = path.startsWith("/assets/") ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } });
+  server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true });
 });
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
@@ -73,7 +73,7 @@ test("search dialog keeps keyboard focus, escapes results and leaves a draft int
   await page.goto(origin + "/jobs/" + id + "/edit");
   await page.getByLabel("Name", { exact: true }).fill("Unsaved draft");
   await page.getByRole("button", { name: "Search jobs and runs", exact: true }).click();
-  await page.getByRole("textbox", { name: "Search jobs and runs", exact: true }).fill("build");
+  await page.getByRole("combobox", { name: "Search jobs and runs", exact: true }).fill("build");
   await page.getByRole("listbox", { name: "Search results" }).getByRole("option").waitFor();
   assert.match(await page.getByRole("listbox", { name: "Search results" }).getByRole("option").innerText(), /<script>unsafe<\/script>/);
   assert.equal(await page.locator("dialog script").count(), 0);

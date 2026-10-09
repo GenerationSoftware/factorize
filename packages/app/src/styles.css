@@ -1,25 +1,65 @@
 @import "tailwindcss";
-
-@layer base {
-  body { @apply bg-slate-950 text-slate-100 antialiased; }
-  input, textarea, select { @apply block w-full rounded border border-slate-600 bg-slate-900 p-2; }
-  button { @apply rounded bg-sky-800 px-4 py-2 disabled:opacity-50; }
-  a { @apply underline underline-offset-4; }
-  :focus-visible { @apply outline-2 outline-offset-4 outline-sky-400; }
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@theme {
+  --color-factorize-50: #fff9e6;
+  --color-factorize-100: #fff0b8;
+  --color-factorize-500: #fdc901;
+  --color-factorize-600: #896300;
+  --color-factorize-700: #705000;
+  --color-stone-50: #fcfbf6;
+  --color-stone-100: #f6f3e9;
+  --color-stone-200: #e6e0d1;
+  --color-stone-300: #d4cbb9;
+  --color-slate-100: #f5f1e8;
+  --color-slate-200: #e7e1d4;
+  --color-slate-300: #cec5b4;
+  --color-slate-400: #9b9282;
+  --color-slate-500: #71695e;
+  --color-slate-600: #575047;
+  --color-slate-700: #403b34;
+  --color-slate-800: #2c2924;
+  --color-slate-900: #201e1a;
+  --color-slate-950: #151410;
 }
 @layer base {
-  input[type="checkbox"] { @apply inline-block w-auto align-middle; }
-  pre { max-width: 100%; }
-  label { min-width: 0; }
+  html { scrollbar-gutter: stable; color-scheme: light; }
+  html[data-theme="dark"] { color-scheme: dark; }
+  body { @apply m-0 bg-stone-50 text-slate-950 antialiased dark:bg-slate-950 dark:text-slate-100; }
+  #root { @apply flex min-h-dvh min-w-0 flex-col; }
+  :focus-visible { @apply outline-2 outline-offset-4 outline-factorize-600 dark:outline-factorize-500; }
+  h1 { @apply mb-4 break-words text-3xl font-bold tracking-tight; }
+  h2 { @apply mb-3 text-xl font-semibold tracking-tight; }
+  h3 { @apply mb-2 font-semibold; }
+  p { @apply leading-relaxed; }
+  pre { @apply max-w-full overflow-auto rounded-lg bg-stone-100 p-4 text-xs leading-6 dark:bg-slate-950; }
+  fieldset { @apply min-w-0 rounded-xl border border-stone-200 p-4 dark:border-slate-700; }
+  legend { @apply px-2 text-sm font-semibold; }
+  dialog { margin: auto; @apply max-h-[85dvh] max-w-[calc(100vw-2rem)] rounded-2xl border border-stone-200 bg-white p-6 text-slate-950 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100; }
+  dialog::backdrop { background: rgb(21 20 16 / .65); }
+  [role="alert"] { @apply my-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200; }
 }
-@layer base {
-  html[data-theme="light"] body { @apply bg-slate-50 text-slate-950; }
-  html[data-theme="light"] input, html[data-theme="light"] textarea, html[data-theme="light"] select { @apply border-slate-300 bg-white text-slate-950; }
-  html[data-theme="light"] button { @apply text-white; }
-}
-.trace-content { overflow-wrap: anywhere; }
-.trace-content pre { white-space: pre-wrap; }
-.trace-content p, .trace-content pre { margin-block: 0.75rem; }
+.trace-content { overflow-wrap: anywhere; font-size: .875rem; line-height: 1.75; }
+.trace-content p, .trace-content pre { margin-block: .75rem; }
+.trace-content pre { white-space: pre; overflow-x: auto; }
+.trace-content code { @apply rounded bg-stone-100 px-1 text-xs dark:bg-slate-800; }
+.trace-content a { @apply underline text-factorize-700 dark:text-factorize-500; }
 .trace-content ul, .trace-content ol { padding-left: 1.5rem; }
 .trace-content ul { list-style: disc; }
 .trace-content ol { list-style: decimal; }
+.trace-content blockquote { @apply border-l-2 border-factorize-500 pl-4 text-slate-600 dark:text-slate-300; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Template overlay shares the editable control's metrics, including wrapping and scroll. */
+.template-editor { position: relative; min-width: 0; }
+.template-editor pre, .template-editor textarea {
+  margin: 0; padding: .625rem .75rem; min-height: 15rem; width: 100%;
+  white-space: pre-wrap; overflow-wrap: break-word; font: .875rem/1.5rem var(--font-mono);
+  tab-size: 4; border: 1px solid transparent; border-radius: .5rem;
+}
+.template-editor pre { position: absolute; inset: 0; pointer-events: none; overflow: hidden; background: transparent; }
+.template-editor textarea { position: relative; background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--color-slate-950); border-color: var(--color-stone-300); }
+[data-theme="dark"] .template-editor textarea { caret-color: var(--color-slate-100); border-color: var(--color-slate-700); }
+.template-editor textarea::placeholder { color: var(--color-slate-500); -webkit-text-fill-color: var(--color-slate-500); }
+
+/* ANSI colors use a stable dark terminal surface in both application themes. */
+.terminal { background: #151410; color: #f5f1e8; }

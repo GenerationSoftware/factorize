@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "check": "npm run build && npm test",
-    "test": "node --test test/*.test.mjs"
+    "check": "npm run build && npm test && npm run test:visual",
+    "test": "node --test test/*.test.mjs",
+    "test:visual": "playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.1",
@@ -19,6 +20,8 @@
     "react-markdown": "^10.1.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
