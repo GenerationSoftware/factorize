@@ -28,3 +28,7 @@ coverage/
 # Local TLS and Python test caches
 .dev-certs/
 __pycache__/
+
+packages/app/test-results/
+packages/app/playwright-report/
+packages/app/test/visual/.legacy/

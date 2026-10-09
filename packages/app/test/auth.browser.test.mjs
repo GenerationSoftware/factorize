@@ -10,7 +10,7 @@ let server, origin, browser;
 before(async () => {
   server = createServer(async (request, response) => {
     const path = new URL(request.url, "http://local.test").pathname;
-    const file = path.startsWith("/assets/") ? path : "/index.html";
+    const file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html";
     try {
       const data = await readFile(new URL("../dist" + file, import.meta.url));
       response.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html");
@@ -50,13 +50,13 @@ test("login handles errors, prevents duplicate submissions and sends explicit ty
   await page.getByLabel("Email", { exact: true }).fill("owner@example.test");
   await page.getByLabel("Password", { exact: true }).fill("long-test-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector("button")?.disabled);
-  assert.equal(await page.getByRole("button").isDisabled(), true);
+  await page.waitForFunction(() => document.querySelector("main form button")?.disabled);
+  assert.equal(await page.locator("main form").getByRole("button").isDisabled(), true);
   release();
   await waitText(page, "alert", "Invalid email or password.");
   assert.equal(count, 1);
   assert.deepEqual(submitted, { email: "owner@example.test", password: "long-test-password" });
-  assert.equal(await page.getByRole("button").isDisabled(), false);
+  assert.equal(await page.locator("main form").getByRole("button").isDisabled(), false);
   assert.equal(await page.evaluate(() => localStorage.length), 0);
   await context.close();
 });
@@ -93,7 +93,7 @@ test("reset and verification deep links survive refresh and retain their token u
     await page.getByRole("heading", { level: 1 }).waitFor();
     assert.equal(count, 0);
     if (path.startsWith("/auth/password-reset")) await page.getByLabel("New password", { exact: true }).fill("long-test-password");
-    await page.getByRole("button").click();
+    await page.locator("main form").getByRole("button").click();
     await page.getByRole("status").waitFor();
     assert.equal(count, 1);
     assert.equal(submitted.token, path.includes("reset") ? "reset-token" : "verify-token");
@@ -132,8 +132,9 @@ test("logout refreshes session identity and removes the account display", async 
   } : { authenticated: false } }));
   await page.route("**/api/v1/auth/logout", route => { active = false; return route.fulfill({ json: { ok: true } }); });
   await page.goto(origin + "/");
+  await page.getByRole("button", { name: "Your account", exact: true }).click();
   await page.getByRole("button", { name: "Sign out" }).click();
-  await page.getByRole("complementary", { name: "Your account" }).waitFor({ state: "hidden" });
+  await page.locator("#profile-menu").waitFor({ state: "hidden" });
   assert.equal(await page.evaluate(() => localStorage.length), 0);
   await context.close();
 });
