@@ -46,7 +46,9 @@ jobs:
         run: |
           npm run generate
           git diff --exit-code -- packages/docs/openapi.yaml packages/api-client/src/schema.d.ts
-      - name: Install browser for static auth checks
+      - name: Install browser for static application checks
         run: npx playwright install --with-deps chromium
       - run: npm run build:css
       - run: npm run check
+      - name: Exercise compiled jobs/invocation/run slice against PostgreSQL
+        run: npm run test:static-slice --workspace=factorize

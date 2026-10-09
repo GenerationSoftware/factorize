@@ -2,6 +2,8 @@
 
 @layer base {
   body { @apply bg-slate-950 text-slate-100 antialiased; }
+  input, textarea, select { @apply block w-full rounded border border-slate-600 bg-slate-900 p-2; }
+  button { @apply rounded bg-sky-800 px-4 py-2 disabled:opacity-50; }
   a { @apply underline underline-offset-4; }
   :focus-visible { @apply outline-2 outline-offset-4 outline-sky-400; }
 }

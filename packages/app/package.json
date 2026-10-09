@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "check": "npm run build && npm test",
-    "test": "node --test test/auth.browser.test.mjs"
+    "test": "node --test test/*.browser.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.1",

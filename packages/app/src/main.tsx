@@ -1,3 +1,5 @@
+import { jobsRoutes } from "./features/jobs/routes";
+import { runRoutes } from "./features/runs/routes";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -28,7 +30,7 @@ const router = createRouter({
     </main>
   ),
   defaultNotFoundComponent: () => <main className="p-6"><h1>Page not found</h1></main>,
-  routeTree: rootRoute.addChildren([indexRoute, ...authRoutes(rootRoute)]),
+  routeTree: rootRoute.addChildren([indexRoute, ...authRoutes(rootRoute), ...jobsRoutes(rootRoute), ...runRoutes(rootRoute)]),
 });
 declare module "@tanstack/react-router" {
   interface Register { router: typeof router }

@@ -73,3 +73,53 @@ The new browser contract is additive. All nine session/native-auth JSON operatio
 The browser suite serves compiled static assets and mocks JSON responses at the network boundary. It verifies form behavior, pending/errors, duplicate submission protection, deep-link refresh/token retention, keyboard/mobile interaction, redirect UX and logout. It does **not** establish production hosting parity or full jobs/settings/protocol screen parity. PostgreSQL coverage exercises the real JSON dispatcher and repositories, including verification, password reset/change, membership, logout and revocation of delegated clients.
 
 The remaining completion gates still include consent/device JSON support and static screens, resource contracts and editor metadata, bounded job summaries/selector/concurrency, lightweight run status/revision-aware traces, all dashboard feature screens, large-workspace measurements, production routing/cache/header checks and legacy UI retirement. GEN-2157 must stay In Progress until those are implemented and verified.
+
+## Bounded reads and first static dashboard slice (continuation)
+
+The additive `/api/v1/job-summaries` and `/api/v1/job-selector` resources use a maximum 100-item
+page (default 30), immutable UUID descending ordering, literal case-insensitive name/slug search,
+optional enabled filtering and an exclusive UUID cursor. Keep filters fixed between pages.
+Concurrent inserts/deletes can affect membership; no cross-request snapshot is promised.
+The original jobs array and REST/MCP tool names remain available. Summary statistics are batched;
+selectors omit statistics, prompts and trigger configuration.
+
+`PUT /api/v1/jobs/{jobId}` and MCP `update_job` accept optional `expectedUpdatedAt` from the
+loaded full configuration. Under the existing repository row lock, a stale value returns
+`409 stale_job` without changing triggers or recording an edit. Successful updates advance the
+millisecond timestamp monotonically, including enabled-state changes. Legacy omission preserves
+last-writer-wins behavior. A future static editor must submit this field and offer reload/reconciliation.
+Full job schemas preserve the existing response names; legacy execution targets may omit cwd/workspace.
+
+`GET /api/v1/runs/{runId}/status` avoids detail decryption/assembly and returns `finalizing` separately
+from execution state. `/trace-pages` returns a revision and reset flag in the same SQL snapshot as
+events. Continue pages with that revision; a mismatch starts at zero and requires discarding cached
+old pages. Nonzero cursors require a revision. Live appends keep their generation; canonical
+projection/replay changes the revision. Legacy `/trace` remains unchanged. Terminal status is still
+polled while artifact collection/cleanup is unfinished. Legacy `state=done` selects both historical
+done and canonical succeeded rows; `ignored` remains a literal legacy filter, not an alias for stopped.
+Canonical succeeded/stopping/stopped filters are now accepted. Public template metadata is available
+at `/api/v1/trigger-contexts`.
+
+The draft SPA now includes jobs search/pagination, individual job display/enable controls, manual
+invocation with typed JSON and stable retry idempotency, and lightweight run status/trace pages.
+Feature modules use shared TanStack Query definitions and lazy routes. Mutation retries are disabled;
+explicit retries reuse the invocation key for identical data. Search/cursors remain in URLs. Trace
+text uses React escaping. Current trace DOM is bounded to one 100-event page. No route is cut over in
+production. The new public operations must deploy before these screens can be served.
+
+Validation commands include `npm run check`, `npm run test:static-slice --workspace=factorize`
+(with a disposable AUTH_TEST_DATABASE_URL and built app), docs validation, marketing build,
+and `npm run benchmark:migration --workspace=factorize`. CI retains merge-group checks and runs
+the compiled browser against the actual Worker dispatcher/repositories and disposable PostgreSQL.
+Provider/OAuth infrastructure is mocked in that test; invocation scheduling is not executed.
+Measurements and limitations are recorded in `packages/api/performance/GEN-2157-bounded-reads.md`.
+
+**GEN-2157 remains unfinished and the PR must remain draft.** Still required: the full React
+create/edit/provider experience with conditional conflict recovery, job run pagination, rich run
+prompt/context/provenance/diagnostics/artifact/stop/replay parity, virtualized continuous traces,
+integration/API-key/authorized-client/settings screens, consent/device JSON operations and static
+screens, remaining complete public schemas/contract mapping, broader auth/security/REST/MCP/browser
+compatibility coverage, browser performance evidence, production routing/CSP/cache/asset-retention
+and rollback verification, then legacy HTML/CSS/test retirement. Next implement the editor using
+full-job + selector + template metadata reads and conditional writes, before settings/consent and
+cutover. No infrastructure identity/bindings/migration history or production routes changed here.

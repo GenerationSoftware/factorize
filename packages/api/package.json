@@ -16,7 +16,9 @@
     "db:studio": "drizzle-kit studio --config drizzle.config.ts",
     "auth:validate-email": "node scripts/validate-auth-email.mjs",
     "generate:openapi": "tsx scripts/generate-openapi.ts",
-    "check:openapi": "tsx scripts/generate-openapi.ts --check"
+    "check:openapi": "tsx scripts/generate-openapi.ts --check",
+    "test:static-slice": "vitest run --config scripts/static-slice.config.ts",
+    "benchmark:migration": "vitest run --config scripts/migration-measurements.config.ts"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.10.3",
