@@ -1,6 +1,6 @@
 {
   "observedAt": "2026-10-09T21:36:51.952439+00:00",
-  "scope": "Production rollout and limited read-only acceptance; authenticated release acceptance remains outstanding",
+  "scope": "Production rollout and automated read-only acceptance, supplemented by subsequent owner review",
   "deployedCommit": "c64590cd3d8a6bcf39c9e71b90b9bf3f6f001170",
   "anchor": {
     "commit": "ff4b51bcbea0d30afbdbbccb0719c3f3bfb4e77c",
@@ -136,7 +136,15 @@
     ],
     "pageErrors": []
   },
-  "outstanding": {
+  "ownerReview": {
+    "reportedAt": "2026-10-09T21:46:38.834Z",
+    "reporter": "Brendan Asselstine",
+    "source": "https://linear.app/generation/issue/GEN-2157",
+    "commentId": "0ae991ba-5863-4dbc-8b8f-1902d9f5dbb0",
+    "statement": "I have checked app.factorize.sh and everything seems to work",
+    "scope": "Owner-reported general production acceptance; individual provider/OAuth/device scenarios were not itemized. This supplements the historical automated evidence above."
+  },
+  "outstandingAtInitialObservation": {
     "ownerProviderOAuthDeviceChecks": "Not completed: attached integration supplies bearer credentials, not an interactive owner session. Auth API, API keys and authorized-client management correctly reject this access with 403.",
     "nextAction": "An authenticated owner must verify job edit/invoke/run trace, provider integration setup, API-key create/revoke, OAuth consent and device approval at app.factorize.sh, then report results. Keep issue In Progress and PR draft until release acceptance is complete."
   }

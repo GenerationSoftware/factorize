@@ -168,8 +168,8 @@ using five Chromium samples per screen and disposable PostgreSQL with 20 ms quer
    after deployment. It verifies deep links, external bundles, static CSP/security/cache
    headers, API/protocol error ownership and unchanged OAuth issuer/device metadata.
    Complete authenticated owner/provider/OAuth/MCP smoke checks in the production environment
-   as part of release review. The PR's local runtime/DB/browser checks do not claim an
-   already-deployed production cutover or real external-provider authorization round trip.
+   as part of release review. Local runtime/DB/browser checks alone do not establish
+   production acceptance; see the separate production evidence and owner report below.
 
 Static responses use external-bundle CSP with no nonce/unsafe-inline, nosniff, DENY frame
 policy, same-origin referrer policy, permissions policy and HTTPS HSTS. Hashed assets cache
@@ -218,9 +218,25 @@ Read-only production bearer REST/MCP checks and anonymous Chromium auth/deep-lin
 screens passed. See `packages/api/performance/gen-2157-production-rollout.json`.
 The earlier cutover-validation artifact remains historical local evidence.
 
-Authenticated owner/provider release acceptance is still outstanding. The attached
-Factorize integration has bearer access and correctly receives 403 from session,
-API-key and authorized-client operations. It cannot exercise browser owner flows.
-An owner must complete job edit/invoke/run trace, provider setup, API-key lifecycle,
-OAuth consent and device approval checks and report results before GEN-2157 is Done
-or PR #206 is marked ready. Do not transmit credentials or tokens to perform review.
+Brendan Asselstine subsequently reported on GEN-2157 at 2026-10-09 21:46 UTC:
+“I have checked app.factorize.sh and everything seems to work.” This supplies the
+owner review requested after deployment. It is a general production acceptance
+report, not an itemized automated result for each provider/OAuth/device scenario.
+The attached integration remains bearer-only; no owner credentials were obtained.
+A fresh public routing/security/cache verification also passed during final review.
+
+## Branch and pull request lineage
+
+All three branches share one linear history based on main `82a9cda`:
+
+| Reference | Role |
+| --- | --- |
+| PR #205 / `gen-2157-package-boundary` at `a5c8579` | Initial mechanical move and package foundation; entirely included in #206 |
+| `gen-2157-api-rollout-anchor` at `ff4b51b` | Intermediate additive API deployment and rollback checkpoint; intentionally retains legacy UI |
+| PR #206 / `gen-2157-auth-contracts` | Complete migration, including the foundation, API anchor, static cutover and deployment fixes |
+
+PR #206 is the canonical merge candidate. #205 requires no separate merge. The
+anchor is older than #206, not a newer implementation, and must remain available
+for documented rollback and the rollback runtime test. Preserve merge history
+when landing #206 so the deployment's historical stylesheet and rollback commits
+remain reachable; do not squash away the staged migration history.

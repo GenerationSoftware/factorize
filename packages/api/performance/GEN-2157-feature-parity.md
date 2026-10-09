@@ -54,9 +54,9 @@ and session-version revocation using isolated KV/PostgreSQL. The actual rollback
 runtime restores `ff4b51b`, its legacy UI and compiled chunks without state changes.
 HTTPS Vite-to-Worker session proxying also passed.
 
-A read-only check of the public origin returned 401 for `/api/v1/session`, so the
-required API-first stage is not yet live. No deployment or authenticated production
-smoke checks have been performed. Release acceptance remains open: deploy the
-additive anchor, verify the marker, deploy static with retained assets, run the
-public routing/security/cache verifier and authenticated owner/provider/OAuth/MCP
-release checks. Local evidence does not claim these production gates passed.
+The initial pre-cutover check returned 401 for `/api/v1/session`; that historical
+result is recorded in `gen-2157-cutover-validation.json`. The subsequent API anchor
+and static production deployments succeeded, as recorded separately in
+`gen-2157-production-rollout.json`. Brendan's later Linear production review reports
+that app.factorize.sh works. See `docs/package-migration.md` for release evidence,
+its limits, branch lineage and the preserved rollback checkpoint.
