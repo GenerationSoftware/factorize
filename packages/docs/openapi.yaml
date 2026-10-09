@@ -61,6 +61,7 @@ components:
         format: { type: string, const: text }
         format_version: { type: [string, 'null'] }
         cli_version: { type: [string, 'null'] }
+        source_generation: { type: [string, 'null'], description: Live source generation bound to the terminal snapshot; unknown for historical receipts. }
         native_session_id: { type: [string, 'null'] }
         byte_size: { type: [integer, string], description: Byte count (PostgreSQL bigint may serialize as a decimal string), maximum: 65536 }
         sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
@@ -100,6 +101,8 @@ components:
             mismatches: { type: integer }
             liveOffset: { type: [integer, 'null'] }
             artifactBytes: { type: integer }
+            generation: { type: [string, 'null'] }
+            codexCompletion: { type: string, enum: [turn.completed, missing_turn_completed], description: Completion evidence from the exact retained canonical Codex bytes. }
     TraceDiagnostics:
       type: object
       required: [provider, primarySource, sourceVersion, projection, liveCursor, counts, artifacts, nativeArtifactState, fallbackUsed, lastReplay]
@@ -124,9 +127,9 @@ components:
             unknownEventRate: { type: number, minimum: 0, maximum: 1 }
         artifacts:
           type: array
-          description: Tenant/run-scoped receipts; storage keys are locators, never public download URLs. Includes kind, provider, format and source/CLI/harness versions, byte size, checksum and storage state.
+          description: Tenant/run-scoped receipts; storage keys are locators, never public download URLs. Includes kind, provider, source_path, source_generation, format and source/CLI/harness versions, byte size, checksum and storage state.
           items: { type: object }
-        nativeArtifactState: { type: string, enum: [stored, missing], description: Missing means no retained native artifact receipt; recovery is not promised. }
+        nativeArtifactState: { type: string, enum: [stored, missing, not_applicable], description: Canonical Codex runs do not capture native sessions. Historical native receipts remain readable. }
         fallbackUsed: { type: boolean, description: Native projection selected for a run originally declared with an execution stream primary. }
         lastReplay: { type: [object, 'null'], description: Latest completed replay request ID, source, result, and timestamp; failed requests are retryable and logged. }
     TraceReplayRequest:
@@ -135,7 +138,7 @@ components:
       required: [requestId]
       properties:
         requestId: { type: string, format: uuid, description: Tenant-scoped idempotency key; preserve it when retrying. Use a new key to reconsider a previously skipped or unrecoverable run. }
-        source: { type: string, enum: [primary, native_session], default: primary, description: Primary replays the persisted source declaration (native for historical runs); native_session explicitly rolls back to retained native bytes. }
+        source: { type: string, enum: [primary, native_session], default: primary, description: Primary replays the persisted source declaration (native for historical runs); native_session explicitly selects retained native bytes for other providers or historical native-only Codex runs. Canonical Codex runs reject native replay. }
     TraceReplayResult:
       type: object
       required: [requestId, runId, status]

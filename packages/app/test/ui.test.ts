@@ -416,8 +416,8 @@ describe("pages", () => {
     expect(run).not.toContain("Context sent to agent");
     expect(run).not.toContain('data-run-context');
     expect(run).toContain('font-mono text-xs leading-5');
-    expect(run).toContain("Native '+esc(r.agent_kind||'agent')+' session");
-    expect(run).toContain("esc(r.artifact_state||'pending')");
+    expect(run).toContain("esc(traceSourceLabel(r))");
+    expect(run).toContain("(r.artifact_state||'pending')");
     expect(run).toContain('pageRefresh(async()=>');
     expect(run).toContain("Live · refreshes automatically");
     expect(run).toContain('data-run-elapsed');

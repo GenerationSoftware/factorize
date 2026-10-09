@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { artifactUpload, issueArtifactUploadGrant, readArtifactUploadGrant } from "../src/artifact-upload";
 
 const secret = "test-secret";
-const grant = { tenantId: "tenant-1", runId: "run-1", path: "native/session.jsonl", contentType: "application/x-ndjson", provider: "codex" as const, format: "jsonl" as const, expiresAt: Date.now() + 60_000 };
+const grant = { tenantId: "tenant-1", runId: "run-1", path: "native/session.jsonl", contentType: "application/x-ndjson", provider: "claude" as const, format: "jsonl" as const, expiresAt: Date.now() + 60_000 };
 
 describe("artifact upload grants", () => {
   it("round trips and expires signed grants", async () => {
@@ -15,10 +15,10 @@ describe("artifact upload grants", () => {
   it("streams the request into its deterministic object key", async () => {
     const put = vi.fn(async (_key, body) => ({ httpEtag: "etag", size: 7, body }));
     const token = await issueArtifactUploadGrant(grant, secret);
-    const query = vi.fn(async (sql: string) => ({ rows: sql.startsWith("SELECT id,trace_sources") ? [{ id: "run-1" }] : [], rowCount: 1 })), get = vi.fn(async () => ({ body: new Response(JSON.stringify({ type: "session_meta", payload: { id: "s1" } })).body }));
-    const response = await artifactUpload(new Request(`https://app/internal/run-artifacts/${encodeURIComponent(token)}`, { method: "PUT", headers: { "Content-Type": grant.contentType, "X-Artifact-SHA256": "a".repeat(64) }, body: "session" }), { SESSION_SIGNING_SECRET: secret, RUN_ARTIFACTS: { put, get }, DATABASE: { pool: { query }, transaction: (work: any) => work({ query }) } } as any, token);
+    const query = vi.fn(async (sql: string) => ({ rows: sql.startsWith("SELECT id,trace_sources") ? [{ id: "run-1" }] : [], rowCount: 1 })), get = vi.fn(async () => ({ size: 7, body: new Response(JSON.stringify({ type: "session_meta", payload: { id: "s1" } })).body }));
+    const response = await artifactUpload(new Request(`https://app/internal/run-artifacts/${encodeURIComponent(token)}`, { method: "PUT", headers: { "Content-Type": grant.contentType, "Content-Length": "7", "X-Artifact-SHA256": "a".repeat(64) }, body: "session" }), { SESSION_SIGNING_SECRET: secret, RUN_ARTIFACTS: { put, get }, DATABASE: { pool: { query }, transaction: (work: any) => work({ query }) } } as any, token);
     expect(response.status).toBe(201);
-    expect(put).toHaveBeenCalledWith(`tenants/tenant-1/runs/run-1/native/${"a".repeat(64)}.jsonl`, expect.any(ReadableStream), expect.objectContaining({ customMetadata: { tenantId: "tenant-1", runId: "run-1" } }));
+    expect(put).toHaveBeenCalledWith(`tenants/tenant-1/runs/run-1/native/${"a".repeat(64)}.jsonl`, expect.any(ReadableStream), expect.objectContaining({ customMetadata: expect.objectContaining({ tenantId: "tenant-1", runId: "run-1" }) }));
   });
 
   it("rejects mismatched content types before storage", async () => {
@@ -30,7 +30,7 @@ describe("artifact upload grants", () => {
   it("stores and reprojects the primary copy while keeping native uploads separate", async () => {
     const query = vi.fn(async (sql: string, _values?: any[]) => ({ rows: sql.startsWith("SELECT id,trace_sources") ? [{ trace_sources: { primary: { kind: "execution_stream" } } }] : [], rowCount: 1 }));
     const jsonl = JSON.stringify({ version: 1, id: "a", type: "assistant_message", title: "Assistant", preview: "hello" }) + "\n{partial";
-    const put = vi.fn(async (_key: string, _body: any, _options: any) => ({ httpEtag: "etag" })), get = vi.fn(async () => ({ body: new Response(jsonl).body }));
+    const put = vi.fn(async (_key: string, _body: any, _options: any) => ({ httpEtag: "etag" })), get = vi.fn(async () => ({ size: new TextEncoder().encode(jsonl).length, body: new Response(jsonl).body }));
     const env = { SESSION_SIGNING_SECRET: secret, RUN_ARTIFACTS: { put, get }, DATABASE: { pool: { query }, transaction: (work: any) => work({ query }) } } as any;
     const primary = { ...grant, sourceKind: "execution_stream" as const, traceGeneration: null, sourcePath: "/tmp/events.jsonl", formatVersion: "1", harnessVersion: "h1", cliVersion: "p1", primary: true };
     const upload = async (value: typeof grant) => {

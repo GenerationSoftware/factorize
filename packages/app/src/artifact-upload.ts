@@ -58,9 +58,10 @@ export async function artifactUpload(request: Request, env: Env, token: string):
   if (!env.RUN_ARTIFACTS) return new Response("Artifact storage is unavailable", { status: 503 });
   const grant = await readArtifactUploadGrant(token, env.SESSION_SIGNING_SECRET);
   if (!grant || grant.purpose === "trace_chunk") return new Response("Invalid or expired artifact upload grant", { status: 401 });
-  if (!request.body) return new Response("Artifact body is required", { status: 400 });
-  const sha256 = request.headers.get("X-Artifact-SHA256")?.toLowerCase() ?? "", size = Number(request.headers.get("Content-Length"));
+  if (grant.provider === "codex" && grant.sourceKind !== "execution_stream") return new Response("Codex native artifact capture is disabled; historical receipts remain readable", { status: 409 });
+  const sha256 = request.headers.get("X-Artifact-SHA256")?.toLowerCase() ?? "", size = Number(request.headers.get("Content-Length") ?? NaN);
   if (!/^[0-9a-f]{64}$/.test(sha256) || !Number.isSafeInteger(size) || size < 0) return new Response("Artifact checksum and size are required", { status: 400 });
+  if (!request.body && size !== 0) return new Response("Artifact body is required", { status: 400 });
   if (size > 256 * 1024 * 1024) return new Response("Artifact exceeds the 256 MiB limit", { status: 413 });
   const suppliedType = request.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (suppliedType !== grant.contentType.toLowerCase()) return new Response("Artifact content type does not match the grant", { status: 400 });
@@ -71,10 +72,13 @@ export async function artifactUpload(request: Request, env: Env, token: string):
   const existing = await repository.list(grant.runId);
   const terminal = existing.find(item => item.kind === "execution_stream" && item.state === "stored");
   if (grant.sourceKind === "execution_stream" && terminal && terminal.sha256 !== sha256) return new Response("Terminal trace stream is immutable", { status: 409 });
-  const object = await env.RUN_ARTIFACTS.put(key, request.body, { httpMetadata: { contentType: grant.contentType }, customMetadata: { tenantId: grant.tenantId, runId: grant.runId }, sha256 });
-  const record = (client: DatabaseClient) => repository.record({ runId: grant.runId, kind: grant.sourceKind ?? "native_session", sourcePath: grant.sourcePath, mediaType: grant.contentType, harnessVersion: grant.harnessVersion, formatVersion: grant.formatVersion, cliVersion: grant.cliVersion, objectKey: key, provider: grant.provider, format: grant.format, nativeSessionId: grant.nativeSessionId, byteSize: size, sha256 }, client);
+  const retainedStream = grant.sourceKind === "execution_stream" && terminal;
+  if (retainedStream) await request.body?.cancel();
+  const object = retainedStream ? null : await env.RUN_ARTIFACTS.put(key, request.body ?? new Uint8Array(), { httpMetadata: { contentType: grant.contentType }, customMetadata: { tenantId: grant.tenantId, runId: grant.runId, generation: grant.traceGeneration ?? "", sourcePath: grant.sourcePath ?? "" }, sha256 });
+  const record = (client: DatabaseClient) => repository.record({ runId: grant.runId, kind: grant.sourceKind ?? "native_session", sourceGeneration: grant.traceGeneration, sourcePath: grant.sourcePath, mediaType: grant.contentType, harnessVersion: grant.harnessVersion, formatVersion: grant.formatVersion, cliVersion: grant.cliVersion, objectKey: key, provider: grant.provider, format: grant.format, nativeSessionId: grant.nativeSessionId, byteSize: size, sha256 }, client);
   const stored = await env.RUN_ARTIFACTS.get(key);
   if (!stored) return new Response("Artifact disappeared after upload", { status: 502 });
+  if (stored.size !== size) { await stored.body.cancel(); return new Response("Retained artifact size does not match upload receipt", { status: 422 }); }
   const database = databaseFor(env);
   const conflict = await database.transaction(async client => {
     // Shares the lock with incremental ingestion: terminal projection wins atomically.
@@ -93,13 +97,23 @@ export async function artifactUpload(request: Request, env: Env, token: string):
     if (grant.sourceKind !== "execution_stream" && native && native.sha256 !== sha256) return "Terminal native session is immutable";
     const primary = grant.sourceKind === "execution_stream" || (grant.primary !== false && !terminal && run?.trace_sources?.primary?.kind !== "execution_stream");
     const projection = (await client.query("SELECT source_kind,artifact_sha256,parser_version FROM app.run_trace_projections WHERE tenant_id=$1 AND run_id=$2", [grant.tenantId, grant.runId])).rows[0];
-    // A terminal retry after an explicit rollback must never restore the stream projection.
-    const alreadyProjected = projection?.source_kind === (grant.sourceKind ?? "native_session") && projection?.artifact_sha256 === sha256 && projection?.parser_version === TRACE_PARSER_VERSION;
-    if (primary && !alreadyProjected && !(terminal && projection?.source_kind === "native_session")) await new TraceProjectionRepository(database, grant.tenantId).project(client, grant.runId, { provider: grant.provider, kind: grant.sourceKind ?? "native_session", sha256, byte_size: size }, stored.body, grant.sourceKind === "execution_stream");
-    if (!primary || alreadyProjected || (terminal && projection?.source_kind === "native_session")) await stored.body.cancel();
     await record(client);
+    // Keep the immutable receipt even when projection fails. A retry projects
+    // these retained bytes, rather than replacing them with another guest snapshot.
+    await client.query("SAVEPOINT terminal_projection");
+    try {
+      const alreadyProjected = projection?.source_kind === (grant.sourceKind ?? "native_session") && projection?.artifact_sha256 === sha256 && projection?.parser_version === TRACE_PARSER_VERSION;
+      const historicalRollback = grant.provider !== "codex" && terminal && projection?.source_kind === "native_session";
+      if (primary && !alreadyProjected && !historicalRollback) await new TraceProjectionRepository(database, grant.tenantId).project(client, grant.runId, { provider: grant.provider, kind: grant.sourceKind ?? "native_session", sha256, byte_size: size }, stored.body, grant.sourceKind === "execution_stream");
+      else await stored.body.cancel();
+      await client.query("RELEASE SAVEPOINT terminal_projection");
+    } catch {
+      await client.query("ROLLBACK TO SAVEPOINT terminal_projection");
+      await client.query("UPDATE app.runs SET artifact_state='partial',artifact_error='Retained primary trace projection failed',updated_at=now() WHERE tenant_id=$1 AND id=$2", [grant.tenantId, grant.runId]);
+      return "Retained primary trace projection failed";
+    }
     return null;
   });
   if (conflict) return new Response(conflict, { status: 409 });
-  return Response.json({ key, etag: object.httpEtag }, { status: 201 });
+  return Response.json({ key, etag: object?.httpEtag ?? stored.httpEtag }, { status: 201 });
 }

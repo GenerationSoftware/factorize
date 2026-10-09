@@ -9,6 +9,20 @@ afterEach(() => vi.unstubAllGlobals());
 const connection = { apiToken: "secret", agentKind: "codex", tags: ["github", "llm"], model: "gpt-5.5", effort: "high" } satisfies ExeRunConnection;
 
 describe("ExeVmBackend", () => {
+  it.each([true, false])("terminates the writer while preserving the VM (stop succeeds=%s)", async succeeds => {
+    const commands: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      commands.push(String(init.body));
+      if (commands.length === 1) return new Response("", { status: succeeds ? 200 : 503 });
+      return new Response("LoadState=loaded\nActiveState=inactive\nSubState=dead\nResult=success\nExecMainCode=1\nExecMainStatus=0");
+    }));
+    const result = await new ExeVmBackend(connection).terminate({ backendKind: "exe-vm", id: "factorize-run" });
+    expect(result.state).toBe(succeeds ? "stopped" : "stopping");
+    expect(commands[0]).toContain("sudo systemctl stop");
+    expect(commands.every(command => command.startsWith("ssh "))).toBe(true);
+    expect(commands).toHaveLength(succeeds ? 2 : 1);
+  });
+
   it("tests every required permission and discovers sorted unique VM tags", async () => {
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => String(init.body) === "ssh --help"
       ? new Response("forbidden", { status: 403 })

@@ -45,8 +45,8 @@ describe("deployment source gates", () => {
     for (const provider of ["codex", "claude", "pi"] as const) {
       const sources = agentDriver(provider).launch("run", {}).traceSources!;
       expect(rolloutTraceSources(sources, "canary", { TRACE_STREAM_TENANTS: "canary" }).primary.kind).toBe(provider === "pi" ? "native_session" : "execution_stream");
-      expect(rolloutTraceSources(sources, "other", { TRACE_STREAM_TENANTS: "canary" }).primary.kind).toBe("native_session");
-      expect(rolloutTraceSources(sources, "canary", { TRACE_PRIMARY_MODE: "native_session" }).primary.kind).toBe("native_session");
+      expect(rolloutTraceSources(sources, "other", { TRACE_STREAM_TENANTS: "canary" }).primary.kind).toBe(provider === "codex" ? "execution_stream" : "native_session");
+      expect(rolloutTraceSources(sources, "canary", { TRACE_PRIMARY_MODE: "native_session" }).primary.kind).toBe(provider === "codex" ? "execution_stream" : "native_session");
       expect(sources.primary.kind).toBe(provider === "pi" ? "native_session" : "execution_stream");
     }
   });

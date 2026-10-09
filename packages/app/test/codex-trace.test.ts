@@ -5,11 +5,12 @@ import { agentDriver } from "../src/agent-driver";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/codex/${name}`, import.meta.url), "utf8");
 describe("Codex traces", () => {
-  it("launches raw stdout as the primary source with a separate native audit", () => {
+  it("launches raw stdout as the primary source without native capture", () => {
     const launch = agentDriver("codex").launch("run-1", {});
     expect(launch.args).toContain("--json");
     expect(launch.traceSources?.primary).toMatchObject({ kind: "execution_stream", formatVersion: "codex-exec-jsonl" });
-    expect(launch.traceSources?.nativeSession?.kind).toBe("native_session");
+    expect(launch.traceSources?.nativeSession).toBeUndefined();
+    expect(launch.artifacts.discoverCommand).not.toContain(".codex");
   });
   it("projects the captured CLI command immediately and correlates its completion", async () => {
     const transcript = fixture("exec-0.161.0.jsonl");

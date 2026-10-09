@@ -13,7 +13,7 @@ function fixture(exit = 42) {
   const events: string[] = [], artifacts: any[] = [], blobs = new Map<string, string>();
   let saved: ExecutionDiagnostics | null = null;
   const backend = new ExeVmBackend({ apiToken: "secret", tags: [] });
-  const run: any = { tenantId: "tenant", id: "run", jobId: "job", executionTarget: { agentKind: "codex" }, executionHandle: { backendKind: "exe-vm", id: "factorize-run" }, finalizationAttempt: 0 };
+  const run: any = { tenantId: "tenant", id: "run", jobId: "job", executionTarget: { agentKind: "claude" }, executionHandle: { backendKind: "exe-vm", id: "factorize-run" }, finalizationAttempt: 0 };
   vi.stubGlobal("fetch", vi.fn(async (_url, init) => new Response(String(init.body).includes("systemctl")
     ? `LoadState=loaded\nActiveState=${exit ? "failed" : "active"}\nSubState=${exit ? "failed" : "exited"}\nResult=${exit ? "exit-code" : "success"}\nExecMainCode=1\nExecMainStatus=${harness.status}`
     : harness.stderr)));
@@ -104,15 +104,77 @@ describe("durable run finalization", () => {
     expect(f.recordObservation).not.toHaveBeenCalled();
     expect(f.stop).not.toHaveBeenCalled();
   });
-  it("collects a failed process primary stream and native audit session independently", async () => {
+  it("collects a failed Codex primary stream without a native audit session", async () => {
     const f = fixture();
     const source = { kind: "execution_stream", path: "/tmp/events.jsonl", mediaType: "application/x-ndjson", provider: "codex" };
-    f.run.executionTarget.traceSources = { primary: source };
+    f.run.executionTarget.agentKind = "codex";
+    f.run.traceSources = { primary: source };
+    vi.spyOn(f.scheduler, "finalizePrimary").mockResolvedValue([]);
     f.native.mockImplementation(async (_run: any, _backend: any, source?: any) => { f.events.push(source ? "stream" : "native"); f.artifacts.push({ kind: source ? "execution_stream" : "native_session", state: "stored" }); return { ok: true }; });
     await f.scheduler.poll(f.run);
-    expect(f.events).toEqual(["observation", "log", "stream", "native", "cleanup"]);
+    expect(f.events).toEqual(["observation", "log", "stream", "cleanup"]);
     expect((f.native.mock.calls as any)[0].slice(2)).toEqual([source, true]);
     expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", undefined, true);
+  });
+
+  it.each(["succeeded", "failed", "stopped"])("retains the canonical source for %s before cleanup", async state => {
+    const f = fixture(0);
+    const source = { kind: "execution_stream", path: "/tmp/factorize-artifacts/run/codex-exec.jsonl", provider: "codex", mediaType: "application/x-ndjson" };
+    f.run.traceSources = { primary: source };
+    f.run.executionTarget = { agentKind: "codex", traceSources: { primary: { kind: "native_session" } } };
+    f.run.executionDiagnostics = terminalDiagnostics({ state } as any);
+    vi.spyOn(f.scheduler, "finalizePrimary").mockResolvedValue([]);
+    await f.scheduler.poll(f.run);
+    expect(f.native).toHaveBeenCalledOnce();
+    expect(f.native.mock.calls[0].slice(2)).toEqual([source, true]);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, state, "stored", undefined, true);
+  });
+  it("shows incomplete Codex traces as partial and retries without recapturing stored bytes", async () => {
+    const f = fixture(0);
+    f.run.traceSources = { primary: { kind: "execution_stream", path: "/tmp/codex-exec.jsonl", provider: "codex" } };
+    f.run.executionTarget.agentKind = "codex";
+    f.artifacts.push({ kind: "execution_stream", state: "stored" });
+    vi.spyOn(f.scheduler, "finalizePrimary").mockResolvedValue(["Canonical Codex execution stream is incomplete: missing turn.completed"]);
+    await f.scheduler.poll(f.run); await f.scheduler.poll(f.run); await f.scheduler.poll(f.run);
+    expect(f.native).not.toHaveBeenCalled();
+    expect(f.stop).toHaveBeenCalledOnce();
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "partial", expect.stringContaining("missing turn.completed"), true);
+  });
+  it("stops the Codex writer before collecting a cancelled run", async () => {
+    const f = fixture(0);
+    f.run.state = "stopping";
+    f.run.traceSources = { primary: { kind: "execution_stream", path: "/tmp/codex-exec.jsonl", provider: "codex" } };
+    f.run.executionTarget.agentKind = "codex";
+    const terminate = vi.spyOn(f.backend, "terminate").mockImplementation(async () => { f.events.push("terminate"); return { state: "stopped" }; });
+    vi.spyOn(f.scheduler, "finalizePrimary").mockResolvedValue([]);
+    await f.scheduler.poll(f.run);
+    expect(terminate).toHaveBeenCalledOnce();
+    expect(f.events[0]).toBe("terminate");
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "stopped", "stored", undefined, true);
+  });
+
+  it("bounds canonical collection failures, exposes the exact path, and never collects native", async () => {
+    const f = fixture(0);
+    const source = { kind: "execution_stream", path: "/tmp/factorize-artifacts/run/codex-exec.jsonl", provider: "codex" };
+    f.run.traceSources = { primary: source };
+    f.run.executionTarget.agentKind = "codex";
+    f.native.mockResolvedValue({ ok: false });
+    vi.spyOn(f.scheduler, "finalizePrimary").mockResolvedValue(["Canonical execution stream receipt missing or ambiguous"]);
+    await f.scheduler.poll(f.run); await f.scheduler.poll(f.run); await f.scheduler.poll(f.run);
+    expect(f.native).toHaveBeenCalledTimes(3);
+    expect(f.native.mock.calls.every(call => call[2] === source)).toBe(true);
+    expect(f.stop).toHaveBeenCalledOnce();
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "partial", expect.stringContaining(source.path), true);
+  });
+
+  it("does not create artifacts for an in-flight historical native-only Codex run", async () => {
+    const f = fixture(0);
+    f.run.traceSources = { primary: { kind: "native_session", provider: "codex", path: "/old/native" } };
+    f.run.executionTarget.agentKind = "codex";
+    f.run.finalizationAttempt = 2;
+    await f.scheduler.poll(f.run);
+    expect(f.native).not.toHaveBeenCalled();
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "partial", expect.stringContaining("read-only"), true);
   });
 
 });

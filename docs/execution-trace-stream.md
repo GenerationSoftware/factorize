@@ -3,8 +3,8 @@
 An agent launch may declare `traceSources.primary` with `kind: execution_stream`,
 an absolute guest `path`, `mediaType: application/x-ndjson`, and its `provider`.
 `formatVersion`, `cliVersion`, and `harnessVersion` identify the producing harness
-when known. Declare the native audit session separately as `nativeSession`;
-native discovery commands remain supported. Codex declares raw `codex exec --json` stdout as its primary stream with
+when known. Claude may declare a separate native audit session as `nativeSession`.
+Codex declares only the canonical stream and never discovers or captures a native session. Codex declares raw `codex exec --json` stdout as its primary stream with
 `formatVersion: codex-exec-jsonl`; Claude declares the stream producer described below.
 Pi keeps its published native session as primary; see
 [Pi session contract](pi-session-contract.md).
@@ -42,17 +42,25 @@ must use rename rotation, never truncate and regrow between polls: an unobserved
 rewrite violates the append-only contract. File descriptors pin the file identity
 during each read, avoiding rename/read races.
 
-At termination (including process failure), the exact stream snapshot is uploaded
-to `trace/<sha256>.jsonl`, separately from `native/session.jsonl`. Reprojection
-reads that durable snapshot. Its stored artifact receipt and final projection
-commit together under the same run lock as live ingestion. Later chunks are
+At termination (success, failure, or stop), the exact stream snapshot is uploaded
+to `trace/<sha256>.jsonl`. Codex retains exactly one `execution_stream` receipt for
+`/tmp/factorize-artifacts/<run>/codex-exec.jsonl`; stderr remains a separate
+`terminal_log`. Stopping terminates the writer before collecting and deleting the VM.
+Reprojection reads the durable snapshot under the same run lock as live ingestion.
+The receipt survives projection failure, allowing finalization to retry from retained
+bytes without recapturing a mutable guest file. Later chunks are
 rejected, terminal retries cannot replace the snapshot with different bytes, and
 native audit uploads cannot overwrite its projection. Failed collection is retried
 and ultimately reported as partial using the existing finalization policy.
 
 Launch source declarations are persisted on the run (`trace_sources`), exposed
 by run detail and diagnostics. Artifact rows retain source kind, guest path,
-media type, provider, format/CLI/harness versions where supplied. Historical
+media type, provider, source generation, and format/CLI/harness versions where supplied.
+Missing `turn.completed` in Codex stdout is recorded as
+`reconciliation.codexCompletion=missing_turn_completed`, and finalization reports
+`artifact_state=partial` with a specific reason, even when the process exited zero.
+Reconciliation mismatches and collection/projection failures also report partial.
+The UI displays that failure reason. Cleanup occurs only after bounded retries. Historical
 native-only runs still use their existing provider parser and artifact semantics.
 
 ## Claude Code stdout producer (GEN-2138)
@@ -101,15 +109,19 @@ https://code.claude.com/docs/en/cli-reference .
 Run diagnostics expose the declared provider/source/version, retained artifact
 receipts, actual projection source/checksum/parser revision, live generation and
 byte cursor, reconciliation state, warning and unknown-event counts, and explicit
-native fallback use. A null projection or missing native artifact is not proof
-of completeness or recoverability. Terminal reconciliation compares the live
+native fallback use. A null projection or missing primary artifact is not proof
+of completeness or recoverability. Codex native artifact state is `not_applicable`. Terminal reconciliation compares the live
 projection prefix to the durable snapshot. The browser resets pagination when
 its source generation or durable projection changes, including rollback.
 
 Tenant owners can replay one terminal run's retained primary or native artifact
 through `POST /api/v1/runs/{runId}/trace/replay`, using an interactive owner session
 with `runs:write` and a UUID `requestId`. Native replay recovers historical Codex
-custom tool calls only when native JSONL exists. Completed requests are idempotent;
+custom tool calls only for historical native-only runs when native JSONL exists.
+Canonical Codex runs reject `source=native_session`; they replay only their primary
+stream. No migration of historical native bytes is required, and no new native
+Codex artifacts are accepted. Deployment gates cannot switch new Codex launches
+to native primary. Claude rollout gates and Pi native primary remain supported. Completed requests are idempotent;
 failed transactions can resume; missing artifacts are reported unrecoverable.
 Replay is limited to 10 requests per tenant per minute. Artifact keys are storage
 locators, not download URLs. See the [rollout and incident runbook](trace-rollout-runbook.md)

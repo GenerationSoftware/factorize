@@ -15,6 +15,7 @@ import { AutomationScheduler } from "./automation-scheduler";
 import { agentDriver, driverTraceSources, type AgentKind } from "../agent-driver";
 import { traceMetric } from "../trace-observability";
 import { rolloutTraceSources } from "../trace-source";
+import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./trace-projection-repository";
 import { LiveTraceRepository } from "./live-trace-repository";
 
 export class RunScheduler {
@@ -47,7 +48,7 @@ export class RunScheduler {
 
   private async poll(run: PersistedRun) {
     const backend = await this.backend(run); if (!run.executionHandle) throw new Error("Execution handle is missing");
-    const observation = run.executionDiagnostics ?? await backend.inspect(run.executionHandle);
+    const observation = run.executionDiagnostics ?? (run.state === "stopping" && backend instanceof ExeVmBackend ? await backend.terminate(run.executionHandle) : await backend.inspect(run.executionHandle));
     if (["running", "blocked", "stopping"].includes(observation.state)) {
       if (backend instanceof ExeVmBackend) await this.collectTraceChunk(run, backend).catch(() => { traceMetric("chunk_collection_failure", run.tenantId, run.id); });
       return this.runs.schedulePoll(run, observation.state as "running" | "blocked" | "stopping");
@@ -66,17 +67,22 @@ export class RunScheduler {
         catch { errors.push("Harness log collection or storage failed"); }
       }
       const sources = this.sources(run);
+      if (sources.primary.provider === "codex" && sources.primary.kind !== "execution_stream") errors.push("Historical Codex native source is read-only; canonical execution stream was not declared");
       if (sources.primary.kind === "execution_stream" && !stored.some(item => item.kind === "execution_stream" && item.state === "stored")) {
         try {
           const collected = await this.collectArtifact(run, backend, sources.primary, true);
-          if (!collected.ok) errors.push("Primary trace stream upload failed");
-        } catch { errors.push("Primary trace stream collection or reconciliation failed"); }
+          if (!collected.ok) errors.push(`Canonical execution stream upload failed: ${sources.primary.path}`);
+        } catch { errors.push(`Canonical execution stream collection failed: ${sources.primary.path}`); }
       }
-      if (!stored.some(item => item.kind === "native_session" && item.state === "stored")) {
+      if (sources.primary.provider !== "codex" && !stored.some(item => item.kind === "native_session" && item.state === "stored")) {
         try {
           const collected = await this.collectArtifact(run, backend);
           if (!collected.ok) { errors.push("Native session upload failed"); traceMetric("missing_native_artifact", run.tenantId, run.id, { attempt: run.finalizationAttempt ?? 0 }); }
         } catch { errors.push("Native session collection or storage failed"); traceMetric("missing_native_artifact", run.tenantId, run.id, { attempt: run.finalizationAttempt ?? 0 }); }
+      }
+      if (sources.primary.kind === "execution_stream") {
+        try { errors.push(...await this.finalizePrimary(run, sources.primary)); }
+        catch { errors.push("Retained primary trace projection failed"); }
       }
       // Retry collection, but do not keep a VM forever for an absent session/log.
       if (errors.length && (run.finalizationAttempt ?? 0) < 2) {
@@ -95,6 +101,34 @@ export class RunScheduler {
     await this.runs.terminal(run, diagnostics.state, artifactState, errors.join("; ") || undefined, true);
   }
 
+  /** Retry projection from retained bytes, without relying on a surviving VM. */
+  private async finalizePrimary(run: PersistedRun, source: TraceSource): Promise<string[]> {
+    return this.database.transaction(async client => {
+      await client.query("SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [run.tenantId, run.id]);
+      const artifacts = await new ArtifactRepository(this.database, run.tenantId).list(run.id, client);
+      const retained = artifacts.filter(item => item.kind === "execution_stream" && item.state === "stored");
+      if (retained.length !== 1) return ["Canonical execution stream receipt missing or ambiguous"];
+      const artifact = retained[0];
+      if (artifact.source_path !== source.path || artifact.provider !== source.provider) return ["Canonical execution stream receipt source mismatch"];
+      let projection = (await client.query("SELECT source_kind,artifact_sha256,parser_version,reconciliation FROM app.run_trace_projections WHERE tenant_id=$1 AND run_id=$2", [run.tenantId, run.id])).rows[0];
+      if (projection?.source_kind !== source.kind || projection?.artifact_sha256 !== artifact.sha256 || projection?.parser_version !== TRACE_PARSER_VERSION) {
+        const stored = await this.env.RUN_ARTIFACTS?.get(artifact.object_key);
+        if (!stored) return ["Retained canonical execution stream object missing"];
+        const hash = stored.checksums.sha256 ? [...new Uint8Array(stored.checksums.sha256)].map(byte => byte.toString(16).padStart(2, "0")).join("") : null;
+        if (hash !== artifact.sha256 || stored.size !== Number(artifact.byte_size)) { await stored.body.cancel(); return ["Retained canonical execution stream checksum or size mismatch"]; }
+        const reconciliation = await new TraceProjectionRepository(this.database, run.tenantId).project(client, run.id, { provider: source.provider, kind: source.kind, sha256: artifact.sha256, byte_size: artifact.byte_size }, stored.body, true);
+        projection = { reconciliation };
+      }
+      const errors: string[] = [];
+      if (!["matched", "no_live_cursor"].includes(projection?.reconciliation?.state)) errors.push("Canonical execution stream terminal reconciliation mismatch");
+      if (source.provider === "codex") {
+        const completed = (await client.query("SELECT count(*)::int completed FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2 AND display_data->>'eventType'='turn.completed'", [run.tenantId, run.id])).rows[0]?.completed ?? 0;
+        if (!completed) errors.push("Canonical Codex execution stream is incomplete: missing turn.completed");
+      }
+      return errors;
+    });
+  }
+
   private async collectHarnessLog(run: PersistedRun, backend: ExeVmBackend, artifacts: ArtifactRepository) {
     if (!this.env.RUN_ARTIFACTS || !run.executionHandle) throw new Error("Harness artifact storage is unavailable");
     const text = await backend.readHarnessLog(run.executionHandle);
@@ -106,7 +140,9 @@ export class RunScheduler {
   }
 
   private sources(run: PersistedRun): TraceSources {
-    if (run.executionTarget.traceSources) return run.executionTarget.traceSources;
+    if (run.traceSources) return run.traceSources;
+    // Undeclared Codex runs must never discover or create a native artifact.
+    if (run.executionTarget.agentKind === "codex") return driverTraceSources("codex", agentDriver("codex").launch(run.id, {}));
     // Runs launched before a source declaration existed must keep their native
     // trace even when the current driver now produces an execution stream.
     return { primary: this.nativeSource(run) };
@@ -121,7 +157,7 @@ export class RunScheduler {
   private async collectArtifact(run: PersistedRun, backend: ExeVmBackend, source?: TraceSource, primary?: boolean) {
     if (!run.executionHandle) throw new Error("Execution handle is missing");
     const sources = this.sources(run);
-    source ??= sources.nativeSession ?? (sources.primary.kind === "native_session" ? sources.primary : this.nativeSource(run));
+    source ??= sources.nativeSession ?? sources.primary;
     primary ??= sources.primary.kind === "native_session";
     const traceGeneration = primary ? (await new LiveTraceRepository(this.database, run.tenantId).cursor(run.id)).generation : undefined;
     const token = await issueArtifactUploadGrant({ traceGeneration, tenantId: run.tenantId, runId: run.id, path: source.kind === "execution_stream" ? "trace/stream.jsonl" : "native/session.jsonl", contentType: source.mediaType, provider: source.provider, format: "jsonl", sourceKind: source.kind, sourcePath: source.path, formatVersion: source.formatVersion, cliVersion: source.cliVersion, harnessVersion: source.harnessVersion, primary, expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);

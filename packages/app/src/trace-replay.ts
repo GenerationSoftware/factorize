@@ -38,6 +38,7 @@ export async function replayTrace(env: Env, tenantId: string, actorId: string, r
       if (!["done", "succeeded", "failed", "stopped", "ignored"].includes(run.state)) {
         result = { status: "skipped", reason: "run_active" };
       } else {
+        if (input.source === "native_session" && run.trace_sources?.primary?.provider === "codex" && run.trace_sources.primary.kind === "execution_stream") throw new TraceReplayError(400, "invalid_source", "Codex runs replay only their canonical execution stream.");
         const artifacts = await new ArtifactRepository(database, tenantId).list(runId, client);
         const kind = input.source === "native_session" ? "native_session" : run.trace_sources?.primary?.kind ?? "native_session";
         const eligible = artifacts.filter(item => item.kind === kind && item.state === "stored");

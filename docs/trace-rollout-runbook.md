@@ -7,15 +7,16 @@ release ticket before widening the rollout. Never paste grants or artifact paylo
 
 ## Deployment gates
 
-1. Apply `0011_trace_rollout.sql` before deploying the application. Keep all earlier
+1. Apply `0012_canonical_trace_receipts.sql` before deploying the application. Keep all earlier
    migrations. This additive migration does not delete events, artifacts, or cursors.
-2. Begin with `TRACE_PRIMARY_MODE=native_session`. This affects **new launches**;
+2. Claude can begin with `TRACE_PRIMARY_MODE=native_session`. This affects **new launches**;
    existing runs retain their declared primary through finalization. Pi remains on
    its version-pinned native session in every mode. Historical undeclared runs
-   remain native. Preserve native artifacts for all stream canaries.
+   remain readable from retained native artifacts. Codex always launches its canonical
+   stream; both deployment gates apply only to Claude. Codex native capture is disabled.
 3. Set `TRACE_PRIMARY_MODE=execution_stream` and `TRACE_STREAM_TENANTS` to a
    comma-separated allowlist of approved canary tenant UUIDs. An empty allowlist
-   admits no tenants. Tenants outside the list use native primary. Unset the
+   admits no tenants. Claude tenants outside the list use native primary. Unset the
    allowlist only after the canary gates pass. With both variables absent the
    prerequisite implementation's stream primary behavior is preserved.
 4. Run at least 10 Codex and 10 Claude canaries over 24 hours, including successful
@@ -27,18 +28,23 @@ release ticket before widening the rollout. Never paste grants or artifact paylo
    `trace.projection.reconciliation.state=matched` for every streamed canary with
    a live cursor; `no_live_cursor` is not evidence of live completeness. Require
    zero mismatches, zero chunk conflicts beyond deliberately injected tests, no
-   unexplained parse warnings, unknown-event rate below 1%, and stored native and
-   primary artifacts. Verify the stream provider and CLI/harness/source version.
+   unexplained parse warnings, unknown-event rate below 1%, and a stored primary
+   artifact (plus a native artifact for Claude). Codex must have exactly one trace
+   artifact, `execution_stream`, and `codexCompletion=turn.completed`. Verify the stream provider and CLI/harness/source version.
    For Pi require native primary, retained artifact, and visible calls/results.
 6. Expand the allowlist gradually (10%, 50%, then all approved tenants), observing
    each stage for 24 hours under the same gates. Stop on a single reconciliation
-   mismatch, missing native artifact, lost call/result, or cross-source conflict.
+   mismatch, missing primary artifact, missing Claude native artifact, lost call/result, or cross-source conflict.
 
 ## Diagnostics and alerts
 
 The declared source lives in `traceSources`; `trace.projection` identifies the
 **actual** source, artifact checksum, parser revision, and reconciliation receipt.
-`fallbackUsed` means an explicit native replay replaced a declared stream projection.
+`fallbackUsed` means an explicit native replay replaced a declared Claude stream projection.
+Codex `nativeArtifactState=not_applicable`. Receipts include `source_path`,
+`source_generation`, byte length and checksum. Missing `turn.completed`, collection
+failure, projection failure, or reconciliation mismatch produces `artifact.state=partial`
+and a specific `artifact.error`; process success alone does not imply a complete trace.
 `liveCursor` shows file generation, committed byte offset, and pending byte count.
 A missing receipt is not a complete trace. An unterminated final line is retained
 in the artifact but is intentionally not projected. Warnings are visible events;
@@ -90,10 +96,13 @@ in diagnostics; failed attempts appear in structured logs.
 
 ## Rollback
 
-Set `TRACE_PRIMARY_MODE=native_session` for new launches and retain the canary
+Set `TRACE_PRIMARY_MODE=native_session` for new Claude launches and retain the canary
 allowlist configuration for later review. Do not alter active run declarations or
-reuse their generation IDs. Let active runs finalize and retain both snapshots.
-For a terminal stream run, replay with a **new** request UUID and
+reuse their generation IDs. Let active runs finalize and retain their declared snapshots.
+Codex has no native rollback: replay the canonical primary for terminal runs.
+Historical native-only Codex runs remain eligible for native reads/replay; no
+migration is required and no new Codex native upload is accepted.
+For a terminal Claude stream run, replay with a **new** request UUID and
 `source=native_session`. Check the result is `projected` or `already_projected`,
 `trace.projection.source_kind=native_session`, and `fallbackUsed=true`.
 Both artifacts, live cursor, and chunk receipts remain intact. A late terminal
@@ -104,7 +113,7 @@ the current projection. Never promise recovery or delete the stream to force it.
 
 ## Retention and incident debugging
 
-Retain both exact primary and native snapshots for at least the rollout window
+Retain the exact Codex primary snapshot and both Claude primary/native snapshots for at least the rollout window
 and 30 days after the final stage (or longer under the tenant's retention policy).
 Do not enable an object lifecycle expiration shorter than this window. Deployment
 and rollback do not remove objects. Job deletion intentionally deletes job artifacts
@@ -122,7 +131,7 @@ same generation/offset/hash or perform the normal generation transition. Termina
 grants are bound to the observed generation and reject stale collectors. A
 terminal reconciliation mismatch compares projected live events to their durable
 prefix and checks that committed bytes do not exceed the snapshot size. Preserve
-the immutable snapshots and receipts; use an authorized native replay if available.
+the immutable snapshots and receipts; use authorized primary replay for Codex or native replay for Claude if available.
 If collection failed, let finalization retry before cleanup. After cleanup, absent
 bytes are unrecoverable. Attach safe diagnostics and ledger outcomes to the incident.
 
