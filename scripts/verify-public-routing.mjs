@@ -23,8 +23,21 @@ export async function verifyPublicRouting(origin) {
   }
   const metadata = await (await fetch(origin + "/.well-known/oauth-authorization-server", { signal: AbortSignal.timeout(15_000) })).json(); assert.equal(metadata.issuer, origin); assert.equal(metadata.device_authorization_endpoint, origin + "/oauth/device_authorization");
 }
+// A just-completed deployment can still reach the prior Worker at some edges.
+// Recheck the entire contract; never accept a partial verification.
+export async function waitForPublicRouting(origin, verify = verifyPublicRouting, pause = ms => new Promise(resolve => setTimeout(resolve, ms)), attempts = 12) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try { await verify(origin); return; }
+    catch (error) {
+      if (attempt === attempts) throw error;
+      await pause(5000);
+    }
+  }
+}
 if (import.meta.main) {
   const origin = process.argv.slice(2).find(argument => !argument.startsWith("--")) ?? JSON.parse(readFileSync(new URL("../packages/api/wrangler.jsonc", import.meta.url))).vars.APP_ORIGIN; assert.equal(new URL(origin).origin, origin); assert.equal(new URL(origin).protocol, "https:");
-  if (process.argv.includes("--api-ready")) await requireApiReady(origin); else await verifyPublicRouting(origin);
+  if (process.argv.includes("--api-ready")) await requireApiReady(origin);
+  else if (process.argv.includes("--wait")) await waitForPublicRouting(origin);
+  else await verifyPublicRouting(origin);
   console.log(process.argv.includes("--api-ready") ? "Public API compatibility stage verified." : "Public static/API routing, security and cache policy verified.");
 }

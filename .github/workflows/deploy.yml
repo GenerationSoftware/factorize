@@ -85,4 +85,4 @@ jobs:
           retention-days: 35
           if-no-files-found: error
       - name: Verify public production routing after deployment
-        run: node scripts/verify-public-routing.mjs https://app.factorize.sh
+        run: node scripts/verify-public-routing.mjs https://app.factorize.sh --wait
