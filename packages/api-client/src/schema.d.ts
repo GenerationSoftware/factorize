@@ -180,6 +180,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trigger-contexts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get template autocomplete metadata
+         * @description Requires the flows:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_trigger_contexts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/exe-connections": {
         parameters: {
             query?: never;
@@ -814,6 +836,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/job-summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List bounded job summaries
+         * @description Additive list representation, ordered by immutable UUID descending. Cursor is the last ID; filters must remain the same between pages. Literal case-insensitive name/slug search. No prompts or trigger configuration; statistics are batched. Existing GET /jobs remains an array.
+         *
+         *     Requires the flows:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_job_summaries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/job-selector": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search bounded lifecycle job options
+         * @description Requires the flows:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_job_selector"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs": {
         parameters: {
             query?: never;
@@ -968,7 +1036,9 @@ export interface paths {
         get: operations["get_api_v1_jobs_jobId"];
         /**
          * Replace job
-         * @description Requires the flows:write scope.
+         * @description Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_job. Omission preserves legacy REST/MCP last-writer-wins updates. Trigger identity is preserved.
+         *
+         *     Requires the flows:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1066,6 +1136,54 @@ export interface paths {
          *     Accepts a scoped bearer token or interactive owner session.
          */
         get: operations["get_api_v1_webhooks_deliveries_deliveryId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{runId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get lightweight run status
+         * @description No prompt decryption, invocation context, artifacts, activity or diagnostics assembly. Continue polling terminal runs while finalizing is true. trace_revision changes on generation transition or canonical projection/replay; live appends retain the revision. Full detail remains available at GET /runs/{runId}.
+         *
+         *     Requires the runs:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_runs_runId_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{runId}/trace-pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get revision-bound trace page
+         * @description First request omits revision and uses after=0. Subsequent requests supply the returned revision. A changed generation or canonical projection returns reset=true and events from zero in the new revision, from one database snapshot. Discard all cached old pages before merging the response. nextCursor=null means caught up, not finalized; poll after the last sequence while active/finalizing. Legacy GET /trace remains unchanged.
+         *
+         *     Requires the runs:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_runs_runId_trace_pages"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1954,6 +2072,42 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         ok: true;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_trigger_contexts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paths by trigger kind/provider */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: {
+                            path: string;
+                            /** @enum {string} */
+                            type: "string" | "number" | "boolean" | "object" | "array" | "unknown";
+                            description: string;
+                            example?: unknown;
+                        }[];
                     };
                 };
             };
@@ -2944,6 +3098,98 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_job_summaries: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                q?: string;
+                enabled?: "true" | "false";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Summary page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            slug: string;
+                            enabled: boolean;
+                            model: string;
+                            effort: string;
+                            agentKind: string;
+                            concurrencyLimit: number;
+                            runningCount: number;
+                            lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                            createdAt: string;
+                            updatedAt: string;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_job_selector: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+                q?: string;
+                enabled?: "true" | "false";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Selector page; same ordering/filter semantics as job-summaries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            slug: string;
+                            enabled: boolean;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_jobs: {
         parameters: {
             query?: never;
@@ -2959,7 +3205,47 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        slug: string;
+                        enabled: boolean;
+                        promptTemplate: string;
+                        runNameTemplate: string;
+                        model: string;
+                        effort?: string;
+                        executionTarget: {
+                            connectionId: string;
+                            workspace?: string;
+                            cwd?: string;
+                            agentKind: string;
+                        };
+                        executionTargetId: string;
+                        agentKind: string;
+                        concurrencyLimit: number;
+                        runningCount: number;
+                        currentRuns: number;
+                        maxConcurrency: number;
+                        lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                        triggers: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: uuid */
+                            jobId: string;
+                            /** @enum {string} */
+                            kind: "manual" | "schedule" | "webhook" | "jobLifecycle";
+                            slug: string;
+                            enabled: boolean;
+                            config: {
+                                [key: string]: unknown;
+                            };
+                            createdAt: string;
+                            updatedAt: string;
+                        }[];
+                        createdAt: string;
+                        updatedAt: string;
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -3188,7 +3474,47 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        slug: string;
+                        enabled: boolean;
+                        promptTemplate: string;
+                        runNameTemplate: string;
+                        model: string;
+                        effort?: string;
+                        executionTarget: {
+                            connectionId: string;
+                            workspace?: string;
+                            cwd?: string;
+                            agentKind: string;
+                        };
+                        executionTargetId: string;
+                        agentKind: string;
+                        concurrencyLimit: number;
+                        runningCount: number;
+                        currentRuns: number;
+                        maxConcurrency: number;
+                        lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                        triggers: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: uuid */
+                            jobId: string;
+                            /** @enum {string} */
+                            kind: "manual" | "schedule" | "webhook" | "jobLifecycle";
+                            slug: string;
+                            enabled: boolean;
+                            config: {
+                                [key: string]: unknown;
+                            };
+                            createdAt: string;
+                            updatedAt: string;
+                        }[];
+                        createdAt: string;
+                        updatedAt: string;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -3212,7 +3538,98 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["JobInput"];
+                "application/json": {
+                    name: string;
+                    slug: string;
+                    promptTemplate: string;
+                    runNameTemplate?: string;
+                    /** @default 1 */
+                    concurrencyLimit?: number;
+                    executionTargetId: string;
+                    model?: string;
+                    effort?: string;
+                    /** @default [] */
+                    triggers?: ({
+                        id?: string;
+                        slug?: string;
+                        /** @constant */
+                        kind: "manual";
+                        /** @default true */
+                        enabled?: boolean;
+                        /** @default {} */
+                        config?: Record<string, never>;
+                    } | {
+                        id?: string;
+                        slug?: string;
+                        /** @constant */
+                        kind: "schedule";
+                        /** @default true */
+                        enabled?: boolean;
+                        config: {
+                            cron: string;
+                            timezone: string;
+                        };
+                    } | {
+                        id?: string;
+                        slug?: string;
+                        /** @constant */
+                        kind: "webhook";
+                        /** @default true */
+                        enabled?: boolean;
+                        config: {
+                            handlerCode?: string;
+                            /** @constant */
+                            provider: "linear";
+                            projectId: string;
+                            matchRules: {
+                                /** @enum {string} */
+                                type: "owner" | "creator" | "status" | "label" | "assignee";
+                                targetId: string;
+                            }[];
+                        } | {
+                            handlerCode?: string;
+                            /** @constant */
+                            provider: "clickup";
+                            listId: string;
+                            matchRules: {
+                                /** @enum {string} */
+                                type: "owner" | "creator" | "status" | "label" | "assignee";
+                                targetId: string;
+                            }[];
+                        } | {
+                            handlerCode?: string;
+                            /** @constant */
+                            provider: "github";
+                            installationId: number;
+                            repositoryId: number;
+                            event?: string;
+                            action?: string;
+                            matchRules?: {
+                                /** @enum {string} */
+                                type: "owner" | "creator" | "status" | "label" | "assignee";
+                                targetId: string;
+                            }[];
+                        } | {
+                            handlerCode?: string;
+                            /** @constant */
+                            provider: "cloudflareTail";
+                            integrationId: string;
+                        };
+                    } | {
+                        id?: string;
+                        slug?: string;
+                        /** @constant */
+                        kind: "jobLifecycle";
+                        /** @default true */
+                        enabled?: boolean;
+                        config: {
+                            sourceJobIds: string[];
+                            states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                        };
+                    })[];
+                    /** Format: date-time */
+                    expectedUpdatedAt?: string;
+                };
             };
         };
         responses: {
@@ -3222,13 +3639,54 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        slug: string;
+                        enabled: boolean;
+                        promptTemplate: string;
+                        runNameTemplate: string;
+                        model: string;
+                        effort?: string;
+                        executionTarget: {
+                            connectionId: string;
+                            workspace?: string;
+                            cwd?: string;
+                            agentKind: string;
+                        };
+                        executionTargetId: string;
+                        agentKind: string;
+                        concurrencyLimit: number;
+                        runningCount: number;
+                        currentRuns: number;
+                        maxConcurrency: number;
+                        lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                        triggers: {
+                            /** Format: uuid */
+                            id: string;
+                            /** Format: uuid */
+                            jobId: string;
+                            /** @enum {string} */
+                            kind: "manual" | "schedule" | "webhook" | "jobLifecycle";
+                            slug: string;
+                            enabled: boolean;
+                            config: {
+                                [key: string]: unknown;
+                            };
+                            createdAt: string;
+                            updatedAt: string;
+                        }[];
+                        createdAt: string;
+                        updatedAt: string;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
+            /** @description stale_job: reload and reconcile before retrying */
             409: components["responses"]["Error409"];
             415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
@@ -3270,7 +3728,7 @@ export interface operations {
         parameters: {
             query?: {
                 jobId?: string;
-                state?: "queued" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored";
+                state?: "queued" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped";
                 contextQuery?: string;
                 limit?: number;
                 cursor?: string;
@@ -3386,6 +3844,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_runs_runId_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        job_id: string;
+                        /** @enum {string} */
+                        state: "queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped";
+                        run_name: string;
+                        job_name: string;
+                        destination_url: string | null;
+                        created_at: string;
+                        updated_at: string;
+                        started_at: string | null;
+                        /** @enum {string} */
+                        artifact_state: "pending" | "collecting" | "stored" | "partial" | "failed";
+                        finalizing: boolean;
+                        trace_revision: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_runs_runId_trace_pages: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+                revision?: string;
+            };
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revision-bound page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            sequence: number;
+                            id: string;
+                            parentId?: string;
+                            /** @enum {string} */
+                            type: "user_message" | "assistant_message" | "reasoning" | "tool_call" | "tool_result" | "command" | "file_change" | "compaction" | "branch" | "usage" | "warning" | "error" | "metadata";
+                            role?: string;
+                            title: string;
+                            preview: string;
+                            occurredAt?: string;
+                            display: {
+                                [key: string]: unknown;
+                            };
+                        }[];
+                        nextCursor: number | null;
+                        revision: string;
+                        reset: boolean;
+                    };
                 };
             };
             400: components["responses"]["Error400"];

@@ -1,10 +1,13 @@
+import { triggerContextCatalog } from "./trigger-context";
 import type { Env, OAuthProps } from "./types";
 import type { JobInput, ManualInvocationInput } from "./flow-schemas";
 import { nextOccurrence, validateScheduleConfig } from "./schedule";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
-import { PostgresJobRepository } from "./postgres/job-repository";
+import { JobSummaryRepository } from "./postgres/job-summary-repository";
+import type { JobPageQuery } from "./job-contracts";
+import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { decrypt, encrypt } from "./crypto";
 import { InvocationService, type Job, type Trigger } from "./job-domain";
@@ -108,6 +111,9 @@ export class ApiService {
   async listTailIntegrations() { await this.authorize("flows:read"); return new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).tails(); }
   async listRuns(query: URLSearchParams) { await this.authorize("runs:read"); return new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).list(query); }
   async search(query: string) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query); }
+  async triggerContextMetadata() { await this.authorize("flows:read"); return triggerContextCatalog; }
+  async getRunStatus(runId: string) { await this.authorize("runs:read"); const status = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).status(runId); if (!status) throw new ServiceError(404, "not_found", "Run not found"); return status; }
+  async getRevisionTrace(runId: string, after: number, limit: number, revision?: string) { await this.authorize("runs:read"); const page = await new TraceRepository(databaseFor(this.env), this.auth.tenantId).revisionPage(runId, after, limit, revision); if (!page) throw new ServiceError(404, "not_found", "Run not found"); return page; }
   async getRun(runId: string) {
     await this.authorize("runs:read");
     const repository = new RunQueryRepository(databaseFor(this.env), this.auth.tenantId);
@@ -151,6 +157,7 @@ export class ApiService {
   }
   async stopRun(runId: string) { await this.authorize("runs:write"); const stopped = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).stop(runId); if (!stopped) throw new ServiceError(409, "operation_failed", "Run is not active"); if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" }); return stopped; }
   killRun(runId: string) { return this.stopRun(runId); }
+  async listJobSummaries(input: JobPageQuery, selector = false) { await this.authorize("flows:read"); return new JobSummaryRepository(databaseFor(this.env), this.auth.tenantId).page(input, selector); }
   async listJobs() { await this.authorize("flows:read"); const jobs = await this.jobs().list(), stats = await this.jobStatistics(jobs.map(job => job.id)); return Promise.all(jobs.map(job => this.presentJob(job, stats.get(job.id) ?? { running_count: "0", last_run_state: null }))); }
   async getJob(jobId: string) { await this.authorize("flows:read"); const job = await this.jobs().getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found"); return this.presentJob(job); }
   async listJobEvents(jobId: string, limit = 50) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).jobEvents(jobId, limit); }
@@ -163,10 +170,10 @@ export class ApiService {
     const job: Job = { id, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", ...(input.effort ? { effort: input.effort } : {}), executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, createdAt: timestamp, updatedAt: timestamp };
     try { return this.presentJob(await this.jobs().create(job)); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "Job slug is already in use"); throw error; }
   }
-  async updateJob(jobId: string, input: JobInput) {
+  async updateJob(jobId: string, input: JobInput & { expectedUpdatedAt?: string }) {
     await this.authorize("flows:write"); const repository = this.jobs(), current = await repository.getJob(jobId); if (!current) throw new ServiceError(404, "not_found", "Job not found");
     const triggers = this.normalizedTriggers(input.triggers, current.triggers).map(trigger => ({ ...trigger, jobId }));
-    const updated = await repository.update({ ...current, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", effort: input.effort, executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, triggers, updatedAt: new Date().toISOString() });
+    const updated = await repository.update({ ...current, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", effort: input.effort, executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, triggers, updatedAt: new Date().toISOString() }, input.expectedUpdatedAt).catch(error => { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload its configuration before saving."); throw error; });
     await this.wakeScheduler();
     return this.presentJob(updated);
   }

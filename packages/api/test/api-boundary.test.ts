@@ -323,6 +323,25 @@ describe("Worker OpenAPI request/response boundaries", () => {
       );
   });
 
+  it("validates bounded reads and preserves scope enforcement for every additive resource", async () => {
+    const summaries = vi.spyOn(ApiService.prototype, "listJobSummaries").mockResolvedValue({ items: [], nextCursor: null });
+    for (const path of ["/api/v1/job-summaries", "/api/v1/job-selector"]) {
+      await assertResponse(await request("GET", path + "?limit=2&q=Review&enabled=true"), "GET", path, 200);
+      await assertResponse(await request("GET", path + "?limit=101"), "GET", path, 400);
+      await assertResponse(await request("GET", path + "?cursor=broken"), "GET", path, 400);
+      await assertResponse(await request("GET", path, undefined, { auth: { ...auth, scopes: ["runs:read"] } }), "GET", path, 403);
+    }
+    expect(summaries).toHaveBeenCalledWith({ limit: 2, q: "Review", enabled: "true" }, true);
+    const metadata = vi.spyOn(ApiService.prototype, "triggerContextMetadata").mockResolvedValue({ manual: [{ path: "prompt", type: "string", description: "Manual prompt" }] });
+    await assertResponse(await request("GET", "/api/v1/trigger-contexts"), "GET", "/api/v1/trigger-contexts", 200);
+    expect(metadata).toHaveBeenCalledOnce();
+    const trace = vi.spyOn(ApiService.prototype, "getRevisionTrace").mockResolvedValue({ items: [], nextCursor: null, revision: "rev", reset: true });
+    await assertResponse(await request("GET", "/api/v1/runs/00000000-0000-4000-8000-000000000001/trace-pages?revision=old&after=100&limit=2"), "GET", "/api/v1/runs/{runId}/trace-pages", 200);
+    expect(trace).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000001", 100, 2, "old");
+    await assertResponse(await request("GET", "/api/v1/runs/00000000-0000-4000-8000-000000000001/trace-pages?limit=201"), "GET", "/api/v1/runs/{runId}/trace-pages", 400);
+    await assertResponse(await request("GET", "/api/v1/runs/00000000-0000-4000-8000-000000000001/status", undefined, { auth: { ...auth, scopes: ["flows:read"] } }), "GET", "/api/v1/runs/{runId}/status", 403);
+  });
+
   it("rejects undeclared methods and paths at the Worker boundary", async () => {
     expect((await request("PATCH", "/api/v1/jobs")).status).toBe(404);
     expect((await request("GET", "/api/v1/unknown")).status).toBe(404);

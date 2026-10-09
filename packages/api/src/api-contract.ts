@@ -1,3 +1,5 @@
+import { runStatusResponse, revisionTracePage, revisionTraceQuery } from "./run-read-contracts";
+import { jobPageQuery, jobSummaryPage, jobSelectorPage, jobResponse, jobUpdateInput } from "./job-contracts";
 import { z } from "zod";
 import type { ApiService } from "./flow-service";
 import {
@@ -168,6 +170,10 @@ export const API_ROUTES: RouteContract[] = [
   authRoute("POST", "/api/v1/auth/password", "password", "Change password and invalidate sessions", authSuccess, authInputs.change),
   authRoute("POST", "/api/v1/auth/logout", "logout", "Revoke current session and clear browser cookie", authSuccess),
 
+  route("GET", "/api/v1/trigger-contexts", "flows:read", {
+    summary: "Get template autocomplete metadata",
+    responses: { "200": { description: "Paths by trigger kind/provider", content: { "application/json": { schema: jsonSchema(z.record(z.string(), z.array(z.object({ path: z.string(), type: z.enum(["string", "number", "boolean", "object", "array", "unknown"]), description: z.string(), example: z.unknown().optional() }))), "output") } } } },
+  }, service => service.triggerContextMetadata()),
   route(
     "GET",
     "/api/v1/exe-connections",
@@ -615,6 +621,15 @@ export const API_ROUTES: RouteContract[] = [
     (service, { params }) =>
       service.diagnoseExeIntegration(params.connectionId),
   ),
+  route("GET", "/api/v1/job-summaries", "flows:read", {
+    summary: "List bounded job summaries",
+    description: "Additive list representation, ordered by immutable UUID descending. Cursor is the last ID; filters must remain the same between pages. Literal case-insensitive name/slug search. No prompts or trigger configuration; statistics are batched. Existing GET /jobs remains an array.",
+    responses: { "200": { description: "Summary page", content: { "application/json": { schema: jsonSchema(jobSummaryPage, "output") } } } },
+  }, (service, { query }) => service.listJobSummaries(query), { query: jobPageQuery }),
+  route("GET", "/api/v1/job-selector", "flows:read", {
+    summary: "Search bounded lifecycle job options",
+    responses: { "200": { description: "Selector page; same ordering/filter semantics as job-summaries", content: { "application/json": { schema: jsonSchema(jobSelectorPage, "output") } } } },
+  }, (service, { query }) => service.listJobSummaries(query, true), { query: jobPageQuery }),
   route(
     "GET",
     "/api/v1/jobs",
@@ -626,7 +641,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Jobs",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(jobResponse), "output"),
             },
           },
         },
@@ -728,7 +743,7 @@ export const API_ROUTES: RouteContract[] = [
     "GET",
     "/api/v1/jobs/{jobId}",
     "flows:read",
-    { summary: "Get job", responses: { "200": { description: "Job" } } },
+    { summary: "Get job", responses: { "200": { description: "Job", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } } } },
     (service, { params }) => service.getJob(params.jobId),
   ),
   route(
@@ -737,10 +752,11 @@ export const API_ROUTES: RouteContract[] = [
     "flows:write",
     {
       summary: "Replace job",
-      responses: { "200": { description: "Updated" } },
+      description: "Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_job. Omission preserves legacy REST/MCP last-writer-wins updates. Trigger identity is preserved.",
+      responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } }, "409": { description: "stale_job: reload and reconcile before retrying" } },
     },
     (service, { params, body }) => service.updateJob(params.jobId, body),
-    { body: jobInputSchema },
+    { body: jobUpdateInput },
   ),
   route(
     "DELETE",
@@ -803,6 +819,16 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service, { params }) => service.getWebhookDelivery(params.deliveryId),
   ),
+  route("GET", "/api/v1/runs/{runId}/status", "runs:read", {
+    summary: "Get lightweight run status",
+    description: "No prompt decryption, invocation context, artifacts, activity or diagnostics assembly. Continue polling terminal runs while finalizing is true. trace_revision changes on generation transition or canonical projection/replay; live appends retain the revision. Full detail remains available at GET /runs/{runId}.",
+    responses: { "200": { description: "Status", content: { "application/json": { schema: jsonSchema(runStatusResponse, "output") } } } },
+  }, (service, { params }) => service.getRunStatus(params.runId), { parameters: z.object({ runId: z.guid() }) }),
+  route("GET", "/api/v1/runs/{runId}/trace-pages", "runs:read", {
+    summary: "Get revision-bound trace page",
+    description: "First request omits revision and uses after=0. Subsequent requests supply the returned revision. A changed generation or canonical projection returns reset=true and events from zero in the new revision, from one database snapshot. Discard all cached old pages before merging the response. nextCursor=null means caught up, not finalized; poll after the last sequence while active/finalizing. Legacy GET /trace remains unchanged.",
+    responses: { "200": { description: "Revision-bound page", content: { "application/json": { schema: jsonSchema(revisionTracePage, "output") } } } },
+  }, (service, { params, query }) => service.getRevisionTrace(params.runId, query.after, query.limit, query.revision), { query: revisionTraceQuery, parameters: z.object({ runId: z.guid() }) }),
   route(
     "GET",
     "/api/v1/runs/{runId}",

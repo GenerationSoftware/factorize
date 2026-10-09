@@ -5,6 +5,8 @@ import { nextOccurrence, validateScheduleConfig } from "../schedule";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { invocations, jobs, jobEditDeliveries, lifecycleDeliveries, pendingVerifications, scheduleState, triggers } from "./schema";
 
+export class StaleJobEdit extends Error {}
+
 type Crypt = (value: string) => Promise<string>;
 type JobRow = typeof jobs.$inferSelect;
 type TriggerRow = typeof triggers.$inferSelect;
@@ -46,10 +48,12 @@ export class PostgresJobRepository implements JobRepository {
     });
   }
 
-  async update(job: Job): Promise<Job> {
+  async update(job: Job, expectedUpdatedAt?: string): Promise<Job> {
     return this.database.orm.transaction(async tx => {
       const [current] = await tx.select().from(jobs).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, job.id))).for("update").limit(1);
       if (!current) throw new Error("Job not found");
+      if (expectedUpdatedAt && current.updatedAt.toISOString() !== expectedUpdatedAt) throw new StaleJobEdit("Job changed since it was loaded");
+      job = { ...job, updatedAt: new Date(Math.max(Date.parse(job.updatedAt), current.updatedAt.getTime() + 1)).toISOString() };
       const existing: TriggerRow[] = await tx.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, job.id), isNull(triggers.removedAt))).orderBy(triggers.position);
       const [row] = await tx.update(jobs).set({ name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionTarget: job.executionTarget, model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, updatedAt: new Date(job.updatedAt) }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, job.id))).returning();
       await this.reconcileTriggers(tx, job, existing);
@@ -60,11 +64,11 @@ export class PostgresJobRepository implements JobRepository {
 
   async setEnabled(id: string, enabled: boolean, changedAt: string): Promise<boolean> {
     return this.database.orm.transaction(async tx => {
-      const [job] = await tx.update(jobs).set({ enabled, updatedAt: new Date(changedAt) }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).returning();
+      const [job] = await tx.update(jobs).set({ enabled, updatedAt: sql`greatest(${new Date(changedAt)}::timestamptz, date_trunc('milliseconds', ${jobs.updatedAt}) + interval '1 millisecond')` }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).returning();
       if (!job) return false;
       const schedules: TriggerRow[] = await tx.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, id), eq(triggers.kind, "schedule"), isNull(triggers.removedAt)));
       for (const trigger of schedules) await tx.update(scheduleState).set({ nextRunAt: enabled && trigger.enabled ? nextOccurrence(validateScheduleConfig(trigger.config), new Date()) : null }).where(and(eq(scheduleState.tenantId, this.tenantId), eq(scheduleState.triggerId, trigger.id)));
-      await this.recordEdit(tx, id, changedAt);
+      await this.recordEdit(tx, id, job.updatedAt.toISOString());
       return true;
     });
   }

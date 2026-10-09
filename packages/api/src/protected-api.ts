@@ -1,3 +1,4 @@
+import { jobUpdateInput } from "./job-contracts";
 import { InvocationError } from "./job-domain";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
@@ -92,7 +93,7 @@ function createMcpServer(service: ApiService): McpServer {
     tool("list_jobs", "List jobs with their current run count and maximum concurrency", z.object({}), () => service.listJobs());
     tool("get_job", "Get a job with its current run count and maximum concurrency", jobIdSchema, ({ jobId }: any) => service.getJob(jobId));
     tool("create_job", "Create a job using an executionTargetId returned by list_execution_targets. Credentials are never accepted or returned.", jobInputSchema, (input: any) => service.createJob(input));
-    tool("update_job", "Replace a job configuration. Credentials are never accepted or returned.", jobInputSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.updateJob(jobId, input));
+    tool("update_job", "Replace a job configuration. Credentials are never accepted or returned.", jobUpdateInput.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.updateJob(jobId, input));
     tool("delete_job", "Delete a job and its queued invocation history", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));
     tool("enable_job", "Enable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, true));
     tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
