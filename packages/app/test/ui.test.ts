@@ -273,7 +273,7 @@ describe("pages", () => {
     expect(detail).toContain('<dialog id="manual-run-dialog" aria-labelledby="manual-run-title"');
     expect(detail).toContain('placeholder="Leave blank to skip prompt"');
     expect(detail).toContain("manualRunDialog.showModal()");
-    expect(detail).toContain("createManualRun({prompt:manualRunForm.elements.prompt.value})");
+    expect(detail).toContain("submitManualRun({prompt:manualRunForm.elements.prompt.value})");
     expect(detail).toContain("if(e.target===manualRunDialog)manualRunDialog.close()");
     expect(detail).not.toContain("prompt('Prompt for this manual run:','')");
     expectInlineScriptsToParse(detail);

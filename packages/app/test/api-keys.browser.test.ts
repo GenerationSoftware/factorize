@@ -48,6 +48,8 @@ describe("rendered access token form", () => {
 
     form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: submit }));
     expect(submit.disabled).toBe(true);
+    expect(submit.textContent).toBe('Creating…');
+    form.dispatchEvent(new SubmitEvent('submit',{cancelable:true}));
     expect(fetchMock.mock.calls.filter(([url, init]) => url === "/api/v1/access-tokens" && init?.method === "POST")).toHaveLength(1);
 
     finishCreate(json({ token: "fact_once_only" }, 201));
@@ -81,4 +83,42 @@ describe("rendered access token form", () => {
     expect(document.querySelector("#new-token")?.classList.contains("hidden")).toBe(true);
     expect(submit.disabled).toBe(false);
   });
+});
+
+it.each(["token","client"])("retains a pending %s and removes it only after confirmation, even if reconciliation fails", async kind=>{
+  let finish!: (response: Response)=>void,failRead=false;
+  vi.stubGlobal("confirm",()=>true);
+  const fetcher=vi.fn(async (input: unknown,init?: RequestInit)=>{
+    const url=String(input);
+    if(init?.method==="DELETE")return new Promise<Response>(resolve=>{finish=resolve});
+    if(failRead)return json({error:"Read unavailable"},503);
+    return json(url.includes("authorized-clients")?
+      [{clientId:"client-1",clientName:"Editor",scopes:[]}]:[{id:"token-1",name:"Deploy",scopes:[]}]);
+  });
+  renderPage(fetcher);await flush();
+  const button=document.querySelector(kind==="token"?"[data-revoke-token]":"[data-disconnect-client]");
+  const article=button.closest("article");
+  button.click();button.click();
+  expect(button.disabled).toBe(true);
+  expect(button.textContent).toBe(kind==="token"?"Revoking…":"Disconnecting…");
+  expect(article.isConnected).toBe(true);
+  expect(fetcher.mock.calls.filter(([,init])=>init?.method==="DELETE")).toHaveLength(1);
+  failRead=true;finish(json({deleted:true}));await flush();await flush();
+  expect(article.isConnected).toBe(false);
+  expect(document.querySelector("#access-error").textContent).toBe("Read unavailable");
+});
+
+it("keeps the server-created secret visible when list reconciliation fails",async()=>{
+  let created=false;
+  const fetcher=vi.fn(async(input: unknown,init?: RequestInit)=>{
+    if(init?.method==="POST"){created=true;return json({token:"fact_confirmed"})}
+    if(created)return json({error:"Read unavailable"},503);
+    return json([]);
+  });
+  const form=renderPage(fetcher);completeForm(form);
+  form.dispatchEvent(new SubmitEvent("submit",{cancelable:true}));
+  await flush();await flush();
+  expect(document.querySelector("#new-token-value").textContent).toBe("fact_confirmed");
+  expect(document.querySelector("#token-form-error").classList.contains("hidden")).toBe(true);
+  expect(document.querySelector("#access-error").textContent).toBe("Read unavailable");
 });
