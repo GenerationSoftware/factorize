@@ -1,3 +1,4 @@
+import type { TraceSources } from "./trace-source";
 export type AgentKind = "codex" | "claude" | "pi";
 
 export interface AgentConfiguration { model?: string; effort?: string; }
@@ -15,6 +16,7 @@ export interface AgentLaunchSpec {
   env: Record<string, string>;
   stdin: "prompt";
   artifacts: ArtifactLocator;
+  traceSources?: TraceSources;
 }
 export interface AgentDriver {
   readonly kind: AgentKind;
@@ -53,4 +55,12 @@ class PiDriver implements AgentDriver {
 }
 
 const drivers: Record<AgentKind, AgentDriver> = { codex: new CodexDriver(), claude: new ClaudeDriver(), pi: new PiDriver() };
-export function agentDriver(kind: AgentKind): AgentDriver { return drivers[kind]; }
+export function agentDriver(kind: AgentKind): AgentDriver {
+  const driver = drivers[kind];
+  return { kind, launch(runId, config) { const spec = driver.launch(runId, config); return { ...spec, traceSources: driverTraceSources(kind, spec) }; } };
+}
+
+/** Compatibility for drivers and historical runs that only declare native sessions. */
+export function driverTraceSources(kind: AgentKind, launch: AgentLaunchSpec): TraceSources {
+  return launch.traceSources ?? { primary: { kind: "native_session", path: launch.artifacts.roots[0], mediaType: "application/x-ndjson", provider: kind, discoverCommand: launch.artifacts.discoverCommand } };
+}

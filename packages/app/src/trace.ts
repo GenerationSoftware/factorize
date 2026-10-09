@@ -1,3 +1,4 @@
+import type { TraceSource } from "./trace-source";
 export type TraceEventType = "user_message" | "assistant_message" | "reasoning" | "tool_call" | "tool_result" | "command" | "file_change" | "compaction" | "branch" | "usage" | "warning" | "error" | "metadata";
 
 export interface TraceEvent {
@@ -78,28 +79,63 @@ function parseClaude(value: any, sequence: number): TraceEvent[] {
   return value.type === "summary" ? [event(sequence, "compaction", "Context summary", value.summary, value)] : [];
 }
 
-/** Parses a native JSONL artifact into bounded, provider-neutral display events. */
-export function parseTrace(provider: "codex" | "claude" | "pi", jsonl: string): TraceEvent[] {
+/** Parses source JSONL into bounded, provider-neutral display events. */
+export function parseTrace(provider: "codex" | "claude" | "pi", jsonl: string, sourceKind: TraceSource["kind"] = "native_session"): TraceEvent[] {
   const events: TraceEvent[] = [];
   for (const line of jsonl.split(/\r?\n/)) {
     if (!line.trim()) continue;
     let value: unknown;
-    try { value = JSON.parse(line); } catch { events.push(event(events.length + 1, "warning", "Unparseable session record", line, {})); continue; }
+    try { value = JSON.parse(line); } catch { if (sourceKind === "execution_stream") throw new Error("Invalid execution stream JSON"); events.push(event(events.length + 1, "warning", "Unparseable session record", line, {})); continue; }
+    if (sourceKind === "execution_stream") {
+      const record = value as any;
+      if (!record || record.version !== 1 || typeof record.id !== "string" || typeof record.title !== "string" || typeof record.preview !== "string" || !["user_message", "assistant_message", "reasoning", "tool_call", "tool_result", "command", "file_change", "compaction", "branch", "usage", "warning", "error", "metadata"].includes(record.type)) throw new Error("Invalid execution stream record");
+      if (record.occurredAt !== undefined && (typeof record.occurredAt !== "string" || !Number.isFinite(Date.parse(record.occurredAt)))) throw new Error("Invalid execution stream timestamp");
+      events.push({ sequence: events.length + 1, id: record.id, type: record.type, title: clipped(record.title), preview: clipped(record.preview), ...(typeof record.parentId === "string" ? { parentId: record.parentId } : {}), ...(typeof record.role === "string" ? { role: record.role } : {}), ...(typeof record.occurredAt === "string" ? { occurredAt: record.occurredAt } : {}), display: record.display && typeof record.display === "object" && !Array.isArray(record.display) ? record.display : {} });
+      continue;
+    }
     const parsed = provider === "codex" ? parseCodex(value, events.length + 1) : provider === "claude" ? parseClaude(value, events.length + 1) : parsePi(value, events.length + 1);
     events.push(...parsed);
   }
   return events.map((item, index) => ({ ...item, sequence: index + 1 }));
 }
 
+/** Byte framing matches live ingestion, including an incomplete UTF-8 tail at exit. */
+async function consumeExecutionStream(provider: "codex" | "claude" | "pi", stream: ReadableStream<Uint8Array>, consumeBatch: (events: TraceEvent[]) => Promise<void>, batchSize: number): Promise<number> {
+  const reader = stream.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
+  let pending = new Uint8Array(), sequence = 0, batch: TraceEvent[] = [];
+  const flush = async () => { if (batch.length) { const ready = batch; batch = []; await consumeBatch(ready); } };
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break; // Preserve, but never project, an unterminated record.
+      const combined = new Uint8Array(pending.length + value.length);
+      combined.set(pending); combined.set(value, pending.length);
+      let start = 0;
+      for (let index = 0; index < combined.length; index++) {
+        if (combined[index] !== 10) continue;
+        if (index - start > 16 * 1024 * 1024) throw new Error("Execution stream record exceeds 16 MiB");
+        const events = parseTrace(provider, decoder.decode(combined.subarray(start, index)), "execution_stream");
+        for (const item of events) { batch.push({ ...item, sequence: ++sequence }); if (batch.length >= batchSize) await flush(); }
+        start = index + 1;
+      }
+      pending = combined.slice(start);
+      if (pending.length > 16 * 1024 * 1024) throw new Error("Execution stream record exceeds 16 MiB");
+    }
+    await flush();
+    return sequence;
+  } finally { reader.releaseLock(); }
+}
+
 /** Incrementally parses JSONL and emits bounded batches without loading the artifact or projection in full. */
-export async function consumeTraceStream(provider: "codex" | "claude" | "pi", stream: ReadableStream<Uint8Array>, consumeBatch: (events: TraceEvent[]) => Promise<void>, batchSize = 250): Promise<number> {
+export async function consumeTraceStream(provider: "codex" | "claude" | "pi", stream: ReadableStream<Uint8Array>, consumeBatch: (events: TraceEvent[]) => Promise<void>, batchSize = 250, sourceKind: TraceSource["kind"] = "native_session"): Promise<number> {
+  if (sourceKind === "execution_stream") return consumeExecutionStream(provider, stream, consumeBatch, batchSize);
   const reader = stream.getReader(), decoder = new TextDecoder();
   let batch: TraceEvent[] = [], sequence = 0;
   let pending = "";
   const flush = async () => { if (!batch.length) return; const ready = batch; batch = []; await consumeBatch(ready); };
   const consume = async (line: string) => {
     if (!line.trim()) return;
-    const parsed = parseTrace(provider, line);
+    const parsed = parseTrace(provider, line, sourceKind);
     for (const item of parsed) { batch.push({ ...item, sequence: ++sequence }); if (batch.length >= batchSize) await flush(); }
   };
   for (;;) {
@@ -110,7 +146,8 @@ export async function consumeTraceStream(provider: "codex" | "claude" | "pi", st
     if (done) break;
     if (pending.length > 16 * 1024 * 1024) { batch.push(event(++sequence, "warning", "Oversized session record", "A native JSONL record exceeded the 16 MiB trace parsing limit.", {})); pending = ""; if (batch.length >= batchSize) await flush(); }
   }
-  await consume(pending); await flush();
+  await consume(pending);
+  await flush();
   return sequence;
 }
 

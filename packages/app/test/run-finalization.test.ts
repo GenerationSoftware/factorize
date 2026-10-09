@@ -96,4 +96,15 @@ describe("durable run finalization", () => {
     expect(f.recordObservation).not.toHaveBeenCalled();
     expect(f.stop).not.toHaveBeenCalled();
   });
+  it("collects a failed process primary stream and native audit session independently", async () => {
+    const f = fixture();
+    const source = { kind: "execution_stream", path: "/tmp/events.jsonl", mediaType: "application/x-ndjson", provider: "codex" };
+    f.run.executionTarget.traceSources = { primary: source };
+    f.native.mockImplementation(async (_run: any, _backend: any, source?: any) => { f.events.push(source ? "stream" : "native"); f.artifacts.push({ kind: source ? "execution_stream" : "native_session", state: "stored" }); return { ok: true }; });
+    await f.scheduler.poll(f.run);
+    expect(f.events).toEqual(["observation", "log", "stream", "native", "cleanup"]);
+    expect((f.native.mock.calls as any)[0].slice(2)).toEqual([source, true]);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", undefined, true);
+  });
+
 });

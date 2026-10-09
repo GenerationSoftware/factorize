@@ -43,7 +43,7 @@ describe("ExeVmBackend", () => {
       requests.push(String(init.body));
       return new Response(requests.length === 1 ? '{"name":"factorize-run-1"}' : "started", { headers: { "X-Exe-Exit": "0" } });
     }));
-    const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work", harness: agentDriver("codex").launch("run-1", {}) });
+    const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work", harness: agentDriver("codex").launch("run-1", {}), traceSources: { primary: { kind: "execution_stream", path: "/tmp/trace/events.jsonl", mediaType: "application/x-ndjson", provider: "codex" } } });
     expect(launched.handle).toEqual({ backendKind: "exe-vm", id: "factorize-run-1" });
     expect(requests[0]).toContain("new --name='factorize-run-1'");
     expect(requests[0]).toContain("--tag='github'");
@@ -62,6 +62,8 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("--property=StandardInput=file:/tmp/factorize-prompt.md");
     expect(requests[1]).toContain("--property=StandardOutput=append:/tmp/factorize.log");
     expect(requests[1]).toContain("--property=StandardError=append:/tmp/factorize.stderr");
+    expect(requests[1]).toContain("/tmp/trace/events.jsonl");
+    expect(requests[1]).not.toContain("StandardOutput=append:/tmp/trace/events.jsonl");
     expect(requests[1]).not.toContain("nohup");
     expect(requests[1]).toContain("; echo started");
     expect(requests[1]).toContain("systemctl show");

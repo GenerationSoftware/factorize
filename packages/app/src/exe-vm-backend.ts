@@ -1,3 +1,5 @@
+import { sourceCommand, validateTraceSources } from "./trace-source";
+import type { ArtifactCollectionRequest, TraceChunkCollectionRequest } from "./execution";
 import type { BackendCommandResult, ExecutionBackend, ExecutionObservation, LaunchReceipt, LaunchRequest, RunHandle } from "./execution";
 import { base64 } from "./crypto";
 import { shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
@@ -89,6 +91,7 @@ export class ExeVmBackend implements ExecutionBackend {
     const connection = this.connection as ExeRunConnection;
     if (!connection.agentKind) throw new Error("The job is missing its agent configuration");
     if (!request.harness) throw new Error("The run is missing its agent harness launch plan");
+    if (request.traceSources) validateTraceSources(request.traceSources);
     const vm = vmNameFor(request.runId);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
@@ -102,6 +105,7 @@ export class ExeVmBackend implements ExecutionBackend {
       "set -eu",
       "mkdir -p /home/exedev/workspace",
       "cd /home/exedev/workspace",
+      ...(request.traceSources?.primary.kind === "execution_stream" ? [`mkdir -p -- ${shellAtom(request.traceSources.primary.path.slice(0, request.traceSources.primary.path.lastIndexOf("/")) || "/")}`, `touch -- ${shellAtom(request.traceSources.primary.path)}`] : []),
       `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
       `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=file:/tmp/factorize-prompt.md --property=StandardOutput=append:${output} --property=StandardError=append:/tmp/factorize.stderr ${harnessCommand(request.harness)}; fi`,
       "echo started",
@@ -155,15 +159,15 @@ export class ExeVmBackend implements ExecutionBackend {
     return result.ok ? result.body : null;
   }
 
-  async collectArtifact(handle: RunHandle, request: { uploadUrl: string; discoverCommand: string; contentType: string }) {
-    const remote = `file=$(${request.discoverCommand}); test -n "$file"; test -f "$file"; snapshot=$(mktemp); trap 'rm -f "$snapshot"' EXIT; cp "$file" "$snapshot"; size=$(wc -c < "$snapshot" | tr -d ' '); sha=$(sha256sum "$snapshot" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H ${shellAtom(`Content-Type: ${request.contentType}`)} -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$snapshot" ${shellAtom(request.uploadUrl)}`;
+  async collectArtifact(handle: RunHandle, request: ArtifactCollectionRequest) {
+    const remote = `set -eu; file=$(${request.source ? sourceCommand(request.source) : request.discoverCommand}); test -n "$file"; test -f "$file"; snapshot=$(mktemp); trap 'rm -f "$snapshot"' EXIT; cp "$file" "$snapshot"; size=$(wc -c < "$snapshot" | tr -d ' '); sha=$(sha256sum "$snapshot" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H ${shellAtom(`Content-Type: ${request.contentType}`)} -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$snapshot" ${shellAtom(request.uploadUrl)}`;
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
-    return { ok: result.ok, detail: result.ok ? undefined : `Native session upload failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
+    return { ok: result.ok, detail: result.ok ? undefined : `Artifact upload failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
   }
 
-  async collectTraceChunk(handle: RunHandle, request: { uploadUrl: string; discoverCommand: string; generation: string | null; offset: number; previousHash: string }) {
+  async collectTraceChunk(handle: RunHandle, request: TraceChunkCollectionRequest) {
     const expectedGeneration = request.generation ?? "", zeroHash = "0".repeat(64);
-    const remote = `file=$(${request.discoverCommand}); test -n "$file"; test -f "$file"; generation=$(stat -c '%d:%i:%W' "$file"); start=${request.offset}; previous=${shellAtom(request.previousHash)}; if [ -n ${shellAtom(expectedGeneration)} ] && [ "$generation" != ${shellAtom(expectedGeneration)} ]; then start=0; previous=${shellAtom(zeroHash)}; fi; total=$(wc -c < "$file" | tr -d ' '); if [ "$total" -le "$start" ]; then printf 'no-change'; exit 0; fi; count=$((total-start)); if [ "$count" -gt 4194304 ]; then count=4194304; fi; chunk=$(mktemp); trap 'rm -f "$chunk"' EXIT; dd if="$file" of="$chunk" iflag=skip_bytes,count_bytes skip="$start" count="$count" status=none; size=$(wc -c < "$chunk" | tr -d ' '); sha=$(sha256sum "$chunk" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H "Content-Length: $size" -H "X-Trace-Generation: $generation" -H ${shellAtom(`X-Trace-Expected-Generation: ${expectedGeneration}`)} -H "X-Trace-Start: $start" -H "X-Trace-SHA256: $sha" -H "X-Trace-Previous-Hash: $previous" --data-binary @"$chunk" ${shellAtom(request.uploadUrl)}`;
+    const remote = `set -eu; file=$(${request.source ? sourceCommand(request.source) : request.discoverCommand}); test -n "$file"; test -f "$file"; exec 3<"$file"; file=/proc/$$/fd/3; identity=$(stat -Lc '%d:%i:%W' "$file"); generation="$identity"; case ${shellAtom(expectedGeneration)} in "$identity":*) generation=${shellAtom(expectedGeneration)};; esac; start=${request.offset}; previous=${shellAtom(request.previousHash)}; if [ -n ${shellAtom(expectedGeneration)} ] && [ "$generation" != ${shellAtom(expectedGeneration)} ]; then start=0; previous=${shellAtom(zeroHash)}; fi; total=$(wc -c < "$file" | tr -d ' '); if [ "$total" -lt "$start" ]; then generation="$identity:$(date +%s%N)"; start=0; previous=${shellAtom(zeroHash)}; fi; if [ "$total" -le "$start" ]; then printf 'no-change'; exit 0; fi; count=$((total-start)); if [ "$count" -gt 4194304 ]; then count=4194304; fi; chunk=$(mktemp); trap 'rm -f "$chunk"' EXIT; dd if="$file" of="$chunk" iflag=skip_bytes,count_bytes skip="$start" count="$count" status=none; size=$(wc -c < "$chunk" | tr -d ' '); sha=$(sha256sum "$chunk" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H "Content-Length: $size" -H "X-Trace-Generation: $generation" -H ${shellAtom(`X-Trace-Expected-Generation: ${expectedGeneration}`)} -H "X-Trace-Start: $start" -H "X-Trace-SHA256: $sha" -H "X-Trace-Previous-Hash: $previous" --data-binary @"$chunk" ${shellAtom(request.uploadUrl)}`;
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
     return { ok: result.ok, detail: result.ok ? undefined : `Live trace upload failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
   }

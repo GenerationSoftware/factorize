@@ -1,3 +1,4 @@
+import type { TraceSource, TraceSources } from "./trace-source";
 export type ExecutionState = "queued" | "starting" | "running" | "blocked" | "stopping" | "stopped" | "succeeded" | "failed";
 export type ExecutionCapability = "output" | "prompt-delivery" | "recovery" | "stop";
 export type PromptDeliveryState = "pending" | "submitting" | "accepted" | "ambiguous" | "failed";
@@ -13,6 +14,7 @@ export interface BackendCommandResult {
 export interface LaunchRequest {
   runId: string;
   prompt: string;
+  traceSources?: TraceSources;
   harness?: { executable: string; args: string[]; env: Record<string, string> };
 }
 
@@ -38,6 +40,8 @@ export interface PromptDeliveryReceipt {
   state: Exclude<PromptDeliveryState, "pending" | "submitting">;
   command?: BackendCommandResult;
 }
+export interface ArtifactCollectionRequest { uploadUrl: string; contentType: string; source?: TraceSource; discoverCommand?: string; }
+export interface TraceChunkCollectionRequest { uploadUrl: string; source?: TraceSource; discoverCommand?: string; generation: string | null; offset: number; previousHash: string; }
 export interface ArtifactCollectionReceipt { ok: boolean; detail?: string; command?: BackendCommandResult; }
 
 /** Provider-neutral boundary. Output and recovery are opt-in capabilities. */
@@ -49,7 +53,8 @@ export interface ExecutionBackend {
   stop(handle: RunHandle): Promise<ExecutionObservation>;
   deliverPrompt?(handle: RunHandle, prompt: string): Promise<PromptDeliveryReceipt>;
   readOutput?(handle: RunHandle): Promise<string | null>;
-  collectArtifact?(handle: RunHandle, request: { uploadUrl: string; discoverCommand: string; contentType: string }): Promise<ArtifactCollectionReceipt>;
+  collectArtifact?(handle: RunHandle, request: ArtifactCollectionRequest): Promise<ArtifactCollectionReceipt>;
+  collectTraceChunk?(handle: RunHandle, request: TraceChunkCollectionRequest): Promise<ArtifactCollectionReceipt>;
 }
 
 /** Maps persisted execution states onto the public contract. */
