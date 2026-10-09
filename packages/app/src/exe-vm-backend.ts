@@ -100,16 +100,20 @@ export class ExeVmBackend implements ExecutionBackend {
       throw new Error(`exe.dev VM creation failed (${created.status}): ${created.body.slice(0, 500)}`);
     }
 
-    const prompt = base64(request.prompt), output = "/tmp/factorize.log", unit = vm;
+    const prompt = base64(request.prompt), output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
     const work = [
       "set -eu",
       "mkdir -p /home/exedev/workspace",
       "cd /home/exedev/workspace",
       ...(request.traceSources?.primary.kind === "execution_stream" ? [`mkdir -p -- ${shellAtom(request.traceSources.primary.path.slice(0, request.traceSources.primary.path.lastIndexOf("/")) || "/")}`, `touch -- ${shellAtom(request.traceSources.primary.path)}`] : []),
       `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
-      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=file:/tmp/factorize-prompt.md --property=StandardOutput=append:${output} --property=StandardError=append:/tmp/factorize.stderr ${harnessCommand(request.harness)}; fi`,
+      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=file:/tmp/factorize-prompt.md --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr ${harnessCommand(request.harness)}; fi`,
       "echo started",
     ].join("; ");
+    if (request.traceSources?.primary.formatVersion === "codex-exec-jsonl") {
+      const version = await this.api(`ssh ${shellAtom(vm)} ${shellAtom("codex --version")}`).catch(() => null);
+      if (version?.ok && /^codex-cli [0-9][0-9A-Za-z.+-]*$/.test(version.body.trim())) request.traceSources.primary.cliVersion = version.body.trim();
+    }
     let started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
     const accepted = (result: BackendCommandResult) => result.ok && result.body.trim() === "started";
     for (let attempt = 1; !accepted(started) && attempt < 5; attempt++) started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
