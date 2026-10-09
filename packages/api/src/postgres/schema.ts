@@ -43,7 +43,11 @@ export const jobs = app.table("jobs", {
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.slug), check("jobs_concurrency_limit_check", sql`${t.concurrencyLimit} >= 1`)]);
 export const triggers = app.table("triggers", {
   tenantId: uuid("tenant_id").notNull(), id: uuid("id").notNull(), jobId: uuid("job_id").notNull(), kind: text("kind").$type<TriggerKind>().notNull(), slug: text("slug").notNull(), enabled: boolean("enabled").notNull().default(true), config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}), position: integer("position").notNull().default(0), createdAt: createdAt(), updatedAt: updatedAt(), removedAt: timestamp("removed_at", { withTimezone: true }),
-}, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("triggers_active_slug").on(t.tenantId, t.jobId, t.slug).where(sql`${t.removedAt} is null`), foreignKey({ columns: [t.tenantId, t.jobId], foreignColumns: [jobs.tenantId, jobs.id] }).onDelete("cascade"), check("triggers_kind_check", sql`${t.kind} in ('manual','schedule','webhook','jobLifecycle')`)]);
+}, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("triggers_active_slug").on(t.tenantId, t.jobId, t.slug).where(sql`${t.removedAt} is null`), foreignKey({ columns: [t.tenantId, t.jobId], foreignColumns: [jobs.tenantId, jobs.id] }).onDelete("cascade"), check("no_webhook_handler_code", sql`NOT (${t.config} ? 'handlerCode')`), check("triggers_kind_check", sql`${t.kind} in ('manual','schedule','webhook','jobLifecycle')`)]);
+// One-time cutover state; no legacy execution or configuration is retained.
+export const webhookConditionsCutover = app.table("webhook_conditions_cutover", {
+  tenantId: uuid("tenant_id").notNull(), triggerId: uuid("trigger_id").notNull(), wasEnabled: boolean("was_enabled").notNull(), conditions: jsonb("conditions").$type<Record<string, unknown>>().notNull(), restoredAt: timestamp("restored_at", { withTimezone: true }),
+}, t => [primaryKey({ columns: [t.tenantId, t.triggerId] }), foreignKey({ columns: [t.tenantId, t.triggerId], foreignColumns: [triggers.tenantId, triggers.id] }).onDelete("cascade")]);
 export const invocations = app.table("invocations", {
   tenantId: uuid("tenant_id").notNull(), id: uuid("id").notNull(), jobId: uuid("job_id").notNull(), source: text("source").$type<InvocationSource>().notNull(), claimKey: text("claim_key").notNull(), triggerId: uuid("trigger_id").notNull(), context: jsonb("context").$type<Record<string, unknown>>().notNull(), occurrence: jsonb("occurrence").$type<InvocationRequest["occurrence"]>(), createdAt: createdAt(),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.jobId, t.claimKey), foreignKey({ columns: [t.tenantId, t.jobId], foreignColumns: [jobs.tenantId, jobs.id] }).onDelete("cascade"), foreignKey({ columns: [t.tenantId, t.triggerId], foreignColumns: [triggers.tenantId, triggers.id] }), check("invocations_source_check", sql`${t.source} in ('manual','schedule','webhook','jobLifecycle')`)]);
@@ -114,7 +118,7 @@ export const runRelations = relations(runs, ({ one, many }) => ({
 
 export const databaseSchema = {
   schemaMigrations, tenants, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
-  connections, linearWorkspaces, githubInstallations, githubSetupStates, jobs, triggers, invocations, jobRuns, runs, runArtifacts,
+  connections, linearWorkspaces, githubInstallations, githubSetupStates, jobs, triggers, webhookConditionsCutover, invocations, jobRuns, runs, runArtifacts,
   runTraceEvents, runActivity, activeClaims, scheduleState, automaticWakes, lifecycleDeliveries, jobEditDeliveries, jobEvents,
   webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints, runTraceCursors, runTraceChunks,
   runTraceProjections, traceReplayLimits, traceReplayOperations,

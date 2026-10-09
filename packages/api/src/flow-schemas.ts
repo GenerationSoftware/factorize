@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { conditionsSchema, preparedWebhookSchema } from "./webhook-conditions";
 
 export const scopeSchema = z.enum(["flows:read", "flows:write", "runs:read", "runs:write"]);
 export const runStateSchema = z.enum(["queued", "starting", "running", "done", "blocked", "failed", "ignored", "succeeded", "stopping", "stopped"]);
@@ -13,7 +14,7 @@ export const listRunsSchema = z.object({
 });
 export const runIdSchema = z.object({ runId: z.string().min(1) });
 
-const webhookCommonSchema = z.object({ handlerCode: z.string().max(16_384).optional() });
+const webhookCommonSchema = z.object({ conditions: conditionsSchema.optional() });
 export const webhookTriggerConfigSchema = z.discriminatedUnion("provider", [
   webhookCommonSchema.extend({ provider: z.literal("linear"), projectId: z.string().min(1), matchRules: z.array(matchRuleSchema).min(1) }).strict(),
   webhookCommonSchema.extend({ provider: z.literal("clickup"), listId: z.string().min(1), matchRules: z.array(matchRuleSchema).min(1) }).strict(),
@@ -50,8 +51,8 @@ export const manualInvocationSchema = z.object({
     message: "idempotencyKey must not include the reserved manual: claim-key prefix",
   }).optional(),
 }).strict();
-export const jobHandlerTestSchema = z.object({
-  handlerCode: z.string().max(16_384), payload: z.record(z.string(), z.unknown()),
+export const jobConditionsTestSchema = z.object({
+  conditions: conditionsSchema.optional(), webhook: preparedWebhookSchema,
 }).strict();
 
 export type JobInput = z.infer<typeof jobInputSchema>;

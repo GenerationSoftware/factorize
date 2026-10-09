@@ -1,18 +1,4 @@
----
-title: Trigger configuration
-description: Configure schedules, provider webhooks, and lifecycle triggers.
----
-
-Schedule config is `{cron, timezone}`. Webhook config supports `linear` (`projectId`, non-empty `matchRules`), `clickup` (`listId`, rules), `github` (`installationId`, `repositoryId`, and rules or event/action), and `cloudflareTail` (`integrationId`). Match rule types are `owner`, `creator`, `status`, `label`, and `assignee`, each with a `targetId`.
-
-Lifecycle config is `{sourceJobIds, states}`, where states are `succeeded`, `failed`, `stopped`, or `edited`. Triggers have stable server-generated slugs (`trigger-1`, `trigger-2`, …); use them in Mustache templates. Disabled triggers do not fire.
-
-Linear webhooks require a fresh HMAC timestamp/signature and configured OAuth subscription. ClickUp uses its OAuth connection and signed webhook. GitHub uses the connected App installation. Cloudflare Tail sends sanitized, signed delivery data to the generated destination.
-
-Choose **Job lifecycle → Edited** and one or more source jobs to run a job when another job is saved (including enable/disable saves). Creation and run status changes do not produce edit events. Each successful save is an event, even if the submitted values are unchanged. Only enabled subscribers in the same tenant are matched; a job cannot subscribe to its own edits.
-
-Edited events expose `{{trigger-1.source_job_id}}`, `{{trigger-1.event}}` (`edited`), and `{{trigger-1.edited_at}}`. Events are recorded in the save transaction and delivered by the scheduler with retry deduplication. Subscribers added later do not receive earlier edits. Pending events wait while the destination is disabled or no longer matches; removing a trigger or deleting its source job discards them.
-
+# Webhook conditions
 
 Webhook trigger configuration accepts optional `conditions`, a json-rules-engine
 condition tree, not a full rule/engine configuration. No conditions means no
@@ -64,3 +50,29 @@ Configuration/request validation errors return a validation error. Details with
 no `result` were not evaluated, and must not be displayed as failed. The preview
 does not authenticate the example, route events, verify live GitHub state, or
 invoke jobs. Runtime activity stores only concise decisions, never these values.
+
+## Explicit GEN-2158 cutover
+
+Migration 0013 inventories **every stored trigger**, including disabled and
+removed triggers. It recognizes only the exact reviewed Build Manager source,
+job ID and trigger slug/event/action. Any additional or changed handler aborts
+the transaction for explicit review; no arbitrary JavaScript is translated.
+It records prior enabled state, disables affected triggers, removes the legacy
+property and installs the three exclusion groups in
+`packages/api/migrations/build-manager-conditions.json`. Absent check_suite
+matches, preserving the old early return for selected completed events.
+Trigger identity, routing and prompt context stay intact. A database constraint
+rejects future writes of the removed property.
+
+Before production, validate on an isolated Neon branch and inventory again.
+The production workflow migrates before deploying the conditions Worker, then
+runs `restore-webhook-conditions.mjs` only after deployment. The public session
+response's `X-Factorize-Webhook-Conditions: v1` marker gates restoration. On any
+migration/deployment/verification failure, affected triggers remain disabled.
+Restoration rejects changed conditions or prematurely enabled triggers and
+restores the recorded prior enabled state transactionally. After deployment,
+verify the canonical authenticated preview on exclusion/accepted examples,
+trigger identity/configuration/enabled state, and no stored legacy property.
+Do not deploy the old runtime over the converted data: disable migrated triggers
+first if a backend rollback becomes necessary. A frontend-only rollback must
+retain the conditions API/runtime.

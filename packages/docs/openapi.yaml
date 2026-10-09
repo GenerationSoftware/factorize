@@ -854,9 +854,11 @@ components:
                     oneOf:
                       - type: object
                         properties:
-                          handlerCode:
-                            type: string
-                            maxLength: 16384
+                          conditions:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
                           provider:
                             type: string
                             const: linear
@@ -890,9 +892,11 @@ components:
                         additionalProperties: false
                       - type: object
                         properties:
-                          handlerCode:
-                            type: string
-                            maxLength: 16384
+                          conditions:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
                           provider:
                             type: string
                             const: clickup
@@ -926,9 +930,11 @@ components:
                         additionalProperties: false
                       - type: object
                         properties:
-                          handlerCode:
-                            type: string
-                            maxLength: 16384
+                          conditions:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
                           provider:
                             type: string
                             const: github
@@ -973,9 +979,11 @@ components:
                         additionalProperties: false
                       - type: object
                         properties:
-                          handlerCode:
-                            type: string
-                            maxLength: 16384
+                          conditions:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
                           provider:
                             type: string
                             const: cloudflareTail
@@ -1059,20 +1067,21 @@ components:
           maxLength: 200
           pattern: ^(?!manual:)
       additionalProperties: false
-    JobHandlerTest:
+    JobConditionsTest:
       type: object
       properties:
-        handlerCode:
-          type: string
-          maxLength: 16384
-        payload:
+        conditions:
+          type: object
+          propertyNames:
+            type: string
+          additionalProperties: {}
+        webhook:
           type: object
           propertyNames:
             type: string
           additionalProperties: {}
       required:
-        - handlerCode
-        - payload
+        - webhook
       additionalProperties: false
     TraceReplayRequest:
       type: object
@@ -1156,6 +1165,11 @@ paths:
         "200":
           description: Unauthenticated sessions return authenticated:false; expired, unverified, removed or revoked owners are unauthenticated.
           headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
             X-Factorize-Contract:
               description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
               schema:
@@ -1258,6 +1272,11 @@ paths:
         "200":
           description: Success
           headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
             X-Factorize-Contract:
               description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
               schema:
@@ -1333,6 +1352,11 @@ paths:
         "202":
           description: Success
           headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
             X-Factorize-Contract:
               description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
               schema:
@@ -1402,6 +1426,11 @@ paths:
         "200":
           description: Success
           headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
             X-Factorize-Contract:
               description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
               schema:
@@ -1465,6 +1494,11 @@ paths:
         "200":
           description: Success
           headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
             X-Factorize-Contract:
               description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
               schema:
@@ -1528,6 +1562,11 @@ paths:
         "200":
           description: Success
           headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
             X-Factorize-Contract:
               description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
               schema:
@@ -1591,6 +1630,11 @@ paths:
         "200":
           description: Success
           headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
             X-Factorize-Contract:
               description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
               schema:
@@ -1660,6 +1704,11 @@ paths:
         "200":
           description: Success
           headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
             X-Factorize-Contract:
               description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
               schema:
@@ -1730,6 +1779,11 @@ paths:
         "200":
           description: Success
           headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
             X-Factorize-Contract:
               description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
               schema:
@@ -4764,9 +4818,11 @@ paths:
                                 oneOf:
                                   - type: object
                                     properties:
-                                      handlerCode:
-                                        type: string
-                                        maxLength: 16384
+                                      conditions:
+                                        type: object
+                                        propertyNames:
+                                          type: string
+                                        additionalProperties: {}
                                       provider:
                                         type: string
                                         const: linear
@@ -4803,9 +4859,11 @@ paths:
                                     additionalProperties: false
                                   - type: object
                                     properties:
-                                      handlerCode:
-                                        type: string
-                                        maxLength: 16384
+                                      conditions:
+                                        type: object
+                                        propertyNames:
+                                          type: string
+                                        additionalProperties: {}
                                       provider:
                                         type: string
                                         const: clickup
@@ -4842,9 +4900,11 @@ paths:
                                     additionalProperties: false
                                   - type: object
                                     properties:
-                                      handlerCode:
-                                        type: string
-                                        maxLength: 16384
+                                      conditions:
+                                        type: object
+                                        propertyNames:
+                                          type: string
+                                        additionalProperties: {}
                                       provider:
                                         type: string
                                         const: github
@@ -4892,9 +4952,11 @@ paths:
                                     additionalProperties: false
                                   - type: object
                                     properties:
-                                      handlerCode:
-                                        type: string
-                                        maxLength: 16384
+                                      conditions:
+                                        type: object
+                                        propertyNames:
+                                          type: string
+                                        additionalProperties: {}
                                       provider:
                                         type: string
                                         const: cloudflareTail
@@ -5216,9 +5278,11 @@ paths:
                               oneOf:
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: linear
@@ -5255,9 +5319,11 @@ paths:
                                   additionalProperties: false
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: clickup
@@ -5294,9 +5360,11 @@ paths:
                                   additionalProperties: false
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: github
@@ -5344,9 +5412,11 @@ paths:
                                   additionalProperties: false
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: cloudflareTail
@@ -5494,48 +5564,42 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/JobInput"
-  /api/v1/job-handlers/test:
+  /api/v1/job-conditions/test:
     post:
-      summary: Test webhook handler
+      summary: Test webhook conditions
+      description: |-
+        Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke jobs.
+
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
       responses:
         "200":
           description: Decision
           content:
             application/json:
               schema:
-                oneOf:
-                  - type: object
-                    properties:
-                      ok:
-                        type: boolean
-                        const: true
-                      decision:
-                        anyOf:
-                          - type: boolean
-                          - type: object
-                            propertyNames:
-                              type: string
-                            additionalProperties: {}
-                    required:
-                      - ok
-                      - decision
-                    additionalProperties: false
-                  - type: object
-                    properties:
-                      ok:
-                        type: boolean
-                        const: false
-                      category:
+                type: object
+                properties:
+                  decision:
+                    type: string
+                    enum:
+                      - match
+                      - no-match
+                      - error
+                  error:
+                    type: string
+                  details:
+                    type: array
+                    items:
+                      type: object
+                      propertyNames:
                         type: string
-                        enum:
-                          - handler_error
-                          - invalid_return
-                          - timeout
-                          - platform_error
-                    required:
-                      - ok
-                      - category
-                    additionalProperties: false
+                      additionalProperties: {}
+                required:
+                  - decision
+                  - details
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -5554,13 +5618,9 @@ paths:
           $ref: "#/components/responses/Error500"
         "503":
           $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the flows:write scope.
-
-        Accepts a scoped bearer token or interactive owner session.
-      operationId: post_api_v1_job_handlers_test
+      operationId: post_api_v1_job_conditions_test
       tags:
-        - job-handlers
+        - job-conditions
       security:
         - bearerAuth: []
         - cookieAuth: []
@@ -5571,7 +5631,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/JobHandlerTest"
+              $ref: "#/components/schemas/JobConditionsTest"
   /api/v1/jobs/{jobId}/invocations:
     post:
       summary: Invoke job
@@ -5968,9 +6028,11 @@ paths:
                               oneOf:
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: linear
@@ -6007,9 +6069,11 @@ paths:
                                   additionalProperties: false
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: clickup
@@ -6046,9 +6110,11 @@ paths:
                                   additionalProperties: false
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: github
@@ -6096,9 +6162,11 @@ paths:
                                   additionalProperties: false
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: cloudflareTail
@@ -6433,9 +6501,11 @@ paths:
                               oneOf:
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: linear
@@ -6472,9 +6542,11 @@ paths:
                                   additionalProperties: false
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: clickup
@@ -6511,9 +6583,11 @@ paths:
                                   additionalProperties: false
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: github
@@ -6561,9 +6635,11 @@ paths:
                                   additionalProperties: false
                                 - type: object
                                   properties:
-                                    handlerCode:
-                                      type: string
-                                      maxLength: 16384
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
                                     provider:
                                       type: string
                                       const: cloudflareTail
@@ -6821,9 +6897,11 @@ paths:
                             oneOf:
                               - type: object
                                 properties:
-                                  handlerCode:
-                                    type: string
-                                    maxLength: 16384
+                                  conditions:
+                                    type: object
+                                    propertyNames:
+                                      type: string
+                                    additionalProperties: {}
                                   provider:
                                     type: string
                                     const: linear
@@ -6857,9 +6935,11 @@ paths:
                                 additionalProperties: false
                               - type: object
                                 properties:
-                                  handlerCode:
-                                    type: string
-                                    maxLength: 16384
+                                  conditions:
+                                    type: object
+                                    propertyNames:
+                                      type: string
+                                    additionalProperties: {}
                                   provider:
                                     type: string
                                     const: clickup
@@ -6893,9 +6973,11 @@ paths:
                                 additionalProperties: false
                               - type: object
                                 properties:
-                                  handlerCode:
-                                    type: string
-                                    maxLength: 16384
+                                  conditions:
+                                    type: object
+                                    propertyNames:
+                                      type: string
+                                    additionalProperties: {}
                                   provider:
                                     type: string
                                     const: github
@@ -6940,9 +7022,11 @@ paths:
                                 additionalProperties: false
                               - type: object
                                 properties:
-                                  handlerCode:
-                                    type: string
-                                    maxLength: 16384
+                                  conditions:
+                                    type: object
+                                    propertyNames:
+                                      type: string
+                                    additionalProperties: {}
                                   provider:
                                     type: string
                                     const: cloudflareTail

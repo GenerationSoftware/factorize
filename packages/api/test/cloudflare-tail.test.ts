@@ -15,7 +15,7 @@ describe("Cloudflare Tail ingestion", () => {
     await expect(verifyTailDelivery(secret, String(Date.now() - 61_000), delivery, body, signature)).resolves.toBe("stale");
   });
 
-  it("removes sensitive data recursively before handlers, activity, or prompts", () => {
+  it("removes sensitive data recursively before conditions, activity, or prompts", () => {
     const event = sanitizeTailEvent({ scriptName: "producer", event: { request: { headers: { authorization: "Bearer x", cookie: "x=y", accept: "json" }, body: "raw" } }, token: "secret", logs: [{ level: "error", message: "safe" }] });
     expect(JSON.stringify(event)).not.toContain("Bearer x");
     expect(JSON.stringify(event)).not.toContain("x=y");

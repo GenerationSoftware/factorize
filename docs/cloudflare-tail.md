@@ -28,4 +28,4 @@ For caught internal failures, log a structured event:
 console.error(JSON.stringify({ event: "factorize_unexpected_failure", component: "billing", message: error.message }));
 ```
 
-Do not include request bodies, headers, credentials, or prompts in the structured log. Expected 4xx/domain failures remain ordinary Tail events unless the Job handler explicitly accepts them.
+Do not include request bodies, headers, credentials, or prompts in the structured log. Expected 4xx/domain failures remain ordinary Tail events unless the Job conditions explicitly accept them.

@@ -72,9 +72,9 @@ export const triggerContextCatalog: Record<string, ContextPath[]> = {
 
 export function reflectTriggerContext(trigger: { slug?: unknown; kind?: unknown; config?: any }): TriggerContextReflection {
   const kind = String(trigger.kind ?? ""), provider = kind === "webhook" ? String(trigger.config?.provider ?? "") : undefined;
-  const key = provider ?? kind, handler = kind === "webhook" && typeof trigger.config?.handlerCode === "string" && trigger.config.handlerCode.trim().length > 0;
+  const key = provider ?? kind;
   return {
-    slug: String(trigger.slug ?? ""), kind, ...(provider ? { provider } : {}), dynamic: handler,
-    paths: handler ? [{ path: "*", type: "unknown", description: "The provider handler replaces context with a dynamic JSON object; inspect the handler contract." }] : (triggerContextCatalog[key] ?? [{ path: "*", type: "unknown", description: "Context shape is not known." }]),
+    slug: String(trigger.slug ?? ""), kind, ...(provider ? { provider } : {}), dynamic: false,
+    paths: (triggerContextCatalog[key] ?? [{ path: "*", type: "unknown", description: "Context shape is not known." }]),
   };
 }

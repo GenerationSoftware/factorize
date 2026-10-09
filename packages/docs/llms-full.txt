@@ -12,7 +12,7 @@ The API is rooted at `/api/v1`. The verified operation inventory, request valida
 
 ## MCP
 
-Connect to `APP_ORIGIN/mcp` using Streamable HTTP. Tools mirror the REST surface: connection/target discovery, job CRUD and enablement, manual invocation, run inspection/filtering/stopping, webhook activity, and isolated handler testing. Tool output is structured JSON plus text; secrets are omitted.
+Connect to `APP_ORIGIN/mcp` using Streamable HTTP. Tools mirror the REST surface: connection/target discovery, job CRUD and enablement, manual invocation, run inspection/filtering/stopping, webhook activity, and prepared webhook conditions testing. Tool output is structured JSON plus text; secrets are omitted.
 
 ## Triggers
 
