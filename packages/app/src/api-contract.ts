@@ -18,7 +18,7 @@ export const API_OPERATIONS = [
   ["GET", "/api/v1/jobs"], ["POST", "/api/v1/jobs"], ["GET", "/api/v1/jobs/{jobId}"], ["PUT", "/api/v1/jobs/{jobId}"], ["DELETE", "/api/v1/jobs/{jobId}"],
   ["POST", "/api/v1/jobs/{jobId}/enable"], ["POST", "/api/v1/jobs/{jobId}/disable"], ["POST", "/api/v1/jobs/{jobId}/invocations"], ["GET", "/api/v1/jobs/{jobId}/events"],
   ["POST", "/api/v1/job-handlers/test"], ["GET", "/api/v1/runs"], ["GET", "/api/v1/runs/{runId}"], ["GET", "/api/v1/runs/{runId}/trace"],
-  ["GET", "/api/v1/runs/{runId}/diagnostics"], ["POST", "/api/v1/runs/{runId}/stop"], ["POST", "/api/v1/runs/{runId}/kill"], ["GET", "/api/v1/search"],
+  ["POST", "/api/v1/runs/{runId}/trace/replay"], ["GET", "/api/v1/runs/{runId}/diagnostics"], ["POST", "/api/v1/runs/{runId}/stop"], ["POST", "/api/v1/runs/{runId}/kill"], ["GET", "/api/v1/search"],
   ["GET", "/api/v1/webhooks/deliveries"], ["GET", "/api/v1/webhooks/deliveries/{deliveryId}"],
 ] as const;
 

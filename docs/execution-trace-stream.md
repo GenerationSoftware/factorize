@@ -95,3 +95,22 @@ child text. Boundary tests execute the exact guest supervisor with a fake CLI,
 including live pre-exit visibility, malformed/partial lines, UTF-8 fragmentation,
 terminal reprojection, failure exits and native recovery. CLI flags follow
 https://code.claude.com/docs/en/cli-reference .
+
+## Provenance, replay, and rollout
+
+Run diagnostics expose the declared provider/source/version, retained artifact
+receipts, actual projection source/checksum/parser revision, live generation and
+byte cursor, reconciliation state, warning and unknown-event counts, and explicit
+native fallback use. A null projection or missing native artifact is not proof
+of completeness or recoverability. Terminal reconciliation compares the live
+projection prefix to the durable snapshot. The browser resets pagination when
+its source generation or durable projection changes, including rollback.
+
+Tenant owners can replay one terminal run's retained primary or native artifact
+through `POST /api/v1/runs/{runId}/trace/replay`, using an interactive owner session
+with `runs:write` and a UUID `requestId`. Native replay recovers historical Codex
+custom tool calls only when native JSONL exists. Completed requests are idempotent;
+failed transactions can resume; missing artifacts are reported unrecoverable.
+Replay is limited to 10 requests per tenant per minute. Artifact keys are storage
+locators, not download URLs. See the [rollout and incident runbook](trace-rollout-runbook.md)
+for deployment gates, canary evidence, checkpointing, retention, and rollback.

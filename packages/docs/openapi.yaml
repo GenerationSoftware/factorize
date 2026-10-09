@@ -3,7 +3,7 @@ info:
   title: Factorize API
   version: 1.0.0
   description: Versioned Factorize REST API. See the hosted docs for examples and OAuth discovery.
-  x-dashboard-auth: Access-token and authorized-client management operations require an interactive owner session; all other operations accept a suitably scoped bearer token or owner session.
+  x-dashboard-auth: Access-token and authorized-client management and trace replay operations require an interactive owner session; all other operations accept a suitably scoped bearer token or owner session.
 servers:
   - url: https://app.factorize.sh
 security: [{ bearerAuth: [] }]
@@ -83,6 +83,71 @@ components:
       properties:
         primary: { $ref: '#/components/schemas/TraceSource' }
         nativeSession: { $ref: '#/components/schemas/TraceSource' }
+    TraceProjection:
+      type: [object, 'null']
+      description: Committed projection receipt. Null means no durable reconciliation evidence; it does not mean complete.
+      properties:
+        source_kind: { type: string, enum: [execution_stream, native_session] }
+        artifact_sha256: { type: string }
+        parser_version: { type: string }
+        updated_at: { type: string, format: date-time }
+        reconciliation:
+          type: object
+          properties:
+            state: { type: string, enum: [matched, mismatch, no_live_cursor, reprojected] }
+            events: { type: integer }
+            liveEvents: { type: integer }
+            mismatches: { type: integer }
+            liveOffset: { type: [integer, 'null'] }
+            artifactBytes: { type: integer }
+    TraceDiagnostics:
+      type: object
+      required: [provider, primarySource, sourceVersion, projection, liveCursor, counts, artifacts, nativeArtifactState, fallbackUsed, lastReplay]
+      properties:
+        provider: { type: [string, 'null'], description: Agent trace provider; the outer diagnostics provider remains the trigger provider. }
+        primarySource: { type: string, enum: [execution_stream, native_session] }
+        sourceVersion: { type: [string, 'null'] }
+        projection: { $ref: '#/components/schemas/TraceProjection' }
+        liveCursor:
+          type: [object, 'null']
+          properties:
+            generation: { type: string }
+            committed_offset: { type: [integer, string] }
+            pending_bytes: { type: integer }
+            updated_at: { type: string, format: date-time }
+        counts:
+          type: object
+          properties:
+            events: { type: integer }
+            parse_warnings: { type: integer }
+            unknown_events: { type: integer }
+            unknownEventRate: { type: number, minimum: 0, maximum: 1 }
+        artifacts:
+          type: array
+          description: Tenant/run-scoped receipts; storage keys are locators, never public download URLs. Includes kind, provider, format and source/CLI/harness versions, byte size, checksum and storage state.
+          items: { type: object }
+        nativeArtifactState: { type: string, enum: [stored, missing], description: Missing means no retained native artifact receipt; recovery is not promised. }
+        fallbackUsed: { type: boolean, description: Native projection selected for a run originally declared with an execution stream primary. }
+        lastReplay: { type: [object, 'null'], description: Latest completed replay request ID, source, result, and timestamp; failed requests are retryable and logged. }
+    TraceReplayRequest:
+      type: object
+      additionalProperties: false
+      required: [requestId]
+      properties:
+        requestId: { type: string, format: uuid, description: Tenant-scoped idempotency key; preserve it when retrying. Use a new key to reconsider a previously skipped or unrecoverable run. }
+        source: { type: string, enum: [primary, native_session], default: primary, description: Primary replays the persisted source declaration (native for historical runs); native_session explicitly rolls back to retained native bytes. }
+    TraceReplayResult:
+      type: object
+      required: [requestId, runId, status]
+      properties:
+        requestId: { type: string, format: uuid }
+        runId: { type: string, format: uuid }
+        status: { type: string, enum: [projected, already_projected, skipped, unrecoverable] }
+        reason: { type: string, enum: [run_active, ambiguous_artifacts, missing_artifact, unsupported_artifact, artifact_not_retained] }
+        sourceKind: { type: string, enum: [execution_stream, native_session] }
+        sha256: { type: string }
+        parserVersion: { type: string }
+        reconciliation: { type: object }
     RunDetail:
       allOf:
         - $ref: '#/components/schemas/Run'
@@ -91,6 +156,8 @@ components:
       properties:
         id: { type: string }
         state: { type: string }
+        trace_generation: { type: [string, 'null'], description: Live file generation; clients reset trace pagination when it changes. }
+        trace_projection: { $ref: '#/components/schemas/TraceProjection' }
         trace_sources: { $ref: '#/components/schemas/TraceSources' }
         execution_diagnostics: { $ref: '#/components/schemas/ExecutionDiagnostics' }
         harness_log: { $ref: '#/components/schemas/HarnessLog' }
@@ -104,6 +171,7 @@ components:
         state: { type: string }
         provider: { type: string }
         backendKind: { type: string }
+        trace: { $ref: '#/components/schemas/TraceDiagnostics' }
         traceSources: { $ref: '#/components/schemas/TraceSources' }
         execution: { $ref: '#/components/schemas/ExecutionDiagnostics' }
         harnessLog: { $ref: '#/components/schemas/HarnessLog' }
@@ -173,6 +241,26 @@ paths:
     get: { summary: List runs, parameters: [{ name: jobId, in: query, schema: { type: string } }, { name: state, in: query, schema: { type: string } }, { name: contextQuery, in: query, schema: { type: string } }, { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }, { name: cursor, in: query, schema: { type: string } }], responses: { '200': { description: Paginated runs, content: { application/json: { schema: { $ref: '#/components/schemas/RunPage' } } } } } }
   /api/v1/runs/{runId}: { get: { summary: Get run, responses: { '200': { description: Run including durable execution diagnostics and harness artifact location, content: { application/json: { schema: { $ref: '#/components/schemas/RunDetail' } } } } } } }
   /api/v1/runs/{runId}/trace: { get: { summary: Get paginated run trace events, responses: { '200': { description: Trace page } } } }
+  /api/v1/runs/{runId}/trace/replay:
+    post:
+      summary: Replay a retained trace artifact or restore a native-session projection
+      description: Requires runs:write and an interactive tenant owner session. One terminal run per request, limited to 10 attempts per tenant per minute including retries and failures. Projection and result commit atomically; no artifacts are deleted. Retry failed requests with the same requestId. Conflicting reuse is rejected. Missing bytes cannot be recovered. Does not change the source declaration of an active or future run.
+      x-required-scope: runs:write
+      x-owner-session-required: true
+      parameters:
+        - { name: runId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/TraceReplayRequest' } } }
+      responses:
+        '200': { description: Durable replay result, content: { application/json: { schema: { $ref: '#/components/schemas/TraceReplayResult' } } } }
+        '400': { description: Invalid request }
+        '401': { description: Invalid owner session }
+        '403': { description: Missing runs:write scope or interactive owner session }
+        '404': { description: Run not found within the tenant }
+        '409': { description: Request ID conflict or artifact ownership/checksum mismatch }
+        '429': { description: Tenant rate limit reached; wait one minute before retrying }
+        '503': { description: Artifact storage unavailable }
   /api/v1/runs/{runId}/diagnostics: { get: { summary: Get credential-safe run lifecycle diagnostics, responses: { '200': { description: Credential-safe execution metadata and durable harness artifact location, content: { application/json: { schema: { $ref: '#/components/schemas/RunDiagnostics' } } } } } } }
   /api/v1/runs/{runId}/stop: { post: { summary: Stop run, responses: { '200': { description: Stopped } } } }
   /api/v1/runs/{runId}/kill: { post: { summary: Kill run and immediately release its concurrency slot, responses: { '200': { description: Killed } } } }

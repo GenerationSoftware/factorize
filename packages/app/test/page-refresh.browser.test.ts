@@ -162,8 +162,8 @@ describe("lifecycle page refresh", () => {
       expect(document.querySelector('#run-detail h1').textContent).toBe(current.name);
       expect(document.title).toBe(current.name + ' — Factorize');
     }
-    expect(trace.firstElementChild).toBe(first);
-    expect(trace.children).toHaveLength(6);
+    expect(trace.firstElementChild).not.toBe(first);
+    expect(trace.children).toHaveLength(1);
     expect(document.querySelector('[data-run-prompt-details]').open).toBe(true);
     expect(document.querySelector('#kill-run')).toBeNull();
     expect(document.querySelector('[data-run-live]').hidden).toBe(true);
@@ -172,7 +172,7 @@ describe("lifecycle page refresh", () => {
     await vi.advanceTimersByTimeAsync(30000);
     expect(fetcher).toHaveBeenCalledTimes(calls);
     const traceUrls = fetcher.mock.calls.map(([url]) => url).filter(url => url.includes('/trace?'));
-    expect(traceUrls).toEqual([0, 1, 2, 3, 4, 5].map(after => '/api/v1/runs/run-1/trace?after=' + after + '&limit=100'));
+    expect(traceUrls).toEqual([0, 1, 2, 3, 4, 0].map(after => '/api/v1/runs/run-1/trace?after=' + after + '&limit=100'));
   });
 
   it("waits for terminal artifacts and serializes Load more with automatic trace refresh", async () => {
@@ -200,4 +200,32 @@ describe("lifecycle page refresh", () => {
     await vi.advanceTimersByTimeAsync(30000);
     expect(traces).toBe(3);
   });
+  it.each(['codex', 'claude', 'pi'])("shows %s live tools and replaces a reconciled or rolled-back projection without duplicates", async provider => {
+    let current: any = { ...run, state: 'running', agent_kind: provider, trace_sources: { primary: { provider, kind: provider === 'pi' ? 'native_session' : 'execution_stream' } }, trace_generation: 'file-1', trace_projection: null };
+    let items = [{ sequence: 1, id: 'call', type: 'tool_call', title: 'shell', preview: 'live command', display: {} }];
+    const fetcher = vi.fn(async (input: string) => {
+      if (input.includes('/trace?')) { const after = Number(new URL(input, 'https://app').searchParams.get('after')); return json({ items: items.filter(item => item.sequence > after), nextCursor: null }); }
+      return json(input.startsWith('/api/v1/jobs/') ? job : current);
+    });
+    render(jobRunPage(viewer, run.id), fetcher); await flush();
+    expect(document.querySelector('[data-run-state]').textContent).toBe('running');
+    expect(document.querySelector('[data-run-trace]').textContent).toContain('live command');
+    expect(document.querySelector('[data-run-artifact]').textContent).toContain(provider === 'pi' ? 'Native session' : 'Execution stream');
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(document.querySelector('[data-run-trace]').children).toHaveLength(1);
+    items = [{ sequence: 1, id: 'reconciled', type: 'tool_call', title: 'shell', preview: 'terminal command', display: {} }];
+    current = { ...current, state: 'succeeded', artifact_state: 'collecting', trace_projection: { source_kind: current.trace_sources.primary.kind, artifact_sha256: 'stream', updated_at: 'one' } };
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(document.querySelector('[data-run-trace]').children).toHaveLength(1);
+    expect(document.querySelector('[data-run-trace]').textContent).toContain('terminal command');
+    expect(document.querySelector('[data-run-trace]').textContent).not.toContain('live command');
+    items = [{ sequence: 1, id: 'native', type: 'tool_call', title: 'apply_patch', preview: 'recovered native command', display: {} }];
+    current = { ...current, artifact_state: 'stored', trace_projection: { source_kind: 'native_session', artifact_sha256: 'native', updated_at: 'two' } };
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(document.querySelector('[data-run-trace]').children).toHaveLength(1);
+    expect(document.querySelector('[data-run-trace]').textContent).toContain('recovered native command');
+    expect(document.querySelector('[data-run-artifact]').textContent).toContain('Native session');
+    if (provider !== 'pi') expect(document.querySelector('[data-run-artifact]').textContent).toContain('Native fallback');
+  });
+
 });

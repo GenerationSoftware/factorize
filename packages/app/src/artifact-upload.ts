@@ -4,7 +4,7 @@ import { hmac } from "./crypto";
 import type { Env } from "./types";
 import { databaseFor } from "./postgres/database";
 import { ArtifactRepository } from "./postgres/artifact-repository";
-import { TraceRepository } from "./postgres/trace-repository";
+import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./postgres/trace-projection-repository";
 
 export interface ArtifactUploadGrant {
   tenantId: string;
@@ -20,6 +20,8 @@ export interface ArtifactUploadGrant {
   cliVersion?: string;
   harnessVersion?: string;
   primary?: boolean;
+  /** Execution terminal uploads are bound to the live source generation. */
+  traceGeneration?: string | null;
   purpose?: "artifact" | "trace_chunk";
   expiresAt: number;
 }
@@ -62,8 +64,9 @@ export async function artifactUpload(request: Request, env: Env, token: string):
   if (size > 256 * 1024 * 1024) return new Response("Artifact exceeds the 256 MiB limit", { status: 413 });
   const suppliedType = request.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (suppliedType !== grant.contentType.toLowerCase()) return new Response("Artifact content type does not match the grant", { status: 400 });
+  if ((grant.sourceKind === "execution_stream" || grant.primary === true) && grant.traceGeneration === undefined) return new Response("Terminal trace generation is required", { status: 400 });
   // Content-addressed stream keys preserve the exact terminal snapshot across retries.
-  const key = artifactKey(grant.tenantId, grant.runId, grant.sourceKind === "execution_stream" ? `trace/${sha256}.jsonl` : grant.path);
+  const key = artifactKey(grant.tenantId, grant.runId, grant.sourceKind === "execution_stream" ? `trace/${sha256}.jsonl` : `native/${sha256}.jsonl`);
   const repository = new ArtifactRepository(databaseFor(env), grant.tenantId);
   const existing = await repository.list(grant.runId);
   const terminal = existing.find(item => item.kind === "execution_stream" && item.state === "stored");
@@ -76,14 +79,27 @@ export async function artifactUpload(request: Request, env: Env, token: string):
   const conflict = await database.transaction(async client => {
     // Shares the lock with incremental ingestion: terminal projection wins atomically.
     const run = (await client.query("SELECT id,trace_sources FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [grant.tenantId, grant.runId])).rows[0];
+    if (!run) return "Run not found";
+    if (grant.sourceKind === "execution_stream" || grant.primary === true) {
+      const primary = run.trace_sources?.primary;
+      if (primary && (primary.kind !== (grant.sourceKind ?? "native_session") || (primary.provider && primary.provider !== grant.provider) || (primary.path && primary.path !== grant.sourcePath))) return "Terminal trace source mismatch";
+      const cursor = (await client.query("SELECT generation FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2", [grant.tenantId, grant.runId])).rows[0];
+      if ((cursor?.generation ?? null) !== grant.traceGeneration) return "Stale terminal trace generation";
+    }
     const artifacts = await repository.list(grant.runId, client);
     const terminal = artifacts.find(item => item.kind === "execution_stream" && item.state === "stored");
-    if (grant.sourceKind === "execution_stream" && terminal && terminal.sha256 !== sha256) return true;
+    if (grant.sourceKind === "execution_stream" && terminal && terminal.sha256 !== sha256) return "Terminal trace stream is immutable";
+    const native = artifacts.find(item => item.kind === "native_session" && item.state === "stored");
+    if (grant.sourceKind !== "execution_stream" && native && native.sha256 !== sha256) return "Terminal native session is immutable";
     const primary = grant.sourceKind === "execution_stream" || (grant.primary !== false && !terminal && run?.trace_sources?.primary?.kind !== "execution_stream");
-    if (primary) await new TraceRepository(database, grant.tenantId).replaceStream(grant.runId, grant.provider, stored.body, grant.sourceKind, client);
+    const projection = (await client.query("SELECT source_kind,artifact_sha256,parser_version FROM app.run_trace_projections WHERE tenant_id=$1 AND run_id=$2", [grant.tenantId, grant.runId])).rows[0];
+    // A terminal retry after an explicit rollback must never restore the stream projection.
+    const alreadyProjected = projection?.source_kind === (grant.sourceKind ?? "native_session") && projection?.artifact_sha256 === sha256 && projection?.parser_version === TRACE_PARSER_VERSION;
+    if (primary && !alreadyProjected && !(terminal && projection?.source_kind === "native_session")) await new TraceProjectionRepository(database, grant.tenantId).project(client, grant.runId, { provider: grant.provider, kind: grant.sourceKind ?? "native_session", sha256, byte_size: size }, stored.body, grant.sourceKind === "execution_stream");
+    if (!primary || alreadyProjected || (terminal && projection?.source_kind === "native_session")) await stored.body.cancel();
     await record(client);
-    return false;
+    return null;
   });
-  if (conflict) return new Response("Terminal trace stream is immutable", { status: 409 });
+  if (conflict) return new Response(conflict, { status: 409 });
   return Response.json({ key, etag: object.httpEtag }, { status: 201 });
 }

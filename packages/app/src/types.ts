@@ -28,6 +28,8 @@ export interface Env {
   POSTMARK_FROM_EMAIL?: string;
   POSTMARK_MESSAGE_STREAM?: string;
   RUN_ARTIFACTS?: R2Bucket;
+  TRACE_PRIMARY_MODE?: "execution_stream" | "native_session";
+  TRACE_STREAM_TENANTS?: string;
   HYPERDRIVE?: Hyperdrive;
   /** Test-only injection point; production uses HYPERDRIVE. */
   DATABASE?: import("./postgres/database").Database;
