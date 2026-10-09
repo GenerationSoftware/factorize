@@ -5,7 +5,9 @@ an absolute guest `path`, `mediaType: application/x-ndjson`, and its `provider`.
 `formatVersion`, `cliVersion`, and `harnessVersion` identify the producing harness
 when known. Declare the native audit session separately as `nativeSession`;
 native discovery commands remain supported. Codex declares raw `codex exec --json` stdout as its primary stream with
-`formatVersion: codex-exec-jsonl`; other existing drivers retain native primaries.
+`formatVersion: codex-exec-jsonl`; Claude retains native-primary compatibility.
+Pi keeps its published native session as primary; see
+[Pi session contract](pi-session-contract.md).
 Codex CLI version is probed in the guest at launch and persisted with the source
 for run diagnostics and artifact provenance.
 

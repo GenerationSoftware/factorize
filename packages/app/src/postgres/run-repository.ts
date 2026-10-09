@@ -77,6 +77,8 @@ export class RunRepository {
       await client.query("UPDATE app.job_runs SET state=$3,next_poll_at=NULL,launch_lease_expires_at=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state]);
       await client.query("UPDATE app.runs SET state=$3,artifact_state=$4,artifact_error=$5,claim_released=true,vm_cleanup_complete=$6,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state, artifactState, error ? safeDiagnosticText(error) : null, cleanupComplete]);
       await client.query("DELETE FROM app.active_claims WHERE tenant_id=$1 AND run_id=$2", [run.tenantId, run.id]);
+      // Automation runs before polling, so terminal events need another pass.
+      await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");
     });
   }
 

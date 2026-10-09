@@ -1,3 +1,4 @@
+import { PI_CLI_VERSION, PI_SESSION_VERSION } from "./pi-trace";
 import type { TraceSources } from "./trace-source";
 export type AgentKind = "codex" | "claude" | "pi";
 
@@ -58,7 +59,9 @@ class PiDriver implements AgentDriver {
     const args = ["-p", "--session-id", runId, "--session-dir", sessionDir];
     if (config.model?.trim()) args.push("--model", config.model.trim());
     if (config.effort?.trim()) args.push("--thinking", config.effort.trim());
-    return { executable: "pi", args, env: {}, stdin: "prompt", artifacts: { roots: [sessionDir], fileNameIncludes: ".jsonl", sessionId: runId, discoverCommand: `find '${sessionDir}' -type f -name '*.jsonl' -print | head -1` } };
+    const discoverCommand = `find '${sessionDir}' -type f -name '*.jsonl' -print | head -1`;
+    // Guest images own installation. Refuse version drift before consuming stdin.
+    return { executable: "/bin/sh", args: ["-c", `test "$(pi --version)" = "${PI_CLI_VERSION}" || { echo "Factorize requires Pi ${PI_CLI_VERSION}" >&2; exit 1; }; exec pi "$@"`, "factorize-pi", ...args], env: {}, stdin: "prompt", artifacts: { roots: [sessionDir], fileNameIncludes: ".jsonl", sessionId: runId, discoverCommand }, traceSources: { primary: { kind: "native_session", path: sessionDir, mediaType: "application/x-ndjson", provider: "pi", cliVersion: PI_CLI_VERSION, formatVersion: PI_SESSION_VERSION, discoverCommand } } };
   }
 }
 

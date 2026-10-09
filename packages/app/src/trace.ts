@@ -1,5 +1,6 @@
 import { safeDiagnosticText } from "./harness-diagnostics";
 import { parseCodexExec, parseCodexNativeCall, type CodexCalls } from "./codex-trace";
+import { parsePi } from "./pi-trace";
 import type { TraceSource } from "./trace-source";
 export type TraceEventType = "user_message" | "assistant_message" | "reasoning" | "tool_call" | "tool_result" | "command" | "file_change" | "compaction" | "branch" | "usage" | "warning" | "error" | "metadata";
 
@@ -26,27 +27,6 @@ const contentText = (content: unknown): string => Array.isArray(content)
 
 function event(sequence: number, type: TraceEventType, title: string, preview: unknown, source: any): TraceEvent {
   return { sequence, id: String(source.id ?? source.uuid ?? `${sequence}`), ...(source.parentId || source.parentUuid ? { parentId: String(source.parentId ?? source.parentUuid) } : {}), type, ...(source.role ? { role: String(source.role) } : {}), title, preview: clipped(preview), ...(source.timestamp ? { occurredAt: String(source.timestamp) } : {}), display: {} };
-}
-
-function parsePi(value: any, sequence: number): TraceEvent[] {
-  if (value.type === "session") return [event(sequence, "metadata", "Session started", value.cwd ?? "", value)];
-  if (value.type === "compaction") return [event(sequence, "compaction", "Context compacted", value.summary, value)];
-  if (value.type === "branch_summary") return [event(sequence, "branch", "Branch summary", value.summary, value)];
-  if (value.type !== "message") return [event(sequence, "metadata", String(value.type ?? "Event"), value, value)];
-  const message = value.message ?? {}, role = message.role;
-  if (role === "user") return [event(sequence, "user_message", "User", contentText(message.content), { ...value, role })];
-  if (role === "toolResult") return [event(sequence, "tool_result", String(message.toolName ?? "Tool result"), contentText(message.content), { ...value, role })];
-  if (role === "bashExecution") return [event(sequence, "command", String(message.command ?? "Command"), message.output, { ...value, role })];
-  if (role === "assistant") {
-    const entries: TraceEvent[] = [];
-    for (const block of Array.isArray(message.content) ? message.content : []) {
-      if (block.type === "thinking") entries.push(event(sequence + entries.length, "reasoning", "Reasoning", block.thinking, { ...value, role }));
-      else if (block.type === "toolCall") entries.push({ ...event(sequence + entries.length, "tool_call", String(block.name ?? "Tool call"), block.arguments, { ...value, id: block.id, role }), display: { arguments: block.arguments ?? {} } });
-      else if (block.type === "text") entries.push(event(sequence + entries.length, "assistant_message", "Assistant", block.text, { ...value, role }));
-    }
-    return entries.length ? entries : [event(sequence, "assistant_message", "Assistant", contentText(message.content), { ...value, role })];
-  }
-  return [event(sequence, "metadata", String(role ?? "Message"), message.content, { ...value, role })];
 }
 
 function parseCodex(value: any, sequence: number): TraceEvent[] {
