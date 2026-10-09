@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parse } from "yaml";
 import { readFileSync } from "node:fs";
 import { ApiService } from "../src/flow-service";
 import { IdentityRepository } from "../src/postgres/identity-repository";
@@ -60,10 +61,20 @@ describe("run diagnostics API boundary", () => {
     await expect(service.replayRunTrace(crypto.randomUUID(), { requestId: crypto.randomUUID() })).rejects.toMatchObject({ status: 401 });
   });
   it("documents the externally visible fields and schema references", () => {
-    const spec = readFileSync(new URL("../../docs/openapi.yaml", import.meta.url), "utf8");
-    for (const field of ["TraceReplayRequest:", "TraceReplayResult:", "TraceDiagnostics:", "trace_generation:", "trace_projection:", "traceSources:", "trace_sources:", "harnessVersion:", "cliVersion:", "execution_diagnostics", "harness_log", "execution:", "harnessLog:", "execMainCode", "execMainStatus", "activeState", "subState", "object_key"])
-      expect(spec).toContain(field);
-    expect(spec).toContain("$ref: '#/components/schemas/RunDetail'");
-    expect(spec).toContain("$ref: '#/components/schemas/RunDiagnostics'");
+    const spec = parse(readFileSync(new URL("../../docs/openapi.yaml", import.meta.url), "utf8"));
+    const schemas = spec.components.schemas;
+    for (const [name, fields] of Object.entries({
+      RunDetail: ["trace_generation", "trace_projection", "trace_sources", "execution_diagnostics", "harness_log"],
+      RunDiagnostics: ["traceSources", "execution", "harnessLog"],
+      TraceSource: ["harnessVersion", "cliVersion"],
+      TraceReplayRequest: ["requestId", "source"],
+      TraceReplayResult: ["requestId", "runId", "status"],
+      HarnessLog: ["object_key", "source_generation"],
+    })) for (const field of fields) expect(schemas[name].properties[field]).toBeDefined();
+    expect(schemas.TraceDiagnostics.properties.nativeArtifactState.enum).toContain("not_applicable");
+    expect(schemas.ExecutionDiagnostics.properties.systemd.properties).toHaveProperty("execMainStatus");
+    expect(spec.paths["/api/v1/runs/{runId}"].get.responses["200"].content["application/json"].schema.$ref).toBe("#/components/schemas/RunDetail");
+    expect(spec.paths["/api/v1/runs/{runId}/diagnostics"].get.responses["200"].content["application/json"].schema.$ref).toBe("#/components/schemas/RunDiagnostics");
+    expect(spec.paths["/api/v1/runs/{runId}/trace/replay"].post.requestBody.content["application/json"].schema.$ref).toBe("#/components/schemas/TraceReplayRequest");
   });
 });

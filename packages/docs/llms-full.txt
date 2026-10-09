@@ -8,7 +8,7 @@ Use OAuth 2.1 authorization code with PKCE S256 or RFC 8628 device authorization
 
 ## REST
 
-The API is rooted at `/api/v1`. Read operations list connections, installations, targets, trigger availability, Tail integrations, jobs, job events, and runs. Write operations create/replace/delete/enable/disable jobs, test handlers, invoke jobs, stop runs, and preview schedules. Run lists return `{items,nextCursor}` and accept `jobId`, `state`, `contextQuery`, `limit` (1–100), and `cursor`.
+The API is rooted at `/api/v1`. The verified operation inventory, request validation, scopes, and response schemas are in [openapi.yaml](/openapi.yaml). Mintlify renders the API Reference directly from this generated contract. CI rejects stale artifacts or any method/path mismatch with the executable Worker route catalog.
 
 ## MCP
 
@@ -21,4 +21,4 @@ Webhooks support Linear, ClickUp, GitHub, and Cloudflare Tail. Schedule config i
 
 ## Trace provenance and recovery
 
-Codex and Claude use execution-stream primary sources when admitted by rollout gates; Pi uses its version-pinned native session. Run diagnostics expose source/CLI/harness versions, retained artifact receipts, projection checksum/parser version, live generation/offset, reconciliation, warning and unknown counts, and native fallback use. Owner sessions with runs:write may POST /api/v1/runs/{runId}/trace/replay with {requestId: UUID, source: primary|native_session}. One terminal run per request, 10 attempts per tenant/minute. Checkpoint request IDs for retries; completed outcomes are durable and idempotent, failed transactions resume, and missing/expired artifacts are explicitly unrecoverable. Native replay can recover retained historical Codex custom tool calls. Neither replay nor rollback deletes artifacts.
+Codex and Claude use execution-stream primary sources when admitted by rollout gates; Pi uses its version-pinned native session. Run diagnostics expose source/CLI/harness versions, retained artifact receipts, projection checksum/parser version, live generation/offset, reconciliation, warning and unknown counts, and native fallback use. See the trace replay operation in [openapi.yaml](/openapi.yaml) for owner-session requirements, request validation, replay restrictions, rate limits, and documented outcomes. Neither replay nor rollback deletes artifacts.

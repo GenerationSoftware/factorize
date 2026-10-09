@@ -1,12 +1,16 @@
 ---
 title: OpenAPI definition
-description: Download the machine-readable Factorize REST contract.
+description: Download the verified Factorize REST contract.
 ---
 
-The checked-in definition is [`openapi.yaml`](https://github.com/GenerationSoftware/factorize/blob/main/packages/docs/openapi.yaml). It covers every `/api/v1` operation, bearer security, scopes, request schemas, pagination, and the common error envelope.
+[Download openapi.yaml](/openapi.yaml). The API Reference tab renders this exact file, and clients can use it to generate SDKs or inspect request and response schemas.
+
+The definition is generated from the executable route catalog in `packages/app/src/api-contract.ts`, which the Worker dispatches in `protected-api.ts`. To change an API operation, update its catalog entry (method, path, scope, validation, handler, and documentation), then run:
 
 ```bash
-curl -O https://raw.githubusercontent.com/GenerationSoftware/factorize/main/packages/docs/openapi.yaml
+npm run generate:openapi
 ```
 
-Run `npm run validate --workspace=factorize-docs` before publishing. The validator checks that the route inventory in the Worker and the OpenAPI paths remain synchronized.
+Commit `packages/docs/openapi.yaml` with the change. CI regenerates it and rejects a diff; parsed contract tests also require exact method/path equality with the executable catalog. Shared schemas and general API metadata live beside the catalog in `flow-schemas.ts`, `trace-replay-schemas.ts`, and `api-document.json`.
+
+Run `npm run validate --workspace=factorize-docs` to verify the generated artifact, parsed operation contract, and Mintlify configuration before publishing.

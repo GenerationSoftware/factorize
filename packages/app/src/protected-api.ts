@@ -6,9 +6,10 @@ import { z } from "zod";
 import { ApiService, ServiceError } from "./flow-service";
 import { jobHandlerTestSchema, jobIdSchema, jobInputSchema, listRunsSchema, manualInvocationSchema, runIdSchema } from "./flow-schemas";
 import type { Env, OAuthProps } from "./types";
-import { isDeclaredApiOperation } from "./api-contract";
+import { matchApiOperation } from "./api-contract";
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof URIError) return Response.json({ error: { code: "invalid_request", message: "Invalid path encoding" } }, { status: 400 });
   if (error instanceof InvocationError && error.code === "queue_full") return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
   if (error instanceof z.ZodError) return Response.json({ error: { code: "invalid_request", message: "Request validation failed", details: error.issues } }, { status: 400 });
   if (error instanceof ServiceError) {
@@ -40,78 +41,20 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
     try {
       const url = new URL(request.url), path = url.pathname, service = new ApiService(env, auth);
       if (path === "/mcp") return mcp(request, service, env, ctx);
-      if (!path.startsWith("/api/v1")) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
-      if (!isDeclaredApiOperation(request.method, path)) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
-      if (request.method === "GET" && path === "/api/v1/exe-connections") return Response.json(await service.listExeConnections());
-      if (request.method === "GET" && path === "/api/v1/github-installations") return Response.json(await service.listGitHubInstallations());
-      if (request.method === "GET" && path === "/api/v1/execution-targets") return Response.json(await service.listExecutionTargets());
-      if (request.method === "GET" && path === "/api/v1/job-trigger-availability") return Response.json(await service.listJobTriggerAvailability());
-      if (request.method === "POST" && path === "/api/v1/schedules/preview") return Response.json(await service.previewSchedule(await request.json()));
-      if (request.method === "GET" && path === "/api/v1/integrations/cloudflare-tail") return Response.json(await service.listTailIntegrations());
-      if (request.method === "GET" && path === "/api/v1/integrations") return Response.json(await service.integrationStatus());
-      if (request.method === "PUT" && path === "/api/v1/integrations/exe") return Response.json(await service.saveExeIntegration(await request.json()));
-      if (request.method === "POST" && path === "/api/v1/integrations/exe/test") return Response.json(await service.testExeIntegration(await request.json()));
-      if (request.method === "PUT" && path === "/api/v1/integrations/amp") return Response.json(await service.saveAmpIntegration(await request.json()));
-      if (request.method === "POST" && path === "/api/v1/integrations/amp/test") return Response.json(await service.testAmpIntegration(await request.json()));
-      if (request.method === "POST" && path === "/api/v1/integrations/cloudflare-tail") return Response.json(await service.saveTailIntegration(await request.json()), { status: 201 });
-      if (request.method === "GET" && path === "/api/v1/providers/linear/projects") return Response.json(await service.linearProjects());
-      if (request.method === "GET" && path === "/api/v1/providers/linear/options") return Response.json(await service.linearOptions());
-      if (request.method === "GET" && path === "/api/v1/providers/clickup/lists") return Response.json(await service.clickUpLists());
-      if (request.method === "GET" && path === "/api/v1/providers/clickup/options") return Response.json(await service.clickUpOptions(url.searchParams.get("listId") ?? ""));
-      if (request.method === "GET" && path === "/api/v1/providers/github/installations") return Response.json(await service.listGitHubInstallations());
-      if (request.method === "GET" && path === "/api/v1/access/authorized-clients") return Response.json(await service.listAuthorizedClients());
-      if (request.method === "GET" && path === "/api/v1/access-tokens") return Response.json(await service.listAccessTokens());
-      if (request.method === "POST" && path === "/api/v1/access-tokens") return Response.json(await service.createAccessToken(await request.json()), { status: 201 });
-      const accessTokenMatch = path.match(/^\/api\/v1\/access-tokens\/([^/]+)$/);
-      if (accessTokenMatch && request.method === "DELETE") return Response.json(await service.revokeAccessToken(decodeURIComponent(accessTokenMatch[1])));
-      const authorizedClientMatch = path.match(/^\/api\/v1\/access\/authorized-clients\/([^/]+)$/);
-      if (authorizedClientMatch && request.method === "DELETE") return Response.json(await service.revokeAuthorizedClient(decodeURIComponent(authorizedClientMatch[1])));
-      const integrationMatch = path.match(/^\/api\/v1\/integrations\/(exe|amp)\/([^/]+)$/);
-      if (integrationMatch && request.method === "DELETE") return Response.json(await service.removeIntegration(integrationMatch[1] as "exe" | "amp", decodeURIComponent(integrationMatch[2])));
-      const tailMatch = path.match(/^\/api\/v1\/integrations\/cloudflare-tail\/([^/]+)$/);
-      if (tailMatch && request.method === "PUT") return Response.json(await service.saveTailIntegration({ ...await request.json() as any, integrationId: decodeURIComponent(tailMatch[1]) }));
-      if (tailMatch && request.method === "DELETE") return Response.json(await service.removeTailIntegration(decodeURIComponent(tailMatch[1])));
-      const tailTestMatch = path.match(/^\/api\/v1\/integrations\/cloudflare-tail\/([^/]+)\/test$/);
-      if (tailTestMatch && request.method === "POST") return Response.json(await service.testTailIntegration(decodeURIComponent(tailTestMatch[1])));
-      const githubRepositoriesMatch = path.match(/^\/api\/v1\/providers\/github\/installations\/(\d+)\/repositories$/);
-      if (githubRepositoriesMatch && request.method === "GET") return Response.json(await service.githubRepositories(Number(githubRepositoriesMatch[1])));
-      const githubOptionsMatch = path.match(/^\/api\/v1\/providers\/github\/installations\/(\d+)\/repositories\/(\d+)\/issue-options$/);
-      if (githubOptionsMatch && request.method === "GET") return Response.json(await service.githubIssueOptions(Number(githubOptionsMatch[1]), Number(githubOptionsMatch[2])));
-      const githubInstallationMatch = path.match(/^\/api\/v1\/providers\/github\/installations\/(\d+)$/);
-      if (githubInstallationMatch && request.method === "DELETE") return Response.json(await service.removeGitHubInstallation(Number(githubInstallationMatch[1])));
-      const exeDiagnosticMatch = path.match(/^\/api\/v1\/integrations\/exe\/([^/]+)\/diagnostics$/);
-      if (exeDiagnosticMatch && request.method === "POST") return Response.json(await service.diagnoseExeIntegration(decodeURIComponent(exeDiagnosticMatch[1])));
-      if (request.method === "GET" && path === "/api/v1/jobs") return Response.json(await service.listJobs());
-      if (request.method === "POST" && path === "/api/v1/jobs") return Response.json(await service.createJob(jobInputSchema.parse(await request.json())), { status: 201 });
-      if (request.method === "POST" && path === "/api/v1/job-handlers/test") return Response.json(await service.testJobHandler(jobHandlerTestSchema.parse(await request.json())));
-      const invocationMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)\/invocations$/);
-      if (invocationMatch && request.method === "POST") return Response.json(await service.invokeJob(decodeURIComponent(invocationMatch[1]), manualInvocationSchema.parse(await request.json())), { status: 202 });
-      const jobEventsMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)\/events$/);
-      if (jobEventsMatch && request.method === "GET") return Response.json(await service.listJobEvents(decodeURIComponent(jobEventsMatch[1]), z.coerce.number().int().min(1).max(100).default(50).parse(url.searchParams.get("limit") ?? 50)));
-      const enabledMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)\/(enable|disable)$/);
-      if (enabledMatch && request.method === "POST") return Response.json(await service.setJobEnabled(decodeURIComponent(enabledMatch[1]), enabledMatch[2] === "enable"));
-      const jobMatch = path.match(/^\/api\/v1\/jobs\/([^/]+)$/);
-      if (jobMatch && request.method === "GET") return Response.json(await service.getJob(decodeURIComponent(jobMatch[1])));
-      if (jobMatch && request.method === "PUT") return Response.json(await service.updateJob(decodeURIComponent(jobMatch[1]), jobInputSchema.parse(await request.json())));
-      if (jobMatch && request.method === "DELETE") return Response.json(await service.deleteJob(decodeURIComponent(jobMatch[1])));
-      if (request.method === "GET" && path === "/api/v1/runs") { const q = listRunsSchema.parse(queryInput(url)); return Response.json(await service.listRuns(queryOf(q))); }
-      if (request.method === "GET" && path === "/api/v1/search") return Response.json(await service.search(url.searchParams.get("q") ?? ""));
-      if (request.method === "GET" && path === "/api/v1/webhooks/deliveries") return Response.json(await service.listWebhookDeliveries(url.searchParams));
-      const webhookDeliveryMatch = path.match(/^\/api\/v1\/webhooks\/deliveries\/([^/]+)$/);
-      if (webhookDeliveryMatch && request.method === "GET") return Response.json(await service.getWebhookDelivery(decodeURIComponent(webhookDeliveryMatch[1])));
-      const runMatch = path.match(/^\/api\/v1\/runs\/([^/]+)$/);
-      if (runMatch && request.method === "GET") return Response.json(await service.getRun(decodeURIComponent(runMatch[1])));
-      const traceMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/trace$/);
-      if (traceMatch && request.method === "GET") return Response.json(await service.getRunTrace(decodeURIComponent(traceMatch[1]), Math.max(0, Number(url.searchParams.get("after") ?? 0)), Math.max(1, Math.min(200, Number(url.searchParams.get("limit") ?? 100)))));
-      const replayMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/trace\/replay$/);
-      if (replayMatch && request.method === "POST") return Response.json(await service.replayRunTrace(decodeURIComponent(replayMatch[1]), await request.json()));
-      const runDiagnosticMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/diagnostics$/);
-      if (runDiagnosticMatch && request.method === "GET") return Response.json(await service.getRunDiagnostics(decodeURIComponent(runDiagnosticMatch[1])));
-      const stopMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/stop$/);
-      if (stopMatch && request.method === "POST") return Response.json(await service.stopRun(decodeURIComponent(stopMatch[1])));
-      const killMatch = path.match(/^\/api\/v1\/runs\/([^/]+)\/kill$/);
-      if (killMatch && request.method === "POST") return Response.json(await service.killRun(decodeURIComponent(killMatch[1])));
-      return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
+      const matched = matchApiOperation(request.method, path);
+      if (!matched) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
+      const { route, params } = matched;
+      if (!auth.scopes.includes(route.scope)) throw new ServiceError(403, "insufficient_scope", `The ${route.scope} scope is required.`);
+      if (route.ownerSession && auth.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required.");
+      let body: unknown;
+      if (route.body) {
+        if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") throw new ServiceError(415, "unsupported_media_type", "Content-Type must be application/json.");
+        try { body = await request.json(); }
+        catch { throw new ServiceError(400, "invalid_request", "Request body must be valid JSON."); }
+        body = route.body.parse(body);
+      }
+      const query = route.query?.parse(queryInput(url));
+      return Response.json(await route.execute(service, { params: route.parameters.parse(params) as Record<string, string>, body, query, url }), { status: route.status });
     } catch (error) { return errorResponse(error); }
 }
 

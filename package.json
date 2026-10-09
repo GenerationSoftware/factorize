@@ -13,6 +13,8 @@
     "deploy": "npm run deploy:marketing && npm run deploy:app && npm run deploy:tail-relay",
     "deploy:marketing": "npm run deploy --workspace=factorize-marketing",
     "deploy:app": "npm run deploy --workspace=factorize",
-    "deploy:tail-relay": "npm run deploy --workspace=factorize-tail-relay"
+    "deploy:tail-relay": "npm run deploy --workspace=factorize-tail-relay",
+    "generate:openapi": "npm run generate:openapi --workspace=factorize",
+    "check:openapi": "npm run check:openapi --workspace=factorize"
   }
 }
