@@ -1,3 +1,5 @@
+import { traceClasses } from "./event-body";
+import { Disclosure, Summary, Button, Card } from "../../shared/ui";
 import { EventBody } from "./event-body";
 import { useRef, useState, useEffect } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -37,16 +39,16 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   const virtualizer = useVirtualizer({ count: items.length, getScrollElement: () => container.current, estimateSize: () => 70, overscan: 8, rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...selection, ...(focused === null ? [] : [focused])])].filter(index => index >= 0 && index < items.length).sort((a, b) => a - b), getItemKey: index => `${revision}:${items[index].sequence}:${items[index].id}` });
   const virtualItems = virtualizer.getVirtualItems();
   useEffect(() => { if ((virtualItems.at(-1)?.index ?? -1) >= items.length - 8 && trace.hasNextPage && !trace.isFetching) void trace.fetchNextPage(); }, [virtualItems, items.length, trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
-  return <section>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading continuous trace…</p>}
+  return <Card>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading continuous trace…</p>}
     {!trace.isPending && !items.length && <p>No trace events yet.</p>}
     <div ref={container} onFocusCapture={e => { const row = (e.target as HTMLElement).closest<HTMLElement>("li[data-index]"); setFocused(row ? Number(row.dataset.index) : null); }} onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(null); }} tabIndex={0} role="region" aria-label="Continuous trace" className="h-[65vh] overflow-auto border p-3">
       <ol className="relative" style={{ height: virtualizer.getTotalSize() }} aria-label="Trace events">{virtualItems.map(row => {
         const event = items[row.index], key = `${revision}:${event.sequence}:${event.id}`;
         return <li key={key} data-index={row.index} ref={virtualizer.measureElement} style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${row.start}px)` }} aria-posinset={row.index + 1} aria-setsize={items.length}>
-          <details open={expanded.has(key)} onToggle={e => { const open = e.currentTarget.open; setExpanded(previous => { const next = new Set(previous); if (open) next.add(key); else next.delete(key); return next; }); }}><summary>{event.title} · {event.type}</summary><EventBody event={event} /></details>
+          <Disclosure className={traceClasses(event.type)} open={expanded.has(key)} onToggle={e => { const open = e.currentTarget.open; setExpanded(previous => { const next = new Set(previous); if (open) next.add(key); else next.delete(key); return next; }); }}><Summary>{event.title} · {event.type}</Summary><EventBody event={event} /></Disclosure>
         </li>;
       })}</ol>
     </div><p role="status">{items.length} events loaded{trace.isFetching ? " · Updating…" : ""}</p>
-    {trace.hasNextPage && <button disabled={trace.isFetching} onClick={() => void trace.fetchNextPage()}>Load more trace events</button>}
-  </section>;
+    {trace.hasNextPage && <Button disabled={trace.isFetching} onClick={() => void trace.fetchNextPage()}>Load more trace events</Button>}
+  </Card>;
 }
