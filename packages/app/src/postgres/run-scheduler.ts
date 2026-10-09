@@ -13,6 +13,8 @@ import type { Database } from "./database";
 import { RunRepository, type PersistedRun } from "./run-repository";
 import { AutomationScheduler } from "./automation-scheduler";
 import { agentDriver, driverTraceSources, type AgentKind } from "../agent-driver";
+import { traceMetric } from "../trace-observability";
+import { rolloutTraceSources } from "../trace-source";
 import { LiveTraceRepository } from "./live-trace-repository";
 
 export class RunScheduler {
@@ -36,7 +38,7 @@ export class RunScheduler {
 
   private async launch(run: PersistedRun) {
     const backend = await this.backend(run), driver = agentDriver(run.executionTarget.agentKind as AgentKind), harness = driver.launch(run.id, { model: run.executionTarget.model, effort: run.executionTarget.effort });
-    const sources = driverTraceSources(driver.kind, harness);
+    const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
     validateTraceSources(sources);
     const launched = await backend.launch({ runId: run.id, prompt: await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY), traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
@@ -47,7 +49,7 @@ export class RunScheduler {
     const backend = await this.backend(run); if (!run.executionHandle) throw new Error("Execution handle is missing");
     const observation = run.executionDiagnostics ?? await backend.inspect(run.executionHandle);
     if (["running", "blocked", "stopping"].includes(observation.state)) {
-      if (backend instanceof ExeVmBackend) await this.collectTraceChunk(run, backend).catch(() => undefined);
+      if (backend instanceof ExeVmBackend) await this.collectTraceChunk(run, backend).catch(() => { traceMetric("chunk_collection_failure", run.tenantId, run.id); });
       return this.runs.schedulePoll(run, observation.state as "running" | "blocked" | "stopping");
     }
     // Persist the first terminal observation before any collection or deletion.
@@ -73,8 +75,8 @@ export class RunScheduler {
       if (!stored.some(item => item.kind === "native_session" && item.state === "stored")) {
         try {
           const collected = await this.collectArtifact(run, backend);
-          if (!collected.ok) errors.push("Native session upload failed");
-        } catch { errors.push("Native session collection or storage failed"); }
+          if (!collected.ok) { errors.push("Native session upload failed"); traceMetric("missing_native_artifact", run.tenantId, run.id, { attempt: run.finalizationAttempt ?? 0 }); }
+        } catch { errors.push("Native session collection or storage failed"); traceMetric("missing_native_artifact", run.tenantId, run.id, { attempt: run.finalizationAttempt ?? 0 }); }
       }
       // Retry collection, but do not keep a VM forever for an absent session/log.
       if (errors.length && (run.finalizationAttempt ?? 0) < 2) {
@@ -121,7 +123,8 @@ export class RunScheduler {
     const sources = this.sources(run);
     source ??= sources.nativeSession ?? (sources.primary.kind === "native_session" ? sources.primary : this.nativeSource(run));
     primary ??= sources.primary.kind === "native_session";
-    const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path: source.kind === "execution_stream" ? "trace/stream.jsonl" : "native/session.jsonl", contentType: source.mediaType, provider: source.provider, format: "jsonl", sourceKind: source.kind, sourcePath: source.path, formatVersion: source.formatVersion, cliVersion: source.cliVersion, harnessVersion: source.harnessVersion, primary, expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
+    const traceGeneration = primary ? (await new LiveTraceRepository(this.database, run.tenantId).cursor(run.id)).generation : undefined;
+    const token = await issueArtifactUploadGrant({ traceGeneration, tenantId: run.tenantId, runId: run.id, path: source.kind === "execution_stream" ? "trace/stream.jsonl" : "native/session.jsonl", contentType: source.mediaType, provider: source.provider, format: "jsonl", sourceKind: source.kind, sourcePath: source.path, formatVersion: source.formatVersion, cliVersion: source.cliVersion, harnessVersion: source.harnessVersion, primary, expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
     return backend.collectArtifact(run.executionHandle, { source, contentType: source.mediaType, uploadUrl: `${this.env.APP_ORIGIN}/internal/run-artifacts/${encodeURIComponent(token)}` });
   }
 

@@ -11,6 +11,7 @@ function fakeDatabase() {
   const chunks = new Map<string, any>(), events: any[] = [];
   const query = async (sql: string, values: any[] = []) => {
     if (sql.startsWith("SELECT id,title FROM app.run_trace_events")) return { rows: events.filter(item => item.event_type === "tool_call").reverse().map(item => ({ id: item.id, title: item.title })), rowCount: 0 };
+    if (sql.startsWith("SELECT id,trace_sources FROM app.runs")) return { rows: [{ id: "run-1" }], rowCount: 1 };
     if (sql.startsWith("SELECT id FROM app.")) return { rows: [], rowCount: 0 };
     if (sql.startsWith("SELECT generation,committed_offset") && sql.includes("FOR UPDATE")) return { rows: cursor ? [cursor] : [], rowCount: cursor ? 1 : 0 };
     if (sql.startsWith("DELETE FROM app.run_trace_events")) { events.length = 0; return { rows: [], rowCount: 0 }; }

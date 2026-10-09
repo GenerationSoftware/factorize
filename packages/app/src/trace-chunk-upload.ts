@@ -3,6 +3,8 @@ import { databaseFor } from "./postgres/database";
 import { LiveTraceRepository } from "./postgres/live-trace-repository";
 import type { Env } from "./types";
 
+import { traceMetric } from "./trace-observability";
+
 const HASH = /^[0-9a-f]{64}$/;
 export async function traceChunkUpload(request: Request, env: Env, token: string): Promise<Response> {
   if (request.method !== "PUT") return new Response("Method not allowed", { status: 405, headers: { Allow: "PUT" } });
@@ -15,9 +17,10 @@ export async function traceChunkUpload(request: Request, env: Env, token: string
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (bytes.byteLength !== size) return new Response("Trace chunk size mismatch", { status: 400 });
   try {
-    const result = await new LiveTraceRepository(databaseFor(env), grant.tenantId).append(grant.runId, grant.provider, { generation, expectedGeneration: expectedGeneration || null, startOffset, chunkSha256, previousHash, bytes }, grant.sourceKind);
+    const result = await new LiveTraceRepository(databaseFor(env), grant.tenantId).append(grant.runId, grant.provider, { generation, expectedGeneration: expectedGeneration || null, startOffset, chunkSha256, previousHash, bytes }, grant.sourceKind, grant.sourcePath);
     return Response.json(result, { status: result.duplicate ? 200 : 201 });
   } catch (error) {
+    traceMetric("chunk_failure", grant.tenantId, grant.runId, { generation, offset: startOffset });
     const message = error instanceof Error ? error.message : "Trace chunk ingestion failed";
     return Response.json({ error: message }, { status: message.includes("mismatch") || message.includes("changed") || message.includes("Conflicting") || message.includes("Stale") || message.includes("finalized") ? 409 : 400 });
   }

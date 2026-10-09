@@ -17,3 +17,8 @@ Connect to `APP_ORIGIN/mcp` using Streamable HTTP. Tools mirror the REST surface
 ## Triggers
 
 Webhooks support Linear, ClickUp, GitHub, and Cloudflare Tail. Schedule config is `{cron,timezone}`. Lifecycle config is `{sourceJobIds,states}` with succeeded, failed, or stopped. Templates address the firing trigger by slug, for example `{{trigger-1.issue.title}}`. Manual idempotency keys are client values and must not begin with `manual:`.
+
+
+## Trace provenance and recovery
+
+Codex and Claude use execution-stream primary sources when admitted by rollout gates; Pi uses its version-pinned native session. Run diagnostics expose source/CLI/harness versions, retained artifact receipts, projection checksum/parser version, live generation/offset, reconciliation, warning and unknown counts, and native fallback use. Owner sessions with runs:write may POST /api/v1/runs/{runId}/trace/replay with {requestId: UUID, source: primary|native_session}. One terminal run per request, 10 attempts per tenant/minute. Checkpoint request IDs for retries; completed outcomes are durable and idempotent, failed transactions resume, and missing/expired artifacts are explicitly unrecoverable. Native replay can recover retained historical Codex custom tool calls. Neither replay nor rollback deletes artifacts.

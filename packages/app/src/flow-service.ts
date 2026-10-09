@@ -20,6 +20,9 @@ import { ProviderCatalog } from "./postgres/provider-catalog";
 import { ArtifactRepository } from "./postgres/artifact-repository";
 import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
 
+import { TraceProjectionRepository } from "./postgres/trace-projection-repository";
+import { replayTrace, traceReplaySchema, traceReplayRunIdSchema, TraceReplayError } from "./trace-replay";
+
 export class ServiceError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
 }
@@ -86,9 +89,30 @@ export class ApiService {
   async listTailIntegrations() { await this.authorize("flows:read"); return new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).tails(); }
   async listRuns(query: URLSearchParams) { await this.authorize("runs:read"); return new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).list(query); }
   async search(query: string) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query); }
-  async getRun(runId: string) { await this.authorize("runs:read"); const repository = new RunQueryRepository(databaseFor(this.env), this.auth.tenantId), run = await repository.get(runId); if (!run) throw new ServiceError(404, "not_found", "Run not found"); const prompt = await decrypt(run.encrypted_prompt, this.env.CREDENTIAL_ENCRYPTION_KEY); delete run.encrypted_prompt; run.prompt = prompt; run.capabilities = run.execution_capabilities; run.backend_kind = run.execution_backend_kind; run.invocation = { id: run.invocation_id, source: run.invocation_source, claim_key: run.invocation_claim_key, trigger_id: run.invocation_trigger_id, context: run.context, occurrence: run.occurrence, created_at: run.invocation_created_at }; run.activity = await repository.activity(runId); run.execution_diagnostics ??= null; run.trace_sources ??= null; run.harness_log = (await new ArtifactRepository(databaseFor(this.env), this.auth.tenantId).list(runId)).find(item => item.kind === "terminal_log") ?? null; return run; }
+  async getRun(runId: string) { await this.authorize("runs:read"); const repository = new RunQueryRepository(databaseFor(this.env), this.auth.tenantId), run = await repository.get(runId); if (!run) throw new ServiceError(404, "not_found", "Run not found"); const prompt = await decrypt(run.encrypted_prompt, this.env.CREDENTIAL_ENCRYPTION_KEY); delete run.encrypted_prompt; run.prompt = prompt; run.capabilities = run.execution_capabilities; run.backend_kind = run.execution_backend_kind; run.invocation = { id: run.invocation_id, source: run.invocation_source, claim_key: run.invocation_claim_key, trigger_id: run.invocation_trigger_id, context: run.context, occurrence: run.occurrence, created_at: run.invocation_created_at }; run.activity = await repository.activity(runId); run.execution_diagnostics ??= null; run.trace_sources ??= null; run.trace_projection = (await databaseFor(this.env).pool.query("SELECT source_kind,artifact_sha256,parser_version,updated_at FROM app.run_trace_projections WHERE tenant_id=$1 AND run_id=$2", [this.auth.tenantId, runId])).rows[0] ?? null; run.trace_generation = (await databaseFor(this.env).pool.query("SELECT generation FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2", [this.auth.tenantId, runId])).rows[0]?.generation ?? null; run.harness_log = (await new ArtifactRepository(databaseFor(this.env), this.auth.tenantId).list(runId)).find(item => item.kind === "terminal_log") ?? null; return run; }
   async getRunTrace(runId: string, after: number, limit: number) { await this.authorize("runs:read"); return new TraceRepository(databaseFor(this.env), this.auth.tenantId).page(runId, after, limit); }
-  async getRunDiagnostics(runId: string) { const run: any = await this.getRun(runId); return { runId: run.id, jobId: run.job_id, state: run.state, provider: run.provider, backendKind: run.execution_backend_kind, execution: run.execution_diagnostics, traceSources: run.trace_sources, harnessLog: run.harness_log, artifact: { state: run.artifact_state, error: run.artifact_error }, activity: run.activity, createdAt: run.created_at, updatedAt: run.updated_at }; }
+  async getRunDiagnostics(runId: string) {
+    const run: any = await this.getRun(runId), database = databaseFor(this.env);
+    const [evidence, artifacts] = await Promise.all([
+      new TraceProjectionRepository(database, this.auth.tenantId).diagnostics(runId),
+      new ArtifactRepository(database, this.auth.tenantId).list(runId),
+    ]);
+    const primary = run.trace_sources?.primary ?? null;
+    return { runId: run.id, jobId: run.job_id, state: run.state, provider: primary?.provider ?? run.agent_kind ?? null, backendKind: run.execution_backend_kind,
+      execution: run.execution_diagnostics, traceSources: run.trace_sources,
+      trace: { ...evidence, primarySource: primary?.kind ?? "native_session", sourceVersion: primary?.formatVersion ?? null,
+        artifacts: artifacts.filter(item => ["execution_stream", "native_session"].includes(item.kind)),
+        nativeArtifactState: artifacts.some(item => item.kind === "native_session" && item.state === "stored") ? "stored" : "missing",
+        fallbackUsed: evidence.projection?.source_kind === "native_session" && primary?.kind === "execution_stream" },
+      harnessLog: run.harness_log, artifact: { state: run.artifact_state, error: run.artifact_error }, activity: run.activity, createdAt: run.created_at, updatedAt: run.updated_at };
+  }
+  async replayRunTrace(runId: string, body: unknown) {
+    await this.authorizeOwnerSession("runs:write");
+    const input = traceReplaySchema.parse(body);
+    traceReplayRunIdSchema.parse(runId);
+    try { return await replayTrace(this.env, this.auth.tenantId, this.auth.userId, runId, input); }
+    catch (error) { if (error instanceof TraceReplayError) throw new ServiceError(error.status, error.code, error.message); throw error; }
+  }
   async stopRun(runId: string) { await this.authorize("runs:write"); const stopped = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).stop(runId); if (!stopped) throw new ServiceError(409, "operation_failed", "Run is not active"); if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" }); return stopped; }
   killRun(runId: string) { return this.stopRun(runId); }
   async listJobs() { await this.authorize("flows:read"); return Promise.all((await this.jobs().list()).map(job => this.presentJob(job))); }

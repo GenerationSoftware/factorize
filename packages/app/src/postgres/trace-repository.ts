@@ -2,6 +2,8 @@ import type { TraceSource } from "../trace-source";
 import { consumeTraceStream, type TraceEvent } from "../trace";
 import type { Database, DatabaseClient } from "./database";
 
+import { traceCounts, traceMetric } from "../trace-observability";
+
 export interface TracePage { items: TraceEvent[]; nextCursor: number | null; }
 
 interface TraceRow {
@@ -38,7 +40,10 @@ export class TraceRepository {
   async replaceStream(runId: string, provider: "codex" | "claude" | "pi", stream: ReadableStream<Uint8Array>, sourceKind: TraceSource["kind"] = "native_session", client?: DatabaseClient): Promise<number> {
     const project = async (client: DatabaseClient) => {
       await client.query("DELETE FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2", [this.tenantId, runId]);
-      return consumeTraceStream(provider, stream, items => this.insertBatch(client, runId, items), 250, sourceKind);
+      return consumeTraceStream(provider, stream, async items => {
+        traceMetric("artifact_parsed", this.tenantId, runId, { ...traceCounts(items), provider, sourceKind });
+        await this.insertBatch(client, runId, items);
+      }, 250, sourceKind);
     };
     return client ? project(client) : this.database.transaction(project);
   }

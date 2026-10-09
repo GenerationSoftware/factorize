@@ -78,6 +78,20 @@ export const wakeHints = app.table("wake_hints", { key: text("key").primaryKey()
 export const runTraceCursors = app.table("run_trace_cursors", { tenantId: uuid("tenant_id").notNull(), runId: uuid("run_id").notNull(), generation: text("generation").notNull(), committedOffset: bigint("committed_offset", { mode: "number" }).notNull().default(0), pendingBytes: bytea("pending_bytes").notNull().default(sql`''::bytea`), nextSequence: bigint("next_sequence", { mode: "number" }).notNull().default(1), rollingHash: text("rolling_hash").notNull().default("0".repeat(64)), updatedAt: updatedAt() }, t => [primaryKey({ columns: [t.tenantId, t.runId] }), foreignKey({ columns: [t.tenantId, t.runId], foreignColumns: [runs.tenantId, runs.id] }).onDelete("cascade")]);
 export const runTraceChunks = app.table("run_trace_chunks", { tenantId: uuid("tenant_id").notNull(), runId: uuid("run_id").notNull(), generation: text("generation").notNull(), startOffset: bigint("start_offset", { mode: "number" }).notNull(), endOffset: bigint("end_offset", { mode: "number" }).notNull(), chunkSha256: text("chunk_sha256").notNull(), previousHash: text("previous_hash").notNull(), rollingHash: text("rolling_hash").notNull(), createdAt: createdAt() }, t => [primaryKey({ columns: [t.tenantId, t.runId, t.generation, t.startOffset] }), foreignKey({ columns: [t.tenantId, t.runId], foreignColumns: [runs.tenantId, runs.id] }).onDelete("cascade")]);
 
+export const runTraceProjections = app.table("run_trace_projections", {
+  tenantId: uuid("tenant_id").notNull(), runId: uuid("run_id").notNull(), sourceKind: text("source_kind").notNull(),
+  artifactSha256: text("artifact_sha256").notNull(), parserVersion: text("parser_version").notNull(),
+  reconciliation: jsonb("reconciliation").notNull().default({}), updatedAt: updatedAt(),
+}, t => [primaryKey({ columns: [t.tenantId, t.runId] }), foreignKey({ columns: [t.tenantId, t.runId], foreignColumns: [runs.tenantId, runs.id] }).onDelete("cascade"), check("run_trace_projections_source_kind_check", sql`${t.sourceKind} IN ('execution_stream','native_session')`)]);
+export const traceReplayLimits = app.table("trace_replay_limits", {
+  tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(), attempts: integer("attempts").notNull().default(0),
+});
+export const traceReplayOperations = app.table("trace_replay_operations", {
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), requestId: uuid("request_id").notNull(),
+  runId: uuid("run_id").notNull(), source: text("source").notNull(), actorId: text("actor_id").notNull(), result: jsonb("result").notNull(), createdAt: createdAt(),
+}, t => [primaryKey({ columns: [t.tenantId, t.requestId] }), foreignKey({ columns: [t.tenantId, t.runId], foreignColumns: [runs.tenantId, runs.id] }).onDelete("cascade"), index("trace_replay_run").on(t.tenantId, t.runId, t.createdAt.desc()), check("trace_replay_operations_source_check", sql`${t.source} IN ('primary','native_session')`)]);
+
 export const tenantRelations = relations(tenants, ({ many }) => ({ members: many(members), jobs: many(jobs), connections: many(connections) }));
 export const jobRelations = relations(jobs, ({ one, many }) => ({
   tenant: one(tenants, { fields: [jobs.tenantId], references: [tenants.id] }),
@@ -103,5 +117,6 @@ export const databaseSchema = {
   connections, linearWorkspaces, githubInstallations, githubSetupStates, jobs, triggers, invocations, jobRuns, runs, runArtifacts,
   runTraceEvents, runActivity, activeClaims, scheduleState, automaticWakes, lifecycleDeliveries, jobEditDeliveries, jobEvents,
   webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints, runTraceCursors, runTraceChunks,
+  runTraceProjections, traceReplayLimits, traceReplayOperations,
   tenantRelations, jobRelations, triggerRelations, invocationRelations, runRelations,
 };

@@ -31,3 +31,11 @@ export function validateTraceSources(sources: TraceSources): void {
     if (sources.nativeSession.kind !== "native_session" || sources.nativeSession.path === sources.primary.path && sources.primary.kind === "execution_stream") throw new Error("Native session must be separate from the execution stream");
   }
 }
+
+/** Deployment controls affect new launches only; never change an active run's source. */
+export function rolloutTraceSources(sources: TraceSources, tenantId: string, config: { TRACE_PRIMARY_MODE?: string; TRACE_STREAM_TENANTS?: string }): TraceSources {
+  if (config.TRACE_PRIMARY_MODE && !["execution_stream", "native_session"].includes(config.TRACE_PRIMARY_MODE)) throw new Error("Invalid TRACE_PRIMARY_MODE");
+  const canaries = config.TRACE_STREAM_TENANTS?.split(",").map(value => value.trim()).filter(Boolean);
+  const native = config.TRACE_PRIMARY_MODE === "native_session" || (canaries !== undefined && !canaries.includes(tenantId));
+  return native && sources.nativeSession ? { primary: sources.nativeSession } : sources;
+}

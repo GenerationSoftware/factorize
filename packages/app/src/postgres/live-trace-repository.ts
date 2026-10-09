@@ -2,6 +2,8 @@ import type { TraceSource } from "../trace-source";
 import { parseTrace, type TraceEvent } from "../trace";
 import type { Database, DatabaseClient } from "./database";
 
+import { traceCounts, traceMetric } from "../trace-observability";
+
 const ZERO_HASH = "0".repeat(64);
 const encoder = new TextEncoder();
 const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(value => value.toString(16).padStart(2, "0")).join("");
@@ -20,13 +22,16 @@ export class LiveTraceRepository {
     return row ? { generation: row.generation, offset: Number(row.committed_offset), rollingHash: row.rolling_hash } : { generation: null, offset: 0, rollingHash: ZERO_HASH };
   }
 
-  async append(runId: string, provider: "codex" | "claude" | "pi", chunk: TraceChunk, sourceKind: TraceSource["kind"] = "native_session") {
+  async append(runId: string, provider: "codex" | "claude" | "pi", chunk: TraceChunk, sourceKind: TraceSource["kind"] = "native_session", sourcePath?: string) {
     if (!chunk.generation || chunk.generation.length > 200 || !Number.isSafeInteger(chunk.startOffset) || chunk.startOffset < 0) throw new Error("Invalid trace chunk metadata");
     const actualHash = await sha256(chunk.bytes);
     if (actualHash !== chunk.chunkSha256) throw new Error("Trace chunk checksum mismatch");
     return this.database.transaction(async client => {
-      await client.query("SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, runId]);
-      const finalized = (await client.query("SELECT id FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2 AND kind='execution_stream' AND state='stored'", [this.tenantId, runId])).rows;
+      const run = (await client.query("SELECT id,trace_sources FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, runId])).rows[0];
+      if (!run) throw new Error("Trace run not found");
+      const primary = run.trace_sources?.primary;
+      if (primary && (primary.kind !== sourceKind || (primary.provider && primary.provider !== provider) || (sourcePath && primary.path && primary.path !== sourcePath))) throw new Error("Trace source mismatch");
+      const finalized = (await client.query("SELECT id FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2 AND kind=$3 AND state='stored'", [this.tenantId, runId, sourceKind])).rows;
       if (finalized.length) throw new Error("Trace stream is already finalized");
       let cursor = (await client.query<CursorRow>("SELECT generation,committed_offset,pending_bytes,next_sequence,rolling_hash FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2 FOR UPDATE", [this.tenantId, runId])).rows[0];
       if (!cursor || cursor.generation !== chunk.generation) {
@@ -42,6 +47,7 @@ export class LiveTraceRepository {
       const receipt = (await client.query<{ chunk_sha256: string; end_offset: string | number; previous_hash: string; rolling_hash: string }>("SELECT chunk_sha256,end_offset,previous_hash,rolling_hash FROM app.run_trace_chunks WHERE tenant_id=$1 AND run_id=$2 AND generation=$3 AND start_offset=$4", [this.tenantId, runId, chunk.generation, chunk.startOffset])).rows[0];
       if (receipt) {
         if (receipt.chunk_sha256 !== chunk.chunkSha256 || Number(receipt.end_offset) !== endOffset || receipt.previous_hash !== chunk.previousHash) throw new Error("Conflicting trace chunk retry");
+        traceMetric("chunk_retry", this.tenantId, runId, { generation: chunk.generation });
         return { offset: Number(receipt.end_offset), rollingHash: receipt.rolling_hash, duplicate: true, events: 0 };
       }
       if (chunk.startOffset !== committed) throw new Error(`Trace chunk offset mismatch: expected ${committed}`);
@@ -66,6 +72,7 @@ export class LiveTraceRepository {
         for (const item of [...previous.rows].reverse()) calls.set(item.id, item.title);
       }
       const parsed = parseTrace(provider, new TextDecoder("utf-8", { fatal: true }).decode(complete), sourceKind, Number(cursor.next_sequence), calls);
+      traceMetric("chunk_parsed", this.tenantId, runId, { ...traceCounts(parsed), generation: chunk.generation });
       const nextSequence = Number(cursor.next_sequence), events = parsed.map((item, index) => ({ ...item, sequence: nextSequence + index }));
       for (let offset = 0; offset < events.length; offset += 250) await this.insertBatch(client, runId, events.slice(offset, offset + 250));
       const rollingHash = await sha256(`${cursor.rolling_hash}:${chunk.startOffset}:${endOffset}:${chunk.chunkSha256}`);

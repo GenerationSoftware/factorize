@@ -36,3 +36,18 @@ describe("execution stream contract", () => {
     expect(() => parseTrace("claude", "invalid", "execution_stream")).toThrow("Invalid execution stream JSON");
   });
 });
+
+
+describe("deployment source gates", () => {
+  it("canaries only selected tenants and restores native for new launches while retaining Pi", async () => {
+    const { rolloutTraceSources } = await import("../src/trace-source");
+    const { agentDriver } = await import("../src/agent-driver");
+    for (const provider of ["codex", "claude", "pi"] as const) {
+      const sources = agentDriver(provider).launch("run", {}).traceSources!;
+      expect(rolloutTraceSources(sources, "canary", { TRACE_STREAM_TENANTS: "canary" }).primary.kind).toBe(provider === "pi" ? "native_session" : "execution_stream");
+      expect(rolloutTraceSources(sources, "other", { TRACE_STREAM_TENANTS: "canary" }).primary.kind).toBe("native_session");
+      expect(rolloutTraceSources(sources, "canary", { TRACE_PRIMARY_MODE: "native_session" }).primary.kind).toBe("native_session");
+      expect(sources.primary.kind).toBe(provider === "pi" ? "native_session" : "execution_stream");
+    }
+  });
+});

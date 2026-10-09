@@ -12,3 +12,14 @@ Trigger kinds are `manual`, `schedule`, `webhook`, and `jobLifecycle`. Webhooks 
 See the repository's [trigger context contract](https://github.com/GenerationSoftware/factorize/blob/main/docs/job-trigger-context.md) for the reflection paths exposed with every trigger.
 
 Prompt and run-name templates render plain text: double-brace substitutions preserve URLs, quotes, Markdown, and code without HTML entity escaping. Triple-brace substitutions remain supported. Literal entity text in job context is preserved, not decoded. The web UI escapes rendered values when displaying them. This applies to new runs; existing persisted prompts are unchanged.
+
+
+## Run traces and recovery
+
+Codex and Claude can show tool calls live from an execution stream; Pi uses its native session. The run page identifies the source and artifact state, and labels native fallback after rollback. A trace may be partial when collection fails.
+
+`GET /api/v1/runs/{runId}/diagnostics` reports the declared source and versions, actual projection source and artifact checksum, live generation and byte cursor, terminal reconciliation state, parse warnings, unknown-event rate, retained artifacts, and fallback use. `matched` verifies the projected live prefix against the terminal artifact. Missing reconciliation evidence does not establish completeness.
+
+An interactive tenant owner with `runs:write` can use `POST /api/v1/runs/{runId}/trace/replay` to reproject retained primary bytes or restore a retained native session. Supply a UUID `requestId` and `source` (`primary` or `native_session`). Preserve the request ID when retrying an interrupted operation. Replay is limited to 10 requests per tenant per minute. Results distinguish projected, already projected, skipped, and unrecoverable runs. Historical Codex tool calls can be recovered only if the native session artifact still exists. Replay preserves stored artifacts; expired or deleted bytes cannot be recovered.
+
+See the [trace rollout and debugging runbook](https://github.com/GenerationSoftware/factorize/blob/main/docs/trace-rollout-runbook.md) for canary gates, retention, resumption, and rollback.
