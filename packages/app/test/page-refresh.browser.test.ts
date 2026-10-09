@@ -35,6 +35,82 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+describe("job split Run button", () => {
+  function setup(invoke: any = async () => json({ runId: 'created-run' })) {
+    const fetcher = vi.fn(async (input: string, init: any) => {
+      if (init?.method === 'POST') return invoke(input, init);
+      return json(input.startsWith('/api/v1/jobs/') ? job : { items: [], nextCursor: null });
+    });
+    render(jobDetailPage(viewer, job.id), fetcher);
+    return fetcher;
+  }
+
+  it("runs immediately without a prompt, prevents duplicate clicks, and navigates to the run", async () => {
+    let finish!: (response: Response) => void;
+    const fetcher = setup(() => new Promise<Response>(resolve => { finish = resolve; }));
+    await flush();
+    const dialog = document.querySelector('#manual-run-dialog');
+    dialog.showModal = vi.fn();
+    document.querySelector('#manual-run-prompt').value = 'Unused draft';
+    document.querySelector('#run').click();
+    document.querySelector('#run').click();
+    expect(dialog.showModal).not.toHaveBeenCalled();
+    const posts = fetcher.mock.calls.filter(([, init]) => init?.method === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toEqual(['/api/v1/jobs/job-1/invocations', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    }]);
+    expect(document.querySelector('#run-options').disabled).toBe(true);
+    finish(json({ runId: 'created-run' })); await flush();
+    expect(window.location.pathname).toBe('/job-runs/created-run');
+  });
+
+  it("opens the prompt modal from the dropdown and submits the entered prompt", async () => {
+    const fetcher = setup(); await flush();
+    const dialog = document.querySelector('#manual-run-dialog');
+    dialog.showModal = vi.fn();
+    document.querySelector('#run-options').click();
+    expect(document.querySelector('#run-menu').hidden).toBe(false);
+    expect(document.querySelector('#run-options').getAttribute('aria-expanded')).toBe('true');
+    document.querySelector('#run-with-prompt').click();
+    expect(dialog.showModal).toHaveBeenCalledOnce();
+    expect(document.querySelector('#run-menu').hidden).toBe(true);
+    expect(document.activeElement.id).toBe('manual-run-prompt');
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+    document.querySelector('#manual-run-prompt').value = 'Review the release';
+    document.querySelector('#manual-run-form').dispatchEvent(new Event('submit', { cancelable: true }));
+    await flush();
+    expect(JSON.parse(fetcher.mock.calls.find(([, init]) => init?.method === 'POST')![1].body)).toEqual({ prompt: 'Review the release' });
+  });
+
+  it("supports keyboard opening, Escape focus restoration, and outside dismissal", async () => {
+    setup(); await flush();
+    const button = document.querySelector('#run-options');
+    button.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement.id).toBe('run-with-prompt');
+    document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector('#run-menu').hidden).toBe(true);
+    expect(document.activeElement).toBe(button);
+    button.click(); document.body.click();
+    expect(document.querySelector('#run-menu').hidden).toBe(true);
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    button.click(); document.querySelector('#toggle').focus();
+    expect(document.querySelector('#run-menu').hidden).toBe(true);
+  });
+
+  it("shows immediate-run errors and allows a retry", async () => {
+    let failed = true;
+    const fetcher = setup(async () => failed ? json({ error: 'Queue full' }, 409) : json({ runId: 'retry-run' }));
+    await flush(); document.querySelector('#run').click(); await flush();
+    expect(document.querySelector('#run-error').hidden).toBe(false);
+    expect(document.querySelector('#run-error').textContent).toBe('Queue full');
+    expect(document.querySelector('#run').disabled).toBe(false);
+    failed = false; document.querySelector('#run').click(); await flush();
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+    expect(window.location.pathname).toBe('/job-runs/retry-run');
+  });
+});
+
 describe("lifecycle page refresh", () => {
   it("discovers jobs while idle, updates running counts, and preserves unchanged DOM", async () => {
     let jobs: any[] = [];
