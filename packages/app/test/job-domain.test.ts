@@ -32,6 +32,44 @@ describe("job invocation domain", () => {
     expect(Mustache.render("{{value}}", { value: "<script>&" })).toBe("&lt;script&gt;&amp;");
   });
 
+  it("renders complete contexts and nested JSON in prompts and run names", () => {
+    const data = { z: null, items: [{ b: 2, a: "<&" }, [true, null]], a: { y: 2, x: 1 } };
+    const context = { "trigger-1": { prompt: "go", data } };
+    const dataJson = '{"a":{"x":1,"y":2},"items":[{"a":"<&","b":2},[true,null]],"z":null}';
+    const cases = [
+      ["trigger-1", '{"data":' + dataJson + ',"prompt":"go"}'],
+      ["trigger-1.data", dataJson],
+      ["trigger-1.data.a", '{"x":1,"y":2}'],
+      ["trigger-1.data.items", '[{"a":"<&","b":2},[true,null]]'],
+      ["trigger-1.data.items.0", '{"a":"<&","b":2}'],
+      ["trigger-1.data.z", ""],
+      ["trigger-1.missing", ""],
+    ];
+    for (const [path, expected] of cases) {
+      for (const template of ["{{" + path + "}}", "{{{" + path + "}}}", "{{&" + path + "}}"]) {
+        expect(renderJobPrompt({ promptTemplate: "value:" + template }, context)).toBe("value:" + expected);
+        expect(renderRunName("value:" + template, context, "fallback")).toBe("value:" + expected);
+      }
+    }
+    expect(renderJobPrompt({ promptTemplate: "{{trigger-1.data}}" }, { "trigger-1": { data: { a: { x: 1, y: 2 }, items: data.items, z: null } } })).toBe(dataJson);
+    expect(context["trigger-1"].data).toBe(data);
+  });
+
+  it("preserves primitives, sections, array iteration, and empty collections", () => {
+    const context = { text: "<&", number: 0, yes: true, no: false, nil: null, empty: {}, list: [], rows: [{ name: "A" }, { name: "B" }] };
+    const template = "{{text}}|{{number}}|{{yes}}|{{no}}|{{nil}}|{{empty}}|{{list}}|{{#rows}}{{name}}:{{.}};{{/rows}}{{^nil}}nil{{/nil}}{{^list}}empty{{/list}}{{#empty}}object{{/empty}}";
+    const expected = '<&|0|true|false||{}|[]|A:{"name":"A"};B:{"name":"B"};nilemptyobject';
+    expect(renderJobPrompt({ promptTemplate: template }, context)).toBe(expected);
+    expect(renderRunName(template, context, "fallback")).toBe(expected);
+  });
+
+  it("preserves invalid-template errors and run-name fallbacks", () => {
+    expect(() => renderJobPrompt({ promptTemplate: "{{#broken}}" }, {})).toThrow("The job prompt is not valid Mustache.");
+    for (const template of ["", "   ", "{{#broken}}", "{{missing}}", "{{nil}}"]) {
+      expect(renderRunName(template, { nil: null }, "fallback")).toBe("fallback");
+    }
+  });
+
   it("encrypts and persists the original manual task text at invocation time", async () => {
     const repository = new MemoryRepository();
     repository.jobs.set("job-1", job({ promptTemplate: "<task>\n{{trigger-1.prompt}}\n</task>" }));

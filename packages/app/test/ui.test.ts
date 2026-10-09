@@ -225,10 +225,11 @@ describe("pages", () => {
     expectInlineScriptsToParse(html);
   });
 
-  it("shows synchronized wildcard trigger hints while retaining detailed autocomplete", () => {
+  it("shows complete JSON trigger hints while retaining detailed autocomplete", () => {
     const html = jobPage({ email: "owner@example.com" }, "job-1");
     expect(html).toContain("const triggerHints=()=>triggers.map");
-    expect(html).toContain("path:t.slug+'.*'");
+    expect(html).toContain("path:t.slug,type:'object'");
+    expect(html).toContain("trigger context as JSON");
     expect(html).toContain('data-context-hint="');
     expect(html).toContain("insertHint(hint.dataset.contextHint)");
     expect(html).toContain("reflection(t).filter(x=>x.path!=='*')");

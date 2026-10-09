@@ -11,7 +11,7 @@ const commonWebhook: ContextPath[] = [
 export const triggerContextCatalog: Record<string, ContextPath[]> = {
   manual: [
     { path: "prompt", type: "string", description: "Prompt supplied by the manual invocation.", example: "Review the failing build" },
-    { path: "data", type: "object", description: "JSON data supplied by the manual invocation." },
+    { path: "data", type: "object", description: "Complete manual JSON data; interpolate this path to insert the full object as JSON." },
   ],
   schedule: [
     { path: "scheduled_at", type: "string", description: "Scheduled occurrence as an ISO 8601 timestamp.", example: "2026-09-16T09:00:00.000Z" },
