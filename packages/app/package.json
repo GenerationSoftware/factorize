@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "check": "npm run build"
+    "check": "npm run build && npm test",
+    "test": "node --test test/auth.browser.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.1",
@@ -21,6 +22,7 @@
     "@types/react-dom": "^19.2.0",
     "tailwindcss": "4.3.3",
     "typescript": "^5.9.3",
-    "vite": "8.3.4"
+    "vite": "8.3.4",
+    "playwright": "^1.64.0"
   }
 }

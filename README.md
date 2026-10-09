@@ -239,3 +239,5 @@ The existing Worker now lives in `packages/api`. `packages/app` contains the Vit
 | `npm run check` | Validate packages, generated client, tests and builds |
 
 Use Node 24. Keep local secrets in `packages/api/.dev.vars`; the static frontend does not expose environment variables.
+
+The static application currently includes native-auth screens for local testing. Its generated session/auth contract is additive; production continues to serve the legacy dashboard. Run `npx playwright install chromium` before `npm run check` to enable the compiled-app browser checks. See [the staged migration guide](docs/package-migration.md) for routing ownership and rollout gates.
