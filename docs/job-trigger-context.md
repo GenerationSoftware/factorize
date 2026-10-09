@@ -14,7 +14,7 @@ The available value beneath a slug is:
 
 | Trigger | Fields |
 | --- | --- |
-| Manual | `prompt` |
+| Manual | `prompt`, `data` |
 | Schedule | `scheduled_at`, `cron`, `timezone` |
 | Linear webhook | Complete Linear delivery, plus `provider`, `event`, `delivery_id` |
 | GitHub webhook | Complete GitHub delivery, plus `provider`, `event`, `delivery_id` |
@@ -30,3 +30,5 @@ Run inspection returns `context` as the complete persisted object and `invocatio
 Every webhook trigger may also define `handlerCode` containing one synchronous `function handler(webhook)` declaration. Factorize runs it only after provider authentication and trigger scoping, inside an isolated Worker with no bindings or outbound network access. Returning `false` rejects the delivery, `true` retains the default value above, and a JSON-compatible object replaces that value beneath the stable trigger slug. Timeouts, exceptions, and invalid return values are recorded in webhook activity and never create a run. REST `POST /api/v1/job-handlers/test` and MCP `test_job_webhook_handler` exercise the same isolation boundary without creating an invocation.
 
 Prompt and run-name templates render plain text: double-brace substitutions preserve URLs, quotes, Markdown, and code without HTML entity escaping. Triple-brace substitutions remain supported. Literal entity text in job context is preserved, not decoded. The web UI escapes rendered values when displaying them. This applies to new runs; existing persisted prompts are unchanged.
+
+Object and array substitutions insert compact JSON, including nested values: `{{trigger-1}}` inserts the complete trigger context and `{{trigger-1.data}}` inserts the complete manual data object. Object keys are sorted recursively (integer keys follow JSON's numeric ordering); array order is preserved. Nested nulls render as JSON `null`; a directly interpolated null or missing value remains empty, as in Mustache. Primitive values remain raw text. Sections still use the original context for truthiness, object scopes, and array iteration.
