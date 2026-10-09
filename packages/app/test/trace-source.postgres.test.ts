@@ -65,11 +65,19 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     await expect(f.live.append(f.runId, "codex", chunk, "execution_stream")).rejects.toThrow("already finalized");
   });
 
-  it("rolls back corrupt final projection and its receipt without losing live events", async () => {
+  it("rolls back failed final projection and its receipt without losing live events", async () => {
     const f = await fixture(), bytes = new TextEncoder().encode(record("live"));
     await f.live.append(f.runId, "codex", { generation: "file-1", expectedGeneration: null, startOffset: 0, chunkSha256: await hash(bytes), previousHash: zero, bytes }, "execution_stream");
     const live = await f.trace.page(f.runId);
-    await expect(f.upload(record("new") + "invalid\n")).rejects.toThrow("Invalid execution stream JSON");
+    // Malformed provider records may be tolerated. Force a real persistence failure
+    // after a complete batch was inserted to exercise the transaction rollback.
+    await database.pool.query("ALTER TABLE app.run_trace_events ADD CONSTRAINT reject_final_projection CHECK (preview_text <> 'reject-final-projection')");
+    try {
+      const text = Array.from({ length: 250 }, (_, index) => record(`new-${index}`)).join("") + record("reject-final-projection");
+      await expect(f.upload(text)).rejects.toThrow("reject_final_projection");
+    } finally {
+      await database.pool.query("ALTER TABLE app.run_trace_events DROP CONSTRAINT reject_final_projection");
+    }
     expect(await f.trace.page(f.runId)).toEqual(live);
     expect(await f.artifacts.list(f.runId)).toHaveLength(0);
     expect((await f.upload(record("live"))).status).toBe(201);
