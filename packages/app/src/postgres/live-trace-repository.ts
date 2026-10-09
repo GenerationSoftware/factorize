@@ -60,7 +60,12 @@ export class LiveTraceRepository {
           start = index + 1;
         }
       }
-      const parsed = parseTrace(provider, new TextDecoder("utf-8", { fatal: true }).decode(complete), sourceKind);
+      const calls = new Map<string, string>();
+      if (provider === "codex" && sourceKind === "native_session") {
+        const previous = await client.query<{ id: string; title: string }>("SELECT id,title FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2 AND event_type='tool_call' ORDER BY sequence DESC LIMIT 4096", [this.tenantId, runId]);
+        for (const item of [...previous.rows].reverse()) calls.set(item.id, item.title);
+      }
+      const parsed = parseTrace(provider, new TextDecoder("utf-8", { fatal: true }).decode(complete), sourceKind, Number(cursor.next_sequence), calls);
       const nextSequence = Number(cursor.next_sequence), events = parsed.map((item, index) => ({ ...item, sequence: nextSequence + index }));
       for (let offset = 0; offset < events.length; offset += 250) await this.insertBatch(client, runId, events.slice(offset, offset + 250));
       const rollingHash = await sha256(`${cursor.rolling_hash}:${chunk.startOffset}:${endOffset}:${chunk.chunkSha256}`);

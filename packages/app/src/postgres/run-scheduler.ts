@@ -104,13 +104,22 @@ export class RunScheduler {
   }
 
   private sources(run: PersistedRun): TraceSources {
-    return run.executionTarget.traceSources ?? driverTraceSources(run.executionTarget.agentKind as AgentKind, agentDriver(run.executionTarget.agentKind as AgentKind).launch(run.id, {}));
+    if (run.executionTarget.traceSources) return run.executionTarget.traceSources;
+    // Runs launched before a source declaration existed must keep their native
+    // trace even when the current driver now produces an execution stream.
+    return { primary: this.nativeSource(run) };
+  }
+
+  private nativeSource(run: PersistedRun): TraceSource {
+    const kind = run.executionTarget.agentKind as AgentKind;
+    const { traceSources: _sources, ...legacy } = agentDriver(kind).launch(run.id, {});
+    return driverTraceSources(kind, legacy).primary;
   }
 
   private async collectArtifact(run: PersistedRun, backend: ExeVmBackend, source?: TraceSource, primary?: boolean) {
     if (!run.executionHandle) throw new Error("Execution handle is missing");
     const sources = this.sources(run);
-    source ??= sources.nativeSession ?? (sources.primary.kind === "native_session" ? sources.primary : driverTraceSources(run.executionTarget.agentKind as AgentKind, agentDriver(run.executionTarget.agentKind as AgentKind).launch(run.id, {})).primary);
+    source ??= sources.nativeSession ?? (sources.primary.kind === "native_session" ? sources.primary : this.nativeSource(run));
     primary ??= sources.primary.kind === "native_session";
     const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path: source.kind === "execution_stream" ? "trace/stream.jsonl" : "native/session.jsonl", contentType: source.mediaType, provider: source.provider, format: "jsonl", sourceKind: source.kind, sourcePath: source.path, formatVersion: source.formatVersion, cliVersion: source.cliVersion, harnessVersion: source.harnessVersion, primary, expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
     return backend.collectArtifact(run.executionHandle, { source, contentType: source.mediaType, uploadUrl: `${this.env.APP_ORIGIN}/internal/run-artifacts/${encodeURIComponent(token)}` });

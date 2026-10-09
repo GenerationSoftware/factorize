@@ -4,10 +4,12 @@ An agent launch may declare `traceSources.primary` with `kind: execution_stream`
 an absolute guest `path`, `mediaType: application/x-ndjson`, and its `provider`.
 `formatVersion`, `cliVersion`, and `harnessVersion` identify the producing harness
 when known. Declare the native audit session separately as `nativeSession`;
-native discovery commands remain supported. Existing drivers declare a native
-primary until GEN-2137/2138/2139 implement their stream producers.
+native discovery commands remain supported. Codex declares raw `codex exec --json` stdout as its primary stream with
+`formatVersion: codex-exec-jsonl`; other existing drivers retain native primaries.
+Codex CLI version is probed in the guest at launch and persisted with the source
+for run diagnostics and artifact provenance.
 
-Execution streams contain UTF-8, newline-terminated JSON objects in append order:
+Normalized execution streams contain UTF-8, newline-terminated JSON objects in append order:
 
 ```json
 {"version":1,"id":"event-1","type":"assistant_message","title":"Assistant","preview":"Hello","display":{}}
@@ -25,7 +27,13 @@ The backend tails the declared primary file in bounded byte chunks. PostgreSQL
 commits offset, pending bytes, events and hash-chain receipt atomically. An
 incomplete trailing line waits for a later chunk; terminal reconciliation ignores
 an unterminated trailing line, preserving it in the exact artifact. Invalid
-complete execution records reject the chunk/projection rather than create events.
+complete normalized execution records reject the chunk/projection. Codex raw
+JSONL instead emits a bounded warning for malformed JSON and bounded metadata for
+unknown future event/item types, then continues. Known Codex items project
+reasoning, assistant text, command/MCP/web tool calls and results, file changes,
+plans, lifecycle, errors and usage. Tool results reference the item call ID and
+use the command or server/tool from the completion snapshot for their title.
+Previews are redacted before truncation; unknown payloads are never echoed.
 Retries use the same generation, offset and hash. Rename rotation starts a new
 projection generation; observable same-inode truncation does likewise. Producers
 must use rename rotation, never truncate and regrow between polls: an unobserved

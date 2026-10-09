@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseTrace, consumeTraceStream } from "../src/trace";
 import { LiveTraceRepository } from "../src/postgres/live-trace-repository";
@@ -9,6 +10,7 @@ function fakeDatabase() {
   let cursor: any = null;
   const chunks = new Map<string, any>(), events: any[] = [];
   const query = async (sql: string, values: any[] = []) => {
+    if (sql.startsWith("SELECT id,title FROM app.run_trace_events")) return { rows: events.filter(item => item.event_type === "tool_call").reverse().map(item => ({ id: item.id, title: item.title })), rowCount: 0 };
     if (sql.startsWith("SELECT id FROM app.")) return { rows: [], rowCount: 0 };
     if (sql.startsWith("SELECT generation,committed_offset") && sql.includes("FOR UPDATE")) return { rows: cursor ? [cursor] : [], rowCount: cursor ? 1 : 0 };
     if (sql.startsWith("DELETE FROM app.run_trace_events")) { events.length = 0; return { rows: [], rowCount: 0 }; }
@@ -69,6 +71,33 @@ describe("LiveTraceRepository", () => {
     await repository.append("run-1", "codex", { generation: "file-2", expectedGeneration: "file-1", startOffset: 0, chunkSha256: await digest(`${record}\n`), previousHash: zero, bytes: rotated }, "execution_stream");
     expect(fake.state().events).toHaveLength(1);
     expect(fake.state().cursor.pending_bytes).toHaveLength(0);
+  });
+
+  it("persists raw Codex projections identically across arbitrary live byte boundaries", async () => {
+    const fake = fakeDatabase(), repository = new LiveTraceRepository(fake.database, "tenant-1");
+    const text = readFileSync(new URL("./fixtures/codex/exec-0.161.0.jsonl", import.meta.url), "utf8") + 'invalid\n{"type":"future.event"}\n';
+    const bytes = new TextEncoder().encode(text);
+    let offset = 0, previousHash = zero;
+    while (offset < bytes.length) {
+      const part = bytes.slice(offset, offset + 53);
+      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", part))].map(x => x.toString(16).padStart(2, "0")).join("");
+      const receipt = await repository.append("run-1", "codex", { generation: "raw", expectedGeneration: offset ? "raw" : null, startOffset: offset, chunkSha256: hash, previousHash, bytes: part }, "execution_stream");
+      offset = receipt.offset; previousHash = receipt.rollingHash;
+    }
+    const expected = parseTrace("codex", text, "execution_stream");
+    expect(fake.state().events.map(item => ({ sequence: item.sequence, id: item.id, parentId: item.parent_id ?? undefined, type: item.event_type, title: item.title, preview: item.preview_text, display: item.display_data }))).toEqual(expected);
+  });
+  it("correlates native calls from prior committed chunks", async () => {
+    const fake = fakeDatabase(), repository = new LiveTraceRepository(fake.database, "tenant-1");
+    const text = readFileSync(new URL("./fixtures/codex/native-calls.jsonl", import.meta.url), "utf8");
+    let offset = 0, previousHash = zero;
+    for (const line of text.trim().split("\n")) {
+      const record = line + "\n", bytes = new TextEncoder().encode(record);
+      const receipt = await repository.append("run-1", "codex", { generation: "native", expectedGeneration: offset ? "native" : null, startOffset: offset, chunkSha256: await digest(record), previousHash, bytes });
+      offset = receipt.offset; previousHash = receipt.rollingHash;
+    }
+    expect(fake.state().events[1]).toMatchObject({ title: "exec_command", parent_id: "custom-1" });
+    expect(fake.state().events[3]).toMatchObject({ title: "shell", parent_id: "legacy-1" });
   });
 
 });

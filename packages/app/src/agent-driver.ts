@@ -25,11 +25,19 @@ export interface AgentDriver {
 
 class CodexDriver implements AgentDriver {
   readonly kind = "codex" as const;
-  launch(_runId: string, config: AgentConfiguration): AgentLaunchSpec {
-    const args = ["exec", "--dangerously-bypass-approvals-and-sandbox", "--color", "never", "-c", "model_provider=exe-llm", "-c", 'model_providers.exe-llm.name="exe-llm"', "-c", 'model_providers.exe-llm.base_url="https://llm.int.exe.xyz/v1"'];
+  launch(runId: string, config: AgentConfiguration): AgentLaunchSpec {
+    const args = ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--color", "never", "-c", "model_provider=exe-llm", "-c", 'model_providers.exe-llm.name="exe-llm"', "-c", 'model_providers.exe-llm.base_url="https://llm.int.exe.xyz/v1"'];
     if (config.model?.trim()) args.push("--model", config.model.trim());
     if (config.effort?.trim()) args.push("-c", `model_reasoning_effort=${config.effort.trim()}`);
-    return { executable: "codex", args, env: {}, stdin: "prompt", artifacts: { roots: ["${CODEX_HOME:-$HOME/.codex}/sessions"], fileNameIncludes: "rollout-", discoverCommand: `find "\${CODEX_HOME:-$HOME/.codex}/sessions" -type f -name 'rollout-*.jsonl' -printf '%T@ %p\\n' | sort -nr | head -1 | cut -d' ' -f2-` } };
+    const nativeSession = { kind: "native_session" as const, path: "${CODEX_HOME:-$HOME/.codex}/sessions", mediaType: "application/x-ndjson" as const, provider: this.kind, discoverCommand: `find "\${CODEX_HOME:-$HOME/.codex}/sessions" -type f -name 'rollout-*.jsonl' -printf '%T@ %p\\n' | sort -nr | head -1 | cut -d' ' -f2-` };
+    return {
+      executable: "codex", args, env: {}, stdin: "prompt",
+      artifacts: { roots: [nativeSession.path], fileNameIncludes: "rollout-", discoverCommand: nativeSession.discoverCommand },
+      traceSources: {
+        primary: { kind: "execution_stream", path: `/tmp/factorize-artifacts/${runId}/codex-exec.jsonl`, mediaType: "application/x-ndjson", provider: this.kind, formatVersion: "codex-exec-jsonl" },
+        nativeSession,
+      },
+    };
   }
 }
 

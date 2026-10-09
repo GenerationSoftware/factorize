@@ -10,7 +10,14 @@ export interface ExecutionDiagnostics {
 
 /** Redact before truncation so a cut cannot expose part of a recognized credential. */
 export function safeDiagnosticText(value: string, limit = 2048): string {
-  const withoutAssignments = value.replace(/^.*["']?(?:[\w-]*(?:token|secret|password|passwd|api[_-]?key|authorization|cookie))["']?\s*[:=].*$/gim, "[REDACTED]");
+  // Scan assignment keys once per line; a greedy prefix plus nested key
+  // quantifiers made long, ordinary tool output quadratic to redact.
+  const withoutAssignments = value.split("\n").map(line => {
+    for (const match of line.matchAll(/\b([\w-]+)["']?\s*[:=]/g)) {
+      if (/(?:token|secret|password|passwd|api[_-]?key|authorization|cookie)/i.test(match[1])) return "[REDACTED]";
+    }
+    return line;
+  }).join("\n");
   const safe = scrubSession(withoutAssignments)
     .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*/gi, "[REDACTED]")
     .replace(/\b[A-Z][A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD)\s*=\s*[^\r\n]+/g, "[REDACTED]")
