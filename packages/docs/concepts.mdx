@@ -7,7 +7,7 @@ A Job contains a prompt template, execution target, model/effort options, concur
 
 Templates are Mustache and render only against the firing trigger's stable slug, such as `{{trigger-1.issue.title}}`. Missing paths become empty strings. Run inspection returns the complete persisted `context`, rendered `prompt`, `invocation.trigger_id`, execution metadata, output, and activity.
 
-Trigger kinds are `manual`, `schedule`, `webhook`, and `jobLifecycle`. Webhooks support Linear, ClickUp, GitHub, and Cloudflare Tail. A webhook handler is one synchronous `function handler(webhook)` declaration: `false` rejects, `true` keeps the default payload, and a JSON object replaces it. It runs after authentication/scoping in an isolated Worker with no network or bindings.
+Trigger kinds are `manual`, `schedule`, `webhook`, and `jobLifecycle`. Webhooks support Linear, ClickUp, GitHub, and Cloudflare Tail. Optional declarative JSON conditions filter the prepared webhook context without replacing it. See [trigger conditions](/integrations/triggers).
 
 See the repository's [trigger context contract](https://github.com/GenerationSoftware/factorize/blob/main/docs/job-trigger-context.md) for the reflection paths exposed with every trigger.
 

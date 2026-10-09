@@ -21,7 +21,7 @@ export function JobDetail() {
       <button disabled={enabled.isPending} onClick={() => enabled.mutate(!job.enabled)}>{job.enabled ? "Disable job" : "Enable job"}</button>
       {enabled.error && <p role="alert">{enabled.error.message}</p>}
       <details><summary>Prompt template</summary><pre className="whitespace-pre-wrap break-words">{job.promptTemplate}</pre></details>
-      <section><h2>Triggers</h2><ul>{job.triggers.map(trigger => <li key={trigger.id}>{trigger.slug} · {trigger.kind} · {trigger.enabled ? "Enabled" : "Disabled"}{trigger.kind === "webhook" && trigger.config.provider === "cloudflareTail" && trigger.config.destination && <><p>Tail webhook destination</p><code className="break-all">{trigger.config.destination}</code></>}</li>)}</ul></section>
+      <section><h2>Triggers</h2><ul>{job.triggers.map(trigger => <li key={trigger.id}>{trigger.slug} · {trigger.kind} · {trigger.enabled ? "Enabled" : "Disabled"}{trigger.kind === "webhook" && <span> · {trigger.config.conditions ? "Conditions configured" : "No additional conditions"}</span>}{trigger.kind === "webhook" && trigger.config.provider === "cloudflareTail" && trigger.config.destination && <><p>Tail webhook destination</p><code className="break-all">{trigger.config.destination}</code></>}</li>)}</ul></section>
       <InvokeJob jobId={job.id} enabled={job.enabled} /><RunHistory jobId={job.id} /><DeleteJob jobId={job.id} name={job.name} />
     </>}
   </main>;

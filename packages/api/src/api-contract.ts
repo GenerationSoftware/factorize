@@ -9,7 +9,7 @@ import type { ApiService } from "./flow-service";
 import {
   jobInputSchema,
   manualInvocationSchema,
-  jobHandlerTestSchema,
+  jobConditionsTestSchema,
   listRunsSchema,
   scopeSchema,
 } from "./flow-schemas";
@@ -25,6 +25,7 @@ export interface RouteContract {
   ownerSession: boolean;
   authOperation?: AuthAction;
   body?: z.ZodType;
+  maxBodyBytes?: number;
   query?: z.ZodObject;
   parameters: z.ZodObject;
   status: number;
@@ -117,7 +118,7 @@ function route(
   documentation: RouteContract["documentation"],
   execute: RouteContract["execute"],
   options: Partial<
-    Pick<RouteContract, "body" | "query" | "ownerSession" | "parameters" | "authOperation">
+    Pick<RouteContract, "body" | "maxBodyBytes" | "query" | "ownerSession" | "parameters" | "authOperation">
   > = {},
 ): RouteContract {
   const keys = [...path.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]);
@@ -157,7 +158,7 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
     documentation: {
       summary,
       description: "Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.",
-      responses: { [status]: { description: "session" === action ? "Unauthenticated sessions return authenticated:false; expired, unverified, removed or revoked owners are unauthenticated." : "Success", headers: { "X-Factorize-Contract": { description: "Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.", schema: { type: "string", const: "gen-2157-static-v1" } } }, content: { "application/json": { schema: jsonSchema(response, "output") } } } },
+      responses: { [status]: { description: "session" === action ? "Unauthenticated sessions return authenticated:false; expired, unverified, removed or revoked owners are unauthenticated." : "Success", headers: { "X-Factorize-Webhook-Conditions": { description: "Conditions-only webhook runtime deployment marker.", schema: { type: "string", const: "v1" } }, "X-Factorize-Contract": { description: "Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.", schema: { type: "string", const: "gen-2157-static-v1" } } }, content: { "application/json": { schema: jsonSchema(response, "output") } } } },
     },
     execute: async () => { throw new Error("Auth operations must use the protected API dispatcher"); },
   };
@@ -667,14 +668,15 @@ export const API_ROUTES: RouteContract[] = [
   ),
   route(
     "POST",
-    "/api/v1/job-handlers/test",
+    "/api/v1/job-conditions/test",
     "flows:write",
     {
-      summary: "Test webhook handler",
-      responses: { "200": { description: "Decision", content: { "application/json": { schema: jsonSchema(z.discriminatedUnion("ok", [z.object({ ok: z.literal(true), decision: z.union([z.boolean(), z.record(z.string(), z.unknown())]) }), z.object({ ok: z.literal(false), category: z.enum(["handler_error", "invalid_return", "timeout", "platform_error"]) })]), "output") } } } },
+      summary: "Test webhook conditions",
+      description: "Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke jobs.",
+      responses: { "200": { description: "Decision", content: { "application/json": { schema: jsonSchema(z.object({ decision: z.enum(["match", "no-match", "error"]), error: z.string().optional(), details: z.array(z.record(z.string(), z.unknown())) }), "output") } } } },
     },
-    (service, { body }) => service.testJobHandler(body),
-    { body: jobHandlerTestSchema },
+    (service, { body }) => service.testJobConditions(body),
+    { body: jobConditionsTestSchema, maxBodyBytes: 300_000 },
   ),
   route(
     "POST",
@@ -1041,7 +1043,7 @@ export function generateOpenApi() {
   const namedBodies: Record<string, z.ZodType> = {
     JobInput: jobInputSchema,
     ManualInvocation: manualInvocationSchema,
-    JobHandlerTest: jobHandlerTestSchema,
+    JobConditionsTest: jobConditionsTestSchema,
     TraceReplayRequest: traceReplaySchema,
   };
   const schemas = {

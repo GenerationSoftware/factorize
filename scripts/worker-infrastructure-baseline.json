@@ -8,7 +8,6 @@
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "cacbf744337747ffbb9c0153329aad4f" }],
   "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9b6c8a09921d4ee18cdf3723135c82ad" }],
   "r2_buckets": [{ "binding": "RUN_ARTIFACTS", "bucket_name": "factorize-run-artifacts" }],
-  "worker_loaders": [{ "binding": "CUSTOM_HANDLER_LOADER" }],
   "durable_objects": {
     "bindings": [{ "name": "SCHEDULER", "class_name": "AlarmCoordinator" }]
   },

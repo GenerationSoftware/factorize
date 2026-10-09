@@ -48,7 +48,7 @@ export function validBrowserOrigin(request: Request, env: Env): boolean {
   return request.headers.get("Origin") === env.APP_ORIGIN && request.headers.get("Sec-Fetch-Site") !== "cross-site";
 }
 export function authJson(body: unknown, status = 200): Response {
-  return Response.json(body, { status, headers: { "X-Factorize-Contract": "gen-2157-static-v1", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", Pragma: "no-cache" } });
+  return Response.json(body, { status, headers: { "X-Factorize-Contract": "gen-2157-static-v1", "X-Factorize-Webhook-Conditions": "v1", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", Pragma: "no-cache" } });
 }
 const failure = (status: number, message: string) => authJson({ error: { code: status === 401 ? "invalid_token" : status === 403 ? "forbidden" : "invalid_request", message } }, status);
 function sessionCookie(env: Env, value: string, maxAge: number): string {

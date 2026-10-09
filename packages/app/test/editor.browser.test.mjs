@@ -55,16 +55,16 @@ test("template insertion escapes values and navigation protects unsaved work", a
   assert.equal(await page.getByLabel("Prompt template", { exact: true }).inputValue(), "Original prompt{{trigger-1.prompt}}");
   page.once("dialog", dialog => dialog.dismiss()); await page.locator("main").getByRole("link", { name: "Jobs", exact: true }).click(); assert.ok(page.url().includes("/edit")); await context.close();
 });
-test("provider editor fetches only the selected provider and submits project/matching/handler configuration explicitly", async () => {
+test("provider editor fetches only the selected provider and submits project/matching/conditions configuration explicitly", async () => {
   const { context, page } = await setup(); const reads = [], writes = []; let current = structuredClone(initial);
   await page.route(`**/api/v1/jobs/${id}`, route => { if (route.request().method() === "GET") return route.fulfill({ json: current }); const body = route.request().postDataJSON(); writes.push(body); current = { ...current, ...body, triggers: body.triggers.map((trigger, index) => ({ ...trigger, id: trigger.id ?? `00000000-0000-4000-8000-00000000000${index + 4}`, jobId: id, createdAt: initial.createdAt, updatedAt: initial.updatedAt })) }; return route.fulfill({ json: current }); });
   await page.route("**/api/v1/providers/**", route => { reads.push(new URL(route.request().url()).pathname); return route.fulfill({ json: route.request().url().endsWith("/projects") ? [{ id: "project", name: "Release" }] : { statuses: [{ id: "done", name: "Done" }], users: [], labels: [] } }); });
-  await page.route("**/api/v1/job-handlers/test", route => route.fulfill({ json: { ok: true, decision: { custom: "value" } } }));
+  await page.route("**/api/v1/job-conditions/test", route => route.fulfill({ json: { decision: "match", details: [] } }));
   await page.goto(origin + `/jobs/${id}/edit`); assert.equal(reads.length, 0); await page.getByLabel("New trigger kind").selectOption("webhook"); await page.getByRole("button", { name: "Add trigger" }).click();
-  await page.getByLabel("Linear project").selectOption("project"); await page.getByRole("button", { name: "Add matching rule" }).click(); await page.getByLabel("Match value").selectOption("done"); await page.getByLabel("Webhook handler (optional)").fill("function handler(webhook) { return webhook; }");
-  await page.getByText("Test webhook handler", { exact: true }).click(); await page.getByRole("button", { name: "Test handler", exact: true }).click(); await page.getByRole("status").filter({ hasText: '"custom": "value"' }).waitFor();
+  await page.getByLabel("Linear project").selectOption("project"); await page.getByRole("button", { name: "Add matching rule" }).click(); await page.getByLabel("Match value").selectOption("done"); await page.getByLabel("Conditions JSON (optional)").fill('{"all":[{"fact":"webhook","path":"$.issue.id","operator":"equal","value":"i1"}]}');
+  await page.getByText("Test webhook conditions", { exact: true }).click(); await page.getByRole("button", { name: "Test conditions", exact: true }).click(); await page.getByRole("status").filter({ hasText: '"decision": "match"' }).waitFor();
   await page.getByRole("button", { name: "Save job", exact: true }).click(); await page.waitForURL(`**/jobs/${id}`);
-  assert.ok(reads.every(path => path.startsWith("/api/v1/providers/linear/"))); assert.deepEqual(writes[0].triggers[1].config, { provider: "linear", projectId: "project", matchRules: [{ type: "status", targetId: "done" }], handlerCode: "function handler(webhook) { return webhook; }" }); assert.equal(writes[0].triggers[0].id, triggerId); await context.close();
+  assert.ok(reads.every(path => path.startsWith("/api/v1/providers/linear/"))); assert.deepEqual(writes[0].triggers[1].config, { provider: "linear", projectId: "project", matchRules: [{ type: "status", targetId: "done" }], conditions: { all: [{ fact: "webhook", path: "$.issue.id", operator: "equal", value: "i1" }] } }); assert.equal(writes[0].triggers[0].id, triggerId); await context.close();
 });
 test("search dialog keeps keyboard focus, escapes results and leaves a draft intact after chunk failure", async () => {
   const { context, page } = await setup();
@@ -88,7 +88,7 @@ test("search dialog keeps keyboard focus, escapes results and leaves a draft int
 });
 test("provider changes load ClickUp, GitHub and Tail resources lazily and submit the selected configuration", async () => {
   const { context, page } = await setup(); const reads = []; let written;
-  const value = { ...initial, triggers: [...initial.triggers, { ...initial.triggers[0], id: "00000000-0000-4000-8000-000000000004", slug: "trigger-2", kind: "webhook", config: { provider: "clickup", listId: "list", matchRules: [{ type: "status", targetId: "open" }] } }] };
+  const value = { ...initial, triggers: [...initial.triggers, { ...initial.triggers[0], id: "00000000-0000-4000-8000-000000000004", slug: "trigger-2", kind: "webhook", config: { provider: "clickup", listId: "list", matchRules: [{ type: "status", targetId: "open" }], conditions: { fact: "webhook", path: "$.event", operator: "notEqual", value: "ignored" } } }] };
   await page.route("**/api/v1/providers/**", route => {
     const path = new URL(route.request().url()).pathname; reads.push(path);
     const json = path.endsWith("/clickup/lists") ? [{ id: "list", name: "Build tasks" }] : path.endsWith("/installations") ? [{ installationId: "123", accountLogin: "owner", state: "active" }] : path.endsWith("/repositories") ? [{ id: 456, fullName: "owner/repo" }] : { statuses: [{ id: "open", name: "Open" }], users: [], labels: [] };
@@ -100,6 +100,47 @@ test("provider changes load ClickUp, GitHub and Tail resources lazily and submit
   assert.ok(reads.some(path => path.endsWith("/clickup/lists"))); assert.ok(!reads.some(path => path.includes("github") || path === "tail" || path.includes("linear")));
   await page.getByLabel("Provider", { exact: true }).selectOption("github"); await page.getByLabel("GitHub installation", { exact: true }).selectOption("123"); await page.getByLabel("GitHub repository", { exact: true }).selectOption("456");
   await page.getByLabel("Provider", { exact: true }).selectOption("cloudflareTail"); await page.getByLabel("Tail integration", { exact: true }).selectOption("tail"); await page.getByRole("button", { name: "Save job", exact: true }).click();
-  await page.getByRole("heading", { name: initial.name, exact: true }).waitFor(); assert.deepEqual(written.triggers[1].config, { provider: "cloudflareTail", integrationId: "tail" }); assert.equal(written.expectedUpdatedAt, initial.updatedAt);
+  await page.getByRole("heading", { name: initial.name, exact: true }).waitFor(); assert.deepEqual(written.triggers[1].config, { provider: "cloudflareTail", integrationId: "tail", conditions: value.triggers[1].config.conditions }); assert.equal(written.expectedUpdatedAt, initial.updatedAt);
+  await context.close();
+});
+for (const config of [
+  { provider: "linear", projectId: "p", matchRules: [{ type: "status", targetId: "done" }] },
+  { provider: "clickup", listId: "l", matchRules: [{ type: "status", targetId: "done" }] },
+  { provider: "github", installationId: 123, repositoryId: 456, event: "check_suite", action: "completed" },
+  { provider: "cloudflareTail", integrationId: "tail" },
+]) test(`${config.provider} edit/save round-trips conditions, routing and trigger identity`, async () => {
+  const { context, page } = await setup(); let written, preview;
+  const conditions = { not: { all: [{ fact: "webhook", path: "$.ignored", operator: "equal", value: true }] } };
+  const changed = { all: [{ fact: "webhook", path: "$.provider", operator: "equal", value: config.provider }] };
+  const hook = { ...initial.triggers[0], id: "00000000-0000-4000-8000-000000000004", slug: "trigger-2", kind: "webhook", config: { ...config, conditions } };
+  const value = { ...initial, triggers: [...initial.triggers, hook] };
+  await page.route("**/api/v1/providers/**", route => { const path = new URL(route.request().url()).pathname; return route.fulfill({ json: path.endsWith("/projects") || path.endsWith("/lists") || path.endsWith("/installations") || path.endsWith("/repositories") ? [] : { statuses: [], labels: [], users: [] } }); });
+  await page.route("**/api/v1/integrations/cloudflare-tail", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/jobs/" + id, route => { if (route.request().method() === "PUT") { written = route.request().postDataJSON(); return route.fulfill({ json: { ...value, ...written } }); } return route.fulfill({ json: value }); });
+  await page.route("**/api/v1/job-conditions/test", route => { preview = route.request().postDataJSON(); return route.fulfill({ json: { decision: "match", details: [] } }); });
+  await page.goto(origin + "/jobs/" + id + "/edit");
+  assert.deepEqual(JSON.parse(await page.getByLabel("Conditions JSON (optional)").inputValue()), conditions);
+  if (config.provider === "github") { assert.equal(await page.getByLabel("GitHub event").inputValue(), "check_suite"); assert.equal(await page.getByLabel("GitHub action").inputValue(), "completed"); }
+  await page.getByLabel("Conditions JSON (optional)").fill("{");
+  await page.getByLabel("Name", { exact: true }).fill("Draft name");
+  await page.getByRole("button", { name: "Save job", exact: true }).click();
+  assert.equal(written, undefined); await page.getByText("Conditions must be valid JSON before saving.").waitFor();
+  await page.getByLabel("Conditions JSON (optional)").fill(JSON.stringify(changed));
+  await page.getByText("Test webhook conditions", { exact: true }).click();
+  await page.getByLabel("Example webhook JSON").fill(JSON.stringify({ provider: config.provider }));
+  await page.getByRole("button", { name: "Test conditions", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: '"decision": "match"' }).waitFor();
+  assert.deepEqual(preview, { conditions: changed, webhook: { provider: config.provider } });
+  await page.getByRole("button", { name: "Save job", exact: true }).click(); await page.waitForURL(`**/jobs/${id}`);
+  assert.deepEqual(written.triggers[1], { id: hook.id, slug: hook.slug, kind: hook.kind, enabled: hook.enabled, config: { ...config, conditions: changed } });
+  await page.getByText("Conditions configured", { exact: false }).waitFor(); await context.close();
+});
+test("conditions save surfaces strict server validation errors", async () => {
+  const { context, page } = await setup();
+  const value = { ...initial, triggers: [...initial.triggers, { ...initial.triggers[0], id: "00000000-0000-4000-8000-000000000004", slug: "trigger-2", kind: "webhook", config: { provider: "cloudflareTail", integrationId: "tail" } }] };
+  await page.route("**/api/v1/integrations/cloudflare-tail", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/jobs/" + id, route => route.request().method() === "PUT" ? route.fulfill({ status: 400, json: { error: { code: "invalid_request", message: "Request validation failed", details: [{ path: ["triggers", 1, "config", "conditions"], message: "Condition groups must not be empty." }] } } }) : route.fulfill({ json: value }));
+  await page.goto(origin + "/jobs/" + id + "/edit"); await page.getByLabel("Conditions JSON (optional)").fill('{"all":[]}');
+  await page.getByRole("button", { name: "Save job", exact: true }).click(); await page.getByRole("alert").filter({ hasText: "Condition groups must not be empty." }).waitFor();
   await context.close();
 });

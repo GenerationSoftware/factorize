@@ -1,3 +1,4 @@
+import { validationMessage } from "./validation-message";
 import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useParams, useBlocker } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -38,7 +39,7 @@ function EditorForm({ initial }: { initial?: Job }) {
     const result = initial ? await api.PUT("/api/v1/jobs/{jobId}", { params: { path: { jobId: initial.id } }, body: { ...writeInput(draft), expectedUpdatedAt: revision } }) : await api.POST("/api/v1/jobs", { body: writeInput(draft) });
     if (result.error || !result.data) {
       if (result.error?.error.code === "stale_job") { setReconciling(true); refreshConflict.mutate(); }
-      throw new Error(messageOf(result.error));
+      throw new Error(validationMessage(result.error));
     }
     return result.data;
   }, onSuccess: async value => { savingNavigation.current = true; setSaved(true); setBase(editableJob(value)); cache.setQueryData(jobQuery(value.id).queryKey, value); await cache.invalidateQueries({ queryKey: ["jobs"] }); void navigate({ to: "/jobs/$jobId", params: { jobId: value.id } }); } });
