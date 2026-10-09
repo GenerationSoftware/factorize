@@ -4,8 +4,9 @@ An agent launch may declare `traceSources.primary` with `kind: execution_stream`
 an absolute guest `path`, `mediaType: application/x-ndjson`, and its `provider`.
 `formatVersion`, `cliVersion`, and `harnessVersion` identify the producing harness
 when known. Declare the native audit session separately as `nativeSession`;
-native discovery commands remain supported. Existing drivers declare a native
-primary until GEN-2137/2138/2139 implement their stream producers.
+native discovery commands remain supported. Codex and Claude retain native-primary compatibility until their stream producers
+are enabled. Pi keeps its published native session as primary; see
+[Pi session contract](pi-session-contract.md).
 
 Execution streams contain UTF-8, newline-terminated JSON objects in append order:
 
