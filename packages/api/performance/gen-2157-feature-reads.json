@@ -1,0 +1,270 @@
+{
+  "date": "2026-10-09",
+  "node": "v24.21.0",
+  "samples": 5,
+  "warmup": 1,
+  "database": "local PostgreSQL 16, no injected latency",
+  "scope": "Service-level calls incl authorization; requests are equivalent API requests, not browser navigation measurements. Large fixture: 205 jobs/50k prompts/50k run context/20k trace events.",
+  "report": [
+    {
+      "jobs": 10,
+      "trace_events": 0,
+      "operation": "legacy_jobs",
+      "requests": 1,
+      "queries": 4,
+      "bytes": 9435,
+      "median_ms": 18.31,
+      "range_ms": [
+        14.97,
+        20.64
+      ]
+    },
+    {
+      "jobs": 10,
+      "trace_events": 0,
+      "operation": "summary_jobs",
+      "requests": 1,
+      "queries": 2,
+      "bytes": 2733,
+      "median_ms": 7.54,
+      "range_ms": [
+        6.54,
+        12.57
+      ]
+    },
+    {
+      "jobs": 10,
+      "trace_events": 0,
+      "operation": "job_detail",
+      "requests": 1,
+      "queries": 4,
+      "bytes": 946,
+      "median_ms": 15.7,
+      "range_ms": [
+        14.38,
+        17.82
+      ]
+    },
+    {
+      "jobs": 10,
+      "trace_events": 0,
+      "operation": "legacy_editor_job_and_all_jobs",
+      "requests": 2,
+      "queries": 8,
+      "bytes": 10384,
+      "median_ms": 27.84,
+      "range_ms": [
+        23.26,
+        32.85
+      ]
+    },
+    {
+      "jobs": 10,
+      "trace_events": 0,
+      "operation": "bounded_editor_job_and_selector",
+      "requests": 2,
+      "queries": 6,
+      "bytes": 1888,
+      "median_ms": 20.1,
+      "range_ms": [
+        17.98,
+        23.33
+      ]
+    },
+    {
+      "jobs": 10,
+      "trace_events": 0,
+      "operation": "static_editor_configuration",
+      "requests": 4,
+      "queries": 10,
+      "bytes": 6712,
+      "median_ms": 27.15,
+      "range_ms": [
+        24.8,
+        31.35
+      ]
+    },
+    {
+      "jobs": 10,
+      "trace_events": 0,
+      "operation": "static_lifecycle_selector",
+      "requests": 1,
+      "queries": 2,
+      "bytes": 939,
+      "median_ms": 9.14,
+      "range_ms": [
+        7.73,
+        9.33
+      ]
+    },
+    {
+      "jobs": 10,
+      "trace_events": 0,
+      "operation": "legacy_run_poll",
+      "requests": 1,
+      "queries": 6,
+      "bytes": 1351,
+      "median_ms": 20.54,
+      "range_ms": [
+        17.05,
+        25.46
+      ]
+    },
+    {
+      "jobs": 10,
+      "trace_events": 0,
+      "operation": "lightweight_status_poll",
+      "requests": 1,
+      "queries": 2,
+      "bytes": 360,
+      "median_ms": 7.9,
+      "range_ms": [
+        6.96,
+        8.23
+      ]
+    },
+    {
+      "jobs": 10,
+      "trace_events": 0,
+      "operation": "revision_trace_page",
+      "requests": 1,
+      "queries": 2,
+      "bytes": 88,
+      "median_ms": 7.17,
+      "range_ms": [
+        6.87,
+        7.5
+      ]
+    },
+    {
+      "jobs": 205,
+      "trace_events": 20000,
+      "operation": "legacy_jobs",
+      "requests": 1,
+      "queries": 4,
+      "bytes": 10347884,
+      "median_ms": 751.1,
+      "range_ms": [
+        725.95,
+        775.75
+      ]
+    },
+    {
+      "jobs": 205,
+      "trace_events": 20000,
+      "operation": "summary_jobs",
+      "requests": 1,
+      "queries": 2,
+      "bytes": 8591,
+      "median_ms": 9.84,
+      "range_ms": [
+        8.66,
+        14.63
+      ]
+    },
+    {
+      "jobs": 205,
+      "trace_events": 20000,
+      "operation": "job_detail",
+      "requests": 1,
+      "queries": 4,
+      "bytes": 50940,
+      "median_ms": 22.84,
+      "range_ms": [
+        19.8,
+        51.63
+      ]
+    },
+    {
+      "jobs": 205,
+      "trace_events": 20000,
+      "operation": "legacy_editor_job_and_all_jobs",
+      "requests": 2,
+      "queries": 8,
+      "bytes": 10398827,
+      "median_ms": 772.74,
+      "range_ms": [
+        720.82,
+        801.41
+      ]
+    },
+    {
+      "jobs": 205,
+      "trace_events": 20000,
+      "operation": "bounded_editor_job_and_selector",
+      "requests": 2,
+      "queries": 6,
+      "bytes": 54164,
+      "median_ms": 23.44,
+      "range_ms": [
+        20.45,
+        30.53
+      ]
+    },
+    {
+      "jobs": 205,
+      "trace_events": 20000,
+      "operation": "static_editor_configuration",
+      "requests": 4,
+      "queries": 10,
+      "bytes": 56706,
+      "median_ms": 33.11,
+      "range_ms": [
+        28.14,
+        33.26
+      ]
+    },
+    {
+      "jobs": 205,
+      "trace_events": 20000,
+      "operation": "static_lifecycle_selector",
+      "requests": 1,
+      "queries": 2,
+      "bytes": 3221,
+      "median_ms": 8.29,
+      "range_ms": [
+        6.5,
+        14.09
+      ]
+    },
+    {
+      "jobs": 205,
+      "trace_events": 20000,
+      "operation": "legacy_run_poll",
+      "requests": 1,
+      "queries": 6,
+      "bytes": 151363,
+      "median_ms": 20.13,
+      "range_ms": [
+        18.37,
+        21.1
+      ]
+    },
+    {
+      "jobs": 205,
+      "trace_events": 20000,
+      "operation": "lightweight_status_poll",
+      "requests": 1,
+      "queries": 2,
+      "bytes": 360,
+      "median_ms": 7.61,
+      "range_ms": [
+        7.05,
+        9.04
+      ]
+    },
+    {
+      "jobs": 205,
+      "trace_events": 20000,
+      "operation": "revision_trace_page",
+      "requests": 1,
+      "queries": 2,
+      "bytes": 59670,
+      "median_ms": 8.24,
+      "range_ms": [
+        7.67,
+        8.64
+      ]
+    }
+  ]
+}

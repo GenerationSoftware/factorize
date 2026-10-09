@@ -201,20 +201,40 @@ export async function deviceVerification(request: Request, env: Env, oauth: OAut
   }
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, POST" } });
   if (!valid || !deviceCode || !record) return new Response("Invalid or expired device code", { status: 400 });
-  if (form?.get("decision") === "deny") {
-    record.status = "denied";
-    await writeDevice(env, deviceCode, normalized, record);
-    return confirmation("Authorization denied", "You can close this window.");
-  }
-  if (form?.get("decision") !== "allow") return Response.redirect(`${env.APP_ORIGIN}/device?user_code=${encodeURIComponent(displayUserCode(normalized))}`, 303);
-  const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: record.scope };
-  const authRequest: AuthRequest = { responseType: "code", clientId: record.clientId, redirectUri: record.redirectUri, scope: record.scope, state: "", codeChallenge: record.codeChallenge, codeChallengeMethod: "S256", resource: record.resource, issuer: env.APP_ORIGIN };
-  const result = await oauth.completeAuthorization({ request: authRequest, userId: session.userId, metadata: { tenantId: session.tenantId }, scope: record.scope, props, revokeExistingGrants: false });
-  record.status = "approved";
-  record.authorizationCode = new URL(result.redirectTo).searchParams.get("code") ?? undefined;
-  if (!record.authorizationCode) return new Response("Could not complete device authorization", { status: 500 });
-  await writeDevice(env, deviceCode, normalized, record);
-  return confirmation("Device connected", "Authorization is complete. You can close this window.");
+  if (request.headers.get("Origin") !== env.APP_ORIGIN || request.headers.get("Sec-Fetch-Site") === "cross-site") return new Response("Invalid request origin", { status: 403 });
+  const decision = form?.get("decision");
+  if (decision !== "allow" && decision !== "deny") return Response.redirect(`${env.APP_ORIGIN}/device?user_code=${encodeURIComponent(displayUserCode(normalized))}`, 303);
+  const result = await decideDevice(env, oauth, session, suppliedCode, decision);
+  if (!result) return new Response("Invalid or expired device code", { status: 400 });
+  return result.status === "denied" ? confirmation("Authorization denied", "You can close this window.") : confirmation("Device connected", "Authorization is complete. You can close this window.");
+}
+
+export async function inspectDevice(env: Env, userCode: string) {
+  const normalized = normalizeUserCode(userCode);
+  const code = normalized.length === 8 ? await deviceCodeForUser(env, normalized) : null;
+  const record = code ? await readDevice(env, code) : null;
+  if (!record || record.status !== "pending" || record.expiresAt <= Math.floor(Date.now() / 1000)) return null;
+  return { userCode: displayUserCode(normalized), clientName: record.clientName, scopes: record.scope, expiresAt: new Date(record.expiresAt * 1000).toISOString() };
+}
+export async function decideDevice(env: Env, oauth: OAuthHelpers, session: { tenantId: string; userId: string; sessionVersion: number }, userCode: string, decision: "allow" | "deny") {
+  const normalized = normalizeUserCode(userCode);
+  const code = normalized.length === 8 ? await deviceCodeForUser(env, normalized) : null;
+  if (!code) return null;
+  const authorize = async (record: DeviceRecord | null, write: (record: DeviceRecord) => Promise<void>) => {
+    if (!record || record.status !== "pending" || record.expiresAt <= Math.floor(Date.now() / 1000)) return null;
+    if (decision === "deny") { record.status = "denied"; await write(record); return { status: "denied" as const }; }
+    const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: record.scope, authMethod: "oauth" };
+    const authRequest: AuthRequest = { responseType: "code", clientId: record.clientId, redirectUri: record.redirectUri, scope: record.scope, state: "", codeChallenge: record.codeChallenge, codeChallengeMethod: "S256", resource: record.resource, issuer: env.APP_ORIGIN };
+    const result = await oauth.completeAuthorization({ request: authRequest, userId: session.userId, metadata: { tenantId: session.tenantId }, scope: record.scope, props, revokeExistingGrants: false });
+    record.authorizationCode = new URL(result.redirectTo).searchParams.get("code") ?? undefined;
+    if (!record.authorizationCode) throw new Error("Incomplete device authorization");
+    record.status = "approved"; await write(record); return { status: "approved" as const };
+  };
+  if (!env.DATABASE && !env.HYPERDRIVE) return authorize(await readDevice(env, code), record => writeDevice(env, code, normalized, record));
+  return databaseFor(env).transaction(async client => {
+    const row = (await client.query("SELECT record FROM app.oauth_device_authorizations WHERE device_code=$1 AND expires_at>now() FOR UPDATE", [code])).rows[0];
+    return authorize(row?.record ?? null, async record => { await client.query("UPDATE app.oauth_device_authorizations SET record=$2,updated_at=now() WHERE device_code=$1", [code, JSON.stringify(record)]); });
+  });
 }
 
 export async function addDeviceMetadata(response: Response, appOrigin: string): Promise<Response> {

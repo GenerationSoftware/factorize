@@ -29,6 +29,8 @@ describe.skipIf(!url)("migration API measurements", () => {
           ["job_detail", () => service.getJob(f.jobIds[0]), 1],
           ["legacy_editor_job_and_all_jobs", async () => Promise.all([service.getJob(f.jobIds[0]), service.listJobs()]), 2],
           ["bounded_editor_job_and_selector", async () => Promise.all([service.getJob(f.jobIds[0]), service.listJobSummaries({ limit: 30, q: "" }, true)]), 2],
+          ["static_editor_configuration", async () => Promise.all([service.getJob(f.jobIds[0]), service.listExecutionTargets(), service.listJobTriggerAvailability(), service.triggerContextMetadata()]), 4],
+          ["static_lifecycle_selector", async () => service.listJobSummaries({ limit: 30, q: "" }, true), 1],
           ["legacy_run_poll", () => service.getRun(f.runId), 1],
           ["lightweight_status_poll", () => service.getRunStatus(f.runId), 1],
           ["revision_trace_page", () => service.getRevisionTrace(f.runId, 0, 100), 1],
@@ -48,6 +50,6 @@ describe.skipIf(!url)("migration API measurements", () => {
         }
       } finally { await f.cleanup(); }
     }
-    await writeFile(new URL("../performance/gen-2157-bounded-reads.json", import.meta.url), JSON.stringify({ date: "2026-10-09", node: process.version, samples: 5, warmup: 1, database: "local PostgreSQL 16, no injected latency", scope: "Service-level calls incl authorization; requests are equivalent API requests, not browser navigation measurements. Large fixture: 205 jobs/50k prompts/50k run context/20k trace events.", report }, null, 2) + "\n");
+    await writeFile(new URL("../performance/gen-2157-feature-reads.json", import.meta.url), JSON.stringify({ date: "2026-10-09", node: process.version, samples: 5, warmup: 1, database: "local PostgreSQL 16, no injected latency", scope: "Service-level calls incl authorization; requests are equivalent API requests, not browser navigation measurements. Large fixture: 205 jobs/50k prompts/50k run context/20k trace events.", report }, null, 2) + "\n");
   }, 60000);
 });

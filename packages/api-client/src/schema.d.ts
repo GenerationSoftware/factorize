@@ -180,6 +180,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/oauth/device/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Inspect a device authorization code */
+        post: operations["post_api_v1_oauth_device_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/device/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve or deny a device authorization code */
+        post: operations["post_api_v1_oauth_device_decision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/consent/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Inspect an OAuth consent request */
+        post: operations["post_api_v1_oauth_consent_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/consent/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide an OAuth consent request */
+        post: operations["post_api_v1_oauth_consent_decision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/trigger-contexts": {
         parameters: {
             query?: never;
@@ -1337,25 +1405,55 @@ export interface components {
             };
         };
         Run: {
-            /**
-             * Format: date-time
-             * @description Time the run was created and queued.
-             */
-            created_at?: string;
-            /**
-             * Format: date-time
-             * @description Time execution launch succeeded. Null until started or when unknown. Runtime starts here; the difference from created_at is queue time including launch preparation.
-             */
-            started_at?: string | null;
-            /**
-             * Format: date-time
-             * @description Last run update; used as the elapsed runtime endpoint for terminal runs.
-             */
-            updated_at?: string;
+            id: string;
+            job_id: string;
+            issue_id: string;
+            issue_url: string | null;
+            issue_title: string;
+            run_name: string;
+            agent_name: string;
+            workspace_name: string;
+            agent_kind: string;
+            /** @enum {string} */
+            state: "queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored";
+            provider: string;
+            backend_kind: string;
+            capabilities: string[];
+            destination_url: string | null;
+            /** @enum {string} */
+            artifact_state: "pending" | "collecting" | "stored" | "partial" | "failed";
+            artifact_error: string | null;
+            created_at: string;
+            updated_at: string;
+            started_at: string | null;
+        } & {
+            [key: string]: unknown;
         };
         RunPage: {
-            items: components["schemas"]["Run"][];
-            nextCursor?: string | null;
+            items: {
+                id: string;
+                job_id: string;
+                issue_id: string;
+                issue_url: string | null;
+                issue_title: string;
+                run_name: string;
+                agent_name: string;
+                workspace_name: string;
+                agent_kind: string;
+                /** @enum {string} */
+                state: "queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored";
+                provider: string;
+                backend_kind: string;
+                capabilities: string[];
+                destination_url: string | null;
+                /** @enum {string} */
+                artifact_state: "pending" | "collecting" | "stored" | "partial" | "failed";
+                artifact_error: string | null;
+                created_at: string;
+                updated_at: string;
+                started_at: string | null;
+            }[];
+            nextCursor: string | null;
         };
         /** @description First terminal backend observation, retained independently of collection and cleanup errors. Null for older or nonterminal runs. Commands and raw backend responses are never included. */
         ExecutionDiagnostics: {
@@ -1498,8 +1596,51 @@ export interface components {
             /** @description Secondary artifact or cleanup error; does not replace execution_diagnostics */
             artifact_error?: string | null;
             /** @description Current job name, included so run content does not require a separate job request. */
-            job_name?: string;
-        } & components["schemas"]["Run"];
+            job_name: string;
+            prompt: string;
+            context: {
+                [key: string]: unknown;
+            };
+            invocation: {
+                id: string;
+                source: string;
+                claim_key: string;
+                trigger_id: string | null;
+                context: {
+                    [key: string]: unknown;
+                };
+                occurrence: {
+                    [key: string]: unknown;
+                } | null;
+                created_at: string;
+            };
+            activity: {
+                action: string;
+                detail: string;
+                created_at: string;
+            }[];
+            tenant_id?: string;
+            invocation_id?: string;
+            execution_handle?: {
+                backendKind: string;
+                id: string;
+            } | null;
+            execution_backend_kind?: string;
+            execution_capabilities?: string[];
+            claim_released?: boolean;
+            vm_cleanup_attempt?: number;
+            vm_cleanup_complete?: boolean;
+            /** Format: date-time */
+            cleanup_next_at?: string | null;
+            occurrence?: {
+                [key: string]: unknown;
+            } | null;
+            invocation_source?: string;
+            invocation_claim_key?: string;
+            invocation_trigger_id?: string | null;
+            /** Format: date-time */
+            invocation_created_at?: string;
+        } & WithRequired<components["schemas"]["Run"], "id" | "state">;
         RunDiagnostics: {
             runId: string;
             jobId: string;
@@ -2085,6 +2226,168 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    post_api_v1_oauth_device_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    userCode: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Pending device request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        userCode: string;
+                        clientName: string;
+                        scopes: string[];
+                        expiresAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_oauth_device_decision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    userCode: string;
+                    /** @enum {string} */
+                    decision: "allow" | "deny";
+                };
+            };
+        };
+        responses: {
+            /** @description Device decision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "approved" | "denied";
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_oauth_consent_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    authorizationQuery: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Owner-bound expiring consent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        clientName: string;
+                        scopes: string[];
+                        request: string;
+                        signature: string;
+                        expiresAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_oauth_consent_decision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    request: string;
+                    signature: string;
+                    /** @enum {string} */
+                    decision: "allow" | "deny";
+                    scopes: ("flows:read" | "flows:write" | "runs:read" | "runs:write")[];
+                };
+            };
+        };
+        responses: {
+            /** @description Validated protocol destination */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        redirectTo: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_trigger_contexts: {
         parameters: {
             query?: never;
@@ -2136,7 +2439,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        connectionId: string;
+                        /** @enum {string} */
+                        agentKind: "codex" | "claude" | "pi";
+                        /** @default [] */
+                        tags: string[];
+                        /** @default [] */
+                        models: string[];
+                        /** @default  */
+                        modelsRefreshedAt: string;
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -2164,7 +2477,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        installationId: number | string;
+                        accountLogin: string;
+                        accountType: string;
+                        state: string;
+                        updatedAt: string;
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -2192,7 +2511,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        kind: "exe-vm" | "amp";
+                        name: string;
+                        workspace: string;
+                        cwd: string;
+                        agentKind: string;
+                        models?: string[];
+                        modelsRefreshedAt?: string | null;
+                        efforts?: string[];
+                        capabilities: string[];
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -2220,7 +2551,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        /** @constant */
+                        manual: true;
+                        /** @constant */
+                        schedule: true;
+                        /** @constant */
+                        jobLifecycle: true;
+                        linear: boolean;
+                        clickup: boolean;
+                        github: boolean;
+                        cloudflareTail: boolean;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2287,7 +2629,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        integrationId: string;
+                        name: string;
+                        /** @constant */
+                        status: "connected";
+                        /** @constant */
+                        secretConfigured: true;
+                        createdAt?: string;
+                        updatedAt?: string;
+                        referencedJobCount: number;
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -2324,7 +2676,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        integrationId: string;
+                        name: string;
+                        /** @constant */
+                        status: "connected";
+                        /** @constant */
+                        secretConfigured: true;
+                        generatedSecret?: string;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2353,7 +2713,56 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        linear: {
+                            organizationName: string | null;
+                            viewerEmail: string | null;
+                        } | null;
+                        clickup: {
+                            teamName: string | null;
+                        } | null;
+                        exe: {
+                            connectionId: string;
+                            /** @enum {string} */
+                            agentKind: "codex" | "claude" | "pi";
+                            /** @default [] */
+                            tags: string[];
+                            /** @default [] */
+                            models: string[];
+                            /** @default  */
+                            modelsRefreshedAt: string;
+                        } | null;
+                        exeConnections: {
+                            connectionId: string;
+                            /** @enum {string} */
+                            agentKind: "codex" | "claude" | "pi";
+                            /** @default [] */
+                            tags: string[];
+                            /** @default [] */
+                            models: string[];
+                            /** @default  */
+                            modelsRefreshedAt: string;
+                        }[];
+                        ampConnections: {
+                            connectionId: string;
+                            project: string;
+                            apiBaseUrl?: string;
+                        }[];
+                        cloudflareTail: {
+                            count: number;
+                            installations: {
+                                integrationId: string;
+                                name: string;
+                                /** @constant */
+                                status: "connected";
+                                /** @constant */
+                                secretConfigured: true;
+                                createdAt?: string;
+                                updatedAt?: string;
+                                referencedJobCount: number;
+                            }[];
+                        };
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2391,7 +2800,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        ok: boolean;
+                        connectionId: string;
+                        models: string[];
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2430,7 +2843,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        ok: boolean;
+                        missingPermissions: string[];
+                        tags: string[];
+                        checks: {
+                            command: string;
+                            ok: boolean;
+                            httpStatus: number;
+                            exitCode: number | null;
+                            output: string;
+                        }[];
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2469,7 +2893,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        ok: boolean;
+                        connectionId: string;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2508,7 +2935,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        ok: boolean;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2537,7 +2966,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        id: string;
+                        name: string;
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -2565,7 +2997,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        statuses: {
+                            id: string;
+                            name: string;
+                        }[];
+                        users: {
+                            id: string;
+                            name: string;
+                        }[];
+                        labels: {
+                            id: string;
+                            name: string;
+                        }[];
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2593,7 +3038,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        id: string;
+                        name: string;
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -2623,7 +3071,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        statuses: {
+                            id: string;
+                            name: string;
+                        }[];
+                        users: {
+                            id: string;
+                            name: string;
+                        }[];
+                        labels: {
+                            id: string;
+                            name: string;
+                        }[];
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2651,7 +3112,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        installationId: number | string;
+                        accountLogin: string;
+                        accountType: string;
+                        state: string;
+                        updatedAt: string;
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -2679,7 +3146,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        grantId: string;
+                        clientId: string;
+                        clientName: string;
+                        scopes: string[];
+                        authorizationDate: string;
+                        expiresAt: string | null;
+                        lastUsedAt: string | null;
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -2707,7 +3182,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        id: string;
+                        name: string;
+                        scopes: ("flows:read" | "flows:write" | "runs:read" | "runs:write")[];
+                        created_at: string;
+                        expires_at: string;
+                        last_used_at?: string | null;
+                        revoked_at?: string | null;
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -2743,7 +3226,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        id: string;
+                        name: string;
+                        scopes: ("flows:read" | "flows:write" | "runs:read" | "runs:write")[];
+                        created_at: string;
+                        expires_at: string;
+                        last_used_at?: string | null;
+                        revoked_at?: string | null;
+                        token: string;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2903,7 +3395,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        integrationId: string;
+                        name: string;
+                        /** @constant */
+                        status: "connected";
+                        /** @constant */
+                        secretConfigured: true;
+                        generatedSecret?: string;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2964,7 +3464,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        ok: boolean;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -2994,7 +3496,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": {
+                        id: number;
+                        name: string;
+                        fullName: string;
+                        owner: string;
+                        private: boolean;
+                        defaultBranch: string;
+                    }[];
                 };
             };
             400: components["responses"]["Error400"];
@@ -3025,7 +3534,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        statuses: {
+                            id: string;
+                            name: string;
+                        }[];
+                        users: {
+                            id: string;
+                            name: string;
+                        }[];
+                        labels: {
+                            id: string;
+                            name: string;
+                        }[];
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -3228,21 +3750,109 @@ export interface operations {
                         currentRuns: number;
                         maxConcurrency: number;
                         lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
-                        triggers: {
+                        triggers: ({
                             /** Format: uuid */
                             id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "manual";
+                            /** @default true */
+                            enabled: boolean;
+                            /** @default {} */
+                            config: Record<string, never>;
                             /** Format: uuid */
                             jobId: string;
-                            /** @enum {string} */
-                            kind: "manual" | "schedule" | "webhook" | "jobLifecycle";
-                            slug: string;
-                            enabled: boolean;
-                            config: {
-                                [key: string]: unknown;
-                            };
                             createdAt: string;
                             updatedAt: string;
-                        }[];
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "schedule";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                cron: string;
+                                timezone: string;
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "webhook";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "linear";
+                                projectId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "clickup";
+                                listId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "github";
+                                installationId: number;
+                                repositoryId: number;
+                                event?: string;
+                                action?: string;
+                                matchRules?: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "cloudflareTail";
+                                integrationId: string;
+                                destination?: string;
+                                secretConfigured?: boolean;
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "jobLifecycle";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                sourceJobIds: string[];
+                                states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        })[];
                         createdAt: string;
                         updatedAt: string;
                     }[];
@@ -3277,7 +3887,135 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        slug: string;
+                        enabled: boolean;
+                        promptTemplate: string;
+                        runNameTemplate: string;
+                        model: string;
+                        effort?: string;
+                        executionTarget: {
+                            connectionId: string;
+                            workspace?: string;
+                            cwd?: string;
+                            agentKind: string;
+                        };
+                        executionTargetId: string;
+                        agentKind: string;
+                        concurrencyLimit: number;
+                        runningCount: number;
+                        currentRuns: number;
+                        maxConcurrency: number;
+                        lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                        triggers: ({
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "manual";
+                            /** @default true */
+                            enabled: boolean;
+                            /** @default {} */
+                            config: Record<string, never>;
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "schedule";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                cron: string;
+                                timezone: string;
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "webhook";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "linear";
+                                projectId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "clickup";
+                                listId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "github";
+                                installationId: number;
+                                repositoryId: number;
+                                event?: string;
+                                action?: string;
+                                matchRules?: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "cloudflareTail";
+                                integrationId: string;
+                                destination?: string;
+                                secretConfigured?: boolean;
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "jobLifecycle";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                sourceJobIds: string[];
+                                states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        })[];
+                        createdAt: string;
+                        updatedAt: string;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -3310,7 +4048,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        /** @constant */
+                        ok: true;
+                        decision: boolean | {
+                            [key: string]: unknown;
+                        };
+                    } | {
+                        /** @constant */
+                        ok: false;
+                        /** @enum {string} */
+                        category: "handler_error" | "invalid_return" | "timeout" | "platform_error";
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -3497,21 +4246,109 @@ export interface operations {
                         currentRuns: number;
                         maxConcurrency: number;
                         lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
-                        triggers: {
+                        triggers: ({
                             /** Format: uuid */
                             id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "manual";
+                            /** @default true */
+                            enabled: boolean;
+                            /** @default {} */
+                            config: Record<string, never>;
                             /** Format: uuid */
                             jobId: string;
-                            /** @enum {string} */
-                            kind: "manual" | "schedule" | "webhook" | "jobLifecycle";
-                            slug: string;
-                            enabled: boolean;
-                            config: {
-                                [key: string]: unknown;
-                            };
                             createdAt: string;
                             updatedAt: string;
-                        }[];
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "schedule";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                cron: string;
+                                timezone: string;
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "webhook";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "linear";
+                                projectId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "clickup";
+                                listId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "github";
+                                installationId: number;
+                                repositoryId: number;
+                                event?: string;
+                                action?: string;
+                                matchRules?: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "cloudflareTail";
+                                integrationId: string;
+                                destination?: string;
+                                secretConfigured?: boolean;
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "jobLifecycle";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                sourceJobIds: string[];
+                                states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        })[];
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -3662,21 +4499,109 @@ export interface operations {
                         currentRuns: number;
                         maxConcurrency: number;
                         lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
-                        triggers: {
+                        triggers: ({
                             /** Format: uuid */
                             id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "manual";
+                            /** @default true */
+                            enabled: boolean;
+                            /** @default {} */
+                            config: Record<string, never>;
                             /** Format: uuid */
                             jobId: string;
-                            /** @enum {string} */
-                            kind: "manual" | "schedule" | "webhook" | "jobLifecycle";
-                            slug: string;
-                            enabled: boolean;
-                            config: {
-                                [key: string]: unknown;
-                            };
                             createdAt: string;
                             updatedAt: string;
-                        }[];
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "schedule";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                cron: string;
+                                timezone: string;
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "webhook";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "linear";
+                                projectId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "clickup";
+                                listId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "github";
+                                installationId: number;
+                                repositoryId: number;
+                                event?: string;
+                                action?: string;
+                                matchRules?: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                handlerCode?: string;
+                                /** @constant */
+                                provider: "cloudflareTail";
+                                integrationId: string;
+                                destination?: string;
+                                secretConfigured?: boolean;
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "jobLifecycle";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                sourceJobIds: string[];
+                                states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        })[];
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -3775,7 +4700,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        items: {
+                            /** @enum {string} */
+                            kind: "job" | "run";
+                            id: string;
+                            title: string;
+                            subtitle: string;
+                            url: string;
+                        }[];
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -4152,3 +5086,6 @@ export interface operations {
         };
     };
 }
+type WithRequired<T, K extends keyof T> = T & {
+    [P in K]-?: T[P];
+};

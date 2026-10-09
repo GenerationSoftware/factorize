@@ -11,12 +11,14 @@ const execution = { state: "failed", detail: "Process exited with status 42", sy
 const traceSources = { primary: { kind: "execution_stream", path: "/tmp/events.jsonl", mediaType: "application/x-ndjson", provider: "codex", formatVersion: "1", cliVersion: "test-cli", harnessVersion: "test-harness" } };
 const artifact = { id: "artifact", kind: "terminal_log", object_key: "tenants/tenant/runs/run/harness/stderr.txt", format: "text", state: "stored", byte_size: "27", sha256: "a".repeat(64) };
 
+const completeRun = { tenant_id: "tenant", job_id: "job", invocation_id: "invocation", issue_id: "manual", issue_url: null, issue_title: "", run_name: "", agent_name: "", workspace_name: "", agent_kind: "codex", state: "failed", provider: "manual", execution_backend_kind: "exe-vm", execution_capabilities: [], destination_url: null, artifact_state: "stored", artifact_error: null, claim_released: false, vm_cleanup_attempt: 0, cleanup_next_at: null, vm_cleanup_complete: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), started_at: null, job_name: "Job", context: {}, occurrence: {}, invocation_source: "manual", invocation_claim_key: "key", invocation_trigger_id: null, invocation_created_at: new Date().toISOString() };
+
 async function fixture(tenantId = "tenant", scopes = ["runs:read"], authMethod?: "session") {
   const key = btoa("a".repeat(32)), encryptedPrompt = await encrypt("private prompt", key);
   vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue({ role: "owner", sessionVersion: 1 } as any);
   const query = vi.fn(async (sql: string, values: any[]) => {
     if (values[0] !== "tenant") return { rows: [] };
-    if (sql.includes("SELECT r.*")) return { rows: [{ id: "run", job_id: "job", state: "failed", encrypted_prompt: encryptedPrompt, execution_diagnostics: execution, trace_sources: traceSources, execution_backend_kind: "exe-vm", artifact_state: "partial", artifact_error: "Canonical execution stream upload failed: /tmp/events.jsonl" }] };
+    if (sql.includes("SELECT r.*")) return { rows: [{ ...completeRun, id: "run", job_id: "job", state: "failed", encrypted_prompt: encryptedPrompt, execution_diagnostics: execution, trace_sources: traceSources, execution_backend_kind: "exe-vm", artifact_state: "partial", artifact_error: "Canonical execution stream upload failed: /tmp/events.jsonl" }] };
     if (sql.includes("app.run_artifacts")) return { rows: [artifact] };
     return { rows: [] };
   });
@@ -43,7 +45,7 @@ describe("run diagnostics API boundary", () => {
     const { RunQueryRepository } = await import("../src/postgres/run-query-repository");
     const { ArtifactRepository } = await import("../src/postgres/artifact-repository");
     const key = btoa("a".repeat(32));
-    vi.spyOn(RunQueryRepository.prototype, "get").mockResolvedValue({ id: "old", encrypted_prompt: await encrypt("", key) });
+    vi.spyOn(RunQueryRepository.prototype, "get").mockResolvedValue({ ...completeRun, id: "old", encrypted_prompt: await encrypt("", key) });
     vi.spyOn(ArtifactRepository.prototype, "list").mockResolvedValue([]);
     expect(await service.getRunDiagnostics("old")).toMatchObject({ execution: null, harnessLog: null, traceSources: null });
   });

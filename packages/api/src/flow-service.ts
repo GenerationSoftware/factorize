@@ -1,3 +1,8 @@
+import { searchResponse } from "./search-contracts";
+import { integrationStatus, exeConnection, accessToken, createdAccessToken, authorizedClient } from "./settings-contracts";
+import { namedOption, providerOptions, githubRepository, executionTargetResponse, githubInstallation, tailIntegration } from "./editor-contracts";
+import { z } from "zod";
+import { runPageResponse, fullRunResponse } from "./run-read-contracts";
 import { triggerContextCatalog } from "./trigger-context";
 import type { Env, OAuthProps } from "./types";
 import type { JobInput, ManualInvocationInput } from "./flow-schemas";
@@ -6,6 +11,7 @@ import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
 import { JobSummaryRepository } from "./postgres/job-summary-repository";
+import { jobResponse } from "./job-contracts";
 import type { JobPageQuery } from "./job-contracts";
 import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
@@ -28,6 +34,16 @@ import { replayTrace, traceReplaySchema, traceReplayRunIdSchema, TraceReplayErro
 
 export class ServiceError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
+}
+
+/** Response validation failures are server defects, never malformed client input. */
+export function publicValue<T extends z.ZodType>(schema: T, value: unknown): z.output<T> {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    console.error(JSON.stringify({ event: "public_contract_failure", issues: result.error.issues.map(issue => ({ path: issue.path, code: issue.code })) }));
+    throw new ServiceError(500, "internal_error", "Factorize returned an invalid resource.");
+  }
+  return result.data;
 }
 
 type Scope = "flows:read" | "flows:write" | "runs:read" | "runs:write";
@@ -83,7 +99,7 @@ export class ApiService {
   private async presentJob(job: Job, loadedStats?: { running_count: string; last_run_state: string | null }) {
     const stats = loadedStats ?? (await this.jobStatistics([job.id])).get(job.id);
     const runningCount = Number(stats?.running_count ?? 0);
-    return { ...job, runNameTemplate: job.runNameTemplate ?? "", executionTargetId: `${job.executionTarget.agentKind === "Amp" ? "amp:" : ""}${job.executionTarget.connectionId}`, agentKind: job.executionTarget.agentKind, runningCount, currentRuns: runningCount, maxConcurrency: job.concurrencyLimit, lastRunState: stats?.last_run_state ?? null };
+    return publicValue(jobResponse, { ...job, triggers: job.triggers.map(trigger => ({ ...trigger, config: trigger.kind === "webhook" ? { ...trigger.config, ...(trigger.config.signingSecret || trigger.config.secret ? { secretConfigured: true } : {}), ...(trigger.config.provider === "cloudflareTail" ? { destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(job.id)}` } : {}) } : trigger.config })), runNameTemplate: job.runNameTemplate ?? "", executionTargetId: `${job.executionTarget.agentKind === "Amp" ? "amp:" : ""}${job.executionTarget.connectionId}`, agentKind: job.executionTarget.agentKind, runningCount, currentRuns: runningCount, maxConcurrency: job.concurrencyLimit, lastRunState: stats?.last_run_state ?? null });
   }
 
   private async authorize(scope: Scope): Promise<void> {
@@ -98,19 +114,12 @@ export class ApiService {
   }
   private async authorizeOwnerSession(scope: Scope): Promise<void> { await this.authorize(scope); if (this.auth.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required."); }
 
-  private publicJob(value: any) {
-    for (const trigger of value?.triggers ?? []) {
-      const provider = trigger.kind === "webhook" ? trigger.config?.provider : undefined;
-      if (provider === "cloudflareTail") trigger.config.destination = `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(value.id)}`;
-    }
-    return value;
-  }
 
-  async listExeConnections() { await this.authorize("flows:read"); return (await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).status()).exeConnections; }
-  async listGitHubInstallations() { await this.authorize("flows:read"); return new GitHubRepository(databaseFor(this.env), this.auth.tenantId).installations(); }
-  async listTailIntegrations() { await this.authorize("flows:read"); return new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).tails(); }
-  async listRuns(query: URLSearchParams) { await this.authorize("runs:read"); return new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).list(query); }
-  async search(query: string) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query); }
+  async listExeConnections() { await this.authorize("flows:read"); return publicValue(z.array(exeConnection), (await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).status()).exeConnections); }
+  async listGitHubInstallations() { await this.authorize("flows:read"); return publicValue(z.array(githubInstallation), JSON.parse(JSON.stringify(await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).installations()))); }
+  async listTailIntegrations() { await this.authorize("flows:read"); return publicValue(z.array(tailIntegration), await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).tails()); }
+  async listRuns(query: URLSearchParams) { await this.authorize("runs:read"); return publicValue(runPageResponse, JSON.parse(JSON.stringify(await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).list(query)))); }
+  async search(query: string) { await this.authorize("runs:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
   async triggerContextMetadata() { await this.authorize("flows:read"); return triggerContextCatalog; }
   async getRunStatus(runId: string) { await this.authorize("runs:read"); const status = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).status(runId); if (!status) throw new ServiceError(404, "not_found", "Run not found"); return status; }
   async getRevisionTrace(runId: string, after: number, limit: number, revision?: string) { await this.authorize("runs:read"); const page = await new TraceRepository(databaseFor(this.env), this.auth.tenantId).revisionPage(runId, after, limit, revision); if (!page) throw new ServiceError(404, "not_found", "Run not found"); return page; }
@@ -130,11 +139,24 @@ export class ApiService {
     run.activity = activity; run.execution_diagnostics ??= null; run.trace_sources ??= null;
     run.trace_projection = projection.rows[0] ?? null; run.trace_generation = cursor.rows[0]?.generation ?? null;
     run.harness_log = artifacts.find(item => item.kind === "terminal_log") ?? null;
-    return run;
+    // Enumerate public fields rather than publishing future database columns.
+    return publicValue(fullRunResponse, JSON.parse(JSON.stringify({ id: run.id, tenant_id: run.tenant_id, job_id: run.job_id, invocation_id: run.invocation_id,
+      execution_handle: run.execution_handle ? { backendKind: run.execution_handle.backendKind, id: run.execution_handle.id } : null,
+      provider: run.provider, issue_id: run.issue_id, issue_url: run.issue_url, issue_title: run.issue_title,
+      run_name: run.run_name, agent_name: run.agent_name, workspace_name: run.workspace_name, agent_kind: run.agent_kind,
+      state: run.state, execution_backend_kind: run.execution_backend_kind, backend_kind: run.backend_kind,
+      execution_capabilities: run.execution_capabilities, capabilities: run.capabilities, destination_url: run.destination_url,
+      artifact_state: run.artifact_state, artifact_error: run.artifact_error,
+      claim_released: run.claim_released, vm_cleanup_attempt: run.vm_cleanup_attempt, cleanup_next_at: run.cleanup_next_at, vm_cleanup_complete: run.vm_cleanup_complete,
+      created_at: run.created_at, updated_at: run.updated_at, started_at: run.started_at,
+      job_name: run.job_name, prompt: run.prompt, context: run.context, occurrence: run.occurrence, invocation: run.invocation,
+      invocation_source: run.invocation_source, invocation_claim_key: run.invocation_claim_key, invocation_trigger_id: run.invocation_trigger_id, invocation_created_at: run.invocation_created_at,
+      activity: run.activity, execution_diagnostics: run.execution_diagnostics, trace_sources: run.trace_sources,
+      trace_projection: run.trace_projection, trace_generation: run.trace_generation, harness_log: run.harness_log })));
   }
   async getRunTrace(runId: string, after: number, limit: number) { await this.authorize("runs:read"); return new TraceRepository(databaseFor(this.env), this.auth.tenantId).page(runId, after, limit); }
   async getRunDiagnostics(runId: string) {
-    const run: any = await this.getRun(runId), database = databaseFor(this.env);
+    const run = await this.getRun(runId), database = databaseFor(this.env);
     const [evidence, artifacts] = await Promise.all([
       new TraceProjectionRepository(database, this.auth.tenantId).diagnostics(runId),
       new ArtifactRepository(database, this.auth.tenantId).list(runId),
@@ -206,7 +228,7 @@ export class ApiService {
     await this.authorize("flows:read"); const connections = await this.connections().all(["exe:", "amp:"]); const targets: any[] = [];
     for (const [kind, value] of connections) if (kind.startsWith("exe:")) { const id = kind.slice(4); targets.push({ id, kind: "exe-vm", name: "Ephemeral exe.dev VMs", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: value.agentKind, models: value.models ?? [], modelsRefreshedAt: value.modelsRefreshedAt ?? null, efforts: value.agentKind === "codex" ? ["minimal", "low", "medium", "high", "xhigh"] : [], capabilities: ["recovery", "stop"] }); }
     else if (kind.startsWith("amp:")) { const id = kind.slice(4); targets.push({ id: `amp:${id}`, kind: "amp", name: `Amp · ${value.project}`, workspace: value.project, cwd: "Cloud orb", agentKind: "Amp", capabilities: ["stop"] }); }
-    return targets;
+    return publicValue(z.array(executionTargetResponse), targets);
   }
   async diagnoseExeIntegration(connectionId: string) { await this.authorize("flows:write"); const value = await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).diagnoseExe(connectionId); if (!value) throw new ServiceError(404,"not_found","Integration not found"); return value; }
   async listJobTriggerAvailability() { await this.authorize("flows:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedTriggerAvailability(kinds.includes("linear"),kinds.includes("clickup"),states,kinds.filter(x=>x.startsWith("cloudflare-tail:")).length); }
@@ -223,7 +245,7 @@ export class ApiService {
   private integrations() { return new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private providers() { return new ProviderCatalog(databaseFor(this.env), this.env, this.auth.tenantId); }
 
-  async integrationStatus() { await this.authorize("flows:read"); return this.integrations().status(); }
+  async integrationStatus() { await this.authorize("flows:read"); return publicValue(integrationStatus, await this.integrations().status()); }
   async saveExeIntegration(input: any) { await this.authorize("flows:write"); return this.integrations().saveExe(input); }
   async testExeIntegration(input: any) { await this.authorize("flows:write"); return this.integrations().testExe(input); }
   async removeIntegration(kind: "exe" | "amp", id: string) { await this.authorize("flows:write"); const result = await this.integrations().remove(kind, id); if (result.conflict) throw new ServiceError(409, "conflict", "This integration is used by a job."); if (!result.deleted) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
@@ -232,12 +254,12 @@ export class ApiService {
   async saveTailIntegration(input: any) { await this.authorize("flows:write"); return this.integrations().saveTail(input); }
   async testTailIntegration(id: string) { await this.authorize("flows:write"); const result = await this.integrations().testTail(id); if (!result) throw new ServiceError(404, "not_found", "Integration not found"); return result; }
   async removeTailIntegration(id: string) { await this.authorize("flows:write"); if (!await this.connections().delete(`cloudflare-tail:${id}`)) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
-  async linearProjects() { await this.authorize("flows:read"); return this.providers().linearProjects(); }
-  async linearOptions() { await this.authorize("flows:read"); return this.providers().linearOptions(); }
-  async clickUpLists() { await this.authorize("flows:read"); return this.providers().clickUpLists(); }
-  async clickUpOptions(listId: string) { await this.authorize("flows:read"); return this.providers().clickUpOptions(listId); }
-  async githubRepositories(installationId: number) { await this.authorize("flows:read"); return this.providers().githubRepositories(installationId); }
-  async githubIssueOptions(installationId: number, repositoryId: number) { await this.authorize("flows:read"); return this.providers().githubIssueOptions(installationId, repositoryId); }
+  async linearProjects() { await this.authorize("flows:read"); return publicValue(z.array(namedOption), await this.providers().linearProjects()); }
+  async linearOptions() { await this.authorize("flows:read"); return publicValue(providerOptions, await this.providers().linearOptions()); }
+  async clickUpLists() { await this.authorize("flows:read"); return publicValue(z.array(namedOption), await this.providers().clickUpLists()); }
+  async clickUpOptions(listId: string) { await this.authorize("flows:read"); return publicValue(providerOptions, await this.providers().clickUpOptions(listId)); }
+  async githubRepositories(installationId: number) { await this.authorize("flows:read"); return publicValue(z.array(githubRepository), await this.providers().githubRepositories(installationId)); }
+  async githubIssueOptions(installationId: number, repositoryId: number) { await this.authorize("flows:read"); return publicValue(providerOptions, await this.providers().githubIssueOptions(installationId, repositoryId)); }
   async removeGitHubInstallation(id: number) { await this.authorize("flows:write"); if (!await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).delete(id)) throw new ServiceError(404, "not_found", "Installation not found"); return { id, deleted: true }; }
 
   async listAuthorizedClients() {
@@ -247,10 +269,10 @@ export class ApiService {
     do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => !grant.expiresAt || grant.expiresAt > Math.floor(Date.now() / 1000))); cursor = page.cursor; } while (cursor);
     const clients = await Promise.all([...new Set(grants.map(grant => grant.clientId))].map(async clientId => [clientId, await this.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const));
     const byId = new Map(clients);
-    return grants.map(grant => ({ grantId: grant.id, clientId: grant.clientId, clientName: byId.get(grant.clientId)?.clientName ?? grant.clientId, scopes: grant.scope, authorizationDate: new Date(grant.createdAt * 1000).toISOString(), expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null }));
+    return publicValue(z.array(authorizedClient), grants.map(grant => ({ grantId: grant.id, clientId: grant.clientId, clientName: byId.get(grant.clientId)?.clientName ?? grant.clientId, scopes: grant.scope, authorizationDate: new Date(grant.createdAt * 1000).toISOString(), expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null })));
   }
   async revokeAuthorizedClient(clientId: string) { await this.authorizeOwnerSession("flows:write"); if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503, "operation_failed", "OAuth management unavailable"); const grants: any[] = []; let cursor: string | undefined; do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => grant.clientId === clientId)); cursor = page.cursor; } while (cursor); await Promise.all(grants.map(grant => this.env.OAUTH_PROVIDER!.revokeGrant(grant.id, this.auth.userId))); return { revoked: grants.length }; }
-  async listAccessTokens() { await this.authorizeOwnerSession("flows:read"); return new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).list(); }
-  async createAccessToken(input: any) { await this.authorizeOwnerSession("flows:write"); const name = typeof input?.name === "string" ? input.name.trim() : "", requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], expiryDays = Number(input?.expiryDays); if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any)) || ![7, 30, 90].includes(expiryDays)) throw new ServiceError(400, "invalid_request", "A name, supported scopes, and expiryDays of 7, 30, or 90 are required."); const token = issueAccessToken(this.auth.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString(); const metadata = await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).create({ name, scopes: requested, expiresAt, digest: await accessTokenDigest(token), userId: this.auth.userId, sessionVersion: this.auth.sessionVersion }); if (!metadata) throw new ServiceError(401, "invalid_token", "The owner session is no longer active."); return { ...metadata, token }; }
+  async listAccessTokens() { await this.authorizeOwnerSession("flows:read"); return publicValue(z.array(accessToken), JSON.parse(JSON.stringify(await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).list()))); }
+  async createAccessToken(input: any) { await this.authorizeOwnerSession("flows:write"); const name = typeof input?.name === "string" ? input.name.trim() : "", requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], expiryDays = Number(input?.expiryDays); if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any)) || ![7, 30, 90].includes(expiryDays)) throw new ServiceError(400, "invalid_request", "A name, supported scopes, and expiryDays of 7, 30, or 90 are required."); const token = issueAccessToken(this.auth.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString(); const metadata = await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).create({ name, scopes: requested, expiresAt, digest: await accessTokenDigest(token), userId: this.auth.userId, sessionVersion: this.auth.sessionVersion }); if (!metadata) throw new ServiceError(401, "invalid_token", "The owner session is no longer active."); return publicValue(createdAccessToken, JSON.parse(JSON.stringify({ ...metadata, token }))); }
   async revokeAccessToken(id: string) { await this.authorizeOwnerSession("flows:write"); if (!await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).revoke(id)) throw new ServiceError(404, "not_found", "Access token not found"); return { revoked: true }; }
 }

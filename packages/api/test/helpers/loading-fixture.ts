@@ -29,7 +29,7 @@ export async function loadingFixture(url: string) {
     const prompt = await encrypt("Prompt", env.CREDENTIAL_ENCRYPTION_KEY);
     for (const [i, id] of jobIds.entries()) {
       await db.pool.query("INSERT INTO app.jobs(tenant_id,id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,$3,$3,$4,$5,2)", [tenantId, id, `Job-${i}`, prompt, { agentKind: "codex", connectionId: "local" }]);
-      for (const [position, kind] of ["manual", "schedule"].entries()) await db.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug,position,config) VALUES ($1,$2,$3,$4,$4,$5,$6)", [tenantId, crypto.randomUUID(), id, kind, position, { marker: i }]);
+      for (const [position, kind] of ["manual", "schedule"].entries()) await db.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug,position,config) VALUES ($1,$2,$3,$4,$4,$5,$6)", [tenantId, crypto.randomUUID(), id, kind, position, kind === "schedule" ? { cron: "0 * * * *", timezone: "UTC" } : {}]);
     }
     // Same job ID in another tenant must never contribute triggers or statistics.
     await db.pool.query("INSERT INTO app.jobs(tenant_id,id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,'Private','private',$3,'{}',1)", [otherTenant, jobIds[0], prompt]);

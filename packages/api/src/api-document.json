@@ -561,7 +561,12 @@
           "id",
           "state",
           "execution_diagnostics",
-          "harness_log"
+          "harness_log",
+          "prompt",
+          "context",
+          "invocation",
+          "activity",
+          "job_name"
         ],
         "properties": {
           "id": {
@@ -599,6 +604,150 @@
           "job_name": {
             "type": "string",
             "description": "Current job name, included so run content does not require a separate job request."
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "invocation": {
+            "type": "object",
+            "required": [
+              "id",
+              "source",
+              "claim_key",
+              "trigger_id",
+              "context",
+              "occurrence",
+              "created_at"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "claim_key": {
+                "type": "string"
+              },
+              "trigger_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "occurrence": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": true
+              },
+              "created_at": {
+                "type": "string"
+              }
+            }
+          },
+          "activity": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "action",
+                "detail",
+                "created_at"
+              ],
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "invocation_id": {
+            "type": "string"
+          },
+          "execution_handle": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "required": [
+              "backendKind",
+              "id"
+            ],
+            "properties": {
+              "backendKind": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "execution_backend_kind": {
+            "type": "string"
+          },
+          "execution_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "claim_released": {
+            "type": "boolean"
+          },
+          "vm_cleanup_attempt": {
+            "type": "integer"
+          },
+          "vm_cleanup_complete": {
+            "type": "boolean"
+          },
+          "cleanup_next_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "occurrence": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "invocation_source": {
+            "type": "string"
+          },
+          "invocation_claim_key": {
+            "type": "string"
+          },
+          "invocation_trigger_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invocation_created_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

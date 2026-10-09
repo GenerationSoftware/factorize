@@ -1,3 +1,5 @@
+import { inspectDevice, decideDevice } from "./device-oauth";
+import { consentPreview, consentDecision, consentPreviewInput, consentDecisionInput } from "./consent-api";
 import { serialize } from "hono/utils/cookie";
 import { z } from "zod";
 import { AuthRepository } from "./postgres/auth-repository";
@@ -58,13 +60,13 @@ async function currentSession(request: Request, env: Env): Promise<Session | nul
   const member = await new IdentityRepository(databaseFor(env), session.tenantId).member(session.userId);
   return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? { ...session, email: member.email } : null;
 }
-export type AuthAction = "session" | "login" | "signup" | "verification-request" | "verification" | "reset-request" | "reset" | "password" | "logout";
+export type AuthAction = "session" | "login" | "signup" | "verification-request" | "verification" | "reset-request" | "reset" | "password" | "logout" | "consent-preview" | "consent-decision" | "device-preview" | "device-decision";
 
 export async function executeAuth(action: AuthAction, request: Request, env: Env, input: Record<string, unknown> = {}): Promise<Response> {
   // These operations use browser cookies only. Ignore neither a bad bearer nor a
   // good bearer and silently fall back to a potentially unrelated browser identity.
   if (request.headers.has("Authorization")) return failure(403, "An interactive browser session is required.");
-  if (action === "session" || action === "logout" || action === "password") {
+  if (action === "session" || action === "logout" || action === "password" || action === "consent-preview" || action === "consent-decision" || action === "device-preview" || action === "device-decision") {
     const session = await currentSession(request, env);
     if (action === "session") {
       if (!session) return authJson({ authenticated: false });
@@ -74,6 +76,19 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
         workspace: { id: session.tenantId, name: workspace?.name ?? null, role: "owner" },
         capabilities: [...SESSION_SCOPES], expiresAt: new Date(session.exp * 1000).toISOString(),
       }));
+    }
+    if (action === "device-preview" || action === "device-decision") {
+      if (!session) return failure(401, "Sign in before authorizing a device.");
+      if (!env.OAUTH_PROVIDER) return failure(400, "Device authorization is unavailable.");
+      const result = action === "device-preview" ? await inspectDevice(env, String(input.userCode)) : await decideDevice(env, env.OAUTH_PROVIDER, session, String(input.userCode), input.decision as "allow" | "deny");
+      return result ? authJson(result) : failure(400, "Invalid or expired device code.");
+    }
+    if (action === "consent-preview" || action === "consent-decision") {
+      if (!session) return failure(401, "Sign in before authorizing a client.");
+      try {
+        const data = action === "consent-preview" ? await consentPreview(env, session, consentPreviewInput.parse(input)) : await consentDecision(env, session, consentDecisionInput.parse(input));
+        return data ? authJson(data) : failure(400, "Invalid or expired authorization request.");
+      } catch { return failure(400, "Invalid authorization request."); }
     }
     if (action === "logout") {
       if (session) await new IdentityRepository(databaseFor(env), session.tenantId).revoke(session.userId);

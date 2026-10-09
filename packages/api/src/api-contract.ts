@@ -1,4 +1,8 @@
-import { runStatusResponse, revisionTracePage, revisionTraceQuery } from "./run-read-contracts";
+import { searchResponse } from "./search-contracts";
+import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
+import { exeConnection, integrationStatus, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
+import { executionTargetResponse, triggerAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
+import { runSummaryResponse, runPageResponse, runStatusResponse, revisionTracePage, revisionTraceQuery } from "./run-read-contracts";
 import { jobPageQuery, jobSummaryPage, jobSelectorPage, jobResponse, jobUpdateInput } from "./job-contracts";
 import { z } from "zod";
 import type { ApiService } from "./flow-service";
@@ -113,7 +117,7 @@ function route(
   documentation: RouteContract["documentation"],
   execute: RouteContract["execute"],
   options: Partial<
-    Pick<RouteContract, "body" | "query" | "ownerSession" | "parameters">
+    Pick<RouteContract, "body" | "query" | "ownerSession" | "parameters" | "authOperation">
   > = {},
 ): RouteContract {
   const keys = [...path.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]);
@@ -170,6 +174,10 @@ export const API_ROUTES: RouteContract[] = [
   authRoute("POST", "/api/v1/auth/password", "password", "Change password and invalidate sessions", authSuccess, authInputs.change),
   authRoute("POST", "/api/v1/auth/logout", "logout", "Revoke current session and clear browser cookie", authSuccess),
 
+  route("POST", "/api/v1/oauth/device/preview", "flows:read", { summary: "Inspect a device authorization code", responses: { "200": { description: "Pending device request", content: { "application/json": { schema: jsonSchema(z.object({ userCode: z.string(), clientName: z.string(), scopes: z.array(z.string()), expiresAt: z.string() }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32) }).strict(), authOperation: "device-preview", ownerSession: true }),
+  route("POST", "/api/v1/oauth/device/decision", "flows:write", { summary: "Approve or deny a device authorization code", responses: { "200": { description: "Device decision", content: { "application/json": { schema: jsonSchema(z.object({ status: z.enum(["approved", "denied"]) }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32), decision: z.enum(["allow", "deny"]) }).strict(), authOperation: "device-decision", ownerSession: true }),
+  route("POST", "/api/v1/oauth/consent/preview", "flows:read", { summary: "Inspect an OAuth consent request", responses: { "200": { description: "Owner-bound expiring consent", content: { "application/json": { schema: jsonSchema(consentPreviewResponse, "output") } } } } }, async () => undefined, { body: consentPreviewInput, authOperation: "consent-preview", ownerSession: true }),
+  route("POST", "/api/v1/oauth/consent/decision", "flows:write", { summary: "Decide an OAuth consent request", responses: { "200": { description: "Validated protocol destination", content: { "application/json": { schema: jsonSchema(consentDecisionResponse, "output") } } } } }, async () => undefined, { body: consentDecisionInput, authOperation: "consent-decision", ownerSession: true }),
   route("GET", "/api/v1/trigger-contexts", "flows:read", {
     summary: "Get template autocomplete metadata",
     responses: { "200": { description: "Paths by trigger kind/provider", content: { "application/json": { schema: jsonSchema(z.record(z.string(), z.array(z.object({ path: z.string(), type: z.enum(["string", "number", "boolean", "object", "array", "unknown"]), description: z.string(), example: z.unknown().optional() }))), "output") } } } },
@@ -185,7 +193,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Safe metadata",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(exeConnection), "output"),
             },
           },
         },
@@ -204,7 +212,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Installations",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(githubInstallation), "output"),
             },
           },
         },
@@ -223,7 +231,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Targets",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(executionTargetResponse), "output"),
             },
           },
         },
@@ -237,7 +245,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:read",
     {
       summary: "List available trigger kinds",
-      responses: { "200": { description: "Availability" } },
+      responses: { "200": { description: "Availability", content: { "application/json": { schema: jsonSchema(triggerAvailabilityResponse, "output") } } } },
     },
     (service) => service.listJobTriggerAvailability(),
   ),
@@ -278,7 +286,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Integrations",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(tailIntegration), "output"),
             },
           },
         },
@@ -293,7 +301,7 @@ export const API_ROUTES: RouteContract[] = [
     {
       summary: "List installed integrations",
       responses: {
-        "200": { description: "Credential-safe integration status" },
+        "200": { description: "Credential-safe integration status", content: { "application/json": { schema: jsonSchema(integrationStatus, "output") } } },
       },
     },
     (service) => service.integrationStatus(),
@@ -304,7 +312,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:write",
     {
       summary: "Create an exe.dev integration",
-      responses: { "200": { description: "Saved" } },
+      responses: { "200": { description: "Saved", content: { "application/json": { schema: jsonSchema(savedExe, "output") } } } },
     },
     (service, { body }) => service.saveExeIntegration(body),
     { body: exeBody },
@@ -315,7 +323,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:write",
     {
       summary: "Test exe.dev credentials",
-      responses: { "200": { description: "Test result" } },
+      responses: { "200": { description: "Test result", content: { "application/json": { schema: jsonSchema(testedExe, "output") } } } },
     },
     (service, { body }) => service.testExeIntegration(body),
     { body: exeTestBody },
@@ -326,7 +334,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:write",
     {
       summary: "Create an Amp integration",
-      responses: { "200": { description: "Saved" } },
+      responses: { "200": { description: "Saved", content: { "application/json": { schema: jsonSchema(savedAmp, "output") } } } },
     },
     (service, { body }) => service.saveAmpIntegration(body),
     { body: ampBody },
@@ -337,7 +345,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:write",
     {
       summary: "Test Amp credentials",
-      responses: { "200": { description: "Test result" } },
+      responses: { "200": { description: "Test result", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
     },
     (service, { body }) => service.testAmpIntegration(body),
     { body: ampTestBody },
@@ -348,7 +356,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:write",
     {
       summary: "Create a Tail integration",
-      responses: { "201": { description: "Created" } },
+      responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(savedTail, "output") } } } },
     },
     (service, { body }) => service.saveTailIntegration(body),
     { body: tailBody },
@@ -364,7 +372,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Projects",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(namedOption), "output"),
             },
           },
         },
@@ -378,7 +386,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:read",
     {
       summary: "List Linear trigger options",
-      responses: { "200": { description: "Options" } },
+      responses: { "200": { description: "Options", content: { "application/json": { schema: jsonSchema(providerOptions, "output") } } } },
     },
     (service) => service.linearOptions(),
   ),
@@ -393,7 +401,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Lists",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(namedOption), "output"),
             },
           },
         },
@@ -407,7 +415,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:read",
     {
       summary: "List ClickUp trigger options",
-      responses: { "200": { description: "Options" } },
+      responses: { "200": { description: "Options", content: { "application/json": { schema: jsonSchema(providerOptions, "output") } } } },
     },
     (service, { query }) => service.clickUpOptions(query.listId),
     { query: clickUpQuery },
@@ -423,7 +431,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Installations",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(githubInstallation), "output"),
             },
           },
         },
@@ -442,7 +450,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Clients",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(authorizedClient), "output"),
             },
           },
         },
@@ -462,7 +470,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Token metadata",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(accessToken), "output"),
             },
           },
         },
@@ -477,7 +485,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:write",
     {
       summary: "Create an access token",
-      responses: { "201": { description: "Created token" } },
+      responses: { "201": { description: "Created token", content: { "application/json": { schema: jsonSchema(createdAccessToken, "output") } } } },
     },
     (service, { body }) => service.createAccessToken(body),
     { body: accessTokenBody, ownerSession: true },
@@ -532,7 +540,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:write",
     {
       summary: "Update a Tail integration",
-      responses: { "200": { description: "Updated" } },
+      responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(savedTail, "output") } } } },
     },
     (service, { params, body }) =>
       service.saveTailIntegration({
@@ -558,7 +566,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:write",
     {
       summary: "Test a Tail integration",
-      responses: { "200": { description: "Test result" } },
+      responses: { "200": { description: "Test result", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
     },
     (service, { params }) => service.testTailIntegration(params.integrationId),
   ),
@@ -573,7 +581,7 @@ export const API_ROUTES: RouteContract[] = [
           description: "Repositories",
           content: {
             "application/json": {
-              schema: { type: "array", items: { type: "object" } },
+              schema: jsonSchema(z.array(githubRepository), "output"),
             },
           },
         },
@@ -588,7 +596,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:read",
     {
       summary: "List GitHub issue trigger options",
-      responses: { "200": { description: "Options" } },
+      responses: { "200": { description: "Options", content: { "application/json": { schema: jsonSchema(providerOptions, "output") } } } },
     },
     (service, { params }) =>
       service.githubIssueOptions(
@@ -653,7 +661,7 @@ export const API_ROUTES: RouteContract[] = [
     "POST",
     "/api/v1/jobs",
     "flows:write",
-    { summary: "Create job", responses: { "201": { description: "Created" } } },
+    { summary: "Create job", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } } } },
     (service, { body }) => service.createJob(body),
     { body: jobInputSchema },
   ),
@@ -663,7 +671,7 @@ export const API_ROUTES: RouteContract[] = [
     "flows:write",
     {
       summary: "Test webhook handler",
-      responses: { "200": { description: "Decision" } },
+      responses: { "200": { description: "Decision", content: { "application/json": { schema: jsonSchema(z.discriminatedUnion("ok", [z.object({ ok: z.literal(true), decision: z.union([z.boolean(), z.record(z.string(), z.unknown())]) }), z.object({ ok: z.literal(false), category: z.enum(["handler_error", "invalid_return", "timeout", "platform_error"]) })]), "output") } } } },
     },
     (service, { body }) => service.testJobHandler(body),
     { body: jobHandlerTestSchema },
@@ -791,7 +799,7 @@ export const API_ROUTES: RouteContract[] = [
     "runs:read",
     {
       summary: "Search jobs and runs",
-      responses: { "200": { description: "Search results" } },
+      responses: { "200": { description: "Search results", content: { "application/json": { schema: jsonSchema(searchResponse, "output") } } } },
     },
     (service, { query }) => service.search(query.q),
     { query: searchQuery },
@@ -1038,6 +1046,8 @@ export function generateOpenApi() {
   };
   const schemas = {
     ...document.components.schemas,
+    Run: { ...jsonSchema(runSummaryResponse, "output"), additionalProperties: true },
+    RunPage: jsonSchema(runPageResponse, "output"),
     ...Object.fromEntries(
       Object.entries(namedBodies).map(([name, schema]) => [
         name,

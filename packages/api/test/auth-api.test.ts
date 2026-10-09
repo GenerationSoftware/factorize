@@ -199,3 +199,23 @@ describe("safe interrupted-flow navigation", () => {
   it.each(["//evil.test", "https://evil.test", "/\\evil.test", "/device-evil", "/auth/logout", "/jobs\nLocation:evil", "/%2f%2fevil.test"])("rejects %s", value => expect(safeReturnTo(value)).toBe("/settings/integrations"));
   it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/jobs/job-a/edit", "/job-runs/run-a"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
 });
+
+describe("cookie-only consent and device API boundaries", () => {
+  const requests = [
+    ["/api/v1/oauth/consent/preview", { authorizationQuery: "client_id=client" }],
+    ["/api/v1/oauth/consent/decision", { request: "request", signature: "signature", decision: "allow", scopes: [] }],
+    ["/api/v1/oauth/device/preview", { userCode: "ABCD-EFGH" }],
+    ["/api/v1/oauth/device/decision", { userCode: "ABCD-EFGH", decision: "allow" }],
+  ] as const;
+  it("requires an authoritative owner session and never accepts bearer credentials", async () => {
+    for (const [path, body] of requests) {
+      expect((await call(path, body)).status).toBe(401);
+      expect((await call(path, body, { Authorization: "Bearer external" })).status).toBe(403);
+    }
+  });
+  it("enforces exact Origin and cross-site protection on previews and decisions", async () => {
+    for (const [path, body] of requests) for (const headers of [{ Origin: "https://evil.test" }, { "Sec-Fetch-Site": "cross-site" }] as Record<string, string>[]) {
+      const response = await call(path, body, headers); expect(response.status).toBe(403); expect(await contract(response, path, "POST")).toMatchObject({ error: { code: "invalid_origin" } });
+    }
+  });
+});

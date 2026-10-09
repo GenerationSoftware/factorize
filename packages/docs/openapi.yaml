@@ -38,33 +38,194 @@ components:
     Run:
       type: object
       properties:
+        id:
+          type: string
+        job_id:
+          type: string
+        issue_id:
+          type: string
+        issue_url:
+          type:
+            - string
+            - "null"
+        issue_title:
+          type: string
+        run_name:
+          type: string
+        agent_name:
+          type: string
+        workspace_name:
+          type: string
+        agent_kind:
+          type: string
+        state:
+          type: string
+          enum:
+            - queued
+            - starting
+            - running
+            - blocked
+            - stopping
+            - succeeded
+            - failed
+            - stopped
+            - done
+            - ignored
+        provider:
+          type: string
+        backend_kind:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        destination_url:
+          type:
+            - string
+            - "null"
+        artifact_state:
+          type: string
+          enum:
+            - pending
+            - collecting
+            - stored
+            - partial
+            - failed
+        artifact_error:
+          type:
+            - string
+            - "null"
         created_at:
           type: string
-          format: date-time
-          description: Time the run was created and queued.
+        updated_at:
+          type: string
         started_at:
           type:
             - string
             - "null"
-          format: date-time
-          description: Time execution launch succeeded. Null until started or when unknown. Runtime starts here; the difference from created_at is queue time including launch preparation.
-        updated_at:
-          type: string
-          format: date-time
-          description: Last run update; used as the elapsed runtime endpoint for terminal runs.
+      required:
+        - id
+        - job_id
+        - issue_id
+        - issue_url
+        - issue_title
+        - run_name
+        - agent_name
+        - workspace_name
+        - agent_kind
+        - state
+        - provider
+        - backend_kind
+        - capabilities
+        - destination_url
+        - artifact_state
+        - artifact_error
+        - created_at
+        - updated_at
+        - started_at
+      additionalProperties: true
     RunPage:
       type: object
-      required:
-        - items
       properties:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/Run"
+            type: object
+            properties:
+              id:
+                type: string
+              job_id:
+                type: string
+              issue_id:
+                type: string
+              issue_url:
+                type:
+                  - string
+                  - "null"
+              issue_title:
+                type: string
+              run_name:
+                type: string
+              agent_name:
+                type: string
+              workspace_name:
+                type: string
+              agent_kind:
+                type: string
+              state:
+                type: string
+                enum:
+                  - queued
+                  - starting
+                  - running
+                  - blocked
+                  - stopping
+                  - succeeded
+                  - failed
+                  - stopped
+                  - done
+                  - ignored
+              provider:
+                type: string
+              backend_kind:
+                type: string
+              capabilities:
+                type: array
+                items:
+                  type: string
+              destination_url:
+                type:
+                  - string
+                  - "null"
+              artifact_state:
+                type: string
+                enum:
+                  - pending
+                  - collecting
+                  - stored
+                  - partial
+                  - failed
+              artifact_error:
+                type:
+                  - string
+                  - "null"
+              created_at:
+                type: string
+              updated_at:
+                type: string
+              started_at:
+                type:
+                  - string
+                  - "null"
+            required:
+              - id
+              - job_id
+              - issue_id
+              - issue_url
+              - issue_title
+              - run_name
+              - agent_name
+              - workspace_name
+              - agent_kind
+              - state
+              - provider
+              - backend_kind
+              - capabilities
+              - destination_url
+              - artifact_state
+              - artifact_error
+              - created_at
+              - updated_at
+              - started_at
+            additionalProperties: false
         nextCursor:
           type:
             - string
             - "null"
+      required:
+        - items
+        - nextCursor
+      additionalProperties: false
     ExecutionDiagnostics:
       type:
         - object
@@ -405,6 +566,11 @@ components:
         - state
         - execution_diagnostics
         - harness_log
+        - prompt
+        - context
+        - invocation
+        - activity
+        - job_name
       properties:
         id:
           type: string
@@ -431,6 +597,106 @@ components:
         job_name:
           type: string
           description: Current job name, included so run content does not require a separate job request.
+        prompt:
+          type: string
+        context:
+          type: object
+          additionalProperties: true
+        invocation:
+          type: object
+          required:
+            - id
+            - source
+            - claim_key
+            - trigger_id
+            - context
+            - occurrence
+            - created_at
+          properties:
+            id:
+              type: string
+            source:
+              type: string
+            claim_key:
+              type: string
+            trigger_id:
+              type:
+                - string
+                - "null"
+            context:
+              type: object
+              additionalProperties: true
+            occurrence:
+              type:
+                - object
+                - "null"
+              additionalProperties: true
+            created_at:
+              type: string
+        activity:
+          type: array
+          items:
+            type: object
+            required:
+              - action
+              - detail
+              - created_at
+            properties:
+              action:
+                type: string
+              detail:
+                type: string
+              created_at:
+                type: string
+        tenant_id:
+          type: string
+        invocation_id:
+          type: string
+        execution_handle:
+          type:
+            - object
+            - "null"
+          required:
+            - backendKind
+            - id
+          properties:
+            backendKind:
+              type: string
+            id:
+              type: string
+        execution_backend_kind:
+          type: string
+        execution_capabilities:
+          type: array
+          items:
+            type: string
+        claim_released:
+          type: boolean
+        vm_cleanup_attempt:
+          type: integer
+        vm_cleanup_complete:
+          type: boolean
+        cleanup_next_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        occurrence:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+        invocation_source:
+          type: string
+        invocation_claim_key:
+          type: string
+        invocation_trigger_id:
+          type:
+            - string
+            - "null"
+        invocation_created_at:
+          type: string
+          format: date-time
     RunDiagnostics:
       type: object
       required:
@@ -1448,6 +1714,285 @@ paths:
       security: []
       x-browser-auth-operation: logout
       x-owner-session-required: false
+  /api/v1/oauth/device/preview:
+    post:
+      summary: Inspect a device authorization code
+      responses:
+        "200":
+          description: Pending device request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userCode:
+                    type: string
+                  clientName:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                  expiresAt:
+                    type: string
+                required:
+                  - userCode
+                  - clientName
+                  - scopes
+                  - expiresAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: ""
+      operationId: post_api_v1_oauth_device_preview
+      tags:
+        - oauth
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: device-preview
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userCode:
+                  type: string
+                  minLength: 1
+                  maxLength: 32
+              required:
+                - userCode
+              additionalProperties: false
+  /api/v1/oauth/device/decision:
+    post:
+      summary: Approve or deny a device authorization code
+      responses:
+        "200":
+          description: Device decision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - approved
+                      - denied
+                required:
+                  - status
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: ""
+      operationId: post_api_v1_oauth_device_decision
+      tags:
+        - oauth
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: device-decision
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userCode:
+                  type: string
+                  minLength: 1
+                  maxLength: 32
+                decision:
+                  type: string
+                  enum:
+                    - allow
+                    - deny
+              required:
+                - userCode
+                - decision
+              additionalProperties: false
+  /api/v1/oauth/consent/preview:
+    post:
+      summary: Inspect an OAuth consent request
+      responses:
+        "200":
+          description: Owner-bound expiring consent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clientName:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                  request:
+                    type: string
+                  signature:
+                    type: string
+                  expiresAt:
+                    type: string
+                required:
+                  - clientName
+                  - scopes
+                  - request
+                  - signature
+                  - expiresAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: ""
+      operationId: post_api_v1_oauth_consent_preview
+      tags:
+        - oauth
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: consent-preview
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                authorizationQuery:
+                  type: string
+                  minLength: 1
+                  maxLength: 8192
+              required:
+                - authorizationQuery
+              additionalProperties: false
+  /api/v1/oauth/consent/decision:
+    post:
+      summary: Decide an OAuth consent request
+      responses:
+        "200":
+          description: Validated protocol destination
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  redirectTo:
+                    type: string
+                required:
+                  - redirectTo
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: ""
+      operationId: post_api_v1_oauth_consent_decision
+      tags:
+        - oauth
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: consent-decision
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request:
+                  type: string
+                  minLength: 1
+                  maxLength: 16384
+                signature:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+                decision:
+                  type: string
+                  enum:
+                    - allow
+                    - deny
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - flows:read
+                      - flows:write
+                      - runs:read
+                      - runs:write
+              required:
+                - request
+                - signature
+                - decision
+                - scopes
+              additionalProperties: false
   /api/v1/trigger-contexts:
     get:
       summary: Get template autocomplete metadata
@@ -1524,6 +2069,35 @@ paths:
                 type: array
                 items:
                   type: object
+                  properties:
+                    connectionId:
+                      type: string
+                    agentKind:
+                      type: string
+                      enum:
+                        - codex
+                        - claude
+                        - pi
+                    tags:
+                      default: []
+                      type: array
+                      items:
+                        type: string
+                    models:
+                      default: []
+                      type: array
+                      items:
+                        type: string
+                    modelsRefreshedAt:
+                      default: ""
+                      type: string
+                  required:
+                    - connectionId
+                    - agentKind
+                    - tags
+                    - models
+                    - modelsRefreshedAt
+                  additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -1564,6 +2138,29 @@ paths:
                 type: array
                 items:
                   type: object
+                  properties:
+                    installationId:
+                      anyOf:
+                        - type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        - type: string
+                          pattern: ^[0-9]+$
+                    accountLogin:
+                      type: string
+                    accountType:
+                      type: string
+                    state:
+                      type: string
+                    updatedAt:
+                      type: string
+                  required:
+                    - installationId
+                    - accountLogin
+                    - accountType
+                    - state
+                    - updatedAt
+                  additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -1604,6 +2201,47 @@ paths:
                 type: array
                 items:
                   type: object
+                  properties:
+                    id:
+                      type: string
+                    kind:
+                      type: string
+                      enum:
+                        - exe-vm
+                        - amp
+                    name:
+                      type: string
+                    workspace:
+                      type: string
+                    cwd:
+                      type: string
+                    agentKind:
+                      type: string
+                    models:
+                      type: array
+                      items:
+                        type: string
+                    modelsRefreshedAt:
+                      type:
+                        - string
+                        - "null"
+                    efforts:
+                      type: array
+                      items:
+                        type: string
+                    capabilities:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - id
+                    - kind
+                    - name
+                    - workspace
+                    - cwd
+                    - agentKind
+                    - capabilities
+                  additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -1642,6 +2280,33 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  manual:
+                    type: boolean
+                    const: true
+                  schedule:
+                    type: boolean
+                    const: true
+                  jobLifecycle:
+                    type: boolean
+                    const: true
+                  linear:
+                    type: boolean
+                  clickup:
+                    type: boolean
+                  github:
+                    type: boolean
+                  cloudflareTail:
+                    type: boolean
+                required:
+                  - manual
+                  - schedule
+                  - jobLifecycle
+                  - linear
+                  - clickup
+                  - github
+                  - cloudflareTail
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -1745,6 +2410,32 @@ paths:
                 type: array
                 items:
                   type: object
+                  properties:
+                    integrationId:
+                      type: string
+                    name:
+                      type: string
+                    status:
+                      type: string
+                      const: connected
+                    secretConfigured:
+                      type: boolean
+                      const: true
+                    createdAt:
+                      type: string
+                    updatedAt:
+                      type: string
+                    referencedJobCount:
+                      type: integer
+                      minimum: -9007199254740991
+                      maximum: 9007199254740991
+                  required:
+                    - integrationId
+                    - name
+                    - status
+                    - secretConfigured
+                    - referencedJobCount
+                  additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -1782,6 +2473,25 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  integrationId:
+                    type: string
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    const: connected
+                  secretConfigured:
+                    type: boolean
+                    const: true
+                  generatedSecret:
+                    type: string
+                required:
+                  - integrationId
+                  - name
+                  - status
+                  - secretConfigured
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -1847,6 +2557,166 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  linear:
+                    anyOf:
+                      - type: object
+                        properties:
+                          organizationName:
+                            type:
+                              - string
+                              - "null"
+                          viewerEmail:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - organizationName
+                          - viewerEmail
+                        additionalProperties: false
+                      - type: "null"
+                  clickup:
+                    anyOf:
+                      - type: object
+                        properties:
+                          teamName:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - teamName
+                        additionalProperties: false
+                      - type: "null"
+                  exe:
+                    anyOf:
+                      - type: object
+                        properties:
+                          connectionId:
+                            type: string
+                          agentKind:
+                            type: string
+                            enum:
+                              - codex
+                              - claude
+                              - pi
+                          tags:
+                            default: []
+                            type: array
+                            items:
+                              type: string
+                          models:
+                            default: []
+                            type: array
+                            items:
+                              type: string
+                          modelsRefreshedAt:
+                            default: ""
+                            type: string
+                        required:
+                          - connectionId
+                          - agentKind
+                          - tags
+                          - models
+                          - modelsRefreshedAt
+                        additionalProperties: false
+                      - type: "null"
+                  exeConnections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        connectionId:
+                          type: string
+                        agentKind:
+                          type: string
+                          enum:
+                            - codex
+                            - claude
+                            - pi
+                        tags:
+                          default: []
+                          type: array
+                          items:
+                            type: string
+                        models:
+                          default: []
+                          type: array
+                          items:
+                            type: string
+                        modelsRefreshedAt:
+                          default: ""
+                          type: string
+                      required:
+                        - connectionId
+                        - agentKind
+                        - tags
+                        - models
+                        - modelsRefreshedAt
+                      additionalProperties: false
+                  ampConnections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        connectionId:
+                          type: string
+                        project:
+                          type: string
+                        apiBaseUrl:
+                          type: string
+                      required:
+                        - connectionId
+                        - project
+                      additionalProperties: false
+                  cloudflareTail:
+                    type: object
+                    properties:
+                      count:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      installations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            integrationId:
+                              type: string
+                            name:
+                              type: string
+                            status:
+                              type: string
+                              const: connected
+                            secretConfigured:
+                              type: boolean
+                              const: true
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                            referencedJobCount:
+                              type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                          required:
+                            - integrationId
+                            - name
+                            - status
+                            - secretConfigured
+                            - referencedJobCount
+                          additionalProperties: false
+                    required:
+                      - count
+                      - installations
+                    additionalProperties: false
+                required:
+                  - linear
+                  - clickup
+                  - exe
+                  - exeConnections
+                  - ampConnections
+                  - cloudflareTail
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -1885,6 +2755,20 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  ok:
+                    type: boolean
+                  connectionId:
+                    type: string
+                  models:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - ok
+                  - connectionId
+                  - models
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -1954,6 +2838,47 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  ok:
+                    type: boolean
+                  missingPermissions:
+                    type: array
+                    items:
+                      type: string
+                  tags:
+                    type: array
+                    items:
+                      type: string
+                  checks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        command:
+                          type: string
+                        ok:
+                          type: boolean
+                        httpStatus:
+                          type: number
+                        exitCode:
+                          type:
+                            - number
+                            - "null"
+                        output:
+                          type: string
+                      required:
+                        - command
+                        - ok
+                        - httpStatus
+                        - exitCode
+                        - output
+                      additionalProperties: false
+                required:
+                  - ok
+                  - missingPermissions
+                  - tags
+                  - checks
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2020,6 +2945,15 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  ok:
+                    type: boolean
+                  connectionId:
+                    type: string
+                required:
+                  - ok
+                  - connectionId
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2083,6 +3017,12 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2145,6 +3085,15 @@ paths:
                 type: array
                 items:
                   type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                  required:
+                    - id
+                    - name
+                  additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2183,6 +3132,51 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  statuses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                  labels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                required:
+                  - statuses
+                  - users
+                  - labels
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2223,6 +3217,15 @@ paths:
                 type: array
                 items:
                   type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                  required:
+                    - id
+                    - name
+                  additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2261,6 +3264,51 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  statuses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                  labels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                required:
+                  - statuses
+                  - users
+                  - labels
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2308,6 +3356,29 @@ paths:
                 type: array
                 items:
                   type: object
+                  properties:
+                    installationId:
+                      anyOf:
+                        - type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        - type: string
+                          pattern: ^[0-9]+$
+                    accountLogin:
+                      type: string
+                    accountType:
+                      type: string
+                    state:
+                      type: string
+                    updatedAt:
+                      type: string
+                  required:
+                    - installationId
+                    - accountLogin
+                    - accountType
+                    - state
+                    - updatedAt
+                  additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2348,6 +3419,36 @@ paths:
                 type: array
                 items:
                   type: object
+                  properties:
+                    grantId:
+                      type: string
+                    clientId:
+                      type: string
+                    clientName:
+                      type: string
+                    scopes:
+                      type: array
+                      items:
+                        type: string
+                    authorizationDate:
+                      type: string
+                    expiresAt:
+                      type:
+                        - string
+                        - "null"
+                    lastUsedAt:
+                      type:
+                        - string
+                        - "null"
+                  required:
+                    - grantId
+                    - clientId
+                    - clientName
+                    - scopes
+                    - authorizationDate
+                    - expiresAt
+                    - lastUsedAt
+                  additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2388,6 +3489,39 @@ paths:
                 type: array
                 items:
                   type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    scopes:
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - flows:read
+                          - flows:write
+                          - runs:read
+                          - runs:write
+                    created_at:
+                      type: string
+                    expires_at:
+                      type: string
+                    last_used_at:
+                      type:
+                        - string
+                        - "null"
+                    revoked_at:
+                      type:
+                        - string
+                        - "null"
+                  required:
+                    - id
+                    - name
+                    - scopes
+                    - created_at
+                    - expires_at
+                  additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2425,6 +3559,42 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - flows:read
+                        - flows:write
+                        - runs:read
+                        - runs:write
+                  created_at:
+                    type: string
+                  expires_at:
+                    type: string
+                  last_used_at:
+                    type:
+                      - string
+                      - "null"
+                  revoked_at:
+                    type:
+                      - string
+                      - "null"
+                  token:
+                    type: string
+                required:
+                  - id
+                  - name
+                  - scopes
+                  - created_at
+                  - expires_at
+                  - token
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2678,6 +3848,25 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  integrationId:
+                    type: string
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    const: connected
+                  secretConfigured:
+                    type: boolean
+                    const: true
+                  generatedSecret:
+                    type: string
+                required:
+                  - integrationId
+                  - name
+                  - status
+                  - secretConfigured
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2794,6 +3983,12 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2841,6 +4036,29 @@ paths:
                 type: array
                 items:
                   type: object
+                  properties:
+                    id:
+                      type: integer
+                      minimum: -9007199254740991
+                      maximum: 9007199254740991
+                    name:
+                      type: string
+                    fullName:
+                      type: string
+                    owner:
+                      type: string
+                    private:
+                      type: boolean
+                    defaultBranch:
+                      type: string
+                  required:
+                    - id
+                    - name
+                    - fullName
+                    - owner
+                    - private
+                    - defaultBranch
+                  additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -2886,6 +4104,51 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  statuses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                  labels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                      additionalProperties: false
+                required:
+                  - statuses
+                  - users
+                  - labels
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -3346,46 +4609,325 @@ paths:
                     triggers:
                       type: array
                       items:
-                        type: object
-                        properties:
-                          id:
-                            type: string
-                            format: uuid
-                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                          jobId:
-                            type: string
-                            format: uuid
-                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                          kind:
-                            type: string
-                            enum:
-                              - manual
-                              - schedule
-                              - webhook
-                              - jobLifecycle
-                          slug:
-                            type: string
-                          enabled:
-                            type: boolean
-                          config:
-                            type: object
-                            propertyNames:
-                              type: string
-                            additionalProperties: {}
-                          createdAt:
-                            type: string
-                          updatedAt:
-                            type: string
-                        required:
-                          - id
-                          - jobId
-                          - kind
-                          - slug
-                          - enabled
-                          - config
-                          - createdAt
-                          - updatedAt
-                        additionalProperties: false
+                        oneOf:
+                          - type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              slug:
+                                type: string
+                              kind:
+                                type: string
+                                const: manual
+                              enabled:
+                                default: true
+                                type: boolean
+                              config:
+                                default: {}
+                                type: object
+                                properties: {}
+                                additionalProperties: false
+                              jobId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              createdAt:
+                                type: string
+                              updatedAt:
+                                type: string
+                            required:
+                              - id
+                              - slug
+                              - kind
+                              - enabled
+                              - config
+                              - jobId
+                              - createdAt
+                              - updatedAt
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              slug:
+                                type: string
+                              kind:
+                                type: string
+                                const: schedule
+                              enabled:
+                                default: true
+                                type: boolean
+                              config:
+                                type: object
+                                properties:
+                                  cron:
+                                    type: string
+                                    minLength: 1
+                                  timezone:
+                                    type: string
+                                    minLength: 1
+                                required:
+                                  - cron
+                                  - timezone
+                                additionalProperties: false
+                              jobId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              createdAt:
+                                type: string
+                              updatedAt:
+                                type: string
+                            required:
+                              - id
+                              - slug
+                              - kind
+                              - enabled
+                              - config
+                              - jobId
+                              - createdAt
+                              - updatedAt
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              slug:
+                                type: string
+                              kind:
+                                type: string
+                                const: webhook
+                              enabled:
+                                default: true
+                                type: boolean
+                              config:
+                                oneOf:
+                                  - type: object
+                                    properties:
+                                      handlerCode:
+                                        type: string
+                                        maxLength: 16384
+                                      provider:
+                                        type: string
+                                        const: linear
+                                      projectId:
+                                        type: string
+                                        minLength: 1
+                                      matchRules:
+                                        minItems: 1
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            type:
+                                              type: string
+                                              enum:
+                                                - owner
+                                                - creator
+                                                - status
+                                                - label
+                                                - assignee
+                                            targetId:
+                                              type: string
+                                              minLength: 1
+                                          required:
+                                            - type
+                                            - targetId
+                                          additionalProperties: false
+                                      secretConfigured:
+                                        type: boolean
+                                    required:
+                                      - provider
+                                      - projectId
+                                      - matchRules
+                                    additionalProperties: false
+                                  - type: object
+                                    properties:
+                                      handlerCode:
+                                        type: string
+                                        maxLength: 16384
+                                      provider:
+                                        type: string
+                                        const: clickup
+                                      listId:
+                                        type: string
+                                        minLength: 1
+                                      matchRules:
+                                        minItems: 1
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            type:
+                                              type: string
+                                              enum:
+                                                - owner
+                                                - creator
+                                                - status
+                                                - label
+                                                - assignee
+                                            targetId:
+                                              type: string
+                                              minLength: 1
+                                          required:
+                                            - type
+                                            - targetId
+                                          additionalProperties: false
+                                      secretConfigured:
+                                        type: boolean
+                                    required:
+                                      - provider
+                                      - listId
+                                      - matchRules
+                                    additionalProperties: false
+                                  - type: object
+                                    properties:
+                                      handlerCode:
+                                        type: string
+                                        maxLength: 16384
+                                      provider:
+                                        type: string
+                                        const: github
+                                      installationId:
+                                        type: integer
+                                        exclusiveMinimum: 0
+                                        maximum: 9007199254740991
+                                      repositoryId:
+                                        type: integer
+                                        exclusiveMinimum: 0
+                                        maximum: 9007199254740991
+                                      event:
+                                        type: string
+                                        minLength: 1
+                                      action:
+                                        type: string
+                                        minLength: 1
+                                      matchRules:
+                                        minItems: 1
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            type:
+                                              type: string
+                                              enum:
+                                                - owner
+                                                - creator
+                                                - status
+                                                - label
+                                                - assignee
+                                            targetId:
+                                              type: string
+                                              minLength: 1
+                                          required:
+                                            - type
+                                            - targetId
+                                          additionalProperties: false
+                                      secretConfigured:
+                                        type: boolean
+                                    required:
+                                      - provider
+                                      - installationId
+                                      - repositoryId
+                                    additionalProperties: false
+                                  - type: object
+                                    properties:
+                                      handlerCode:
+                                        type: string
+                                        maxLength: 16384
+                                      provider:
+                                        type: string
+                                        const: cloudflareTail
+                                      integrationId:
+                                        type: string
+                                        minLength: 1
+                                      destination:
+                                        type: string
+                                      secretConfigured:
+                                        type: boolean
+                                    required:
+                                      - provider
+                                      - integrationId
+                                    additionalProperties: false
+                              jobId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              createdAt:
+                                type: string
+                              updatedAt:
+                                type: string
+                            required:
+                              - id
+                              - slug
+                              - kind
+                              - enabled
+                              - config
+                              - jobId
+                              - createdAt
+                              - updatedAt
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              slug:
+                                type: string
+                              kind:
+                                type: string
+                                const: jobLifecycle
+                              enabled:
+                                default: true
+                                type: boolean
+                              config:
+                                type: object
+                                properties:
+                                  sourceJobIds:
+                                    minItems: 1
+                                    type: array
+                                    items:
+                                      type: string
+                                      minLength: 1
+                                  states:
+                                    minItems: 1
+                                    type: array
+                                    items:
+                                      type: string
+                                      enum:
+                                        - succeeded
+                                        - failed
+                                        - stopped
+                                        - edited
+                                required:
+                                  - sourceJobIds
+                                  - states
+                                additionalProperties: false
+                              jobId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              createdAt:
+                                type: string
+                              updatedAt:
+                                type: string
+                            required:
+                              - id
+                              - slug
+                              - kind
+                              - enabled
+                              - config
+                              - jobId
+                              - createdAt
+                              - updatedAt
+                            additionalProperties: false
                     createdAt:
                       type: string
                     updatedAt:
@@ -3447,6 +4989,421 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  name:
+                    type: string
+                  slug:
+                    type: string
+                  enabled:
+                    type: boolean
+                  promptTemplate:
+                    type: string
+                  runNameTemplate:
+                    type: string
+                  model:
+                    type: string
+                  effort:
+                    type: string
+                  executionTarget:
+                    type: object
+                    properties:
+                      connectionId:
+                        type: string
+                      workspace:
+                        type: string
+                      cwd:
+                        type: string
+                      agentKind:
+                        type: string
+                    required:
+                      - connectionId
+                      - agentKind
+                    additionalProperties: false
+                  executionTargetId:
+                    type: string
+                  agentKind:
+                    type: string
+                  concurrencyLimit:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  runningCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  currentRuns:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  maxConcurrency:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  lastRunState:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - queued
+                          - starting
+                          - running
+                          - blocked
+                          - stopping
+                          - succeeded
+                          - failed
+                          - stopped
+                          - done
+                          - ignored
+                      - type: "null"
+                  triggers:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: manual
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              default: {}
+                              type: object
+                              properties: {}
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: schedule
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                cron:
+                                  type: string
+                                  minLength: 1
+                                timezone:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - cron
+                                - timezone
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: webhook
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              oneOf:
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: linear
+                                    projectId:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - projectId
+                                    - matchRules
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: clickup
+                                    listId:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - listId
+                                    - matchRules
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: github
+                                    installationId:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    repositoryId:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    event:
+                                      type: string
+                                      minLength: 1
+                                    action:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - installationId
+                                    - repositoryId
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: cloudflareTail
+                                    integrationId:
+                                      type: string
+                                      minLength: 1
+                                    destination:
+                                      type: string
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - integrationId
+                                  additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: jobLifecycle
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                sourceJobIds:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                                states:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    enum:
+                                      - succeeded
+                                      - failed
+                                      - stopped
+                                      - edited
+                              required:
+                                - sourceJobIds
+                                - states
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - name
+                  - slug
+                  - enabled
+                  - promptTemplate
+                  - runNameTemplate
+                  - model
+                  - executionTarget
+                  - executionTargetId
+                  - agentKind
+                  - concurrencyLimit
+                  - runningCount
+                  - currentRuns
+                  - maxConcurrency
+                  - lastRunState
+                  - triggers
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -3492,7 +5449,39 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                oneOf:
+                  - type: object
+                    properties:
+                      ok:
+                        type: boolean
+                        const: true
+                      decision:
+                        anyOf:
+                          - type: boolean
+                          - type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
+                    required:
+                      - ok
+                      - decision
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      ok:
+                        type: boolean
+                        const: false
+                      category:
+                        type: string
+                        enum:
+                          - handler_error
+                          - invalid_return
+                          - timeout
+                          - platform_error
+                    required:
+                      - ok
+                      - category
+                    additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":
@@ -3824,46 +5813,325 @@ paths:
                   triggers:
                     type: array
                     items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                        jobId:
-                          type: string
-                          format: uuid
-                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                        kind:
-                          type: string
-                          enum:
-                            - manual
-                            - schedule
-                            - webhook
-                            - jobLifecycle
-                        slug:
-                          type: string
-                        enabled:
-                          type: boolean
-                        config:
-                          type: object
-                          propertyNames:
-                            type: string
-                          additionalProperties: {}
-                        createdAt:
-                          type: string
-                        updatedAt:
-                          type: string
-                      required:
-                        - id
-                        - jobId
-                        - kind
-                        - slug
-                        - enabled
-                        - config
-                        - createdAt
-                        - updatedAt
-                      additionalProperties: false
+                      oneOf:
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: manual
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              default: {}
+                              type: object
+                              properties: {}
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: schedule
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                cron:
+                                  type: string
+                                  minLength: 1
+                                timezone:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - cron
+                                - timezone
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: webhook
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              oneOf:
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: linear
+                                    projectId:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - projectId
+                                    - matchRules
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: clickup
+                                    listId:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - listId
+                                    - matchRules
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: github
+                                    installationId:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    repositoryId:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    event:
+                                      type: string
+                                      minLength: 1
+                                    action:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - installationId
+                                    - repositoryId
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: cloudflareTail
+                                    integrationId:
+                                      type: string
+                                      minLength: 1
+                                    destination:
+                                      type: string
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - integrationId
+                                  additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: jobLifecycle
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                sourceJobIds:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                                states:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    enum:
+                                      - succeeded
+                                      - failed
+                                      - stopped
+                                      - edited
+                              required:
+                                - sourceJobIds
+                                - states
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
                   createdAt:
                     type: string
                   updatedAt:
@@ -4010,46 +6278,325 @@ paths:
                   triggers:
                     type: array
                     items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                        jobId:
-                          type: string
-                          format: uuid
-                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
-                        kind:
-                          type: string
-                          enum:
-                            - manual
-                            - schedule
-                            - webhook
-                            - jobLifecycle
-                        slug:
-                          type: string
-                        enabled:
-                          type: boolean
-                        config:
-                          type: object
-                          propertyNames:
-                            type: string
-                          additionalProperties: {}
-                        createdAt:
-                          type: string
-                        updatedAt:
-                          type: string
-                      required:
-                        - id
-                        - jobId
-                        - kind
-                        - slug
-                        - enabled
-                        - config
-                        - createdAt
-                        - updatedAt
-                      additionalProperties: false
+                      oneOf:
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: manual
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              default: {}
+                              type: object
+                              properties: {}
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: schedule
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                cron:
+                                  type: string
+                                  minLength: 1
+                                timezone:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - cron
+                                - timezone
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: webhook
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              oneOf:
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: linear
+                                    projectId:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - projectId
+                                    - matchRules
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: clickup
+                                    listId:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - listId
+                                    - matchRules
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: github
+                                    installationId:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    repositoryId:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    event:
+                                      type: string
+                                      minLength: 1
+                                    action:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - installationId
+                                    - repositoryId
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    handlerCode:
+                                      type: string
+                                      maxLength: 16384
+                                    provider:
+                                      type: string
+                                      const: cloudflareTail
+                                    integrationId:
+                                      type: string
+                                      minLength: 1
+                                    destination:
+                                      type: string
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - integrationId
+                                  additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: jobLifecycle
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                sourceJobIds:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                                states:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    enum:
+                                      - succeeded
+                                      - failed
+                                      - stopped
+                                      - edited
+                              required:
+                                - sourceJobIds
+                                - states
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
                   createdAt:
                     type: string
                   updatedAt:
@@ -4543,6 +7090,35 @@ paths:
             application/json:
               schema:
                 type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                          enum:
+                            - job
+                            - run
+                        id:
+                          type: string
+                        title:
+                          type: string
+                        subtitle:
+                          type: string
+                        url:
+                          type: string
+                      required:
+                        - kind
+                        - id
+                        - title
+                        - subtitle
+                        - url
+                      additionalProperties: false
+                required:
+                  - items
+                additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
         "401":

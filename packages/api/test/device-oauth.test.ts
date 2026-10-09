@@ -71,7 +71,7 @@ describe("OAuth device authorization", () => {
     const oauth = { lookupClient: vi.fn().mockResolvedValue(publicClient), completeAuthorization };
     const issue = await deviceAuthorization(new Request("https://factorize.test/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client-1", scope: "runs:read" }) }), env, oauth, ["flows:read", "runs:read"]);
     const issued = await issue.json() as any;
-    const approved = await deviceVerification(new Request("https://factorize.test/device", { method: "POST", body: new URLSearchParams({ user_code: issued.user_code, decision: "allow" }) }), env, oauth, { tenantId: "tenant-1", userId: "owner-1", email: "owner@example.com", sessionVersion: 3 });
+    const approved = await deviceVerification(new Request("https://factorize.test/device", { method: "POST", headers: { Origin: env.APP_ORIGIN }, body: new URLSearchParams({ user_code: issued.user_code, decision: "allow" }) }), env, oauth, { tenantId: "tenant-1", userId: "owner-1", email: "owner@example.com", sessionVersion: 3 });
     expect(approved.status).toBe(200);
     expect(completeAuthorization).toHaveBeenCalledWith(expect.objectContaining({ scope: ["runs:read"], revokeExistingGrants: false }));
     const providerFetch = vi.fn(async (request: Request) => {

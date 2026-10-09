@@ -14,7 +14,7 @@ describe("independent loading", () => {
     const activity = deferred<any[]>(), artifacts = deferred<any[]>(), projection = deferred<any>(), cursor = deferred<any>();
     const key = btoa("a".repeat(32)), encrypted_prompt = await encrypt("prompt", key);
     vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue({ userId: "u", email: "u@example.test", role: "owner", sessionVersion: 1 });
-    vi.spyOn(RunQueryRepository.prototype, "get").mockResolvedValue({ encrypted_prompt, job_name: "Job" });
+    vi.spyOn(RunQueryRepository.prototype, "get").mockResolvedValue({ id: "run", tenant_id: "t", job_id: "job", invocation_id: "invocation", issue_id: "manual", issue_url: null, issue_title: "", run_name: "", agent_name: "", workspace_name: "", agent_kind: "codex", state: "queued", provider: "manual", execution_backend_kind: "exe-vm", execution_capabilities: [], destination_url: null, artifact_state: "pending", artifact_error: null, claim_released: false, vm_cleanup_attempt: 0, cleanup_next_at: null, vm_cleanup_complete: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), started_at: null, context: {}, occurrence: null, invocation_source: "manual", invocation_claim_key: "key", invocation_trigger_id: null, invocation_created_at: new Date().toISOString(), encrypted_prompt, job_name: "Job" });
     const activitySpy = vi.spyOn(RunQueryRepository.prototype, "activity").mockReturnValue(activity.promise);
     const artifactsSpy = vi.spyOn(ArtifactRepository.prototype, "list").mockReturnValue(artifacts.promise);
     const query = vi.fn((sql: string) => sql.includes("projections") ? projection.promise : cursor.promise);

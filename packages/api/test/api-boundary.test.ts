@@ -108,7 +108,7 @@ describe("Worker OpenAPI request/response boundaries", () => {
   it("validates and normalizes job input and uses the catalog's 201 status", async () => {
     const create = vi
       .spyOn(ApiService.prototype, "createJob")
-      .mockResolvedValue({ id: "job-1", ...jobInput } as any);
+      .mockResolvedValue({ ...jobInput, id: "00000000-0000-4000-8000-000000000001", enabled: true, runNameTemplate: "", model: "", effort: "", executionTarget: { connectionId: "exe-1", agentKind: "codex", workspace: "ephemeral", cwd: "/workspace" }, agentKind: "codex", concurrencyLimit: 1, runningCount: 0, currentRuns: 0, maxConcurrency: 1, lastRunState: null, triggers: [], createdAt: "2026-10-09T12:00:00.000Z", updatedAt: "2026-10-09T12:00:00.000Z" });
     await assertResponse(
       await request("POST", "/api/v1/jobs", jobInput),
       "POST",
@@ -174,7 +174,7 @@ describe("Worker OpenAPI request/response boundaries", () => {
   });
 
   it("documents the job name in run detail for clients with only runs:read", async () => {
-    vi.spyOn(ApiService.prototype, "getRun").mockResolvedValue({ id: "run-1", state: "queued", job_name: "Job name", execution_diagnostics: null, harness_log: null });
+    vi.spyOn(ApiService.prototype, "getRun").mockResolvedValue({ id: "run-1", tenant_id: "tenant", execution_handle: null, job_id: "job-1", issue_id: "", issue_url: null, issue_title: "", run_name: "", agent_name: "", workspace_name: "", agent_kind: "codex", state: "queued", provider: "manual", backend_kind: "exe-vm", capabilities: [], destination_url: null, artifact_state: "pending", artifact_error: null, created_at: "2026-10-09T12:00:00.000Z", updated_at: "2026-10-09T12:00:00.000Z", started_at: null, job_name: "Job name", invocation_id: "invocation", execution_backend_kind: "exe-vm", execution_capabilities: [], claim_released: false, vm_cleanup_attempt: 0, cleanup_next_at: null, vm_cleanup_complete: false, occurrence: {}, invocation_source: "manual", invocation_claim_key: "manual:key", invocation_trigger_id: null, invocation_created_at: "2026-10-09T12:00:00.000Z", trace_sources: null, trace_projection: null, trace_generation: null, execution_diagnostics: null, harness_log: null, prompt: "Prompt", context: {}, invocation: { id: "invocation", source: "manual", claim_key: "manual:key", trigger_id: null, context: {}, occurrence: {}, created_at: "2026-10-09T12:00:00.000Z" }, activity: [] });
     const result = await assertResponse(await request("GET", "/api/v1/runs/run-1", undefined, { auth: { ...auth, scopes: ["runs:read"] } }), "GET", "/api/v1/runs/{runId}", 200);
     expect(result.job_name).toBe("Job name");
   });

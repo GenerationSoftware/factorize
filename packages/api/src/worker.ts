@@ -36,6 +36,7 @@ const defaultHandler: ExportedHandler<Env> = {
     const url = new URL(request.url);
     if (url.pathname !== "/authorize" && url.pathname !== "/device") return app.fetch(request, env, ctx);
     try {
+      if (request.method === "POST" && (request.headers.get("Origin") !== env.APP_ORIGIN || request.headers.get("Sec-Fetch-Site") === "cross-site")) return new Response("Invalid request origin", { status: 403 });
       const session = await currentOwner(request, env);
       if (!session) {
         return deviceLoginRedirect(env.APP_ORIGIN, url.pathname + url.search);
@@ -54,6 +55,8 @@ const defaultHandler: ExportedHandler<Env> = {
       const form = await request.formData(), payload = String(form.get("request") ?? ""), signature = String(form.get("signature") ?? "");
       if (!payload || signature !== await hmac(`${payload}.${session.tenantId}.${session.userId}`, env.SESSION_SIGNING_SECRET)) return new Response("Invalid consent request", { status: 400 });
       const parsed = JSON.parse(atob(payload)) as AuthRequest;
+      const client = await env.OAUTH_PROVIDER!.lookupClient(parsed.clientId);
+      if (!client || !client.redirectUris.includes(parsed.redirectUri)) return new Response("Invalid consent request", { status: 400 });
       if (form.get("decision") !== "allow") {
         const redirect = new URL(parsed.redirectUri); redirect.searchParams.set("error", "access_denied"); redirect.searchParams.set("state", parsed.state); if (parsed.issuer) redirect.searchParams.set("iss", parsed.issuer);
         return Response.redirect(redirect, 302);
@@ -80,22 +83,23 @@ export { AlarmCoordinator } from "./alarm-coordinator";
 export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   const oauth = provider(env);
   const url = new URL(request.url);
+  const apiEnv = { ...env, OAUTH_PROVIDER: env.OAUTH_PROVIDER ?? getOAuthApi(providerOptions(env), env) };
   const traceChunkMatch = url.pathname.match(/^\/internal\/run-trace-chunks\/([^/]+)$/);
   if (traceChunkMatch) return traceChunkUpload(request, env, decodeURIComponent(traceChunkMatch[1]!));
   const artifactMatch = url.pathname.match(/^\/internal\/run-artifacts\/([^/]+)$/);
   if (artifactMatch) return artifactUpload(request, env, decodeURIComponent(artifactMatch[1]!));
-  if (isBrowserAuthOperation(request.method, url.pathname)) return protectedApiFetch(request, env, null, ctx);
+  if (isBrowserAuthOperation(request.method, url.pathname)) return protectedApiFetch(request, apiEnv, null, ctx);
   if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {
     // Signature and expiry here; the service performs the authoritative owner,
     // verified-email and session-version lookup once for this API request.
     const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
     if (!session) return Response.json({ error: { code: "invalid_token", message: "Unauthorized" } }, { status: 401 });
-    return protectedApiFetch(request, env, { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes, authMethod: "session" }, ctx);
+    return protectedApiFetch(request, apiEnv, { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes, authMethod: "session" }, ctx);
   }
   if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1")) && request.headers.get("Authorization")?.startsWith("Bearer fzt_")) {
     const auth = await authenticateAccessToken(request, env);
     if (!auth) return Response.json({ error: { code: "invalid_token", message: "The access token is invalid, expired, or revoked." } }, { status: 401, headers: { "WWW-Authenticate": "Bearer error=\"invalid_token\"" } });
-    return protectedApiFetch(request, env, auth, ctx);
+    return protectedApiFetch(request, apiEnv, auth, ctx);
   }
   if (url.pathname === "/oauth/device_authorization") return deviceAuthorization(request, env, getOAuthApi(providerOptions(env), env), scopes);
   if (url.pathname === "/oauth/register") return deviceClientRegistration(request, env, oauth, ctx);

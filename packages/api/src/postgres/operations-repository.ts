@@ -23,6 +23,6 @@ export class OperationsRepository {
       UNION ALL SELECT 'run',r.id,coalesce(nullif(r.run_name,''),nullif(r.issue_title,''),'Run '||left(r.id::text,8)),r.state,'/job-runs/'||r.id,similarity(coalesce(r.run_name,'')||' '||coalesce(r.issue_title,'')||' '||r.issue_id,$2) FROM app.runs r WHERE r.tenant_id=$1 AND (r.run_name ILIKE '%'||$2||'%' OR r.issue_title ILIKE '%'||$2||'%' OR r.issue_id ILIKE '%'||$2||'%')
       UNION ALL SELECT 'run',e.run_id,e.title,left(e.preview_text,120),'/job-runs/'||e.run_id,ts_rank(e.search_vector,websearch_to_tsquery('english',$2)) FROM app.run_trace_events e WHERE e.tenant_id=$1 AND e.search_vector @@ websearch_to_tsquery('english',$2)
     ) found ORDER BY score DESC LIMIT 100`, [this.tenantId, needle]);
-    return { items: rows.rows.map(({ score: _, ...row }) => row) };
+    return { items: rows.rows.map(row => ({ kind: row.kind, id: row.id, title: row.title, subtitle: row.subtitle, url: row.url })) };
   }
 }
