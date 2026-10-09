@@ -59,7 +59,7 @@ describe("shared webhook conditions", () => {
     const result = await evaluateWebhookConditions({ any: [leaf("$.id", "equal", "a"), leaf("$.id", "equal", "b")] }, webhook);
     expect(result.decision).toBe("match"); expect(typeof result.details[0]).toBe("object");
     expect(typeof result.details[0].conditions).toBe("object");
-    expect(JSON.parse(JSON.stringify(result))).toEqual(result); expect(webhook).toEqual(original);
+    expect(JSON.parse(JSON.stringify(result))).toStrictEqual(result); expect(webhook).toEqual(original);
   });
   it("validates conditions for every provider and rejects legacy requests", () => {
     const configs = [{ provider: "linear", projectId: "p", matchRules: [{ type: "status", targetId: "done" }] }, { provider: "clickup", listId: "l", matchRules: [{ type: "status", targetId: "done" }] }, { provider: "github", installationId: 1, repositoryId: 2, event: "check_suite", action: "completed" }, { provider: "cloudflareTail", integrationId: "tail" }];

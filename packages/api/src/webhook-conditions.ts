@@ -71,7 +71,17 @@ export async function evaluateWebhookConditions(conditions: unknown, webhook: Re
     engine.addOperatorDecorator(new OperatorDecorator("finiteNumber", (a, b, next) => typeof a === "number" && Number.isFinite(a) && typeof b === "number" && Number.isFinite(b) && next(a, b)));
     engine.addRule({ conditions: engineConditions(conditions), event: { type: "factorize-match" } });
     const result = await engine.run({ webhook });
-    const details = [...result.results, ...result.failureResults].map(rule => rule.toJSON(false) as unknown as Record<string, unknown>);
+    const details = [...result.results, ...result.failureResults].map(rule => {
+      const plain = JSON.parse(JSON.stringify(rule.toJSON(false))) as Record<string, unknown>;
+      function display(node: any): void {
+        if (node.all) node.all.forEach(display);
+        else if (node.any) node.any.forEach(display);
+        else if (node.not) display(node.not);
+        else if (typeof node.operator === "string") node.operator = node.operator.replace(/^finiteNumber:/, "");
+      }
+      display(plain.conditions);
+      return plain;
+    });
     return { decision: result.events.length ? "match" : "no-match", details };
   } catch {
     // Never persist arbitrary payloads or library exceptions in runtime diagnostics.
