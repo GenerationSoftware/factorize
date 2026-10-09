@@ -26,8 +26,9 @@ describe("shared webhook conditions", () => {
     for (const value of [undefined, null, 1, [], {}]) expect(await decision(leaf("$.branch", "startsWith", "gh-"), { branch: value })).toBe("no-match");
   });
   it("supports scalar/index/quoted property and wildcard paths with Boolean nesting", async () => {
-    const context = { items: [{ tag: "a" }, { tag: "b" }], tags: ["a", "b"], "quoted-key": "yes" };
+    const context = { items: [{ tag: "a" }, { tag: "b" }], tags: ["a", "b"], "quoted-key": "yes", "literal.*": "scalar" };
     for (const path of ["$.items[0].tag", "$['items'][0].tag", '$["items"][0].tag']) expect(await decision(leaf(path, "equal", "a"), context)).toBe("match");
+    expect(await decision(leaf('$["literal.*"]', "equal", "scalar"), context)).toBe("match");
     for (const path of ["$.items[*].tag", "$.tags", "$.items.*.tag"]) expect(await decision(leaf(path, "contains", "b"), context)).toBe("match");
     expect(await decision({ not: { any: [{ all: [leaf("$.tags", "doesNotContain", "b"), leaf("$.items[0].tag", "in", ["a", "c"])] }, leaf("$.items[0].tag", "notIn", ["a"])] } }, context)).toBe("match");
     expect(await decision(leaf("$.items[*].missing", "contains", "x"), context)).toBe("no-match");

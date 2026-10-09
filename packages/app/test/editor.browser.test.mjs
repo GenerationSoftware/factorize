@@ -139,7 +139,7 @@ test("conditions save surfaces strict server validation errors", async () => {
   const { context, page } = await setup();
   const value = { ...initial, triggers: [...initial.triggers, { ...initial.triggers[0], id: "00000000-0000-4000-8000-000000000004", slug: "trigger-2", kind: "webhook", config: { provider: "cloudflareTail", integrationId: "tail" } }] };
   await page.route("**/api/v1/integrations/cloudflare-tail", route => route.fulfill({ json: [] }));
-  await page.route("**/api/v1/jobs/" + id, route => route.request().method() === "PUT" ? route.fulfill({ status: 400, json: { error: { code: "invalid_request", message: "Condition groups must not be empty." } } }) : route.fulfill({ json: value }));
+  await page.route("**/api/v1/jobs/" + id, route => route.request().method() === "PUT" ? route.fulfill({ status: 400, json: { error: { code: "invalid_request", message: "Request validation failed", details: [{ path: ["triggers", 1, "config", "conditions"], message: "Condition groups must not be empty." }] } } }) : route.fulfill({ json: value }));
   await page.goto(origin + "/jobs/" + id + "/edit"); await page.getByLabel("Conditions JSON (optional)").fill('{"all":[]}');
   await page.getByRole("button", { name: "Save job", exact: true }).click(); await page.getByRole("alert").filter({ hasText: "Condition groups must not be empty." }).waitFor();
   await context.close();

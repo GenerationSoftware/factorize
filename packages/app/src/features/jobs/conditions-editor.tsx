@@ -1,22 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { messageOf } from "../auth/session";
+import { validationMessage } from "./validation-message";
 import type { Trigger } from "./editor-state";
 type Conditions = Extract<Trigger, { kind: "webhook" }>["config"]["conditions"];
 export function ConditionsEditor({ conditions, onChange }: { conditions: Conditions; onChange: (value: Conditions) => void }) {
   const [text, setText] = useState(() => conditions === undefined ? "" : JSON.stringify(conditions, null, 2));
   const [webhook, setWebhook] = useState("{}"), [invalid, setInvalid] = useState("");
-  useEffect(() => { setText(conditions === undefined ? "" : JSON.stringify(conditions, null, 2)); setInvalid(""); }, [conditions]);
+  const accepted = useRef(JSON.stringify(conditions));
+  useEffect(() => {
+    const value = JSON.stringify(conditions);
+    if (value !== accepted.current) { accepted.current = value; setText(conditions === undefined ? "" : JSON.stringify(conditions, null, 2)); setInvalid(""); }
+  }, [conditions]);
   const test = useMutation({ retry: false, mutationFn: async () => {
     const example: unknown = JSON.parse(webhook);
     if (!example || typeof example !== "object" || Array.isArray(example)) throw new Error("Example webhook must be a JSON object.");
     const { data, error } = await api.POST("/api/v1/job-conditions/test", { body: { conditions: text.trim() ? JSON.parse(text) : undefined, webhook: example as Record<string, never> } });
-    if (!data || error) throw new Error(messageOf(error)); return data;
+    if (!data || error) throw new Error(validationMessage(error)); return data;
   } });
   return <div className="grid gap-3"><label>Conditions JSON (optional) <textarea maxLength={16_384} rows={8} value={text} onChange={e => {
     const value = e.target.value; setText(value); test.reset();
-    try { const parsed = value.trim() ? JSON.parse(value) : undefined; setInvalid(""); onChange(parsed); }
+    try { const parsed = value.trim() ? JSON.parse(value) : undefined; setInvalid(""); accepted.current = JSON.stringify(parsed); onChange(parsed); }
     catch { setInvalid("Conditions must be valid JSON before saving."); }
   }} ref={element => element?.setCustomValidity(invalid)} /></label>
     {invalid && <p role="alert">{invalid}</p>}<p>Empty conditions add no filtering. Conditions only decide whether to invoke; prompt context stays intact.</p>

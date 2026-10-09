@@ -1,3 +1,4 @@
+import type { WebhookConditions } from "./webhook-conditions";
 import { matchingIssue } from "./matcher";
 import type { MatchRule } from "./types";
 import { matchingGitHubIssue } from "./github-issue-matcher";
@@ -6,7 +7,7 @@ export type WebhookProvider = "linear" | "clickup" | "github" | "cloudflareTail"
 export type WebhookTriggerConfig = {
   provider: WebhookProvider;
   projectId?: string; listId?: string; matchRules?: MatchRule[]; installationId?: number; repositoryId?: number;
-  event?: string; action?: string; integrationId?: string; signingSecret?: string; secret?: string; conditions?: Record<string, unknown>;
+  event?: string; action?: string; integrationId?: string; signingSecret?: string; secret?: string; conditions?: WebhookConditions;
 };
 export interface WebhookInvocation {
   claimKey: string; payload: Record<string, unknown>;

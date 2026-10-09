@@ -65,7 +65,7 @@ export async function evaluateWebhookConditions(conditions: unknown, webhook: Re
   try {
     if (conditions === undefined) return { decision: "match", details: [] };
     validateConditions(conditions);
-    const engine = new Engine([], { pathResolver: (json, path) => JSONPath({ path, json, eval: false, wrap: /\.\*|\[\*\]/.test(path) }) });
+    const engine = new Engine([], { pathResolver: (json, path) => JSONPath({ path, json, eval: false, wrap: JSONPath.toPathArray(path).includes("*") }) });
     engine.addOperator(new Operator("startsWith", (a, b) => typeof a === "string" && typeof b === "string" && a.startsWith(b)));
     // Constrain runtime operands while preserving the library's comparison semantics.
     engine.addOperatorDecorator(new OperatorDecorator("finiteNumber", (a, b, next) => typeof a === "number" && Number.isFinite(a) && typeof b === "number" && Number.isFinite(b) && next(a, b)));
