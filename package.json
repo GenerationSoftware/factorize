@@ -26,7 +26,7 @@
     "check:boundaries": "node --test scripts/check-package-boundaries.test.mjs && node scripts/check-package-boundaries.mjs",
     "generate": "npm run generate:openapi && npm run generate:client",
     "build": "npm run build:app && npm run build:marketing",
-    "check:hosting": "node --test scripts/hosting-invariants.test.mjs scripts/deployment-gate.test.mjs && python3 scripts/test-retain-app-assets.py",
+    "check:hosting": "node --test scripts/hosting-invariants.test.mjs scripts/deployment-gate.test.mjs scripts/trusted-app-release.test.mjs && python3 scripts/test-retain-app-assets.py",
     "test:hosting-runtime": "node --test scripts/hosting-runtime.test.mjs",
     "test:oauth-runtime": "node --test scripts/oauth-runtime.test.mjs",
     "test:rollback-runtime": "node --test scripts/rollback-runtime.test.mjs"

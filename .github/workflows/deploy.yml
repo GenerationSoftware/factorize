@@ -36,20 +36,19 @@ jobs:
         run: git show 2d63d6480c398d29513329d7a604a4585d21de24:packages/api/public/styles.css > packages/app/dist/styles.css
       - name: Snapshot this release before restoring older chunks
         run: cp -R packages/app/dist "$RUNNER_TEMP/factorize-app-release"
-      - name: Restore assets from successful main deployments in the last 30 days
+      - name: Restore assets from trusted production deployments in the last 30 days
         uses: actions/github-script@v8
         with:
           script: |
             const fs = require('node:fs');
             const { execFileSync } = require('node:child_process');
-            const cutoff = Date.now() - 30 * 86400000;
+            const { isTrustedAppRelease } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/trusted-app-release.mjs`);
             const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, { ...context.repo, per_page: 100 });
             for (const artifact of artifacts) {
-              if (artifact.name !== 'factorize-app-assets' || artifact.expired || Date.parse(artifact.created_at) < cutoff || artifact.workflow_run?.head_branch !== 'main') continue;
+              if (artifact.name !== 'factorize-app-assets' || artifact.expired || !artifact.workflow_run) continue;
               const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: artifact.workflow_run.id });
-              if (run.path !== '.github/workflows/deploy.yml' || run.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}`) continue;
               const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { ...context.repo, run_id: run.id, per_page: 100 });
-              if (!jobs.some(job => job.steps?.some(step => step.name === 'Deploy app Worker' && step.conclusion === 'success'))) continue;
+              if (!isTrustedAppRelease(artifact, run, jobs, `${context.repo.owner}/${context.repo.repo}`)) continue;
               const { data } = await github.rest.actions.downloadArtifact({ ...context.repo, artifact_id: artifact.id, archive_format: 'zip' });
               const archive = `${process.env.RUNNER_TEMP}/factorize-assets-${artifact.id}.zip`;
               fs.writeFileSync(archive, Buffer.from(data));

@@ -154,12 +154,13 @@ using five Chromium samples per screen and disposable PostgreSQL with 20 ms quer
    reserved for the workflow after its gate, build and asset restoration.
 3. Deploy the final tree with the existing production workflow/environment. It builds
    static assets, seeds the old stylesheet from preserved commit `2d63d64`, restores
-   immutable chunks from actual successful main app deployments in the last 30 days,
+   immutable chunks from actual successful trusted app deployments in the last 30 days,
    and deploys the existing `factorize` Worker. All prior infrastructure identities and
    migration history remain unchanged. Marketing is deployed before the app so its failure
    cannot prevent recording a successful app snapshot. No new state resources are provisioned.
 4. The workflow uploads the **current release only**, not recursively retained chunks,
-   as a 35-day artifact. Future restoration trusts this repository's main deploy workflow
+   as a 35-day artifact. Future restoration trusts this repository's deploy workflow on main or the explicit
+   initial-cutover branch `gen-2157-auth-contracts` (not arbitrary branches or forks)
    and verifies its app-deployment step succeeded, including runs whose later verification
    failed. Extraction restores only safe asset filenames/legacy CSS; never entry HTML,
    configuration, symlinks or traversal paths, and immutable collisions fail closed.
