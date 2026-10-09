@@ -424,6 +424,9 @@ components:
             - string
             - "null"
           description: Secondary artifact or cleanup error; does not replace execution_diagnostics
+        job_name:
+          type: string
+          description: Current job name, included so run content does not require a separate job request.
     RunDiagnostics:
       type: object
       required:

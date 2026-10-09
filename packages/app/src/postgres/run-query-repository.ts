@@ -18,8 +18,8 @@ export class RunQueryRepository {
     return { items: rows, nextCursor: hasMore && rows.length ? encodeCursor(rows.at(-1).created_at, rows.at(-1).id) : null };
   }
   async get(runId: string) {
-    return (await this.database.pool.query<any>(`SELECT r.*,jr.started_at,jr.encrypted_prompt,i.source invocation_source,i.claim_key invocation_claim_key,i.trigger_id invocation_trigger_id,i.context,i.occurrence,i.created_at invocation_created_at
-      FROM app.runs r JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id WHERE r.tenant_id=$1 AND r.id=$2`, [this.tenantId, runId])).rows[0] ?? null;
+    return (await this.database.pool.query<any>(`SELECT r.*,j.name job_name,jr.started_at,jr.encrypted_prompt,i.source invocation_source,i.claim_key invocation_claim_key,i.trigger_id invocation_trigger_id,i.context,i.occurrence,i.created_at invocation_created_at
+      FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id WHERE r.tenant_id=$1 AND r.id=$2`, [this.tenantId, runId])).rows[0] ?? null;
   }
   async activity(runId: string) { return (await this.database.pool.query("SELECT action,detail,created_at FROM app.run_activity WHERE tenant_id=$1 AND run_id=$2 ORDER BY created_at,id", [this.tenantId, runId])).rows; }
   async stop(runId: string) { return (await this.database.pool.query<any>("UPDATE app.job_runs SET state='stopping',next_poll_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked') RETURNING id,state", [this.tenantId, runId])).rows[0] ?? null; }

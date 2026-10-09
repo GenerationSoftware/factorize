@@ -13,7 +13,7 @@ it.each(["github","tail","exe"])("retains a %s connection while removal is pendi
     if(init?.method==="DELETE")return new Promise<Response>(resolve=>{finish=resolve});
     if(url.includes("github/installations"))return json(removed&&kind==="github"?[]:[{installationId:1,state:"active",accountLogin:"owner"}]);
     if(url.includes("cloudflare-tail"))return json(removed&&kind==="tail"?[]:[{integrationId:"tail-1",name:"Tail"}]);
-    return json({exeConnections:removed&&kind==="exe"?[]:[{connectionId:"exe-1",agentKind:"codex"}]});
+    return json({cloudflareTail:{installations:removed&&kind==="tail"?[]:[{integrationId:"tail-1",name:"Tail"}]},exeConnections:removed&&kind==="exe"?[]:[{connectionId:"exe-1",agentKind:"codex"}]});
   });
   vi.stubGlobal("fetch",fetcher);
   const html=settingsPage({email:"owner@example.com"});
@@ -34,7 +34,7 @@ it("shows Testing immediately and only reports a successful Amp test after its r
   let finish!: (response: Response)=>void;
   const fetcher=vi.fn(async(input: unknown,init?: RequestInit)=>{
     if(init?.method==="POST")return new Promise<Response>(resolve=>{finish=resolve});
-    return json(String(input)==="/api/v1/integrations"?{}:[]);
+    return json(String(input)==="/api/v1/integrations"?{cloudflareTail:{installations:[]}}:[]);
   });
   vi.stubGlobal("fetch",fetcher);
   const html=settingsPage({email:"owner@example.com"});

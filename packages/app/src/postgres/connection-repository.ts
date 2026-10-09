@@ -1,6 +1,6 @@
 import { decrypt, encrypt } from "../crypto";
 import type { Database } from "./database";
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, like, or } from "drizzle-orm";
 import { connections } from "./schema";
 
 export class ConnectionRepository {
@@ -11,6 +11,10 @@ export class ConnectionRepository {
     const row = (await this.database.orm.select({ encryptedValue: connections.encryptedValue }).from(connections).where(and(eq(connections.tenantId, this.tenantId), eq(connections.kind, kind))).limit(1))[0];
     if (!row) return null;
     return JSON.parse(await decrypt(row.encryptedValue, this.encryptionKey)) as T;
+  }
+  async all(kinds: readonly string[] = []): Promise<Map<string, any>> {
+    const rows = await this.database.orm.select().from(connections).where(and(eq(connections.tenantId, this.tenantId), kinds.length ? or(...kinds.map(kind => kind.endsWith(":") ? like(connections.kind, `${kind}%`) : eq(connections.kind, kind))) : undefined)).orderBy(connections.kind);
+    return new Map(await Promise.all(rows.map(async row => [row.kind, JSON.parse(await decrypt(row.encryptedValue, this.encryptionKey))] as const)));
   }
   async put(kind: string, value: unknown): Promise<void> {
     const encrypted = await encrypt(JSON.stringify(value), this.encryptionKey);

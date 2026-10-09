@@ -57,16 +57,24 @@ export class IntegrationService {
     await this.connections.put(`cloudflare-tail:${integrationId}`, { name, signingSecret, createdAt: existing?.createdAt ?? now, updatedAt: now });
     return { integrationId, name, status: "connected", secretConfigured: true, ...(value.generateSecret ? { generatedSecret: signingSecret } : {}) };
   }
-  async tails() {
-    const values = [] as any[];
-    for (const kind of await this.connections.kinds("cloudflare-tail:")) { const value = await this.connections.get<any>(kind); const integrationId = kind.slice(16); const count = await this.database.pool.query<{ count: string }>("SELECT count(DISTINCT job_id)::text count FROM app.triggers WHERE tenant_id=$1 AND removed_at IS NULL AND kind='webhook' AND config->>'provider'='cloudflareTail' AND config->>'integrationId'=$2", [this.tenantId, integrationId]); const { signingSecret: _, ...safe } = value; values.push({ ...safe, integrationId, status: "connected", secretConfigured: true, referencedJobCount: Number(count.rows[0]?.count ?? 0) }); }
-    return values;
+  async tails(loaded?: Map<string, any> | Promise<Map<string, any>>) {
+    const [connections, counts] = await Promise.all([
+      loaded ?? this.connections.all(["cloudflare-tail:"]),
+      this.database.pool.query<{ integration_id: string; count: string }>("SELECT config->>'integrationId' integration_id,count(DISTINCT job_id)::text count FROM app.triggers WHERE tenant_id=$1 AND removed_at IS NULL AND kind='webhook' AND config->>'provider'='cloudflareTail' GROUP BY config->>'integrationId'", [this.tenantId]),
+    ]);
+    const byId = new Map(counts.rows.map(row => [row.integration_id, Number(row.count)]));
+    return [...connections].filter(([kind]) => kind.startsWith("cloudflare-tail:")).map(([kind, value]) => {
+      const { signingSecret: _, ...safe } = value, integrationId = kind.slice(16);
+      return { ...safe, integrationId, status: "connected", secretConfigured: true, referencedJobCount: byId.get(integrationId) ?? 0 };
+    });
   }
   async testTail(id: string) { const value = await this.connections.get<any>(`cloudflare-tail:${id}`); if (!value) return null; const now = String(Date.now()), delivery = `test-${crypto.randomUUID()}`, body = "{}", signature = await signTailDelivery(value.signingSecret, now, delivery, body); return { ok: await verifyTailDelivery(value.signingSecret, now, delivery, body, signature) === "valid" }; }
   async status() {
-    const linear = await this.connections.get<any>("linear"), clickup = await this.connections.get<any>("clickup"), exeConnections = [], ampConnections = [];
-    for (const kind of await this.connections.kinds("exe:")) { const { apiToken: _, ...safe } = await this.connections.get<any>(kind); exeConnections.push({ ...safe, connectionId: kind.slice(4) }); }
-    for (const kind of await this.connections.kinds("amp:")) { const { accessToken: _, ...safe } = await this.connections.get<any>(kind); ampConnections.push({ ...safe, connectionId: kind.slice(4) }); }
-    const tails = await this.tails(); return { linear: linear ? { organizationName: linear.organizationName ?? null, viewerEmail: linear.viewerEmail ?? null } : null, clickup: clickup ? { teamName: clickup.teamName ?? null } : null, exe: exeConnections[0] ?? null, exeConnections, ampConnections, cloudflareTail: { count: tails.length, installations: tails } };
+    const connectionsPromise = this.connections.all(["linear", "clickup", "exe:", "amp:", "cloudflare-tail:"]);
+    const [connections, tails] = await Promise.all([connectionsPromise, this.tails(connectionsPromise)]);
+    const linear = connections.get("linear"), clickup = connections.get("clickup");
+    const exeConnections = [...connections].filter(([kind]) => kind.startsWith("exe:")).map(([kind, value]) => { const { apiToken: _, ...safe } = value; return { ...safe, connectionId: kind.slice(4) }; });
+    const ampConnections = [...connections].filter(([kind]) => kind.startsWith("amp:")).map(([kind, value]) => { const { accessToken: _, ...safe } = value; return { ...safe, connectionId: kind.slice(4) }; });
+    return { linear: linear ? { organizationName: linear.organizationName ?? null, viewerEmail: linear.viewerEmail ?? null } : null, clickup: clickup ? { teamName: clickup.teamName ?? null } : null, exe: exeConnections[0] ?? null, exeConnections, ampConnections, cloudflareTail: { count: tails.length, installations: tails } };
   }
 }

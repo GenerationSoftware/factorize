@@ -171,6 +171,12 @@ describe("Worker OpenAPI request/response boundaries", () => {
     );
   });
 
+  it("documents the job name in run detail for clients with only runs:read", async () => {
+    vi.spyOn(ApiService.prototype, "getRun").mockResolvedValue({ id: "run-1", state: "queued", job_name: "Job name", execution_diagnostics: null, harness_log: null });
+    const result = await assertResponse(await request("GET", "/api/v1/runs/run-1", undefined, { auth: { ...auth, scopes: ["runs:read"] } }), "GET", "/api/v1/runs/{runId}", 200);
+    expect(result.job_name).toBe("Job name");
+  });
+
   it("returns documented 202 invocation bodies and 409 queue errors", async () => {
     const invoke = vi
       .spyOn(ApiService.prototype, "invokeJob")
