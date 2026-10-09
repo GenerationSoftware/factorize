@@ -1,0 +1,138 @@
+import { jobUpdateInput } from "./job-contracts";
+import { InvocationError } from "./job-domain";
+import { WorkerEntrypoint } from "cloudflare:workers";
+import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import { createMcpHonoApp } from "@modelcontextprotocol/hono";
+import { z } from "zod";
+import { ApiService, ServiceError } from "./flow-service";
+import { jobHandlerTestSchema, jobIdSchema, jobInputSchema, listRunsSchema, manualInvocationSchema, runIdSchema } from "./flow-schemas";
+import type { Env, OAuthProps } from "./types";
+import { executeAuth, validBrowserOrigin } from "./auth-api";
+import { matchApiOperation } from "./api-contract";
+
+function errorResponse(error: unknown): Response {
+  if (error instanceof URIError) return Response.json({ error: { code: "invalid_request", message: "Invalid path encoding" } }, { status: 400 });
+  if (error instanceof InvocationError && error.code === "queue_full") return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
+  if (error instanceof z.ZodError) return Response.json({ error: { code: "invalid_request", message: "Request validation failed", details: error.issues } }, { status: 400 });
+  if (error instanceof ServiceError) {
+    const headers = error.code === "insufficient_scope" ? { "WWW-Authenticate": `Bearer error="insufficient_scope"` } : undefined;
+    return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status, headers });
+  }
+  console.error("Protected API request failed", error);
+  return Response.json({ error: { code: "internal_error", message: "Factorize could not complete this request." } }, { status: 500 });
+}
+
+function queryOf(value: Record<string, unknown>): URLSearchParams {
+  const query = new URLSearchParams();
+  for (const [key, item] of Object.entries(value)) if (item !== undefined) query.set(key, String(item));
+  return query;
+}
+
+function queryInput(url: URL): Record<string, string> {
+  const value: Record<string, string> = {};
+  url.searchParams.forEach((item, key) => { value[key] = item; });
+  return value;
+}
+
+function structured(value: unknown) {
+  const output = Array.isArray(value) ? { items: value } : value && typeof value === "object" ? value as Record<string, unknown> : { value };
+  return { content: [{ type: "text" as const, text: JSON.stringify(output) }], structuredContent: output };
+}
+
+export async function protectedApiFetch(request: Request, env: Env, auth: OAuthProps | null, ctx: ExecutionContext): Promise<Response> {
+    const started = performance.now();
+    let service: ApiService | undefined;
+    const timed = (response: Response) => {
+      response.headers.set("Cache-Control", "no-store");
+      response.headers.set("X-Content-Type-Options", "nosniff");
+      response.headers.set("Server-Timing", `auth;dur=${(service?.authorizationDuration ?? 0).toFixed(1)}, application;dur=${Math.max(0, performance.now() - started - (service?.authorizationDuration ?? 0)).toFixed(1)}`);
+      return response;
+    };
+    try {
+      const url = new URL(request.url), path = url.pathname;
+      if (path === "/mcp") {
+        if (!auth) throw new ServiceError(401, "invalid_token", "Unauthorized");
+        return mcp(request, new ApiService(env, auth), env, ctx);
+      }
+      const matched = matchApiOperation(request.method, path);
+      if (!matched) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
+      const { route, params } = matched;
+      if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && (route.authOperation || auth?.authMethod === "session") && !validBrowserOrigin(request, env)) throw new ServiceError(403, "invalid_origin", "Invalid request origin.");
+      if (!route.authOperation && !auth) throw new ServiceError(401, "invalid_token", "Unauthorized");
+      if (!route.authOperation && !auth!.scopes.includes(route.scope)) throw new ServiceError(403, "insufficient_scope", `The ${route.scope} scope is required.`);
+      if (!route.authOperation && route.ownerSession && auth!.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required.");
+      let body: unknown;
+      if (route.body) {
+        if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") throw new ServiceError(415, "unsupported_media_type", "Content-Type must be application/json.");
+        try { body = await request.json(); }
+        catch { throw new ServiceError(400, "invalid_request", "Request body must be valid JSON."); }
+        body = route.body.parse(body);
+      }
+      if (route.authOperation) return timed(await executeAuth(route.authOperation, request, env, body as Record<string, unknown>));
+      service = new ApiService(env, auth!);
+      const query = route.query?.parse(queryInput(url));
+      return timed(Response.json(await route.execute(service, { params: route.parameters.parse(params) as Record<string, string>, body, query, url }), { status: route.status }));
+    } catch (error) { return timed(errorResponse(error)); }
+}
+
+const mcpServices = new WeakMap<Request, ApiService>();
+
+function createMcpServer(service: ApiService): McpServer {
+    const server = new McpServer({ name: "factorize", version: "1.0.0" });
+    const tool = <T>(name: string, description: string, schema: any, action: (input: T) => Promise<unknown>) => server.registerTool(name, { description, inputSchema: schema }, async (input: T) => {
+      try { return structured(await action(input)); }
+      catch (error) { const response = errorResponse(error), detail = await response.json() as any; throw new Error(`${detail.error?.code ?? "operation_failed"}: ${detail.error?.message ?? "Operation failed"}`); }
+    });
+    tool("list_exe_connections", "List safe metadata for saved exe.dev connections. API tokens are never returned.", z.object({}), () => service.listExeConnections());
+    tool("list_github_installations", "List connected GitHub App installations, including the installation IDs needed by GitHub Job triggers. Credentials are never returned.", z.object({}), () => service.listGitHubInstallations());
+    tool("list_runs", "List authoritative job runs by job ID, state, and an optional case-insensitive literal substring of triggered context. Automatic webhook, schedule, and lifecycle signals coalesce, so query runs and the provider API for authoritative work. Context matches include only a bounded excerpt.", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
+    tool("get_run", "Get a run with its rendered prompt, full triggered context, invocation metadata, execution metadata, output, and activity. For manual invocations, invocation.idempotency_key is the client-reusable value; invocation.claim_key is internal.", runIdSchema, ({ runId }: any) => service.getRun(runId));
+    tool("get_run_diagnostics", "Get credential-safe launch, prompt delivery, output capture, claim release, cleanup, and activity diagnostics for a run.", runIdSchema, ({ runId }: any) => service.getRunDiagnostics(runId));
+    tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
+    tool("kill_run", "Force a run in any non-terminal state to stop immediately, release its concurrency slot, and clean up its backend asynchronously.", runIdSchema, ({ runId }: any) => service.killRun(runId));
+    tool("list_jobs", "List jobs with their current run count and maximum concurrency", z.object({}), () => service.listJobs());
+    tool("get_job", "Get a job with its current run count and maximum concurrency", jobIdSchema, ({ jobId }: any) => service.getJob(jobId));
+    tool("create_job", "Create a job using an executionTargetId returned by list_execution_targets. Credentials are never accepted or returned.", jobInputSchema, (input: any) => service.createJob(input));
+    tool("update_job", "Replace a job configuration. Credentials are never accepted or returned.", jobUpdateInput.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.updateJob(jobId, input));
+    tool("delete_job", "Delete a job and its queued invocation history", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));
+    tool("enable_job", "Enable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, true));
+    tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
+    tool("invoke_job", "Invoke a job's manual trigger with an optional display name, prompt, and JSON data exposed beneath that trigger's stable slug. Manual invocations are never coalesced; a full job queue returns queue_full. idempotencyKey is a client value and must not include the internal manual: claim-key prefix; reuse invocation.idempotency_key from get_run.", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
+    tool("list_job_webhook_activity", "List matching, rejected, duplicate, and accepted webhook activity for a job", z.object({ jobId: z.string().min(1), limit: z.number().int().min(1).max(100).default(50) }), ({ jobId, limit }: any) => service.listJobEvents(jobId, limit));
+    tool("list_webhook_deliveries", "Search tenant-scoped webhook deliveries by provider, delivery ID, event, outcome, job, time range, or safe diagnostic text. Results are newest first and cursor paginated.", z.object({ provider: z.string().optional(), deliveryId: z.string().optional(), event: z.string().optional(), action: z.string().optional(), outcome: z.string().optional(), jobId: z.string().optional(), q: z.string().optional(), from: z.string().optional(), to: z.string().optional(), limit: z.number().int().min(1).max(100).default(50), cursor: z.string().optional() }), (input: any) => service.listWebhookDeliveries(queryOf(input)));
+    tool("get_webhook_delivery", "Get a webhook delivery and its safe processing timeline. Secrets and payloads are never returned.", z.object({ deliveryId: z.string().min(1) }), ({ deliveryId }: any) => service.getWebhookDelivery(deliveryId));
+    tool("test_job_webhook_handler", "Test an isolated synchronous Job webhook handler without creating a run. Returns the decision and never accepts credentials.", jobHandlerTestSchema, (input: any) => service.testJobHandler(input));
+    tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
+    tool("diagnose_exe_integration", "Probe a saved exe.dev connection's permissions and a disposable tagged VM's agent/model integration. The disposable VM is deleted before the tool returns.", z.object({ connectionId: z.string().min(1) }), ({ connectionId }: any) => service.diagnoseExeIntegration(connectionId));
+    tool("list_cloudflare_tail_integrations", "List installed Cloudflare Tail integrations and reference counts. Signing secrets are never returned.", z.object({}), () => service.listTailIntegrations());
+    return server;
+}
+
+// The SDK owns the request-scoped transport/server lifecycle. The factory only
+// resolves the service for the request being served, so tenant context cannot
+// leak between concurrent MCP calls.
+const mcpHandler = createMcpHandler(({ requestInfo }) => {
+    const service = requestInfo && mcpServices.get(requestInfo);
+    if (!service) throw new Error("MCP request context is unavailable");
+    return createMcpServer(service);
+});
+
+const mcpApps = new Map<string, ReturnType<typeof createMcpHonoApp>>();
+function mcpAppFor(hostname: string) {
+    let app = mcpApps.get(hostname);
+    if (!app) {
+      app = createMcpHonoApp({ host: hostname, allowedHosts: [hostname], allowedOrigins: [hostname] });
+      app.all("/mcp", c => mcpHandler.fetch(c.req.raw, { parsedBody: (c as any).get("parsedBody") }));
+      mcpApps.set(hostname, app);
+    }
+    return app;
+}
+
+async function mcp(request: Request, service: ApiService, env: Env, ctx: ExecutionContext): Promise<Response> {
+    mcpServices.set(request, service);
+    return mcpAppFor(new URL(env.APP_ORIGIN).hostname).fetch(request, env, ctx);
+  }
+
+export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
+  fetch(request: Request): Promise<Response> { return protectedApiFetch(request, this.env, this.ctx.props, this.ctx); }
+}

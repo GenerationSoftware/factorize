@@ -1,0 +1,42 @@
+{
+  "observedAt": "2026-10-09T21:14:38.019736+00:00",
+  "scope": "Local validation and read-only public gate; no production deployment or state mutation",
+  "checks": {
+    "rootCheck": {
+      "command": "npm run check",
+      "passed": true,
+      "apiTestsPassed": 327,
+      "apiExistingSkips": 5,
+      "appTestsPassed": 26,
+      "boundaryTestsPassed": 11,
+      "runtimeChecks": [
+        "static route/security/cache ownership",
+        "OAuth PKCE consent/device grants, REST API keys, MCP, scope and session revocation",
+        "legacy rollback anchor with retained static chunks"
+      ]
+    },
+    "staticSlice": {
+      "passed": true,
+      "tests": 2,
+      "scope": "Compiled React through Worker static routing, API dispatcher, repositories and disposable PostgreSQL"
+    },
+    "docs": {
+      "passed": true
+    },
+    "marketingBuild": {
+      "passed": true
+    },
+    "devProxy": {
+      "passed": true,
+      "scope": "HTTPS Vite to actual local Worker public session endpoint"
+    }
+  },
+  "publicApiFirstGate": {
+    "origin": "https://app.factorize.sh",
+    "passed": false,
+    "httpStatus": 401,
+    "expectedStatus": 200,
+    "requiredContract": "gen-2157-static-v1",
+    "nextAction": "Deploy additive anchor ff4b51b preserving existing infrastructure; verify marker before final static deployment. Then execute public routing/CSP/cache and authenticated release smoke checks."
+  }
+}

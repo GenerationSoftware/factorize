@@ -1,50 +1,30 @@
 {
-  "name": "factorize",
+  "name": "factorize-app",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run build:css && wrangler dev",
-    "build:css": "tailwindcss -i ./src/tailwind.css -o ./public/styles.css --minify",
-    "check": "npm run check:openapi && npm run check:api-boundaries && node --test scripts/validate-auth-email.check.mjs && tsc --noEmit && vitest run && wrangler deploy --dry-run",
-    "check:api-boundaries": "node scripts/check-api-boundaries.mjs",
-    "test": "vitest run",
-    "deploy": "wrangler deploy",
-    "benchmark:loading": "vitest run --config scripts/loading-baseline.config.ts",
-    "db:migrate": "node scripts/migrate.mjs",
-    "db:verify": "node scripts/verify-schema.mjs",
-    "db:studio": "drizzle-kit studio --config drizzle.config.ts",
-    "auth:validate-email": "node scripts/validate-auth-email.mjs",
-    "generate:openapi": "tsx scripts/generate-openapi.ts",
-    "check:openapi": "tsx scripts/generate-openapi.ts --check"
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "check": "npm run build && npm test",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.10.3",
-    "@modelcontextprotocol/hono": "^2.0.0",
-    "@modelcontextprotocol/server": "^2.0.0",
-    "cron-parser": "^5.10.1",
-    "drizzle-orm": "^0.45.2",
-    "hono": "^4.11.4",
-    "mustache": "^4.2.0",
-    "pg": "8.16.3",
-    "zod": "^4.6.2"
+    "@tanstack/react-query": "5.104.1",
+    "@tanstack/react-router": "1.170.41",
+    "@tanstack/react-virtual": "^3.14.14",
+    "factorize-api-client": "0.1.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "^10.1.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.10.10",
-    "@cloudflare/workers-types": "^5.20260910.1",
-    "@tailwindcss/cli": "^4.1.14",
-    "@types/mustache": "^4.2.6",
-    "@types/node": "^26.5.1",
-    "@types/pg": "^8.15.5",
-    "ajv": "^8.20.0",
-    "drizzle-kit": "^0.31.10",
-    "happy-dom": "^20.14.5",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
     "playwright": "^1.64.0",
-    "tailwindcss": "^4.1.14",
-    "tsx": "^4.23.15",
+    "tailwindcss": "4.3.3",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4",
-    "wrangler": "^4.44.0",
-    "yaml": "^2.9.1"
+    "vite": "8.3.4"
   }
 }

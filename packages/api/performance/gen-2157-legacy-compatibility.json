@@ -1,0 +1,544 @@
+{
+  "samples": 5,
+  "query_delay_ms": 20,
+  "environment": "Disposable local PostgreSQL; signed cookie Worker dispatch; headless Chromium with local CSS; intercepted HTTP, no Cloudflare/Hyperdrive/network transit",
+  "results": [
+    {
+      "screen": "Jobs",
+      "endpoint": {
+        "median_ms": 118.9,
+        "range_ms": [
+          104,
+          125.2
+        ]
+      },
+      "useful_content": {
+        "median_ms": 269.4,
+        "range_ms": [
+          204.2,
+          302.7
+        ]
+      }
+    },
+    {
+      "screen": "Job detail",
+      "endpoint": {
+        "median_ms": 111.1,
+        "range_ms": [
+          111,
+          115.5
+        ]
+      },
+      "useful_content": {
+        "median_ms": 285.7,
+        "range_ms": [
+          277.6,
+          289.7
+        ]
+      }
+    },
+    {
+      "screen": "Run detail",
+      "endpoint": {
+        "median_ms": 92.2,
+        "range_ms": [
+          86.1,
+          113.2
+        ]
+      },
+      "useful_content": {
+        "median_ms": 165.4,
+        "range_ms": [
+          162.1,
+          173.6
+        ]
+      }
+    },
+    {
+      "screen": "Job create",
+      "endpoint": {
+        "median_ms": 58.1,
+        "range_ms": [
+          49.1,
+          60.2
+        ]
+      },
+      "useful_content": {
+        "median_ms": 280.4,
+        "range_ms": [
+          216.2,
+          287.3
+        ]
+      }
+    },
+    {
+      "screen": "Job edit",
+      "endpoint": {
+        "median_ms": 112.3,
+        "range_ms": [
+          107.8,
+          115.6
+        ]
+      },
+      "useful_content": {
+        "median_ms": 293.9,
+        "range_ms": [
+          284.4,
+          310.8
+        ]
+      }
+    },
+    {
+      "screen": "Integrations",
+      "endpoint": {
+        "median_ms": 59.5,
+        "range_ms": [
+          52.9,
+          62.2
+        ]
+      },
+      "useful_content": {
+        "median_ms": 173,
+        "range_ms": [
+          167.1,
+          191.8
+        ]
+      }
+    },
+    {
+      "screen": "API Keys",
+      "endpoint": {
+        "median_ms": 56.8,
+        "range_ms": [
+          49.9,
+          61.2
+        ]
+      },
+      "useful_content": {
+        "median_ms": 153.4,
+        "range_ms": [
+          126,
+          172.8
+        ]
+      }
+    }
+  ],
+  "indexes": [
+    {
+      "indexname": "job_runs_launch_lease",
+      "indexdef": "CREATE INDEX job_runs_launch_lease ON app.job_runs USING btree (launch_lease_expires_at) WHERE (state = 'starting'::text)"
+    },
+    {
+      "indexname": "job_runs_pkey",
+      "indexdef": "CREATE UNIQUE INDEX job_runs_pkey ON app.job_runs USING btree (tenant_id, id)"
+    },
+    {
+      "indexname": "job_runs_poll_due",
+      "indexdef": "CREATE INDEX job_runs_poll_due ON app.job_runs USING btree (next_poll_at) WHERE (state = ANY (ARRAY['running'::text, 'blocked'::text, 'stopping'::text]))"
+    },
+    {
+      "indexname": "job_runs_queue",
+      "indexdef": "CREATE INDEX job_runs_queue ON app.job_runs USING btree (state, created_at) WHERE (state = 'queued'::text)"
+    },
+    {
+      "indexname": "job_runs_tenant_id_invocation_id_key",
+      "indexdef": "CREATE UNIQUE INDEX job_runs_tenant_id_invocation_id_key ON app.job_runs USING btree (tenant_id, invocation_id)"
+    }
+  ],
+  "plans": {
+    "old_single_job": [
+      {
+        "Plan": {
+          "Node Type": "Aggregate",
+          "Strategy": "Plain",
+          "Partial Mode": "Simple",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Startup Cost": 9.54,
+          "Total Cost": 9.55,
+          "Plan Rows": 1,
+          "Plan Width": 64,
+          "Actual Startup Time": 0.031,
+          "Actual Total Time": 0.031,
+          "Actual Rows": 1,
+          "Actual Loops": 1,
+          "Shared Hit Blocks": 5,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0,
+          "Plans": [
+            {
+              "Node Type": "Sort",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 9.52,
+              "Total Cost": 9.52,
+              "Plan Rows": 1,
+              "Plan Width": 40,
+              "Actual Startup Time": 0.022,
+              "Actual Total Time": 0.022,
+              "Actual Rows": 3,
+              "Actual Loops": 1,
+              "Sort Key": [
+                "created_at DESC"
+              ],
+              "Sort Method": "quicksort",
+              "Sort Space Used": 25,
+              "Sort Space Type": "Memory",
+              "Shared Hit Blocks": 5,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Bitmap Heap Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Relation Name": "job_runs",
+                  "Alias": "job_runs",
+                  "Startup Cost": 4.16,
+                  "Total Cost": 9.51,
+                  "Plan Rows": 1,
+                  "Plan Width": 40,
+                  "Actual Startup Time": 0.007,
+                  "Actual Total Time": 0.008,
+                  "Actual Rows": 3,
+                  "Actual Loops": 1,
+                  "Recheck Cond": "(tenant_id = '9bf10b7a-06b3-4927-be00-22eee6a0bf4e'::uuid)",
+                  "Rows Removed by Index Recheck": 0,
+                  "Filter": "(job_id = '5c6a72b1-b330-46e8-90f2-1d03b72829c5'::uuid)",
+                  "Rows Removed by Filter": 0,
+                  "Exact Heap Blocks": 1,
+                  "Lossy Heap Blocks": 0,
+                  "Shared Hit Blocks": 2,
+                  "Shared Read Blocks": 0,
+                  "Shared Dirtied Blocks": 0,
+                  "Shared Written Blocks": 0,
+                  "Local Hit Blocks": 0,
+                  "Local Read Blocks": 0,
+                  "Local Dirtied Blocks": 0,
+                  "Local Written Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0,
+                  "Plans": [
+                    {
+                      "Node Type": "Bitmap Index Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Index Name": "job_runs_tenant_id_invocation_id_key",
+                      "Startup Cost": 0,
+                      "Total Cost": 4.16,
+                      "Plan Rows": 2,
+                      "Plan Width": 0,
+                      "Actual Startup Time": 0.003,
+                      "Actual Total Time": 0.003,
+                      "Actual Rows": 3,
+                      "Actual Loops": 1,
+                      "Index Cond": "(tenant_id = '9bf10b7a-06b3-4927-be00-22eee6a0bf4e'::uuid)",
+                      "Shared Hit Blocks": 1,
+                      "Shared Read Blocks": 0,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "Planning": {
+          "Shared Hit Blocks": 197,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "Planning Time": 0.392,
+        "Triggers": [],
+        "Execution Time": 0.071
+      }
+    ],
+    "new_batch": [
+      {
+        "Plan": {
+          "Node Type": "Nested Loop",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Join Type": "Inner",
+          "Startup Cost": 9.6,
+          "Total Cost": 9.64,
+          "Plan Rows": 1,
+          "Plan Width": 80,
+          "Actual Startup Time": 0.063,
+          "Actual Total Time": 0.064,
+          "Actual Rows": 1,
+          "Actual Loops": 1,
+          "Inner Unique": true,
+          "Join Filter": "(selected_runs.job_id = selected_runs_1.job_id)",
+          "Rows Removed by Join Filter": 0,
+          "Shared Hit Blocks": 8,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0,
+          "Plans": [
+            {
+              "Node Type": "Bitmap Heap Scan",
+              "Parent Relationship": "InitPlan",
+              "Subplan Name": "CTE selected_runs",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Relation Name": "job_runs",
+              "Alias": "job_runs",
+              "Startup Cost": 4.19,
+              "Total Cost": 9.54,
+              "Plan Rows": 1,
+              "Plan Width": 72,
+              "Actual Startup Time": 0.013,
+              "Actual Total Time": 0.014,
+              "Actual Rows": 3,
+              "Actual Loops": 1,
+              "Recheck Cond": "(tenant_id = '9bf10b7a-06b3-4927-be00-22eee6a0bf4e'::uuid)",
+              "Rows Removed by Index Recheck": 0,
+              "Filter": "(job_id = ANY ('{5c6a72b1-b330-46e8-90f2-1d03b72829c5,12e89021-a863-4924-b04a-c97bda9d662e,348afbc1-3417-4017-8a9e-7d3583d5daa6,a8409680-20f0-4959-b706-1b9da2599bc3,0460f5d7-191b-4c9a-9536-f16289b38e69,57702628-4842-4ac7-a0aa-a1ff31c79889,8425509b-dc60-43e7-9bed-f7fe421f141c,e652551b-0320-4d07-b11e-0510ad5a7285,7834dec6-8213-4ff0-a150-12d6fd5f310a,8f6fa244-b783-493d-96ef-ee8453a9a809}'::uuid[]))",
+              "Rows Removed by Filter": 0,
+              "Exact Heap Blocks": 1,
+              "Lossy Heap Blocks": 0,
+              "Shared Hit Blocks": 2,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Bitmap Index Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Index Name": "job_runs_tenant_id_invocation_id_key",
+                  "Startup Cost": 0,
+                  "Total Cost": 4.16,
+                  "Plan Rows": 2,
+                  "Plan Width": 0,
+                  "Actual Startup Time": 0.006,
+                  "Actual Total Time": 0.006,
+                  "Actual Rows": 3,
+                  "Actual Loops": 1,
+                  "Index Cond": "(tenant_id = '9bf10b7a-06b3-4927-be00-22eee6a0bf4e'::uuid)",
+                  "Shared Hit Blocks": 1,
+                  "Shared Read Blocks": 0,
+                  "Shared Dirtied Blocks": 0,
+                  "Shared Written Blocks": 0,
+                  "Local Hit Blocks": 0,
+                  "Local Read Blocks": 0,
+                  "Local Dirtied Blocks": 0,
+                  "Local Written Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0
+                }
+              ]
+            },
+            {
+              "Node Type": "Aggregate",
+              "Strategy": "Hashed",
+              "Partial Mode": "Simple",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 0.03,
+              "Total Cost": 0.04,
+              "Plan Rows": 1,
+              "Plan Width": 48,
+              "Actual Startup Time": 0.025,
+              "Actual Total Time": 0.026,
+              "Actual Rows": 1,
+              "Actual Loops": 1,
+              "Group Key": [
+                "selected_runs.job_id"
+              ],
+              "Planned Partitions": 0,
+              "HashAgg Batches": 1,
+              "Peak Memory Usage": 24,
+              "Disk Usage": 0,
+              "Shared Hit Blocks": 2,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "CTE Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "CTE Name": "selected_runs",
+                  "Alias": "selected_runs",
+                  "Startup Cost": 0,
+                  "Total Cost": 0.02,
+                  "Plan Rows": 1,
+                  "Plan Width": 48,
+                  "Actual Startup Time": 0.015,
+                  "Actual Total Time": 0.017,
+                  "Actual Rows": 3,
+                  "Actual Loops": 1,
+                  "Shared Hit Blocks": 2,
+                  "Shared Read Blocks": 0,
+                  "Shared Dirtied Blocks": 0,
+                  "Shared Written Blocks": 0,
+                  "Local Hit Blocks": 0,
+                  "Local Read Blocks": 0,
+                  "Local Dirtied Blocks": 0,
+                  "Local Written Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0
+                }
+              ]
+            },
+            {
+              "Node Type": "Unique",
+              "Parent Relationship": "Inner",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 0.03,
+              "Total Cost": 0.04,
+              "Plan Rows": 1,
+              "Plan Width": 72,
+              "Actual Startup Time": 0.036,
+              "Actual Total Time": 0.036,
+              "Actual Rows": 1,
+              "Actual Loops": 1,
+              "Shared Hit Blocks": 6,
+              "Shared Read Blocks": 0,
+              "Shared Dirtied Blocks": 0,
+              "Shared Written Blocks": 0,
+              "Local Hit Blocks": 0,
+              "Local Read Blocks": 0,
+              "Local Dirtied Blocks": 0,
+              "Local Written Blocks": 0,
+              "Temp Read Blocks": 0,
+              "Temp Written Blocks": 0,
+              "Plans": [
+                {
+                  "Node Type": "Sort",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 0.03,
+                  "Total Cost": 0.04,
+                  "Plan Rows": 1,
+                  "Plan Width": 72,
+                  "Actual Startup Time": 0.035,
+                  "Actual Total Time": 0.035,
+                  "Actual Rows": 1,
+                  "Actual Loops": 1,
+                  "Sort Key": [
+                    "selected_runs_1.job_id",
+                    "selected_runs_1.created_at DESC",
+                    "selected_runs_1.id DESC"
+                  ],
+                  "Sort Method": "quicksort",
+                  "Sort Space Used": 25,
+                  "Sort Space Type": "Memory",
+                  "Shared Hit Blocks": 6,
+                  "Shared Read Blocks": 0,
+                  "Shared Dirtied Blocks": 0,
+                  "Shared Written Blocks": 0,
+                  "Local Hit Blocks": 0,
+                  "Local Read Blocks": 0,
+                  "Local Dirtied Blocks": 0,
+                  "Local Written Blocks": 0,
+                  "Temp Read Blocks": 0,
+                  "Temp Written Blocks": 0,
+                  "Plans": [
+                    {
+                      "Node Type": "CTE Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "CTE Name": "selected_runs",
+                      "Alias": "selected_runs_1",
+                      "Startup Cost": 0,
+                      "Total Cost": 0.02,
+                      "Plan Rows": 1,
+                      "Plan Width": 72,
+                      "Actual Startup Time": 0,
+                      "Actual Total Time": 0.001,
+                      "Actual Rows": 3,
+                      "Actual Loops": 1,
+                      "Shared Hit Blocks": 0,
+                      "Shared Read Blocks": 0,
+                      "Shared Dirtied Blocks": 0,
+                      "Shared Written Blocks": 0,
+                      "Local Hit Blocks": 0,
+                      "Local Read Blocks": 0,
+                      "Local Dirtied Blocks": 0,
+                      "Local Written Blocks": 0,
+                      "Temp Read Blocks": 0,
+                      "Temp Written Blocks": 0
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "Planning": {
+          "Shared Hit Blocks": 200,
+          "Shared Read Blocks": 0,
+          "Shared Dirtied Blocks": 0,
+          "Shared Written Blocks": 0,
+          "Local Hit Blocks": 0,
+          "Local Read Blocks": 0,
+          "Local Dirtied Blocks": 0,
+          "Local Written Blocks": 0,
+          "Temp Read Blocks": 0,
+          "Temp Written Blocks": 0
+        },
+        "Planning Time": 0.586,
+        "Triggers": [],
+        "Execution Time": 0.164
+      }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "factorize",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-10",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "assets": { "directory": "../app/dist", "binding": "ASSETS", "run_worker_first": true, "not_found_handling": "none" },
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "cacbf744337747ffbb9c0153329aad4f" }],
+  "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9b6c8a09921d4ee18cdf3723135c82ad" }],
+  "r2_buckets": [{ "binding": "RUN_ARTIFACTS", "bucket_name": "factorize-run-artifacts" }],
+  "worker_loaders": [{ "binding": "CUSTOM_HANDLER_LOADER" }],
+  "durable_objects": {
+    "bindings": [{ "name": "SCHEDULER", "class_name": "AlarmCoordinator" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Tenant"] },
+    { "tag": "v2", "new_sqlite_classes": ["GitHubInstallationRegistry"] },
+    { "tag": "v3-fresh-durable-objects", "new_sqlite_classes": ["TenantV2", "GitHubInstallationRegistryV2"] },
+    { "tag": "v4-auth-store", "new_sqlite_classes": ["AuthStore"] },
+    { "tag": "v5-postgres-alarm-coordinator", "new_sqlite_classes": ["AlarmCoordinator"] },
+    { "tag": "v6-postgres-cutover", "deleted_classes": ["Tenant", "GitHubInstallationRegistry", "TenantV2", "GitHubInstallationRegistryV2", "AuthStore"] }
+  ],
+  "vars": {
+    "APP_ORIGIN": "https://app.factorize.sh",
+    "MARKETING_ORIGIN": "https://factorize.sh",
+    "LINEAR_OAUTH_SCOPES": "read,write",
+    "POSTMARK_FROM_EMAIL": "contact@g9software.xyz",
+    "POSTMARK_MESSAGE_STREAM": "outbound"
+  }
+}

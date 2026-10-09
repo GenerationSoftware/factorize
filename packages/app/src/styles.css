@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@layer base {
+  body { @apply bg-slate-950 text-slate-100 antialiased; }
+  input, textarea, select { @apply block w-full rounded border border-slate-600 bg-slate-900 p-2; }
+  button { @apply rounded bg-sky-800 px-4 py-2 disabled:opacity-50; }
+  a { @apply underline underline-offset-4; }
+  :focus-visible { @apply outline-2 outline-offset-4 outline-sky-400; }
+}
+@layer base {
+  input[type="checkbox"] { @apply inline-block w-auto align-middle; }
+  pre { max-width: 100%; }
+  label { min-width: 0; }
+}
+@layer base {
+  html[data-theme="light"] body { @apply bg-slate-50 text-slate-950; }
+  html[data-theme="light"] input, html[data-theme="light"] textarea, html[data-theme="light"] select { @apply border-slate-300 bg-white text-slate-950; }
+  html[data-theme="light"] button { @apply text-white; }
+}
+.trace-content { overflow-wrap: anywhere; }
+.trace-content pre { white-space: pre-wrap; }
+.trace-content p, .trace-content pre { margin-block: 0.75rem; }
+.trace-content ul, .trace-content ol { padding-left: 1.5rem; }
+.trace-content ul { list-style: disc; }
+.trace-content ol { list-style: decimal; }

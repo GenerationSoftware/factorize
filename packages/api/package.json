@@ -1,0 +1,50 @@
+{
+  "name": "factorize",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local-protocol https --var APP_ORIGIN:https://localhost:5173",
+    "check": "npm run check:openapi && npm run check:api-boundaries && node --test scripts/validate-auth-email.check.mjs && tsc --noEmit && vitest run && wrangler deploy --dry-run",
+    "check:api-boundaries": "node scripts/check-api-boundaries.mjs",
+    "test": "vitest run",
+    "deploy": "node ../../scripts/prepare-app-deploy.mjs && wrangler deploy",
+    "benchmark:loading": "vitest run --config scripts/loading-baseline.config.ts",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:verify": "node scripts/verify-schema.mjs",
+    "db:studio": "drizzle-kit studio --config drizzle.config.ts",
+    "auth:validate-email": "node scripts/validate-auth-email.mjs",
+    "generate:openapi": "tsx scripts/generate-openapi.ts",
+    "check:openapi": "tsx scripts/generate-openapi.ts --check",
+    "test:static-slice": "vitest run --config scripts/static-slice.config.ts",
+    "benchmark:migration": "vitest run --config scripts/migration-measurements.config.ts",
+    "deploy:prepared": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@modelcontextprotocol/hono": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "cron-parser": "^5.10.1",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.11.4",
+    "mustache": "^4.2.0",
+    "pg": "8.16.3",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.10.10",
+    "@cloudflare/workers-types": "^5.20260910.1",
+    "@types/mustache": "^4.2.6",
+    "@types/node": "^26.5.1",
+    "@types/pg": "^8.15.5",
+    "ajv": "^8.20.0",
+    "drizzle-kit": "^0.31.10",
+    "happy-dom": "^20.14.5",
+    "playwright": "^1.64.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.44.0",
+    "yaml": "^2.9.1"
+  }
+}

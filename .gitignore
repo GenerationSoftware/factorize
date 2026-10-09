@@ -24,3 +24,7 @@ coverage/
 .idea/
 .vscode/
 *.swp
+
+# Local TLS and Python test caches
+.dev-certs/
+__pycache__/
