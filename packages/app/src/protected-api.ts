@@ -38,8 +38,13 @@ function structured(value: unknown) {
 }
 
 export async function protectedApiFetch(request: Request, env: Env, auth: OAuthProps, ctx: ExecutionContext): Promise<Response> {
+    const started = performance.now(), service = new ApiService(env, auth);
+    const timed = (response: Response) => {
+      response.headers.set("Server-Timing", `auth;dur=${service.authorizationDuration.toFixed(1)}, application;dur=${Math.max(0, performance.now() - started - service.authorizationDuration).toFixed(1)}`);
+      return response;
+    };
     try {
-      const url = new URL(request.url), path = url.pathname, service = new ApiService(env, auth);
+      const url = new URL(request.url), path = url.pathname;
       if (path === "/mcp") return mcp(request, service, env, ctx);
       const matched = matchApiOperation(request.method, path);
       if (!matched) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
@@ -54,8 +59,8 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
         body = route.body.parse(body);
       }
       const query = route.query?.parse(queryInput(url));
-      return Response.json(await route.execute(service, { params: route.parameters.parse(params) as Record<string, string>, body, query, url }), { status: route.status });
-    } catch (error) { return errorResponse(error); }
+      return timed(Response.json(await route.execute(service, { params: route.parameters.parse(params) as Record<string, string>, body, query, url }), { status: route.status }));
+    } catch (error) { return timed(errorResponse(error)); }
 }
 
 const mcpServices = new WeakMap<Request, ApiService>();

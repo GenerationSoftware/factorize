@@ -2,7 +2,7 @@ import { lockJobQueue, requireQueueCapacity } from "./queue-admission";
 import type { Invocation, Job, JobRepository, JobRun, Trigger } from "../job-domain";
 import type { Database, DatabaseClient } from "./database";
 import { nextOccurrence, validateScheduleConfig } from "../schedule";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { invocations, jobs, jobEditDeliveries, lifecycleDeliveries, pendingVerifications, scheduleState, triggers } from "./schema";
 
 type Crypt = (value: string) => Promise<string>;
@@ -15,8 +15,8 @@ export class PostgresJobRepository implements JobRepository {
   }
 
   private trigger(row: TriggerRow): Trigger { return { id: row.id, jobId: row.jobId, kind: row.kind, slug: row.slug, enabled: row.enabled, config: row.config, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() }; }
-  private async mapped(row: JobRow, db: any = this.database.orm): Promise<Job> {
-    const triggerRows: TriggerRow[] = await db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
+  private async mapped(row: JobRow, db: any = this.database.orm, loadedTriggers?: TriggerRow[]): Promise<Job> {
+    const triggerRows: TriggerRow[] = loadedTriggers ?? await db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
     return { id: row.id, name: row.name, slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionTarget: row.executionTarget, concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
@@ -27,7 +27,15 @@ export class PostgresJobRepository implements JobRepository {
 
   async list(): Promise<Job[]> {
     const rows = await this.database.orm.select().from(jobs).where(eq(jobs.tenantId, this.tenantId)).orderBy(sql`${jobs.createdAt} desc`);
-    return Promise.all(rows.map(row => this.mapped(row)));
+    if (!rows.length) return [];
+    const triggerRows = await this.database.orm.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), inArray(triggers.jobId, rows.map(row => row.id)), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
+    const byJob = new Map<string, TriggerRow[]>();
+    for (const trigger of triggerRows) {
+      const group = byJob.get(trigger.jobId) ?? [];
+      group.push(trigger);
+      byJob.set(trigger.jobId, group);
+    }
+    return Promise.all(rows.map(row => this.mapped(row, this.database.orm, byJob.get(row.id) ?? [])));
   }
 
   async create(job: Job): Promise<Job> {

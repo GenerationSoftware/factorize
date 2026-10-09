@@ -83,7 +83,9 @@ export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) 
   const artifactMatch = url.pathname.match(/^\/internal\/run-artifacts\/([^/]+)$/);
   if (artifactMatch) return artifactUpload(request, env, decodeURIComponent(artifactMatch[1]!));
   if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {
-    const session = await currentOwner(request, env);
+    // Signature and expiry here; the service performs the authoritative owner,
+    // verified-email and session-version lookup once for this API request.
+    const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
     if (!session) return Response.json({ error: { code: "invalid_token", message: "Unauthorized" } }, { status: 401 });
     return protectedApiFetch(request, env, { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes, authMethod: "session" }, ctx);
   }

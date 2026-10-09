@@ -401,8 +401,8 @@ describe("pages", () => {
     expect(run).toContain('class="mx-auto w-full max-w-6xl min-w-0 px-4 py-8 sm:px-5 sm:py-12 lg:px-8');
     expect(run).toContain('id="run-detail" class="min-w-0"');
     expect(run).toContain('<nav aria-label="Breadcrumb">');
-    expect(run).toContain("request('/api/v1/jobs/'+encodeURIComponent(r.job_id))");
-    expect(run).toContain("esc(j.name)");
+    expect(run).not.toContain("request('/api/v1/jobs/'+encodeURIComponent(r.job_id))");
+    expect(run).toContain("esc(r.job_name");
     expect(run).toContain("runLabel=r.name||r.run_name||r.issue_title||'Run '+r.id.slice(0,8)");
     expect(run).not.toContain("destination_url");
     expect(run).not.toContain("Observation");

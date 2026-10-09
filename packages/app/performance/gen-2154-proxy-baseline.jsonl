@@ -1,0 +1,8 @@
+{"endpoint": "/healthz", "status": ["200", "200", "200", "200", "200"], "median_ms": 86.3, "range_ms": [77.3, 106.7]}
+{"endpoint": "/api/v1/jobs", "status": ["200", "200", "200", "200", "200"], "median_ms": 775.7, "range_ms": [681.6, 795.1]}
+{"endpoint": "/api/v1/jobs/:jobId", "status": ["200", "200", "200", "200", "200"], "median_ms": 528.8, "range_ms": [446.9, 661.4]}
+{"endpoint": "/api/v1/runs/:runId", "status": ["200", "200", "200", "200", "200"], "median_ms": 492.4, "range_ms": [474.9, 518.5]}
+{"endpoint": "/api/v1/execution-targets", "status": ["200", "200", "200", "200", "200"], "median_ms": 307.8, "range_ms": [292.5, 337.1]}
+{"endpoint": "/api/v1/job-trigger-availability", "status": ["200", "200", "200", "200", "200"], "median_ms": 307.6, "range_ms": [296.9, 311.5]}
+{"endpoint": "/api/v1/integrations", "status": ["200", "200", "200", "200", "200"], "median_ms": 505.2, "range_ms": [493.9, 512.7]}
+{"endpoint": "/api/v1/access-tokens", "status": ["403", "403", "403", "403", "403"], "median_ms": 102.6, "range_ms": [85.0, 108.7]}

@@ -12,12 +12,16 @@ import { ConnectionRepository } from "./postgres/connection-repository";
 import { GitHubRepository } from "./postgres/github-repository";
 import { WebhookService } from "./postgres/webhook-service";
 
-const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string } }>();
+const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string; authorizationDuration: number } }>();
 
 app.use("*", async (c, next) => {
+  const started = performance.now();
+  c.set("authorizationDuration", 0);
   const nonce = crypto.randomUUID();
   c.set("cspNonce", nonce);
   await next();
+  const authorizationDuration = c.get("authorizationDuration");
+  c.header("Server-Timing", `auth;dur=${authorizationDuration.toFixed(1)}, application;dur=${Math.max(0, performance.now() - started - authorizationDuration).toFixed(1)}`);
   c.header("Content-Security-Policy", `default-src 'self'; script-src 'nonce-${nonce}'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`);
   // Keep Origin on same-origin form POSTs; no-referrer makes it "null" in
   // browsers and breaks the auth CSRF check. External requests still omit Referer.
@@ -71,9 +75,12 @@ async function establishSession(c: any, identity: { userId: string; email: strin
 }
 async function authed(c: any): Promise<Session | null> { return readSession(getCookie(c, "factorize_session"), c.env.SESSION_SIGNING_SECRET); }
 async function owner(c: any): Promise<Session | null> {
-  const session = await authed(c); if (!session) return null;
-  const member = await new IdentityRepository(databaseFor(c.env), session.tenantId).member(session.userId);
-  return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? session : null;
+  const started = performance.now();
+  try {
+    const session = await authed(c); if (!session) return null;
+    const member = await new IdentityRepository(databaseFor(c.env), session.tenantId).member(session.userId);
+    return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? session : null;
+  } finally { c.set("authorizationDuration", (c.get("authorizationDuration") ?? 0) + performance.now() - started); }
 }
 
 app.get("/styles.css", (c) => c.env.ASSETS.fetch(c.req.raw));
