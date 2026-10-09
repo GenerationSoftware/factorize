@@ -187,10 +187,8 @@
   .dark .trace-token-number, .dark .trace-token-variable { color: #7dd3fc; }
   .trace-thinking { display: flex; align-items: center; gap: .5rem; color: var(--trace-muted); font-size: .8rem; padding: .25rem 0; }
   .trace-spinner { width: .8rem; height: .8rem; border: 2px solid var(--trace-border); border-top-color: var(--trace-accent); border-radius: 50%; }
-  .trace-thinking-live { display: none; }
-  .trace-running .trace-at-end > .trace-thinking:last-child .trace-spinner { animation: trace-spin 1s linear infinite; }
-  .trace-running .trace-at-end > .trace-thinking:last-child .trace-thinking-live { display: inline; }
-  .trace-running .trace-at-end > .trace-thinking:last-child .trace-thinking-past { display: none; }
+  .trace-activity[hidden] { display: none; }
+  .trace-activity:not([hidden]) .trace-spinner { animation: trace-spin 1s linear infinite; }
   @keyframes trace-spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .trace-running .trace-at-end > .trace-thinking:last-child .trace-spinner { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .trace-activity:not([hidden]) .trace-spinner { animation: none; } }
 }
