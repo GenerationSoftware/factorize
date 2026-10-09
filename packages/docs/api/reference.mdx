@@ -1,62 +1,12 @@
 ---
 title: REST API reference
-description: Complete implementation-accurate operation inventory.
+description: How to use the generated API reference.
 ---
 
-All paths are relative to `APP_ORIGIN` and require a bearer token or browser owner session. Errors use `{ "error": { "code": "...", "message": "..." } }`; malformed JSON/schema input returns `400 invalid_request`, missing resources `404 not_found`, invalid/revoked tokens `401 invalid_token`, and missing scopes `403 insufficient_scope`.
+The **API Reference** tab renders every application operation directly from [openapi.yaml](/openapi.yaml), including request validation, required scopes, owner-session restrictions, and JSON response schemas. This is the same generated artifact verified by CI and available to API clients.
 
-`GET /healthz` is the unauthenticated liveness check and returns `{ "ok": true }`. It is an infrastructure probe, not an application API operation.
+All application endpoints use `/api/v1`. Authenticate with a scoped bearer token or an interactive owner session; credential management and trace replay require an interactive owner session. Errors use `{ "error": { "code": "...", "message": "..." } }`.
 
-## Discovery and read operations
+`GET /healthz` is the unauthenticated infrastructure liveness probe and returns `{ "ok": true }`. It is outside the application API contract.
 
-| Method | Path | Scope | Result |
-| --- | --- | --- | --- |
-| GET | `/api/v1/exe-connections` | flows:read | Safe exe connection metadata |
-| GET | `/api/v1/github-installations` | flows:read | GitHub App installations |
-| GET | `/api/v1/execution-targets` | flows:read | Non-secret target metadata/capabilities |
-| GET | `/api/v1/job-trigger-availability` | flows:read | Currently available trigger kinds |
-| GET | `/api/v1/integrations/cloudflare-tail` | flows:read | Tail integrations and reference counts |
-| GET | `/api/v1/jobs` | flows:read | Jobs with `currentRuns`, `maxConcurrency`, triggers |
-| GET | `/api/v1/jobs/{jobId}` | flows:read | One job |
-| GET | `/api/v1/jobs/{jobId}/events?limit=50` | runs:read | Webhook activity; limit 1–100 |
-| GET | `/api/v1/runs/{runId}` | runs:read | Full prompt, context, invocation, execution, output, activity |
-| GET | `/api/v1/runs/{runId}/diagnostics` | runs:read | Credential-safe lifecycle checks and activity |
-| GET | `/api/v1/runs/{runId}/trace` | runs:read | Paginated trace events |
-| GET | `/api/v1/search?q=` | runs:read | Search jobs, runs, and metadata |
-
-## Integrations and provider discovery
-
-| Method | Path | Scope | Result |
-| --- | --- | --- | --- |
-| GET | `/api/v1/integrations` | flows:read | Credential-safe installed integration status |
-| PUT/DELETE | `/api/v1/integrations/{exe\|amp}[/{connectionId}]` | flows:write | Save or remove an execution integration |
-| POST | `/api/v1/integrations/{exe\|amp}/test` | flows:write | Test supplied or saved credentials |
-| POST/PUT/DELETE | `/api/v1/integrations/cloudflare-tail[/{integrationId}]` | flows:write | Create, update, or remove a Tail integration |
-| POST | `/api/v1/integrations/cloudflare-tail/{integrationId}/test` | flows:write | Test a Tail integration |
-| GET | `/api/v1/providers/linear/{projects\|options}` | flows:read | Linear job-trigger resources |
-| GET | `/api/v1/providers/clickup/{lists\|options}` | flows:read | ClickUp job-trigger resources |
-| GET | `/api/v1/providers/github/installations` | flows:read | GitHub installations |
-| GET | `/api/v1/providers/github/installations/{installationId}/repositories` | flows:read | Installation repositories |
-| GET | `/api/v1/providers/github/installations/{installationId}/repositories/{repositoryId}/issue-options` | flows:read | GitHub issue-trigger resources |
-| DELETE | `/api/v1/providers/github/installations/{installationId}` | flows:write | Disconnect an installation |
-
-Access-token and authorized-client management under `/api/v1/access-tokens` and `/api/v1/access/authorized-clients` is versioned and uses the same error contract, but deliberately requires an interactive owner session to prevent bearer credentials from minting or revoking credentials.
-
-## Writes and runs
-
-| Method | Path | Scope | Notes |
-| --- | --- | --- | --- |
-| POST | `/api/v1/jobs` | flows:write | Create; returns `201` |
-| PUT | `/api/v1/jobs/{jobId}` | flows:write | Replace configuration |
-| DELETE | `/api/v1/jobs/{jobId}` | flows:write | Deletes job and queued invocation history |
-| POST | `/api/v1/jobs/{jobId}/enable` | flows:write | Enable |
-| POST | `/api/v1/jobs/{jobId}/disable` | flows:write | Disable |
-| POST | `/api/v1/job-handlers/test` | flows:write | Isolated synchronous test; no run |
-| POST | `/api/v1/integrations/exe/{connectionId}/diagnostics` | flows:write | Probe permissions and a disposable VM's agent/model integration |
-| POST | `/api/v1/jobs/{jobId}/invocations` | runs:write | Manual invocation; returns `202` |
-| GET | `/api/v1/runs?jobId=&state=&contextQuery=&limit=&cursor=` | runs:read | `{items,nextCursor}`; limit 1–100 |
-| POST | `/api/v1/runs/{runId}/stop` | runs:write | Stop an active run |
-| POST | `/api/v1/runs/{runId}/kill` | runs:write | Immediately terminalize a non-terminal run, release capacity, and clean up its backend |
-| POST | `/api/v1/schedules/preview` | flows:read | `{nextRunAt}` for `{cron,timezone}` |
-
-Job creation requires `name` (1–120), `slug` (lowercase, up to 30), `promptTemplate` (1–50,000), `executionTargetId`, and optional `model`, `effort`, `concurrencyLimit`, and `triggers`. Manual invocation accepts an optional display `name` (1–120), `prompt` (default empty), an optional JSON object `data` (default `{}`), and an optional unique `idempotencyKey` (1–200; never prefix it with reserved `manual:`). The display name is used for the run when supplied; prompt and data are exposed under the manual trigger slug, for example `{{trigger-1.data.name}}`. Run states are `queued`, `starting`, `running`, `done`, `blocked`, `failed`, and `ignored`.
+See [authentication](/api/authentication) for access setup and [OpenAPI definition](/api/openapi) for downloading or regenerating the contract.

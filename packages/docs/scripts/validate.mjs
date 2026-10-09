@@ -1,11 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const root = resolve(import.meta.dirname, "..");
-const api = await readFile(resolve(root, "openapi.yaml"), "utf8");
-const worker = await readFile(resolve(root, "../app/src/protected-api.ts"), "utf8");
-const expected = ["exe-connections", "github-installations", "execution-targets", "job-trigger-availability", "integrations/cloudflare-tail", "jobs", "job-handlers/test", "runs", "schedules/preview"];
-const missing = expected.filter(path => !api.includes(path) || !worker.includes(path));
 for (const file of ["docs.json", "llms.txt", "llms-full.txt"]) await readFile(resolve(root, file));
-if (missing.length) throw new Error(`Documentation route inventory is stale: ${missing.join(", ")}`);
-console.log(`Validated ${expected.length} route families, Mintlify config, and LLM exports.`);
+execFileSync("npm", ["run", "check:openapi"], { cwd: resolve(root, "../.."), stdio: "inherit" });
+execFileSync("npm", ["test", "--workspace=factorize", "--", "test/api-contract.test.ts"], { cwd: resolve(root, "../.."), stdio: "inherit" });
+console.log("Validated generated OpenAPI, executable operation equality, Mintlify configuration, and LLM exports.");

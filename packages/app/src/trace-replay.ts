@@ -6,8 +6,8 @@ import { ArtifactRepository } from "./postgres/artifact-repository";
 import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./postgres/trace-projection-repository";
 import { traceMetric } from "./trace-observability";
 
-export const traceReplayRunIdSchema = z.uuid();
-export const traceReplaySchema = z.object({ requestId: z.uuid(), source: z.enum(["primary", "native_session"]).default("primary") }).strict();
+import { traceReplayRunIdSchema, traceReplaySchema } from "./trace-replay-schemas";
+export { traceReplayRunIdSchema, traceReplaySchema } from "./trace-replay-schemas";
 export class TraceReplayError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }
 
 /** One run per request bounds work; clients checkpoint request IDs while paging runs.
