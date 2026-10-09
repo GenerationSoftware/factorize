@@ -104,7 +104,9 @@ export class RunScheduler {
   }
 
   private sources(run: PersistedRun): TraceSources {
-    return run.executionTarget.traceSources ?? driverTraceSources(run.executionTarget.agentKind as AgentKind, agentDriver(run.executionTarget.agentKind as AgentKind).launch(run.id, {}));
+    // Runs launched before source declarations must keep their native projection.
+    const launch = agentDriver(run.executionTarget.agentKind as AgentKind).launch(run.id, {});
+    return run.executionTarget.traceSources ?? { primary: { kind: "native_session", path: launch.artifacts.roots[0], mediaType: "application/x-ndjson", provider: run.executionTarget.agentKind as AgentKind, discoverCommand: launch.artifacts.discoverCommand } };
   }
 
   private async collectArtifact(run: PersistedRun, backend: ExeVmBackend, source?: TraceSource, primary?: boolean) {

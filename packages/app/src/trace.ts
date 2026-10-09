@@ -41,17 +41,26 @@ function parseCodex(value: any, sequence: number): TraceEvent[] {
   return [];
 }
 
-function parseClaude(value: any, sequence: number): TraceEvent[] {
+function parseClaude(value: any, sequence: number, tools: Map<string, string>): TraceEvent[] {
+  if (!value || typeof value !== "object") return [event(sequence, "warning", "Invalid Claude session record", value, {})];
   const message = value.message ?? value;
   if (value.type === "user" || message.role === "user") {
-    const toolResult = Array.isArray(message.content) && message.content.find((x: any) => x?.type === "tool_result");
-    return [event(sequence, toolResult ? "tool_result" : "user_message", toolResult ? "Tool result" : "User", contentText(toolResult?.content ?? message.content), value)];
+    const blocks = Array.isArray(message.content) ? message.content : [];
+    const results = blocks.filter((block: any) => block?.type === "tool_result");
+    if (results.length) return results.map((block: any, index: number) => ({
+      ...event(sequence + index, "tool_result", tools.get(block.tool_use_id) ?? "Tool result", contentText(block.content), { ...value, id: `${value.uuid ?? sequence}:${index}`, parentId: block.tool_use_id }),
+      display: { toolUseId: block.tool_use_id, isError: Boolean(block.is_error) },
+    }));
+    return [event(sequence, "user_message", "User", contentText(message.content), value)];
   }
   if (value.type === "assistant" || message.role === "assistant") {
     const entries: TraceEvent[] = [];
     for (const block of Array.isArray(message.content) ? message.content : []) {
       if (block.type === "thinking") entries.push(event(sequence + entries.length, "reasoning", "Reasoning", block.thinking, value));
-      else if (block.type === "tool_use") entries.push({ ...event(sequence + entries.length, "tool_call", String(block.name ?? "Tool call"), block.input, { ...value, id: block.id }), display: { arguments: block.input ?? {} } });
+      else if (block.type === "tool_use") {
+        tools.set(block.id, String(block.name ?? "Tool call"));
+        entries.push({ ...event(sequence + entries.length, "tool_call", String(block.name ?? "Tool call"), block.input, { ...value, id: block.id }), display: { arguments: block.input ?? {} } });
+      }
       else if (block.type === "text") entries.push(event(sequence + entries.length, "assistant_message", "Assistant", block.text, value));
     }
     return entries;
@@ -60,7 +69,7 @@ function parseClaude(value: any, sequence: number): TraceEvent[] {
 }
 
 /** Parses source JSONL into bounded, provider-neutral display events. */
-export function parseTrace(provider: "codex" | "claude" | "pi", jsonl: string, sourceKind: TraceSource["kind"] = "native_session"): TraceEvent[] {
+export function parseTrace(provider: "codex" | "claude" | "pi", jsonl: string, sourceKind: TraceSource["kind"] = "native_session", claudeTools = new Map<string, string>()): TraceEvent[] {
   const events: TraceEvent[] = [];
   for (const line of jsonl.split(/\r?\n/)) {
     if (!line.trim()) continue;
@@ -73,7 +82,7 @@ export function parseTrace(provider: "codex" | "claude" | "pi", jsonl: string, s
       events.push({ sequence: events.length + 1, id: record.id, type: record.type, title: clipped(record.title), preview: clipped(record.preview), ...(typeof record.parentId === "string" ? { parentId: record.parentId } : {}), ...(typeof record.role === "string" ? { role: record.role } : {}), ...(typeof record.occurredAt === "string" ? { occurredAt: record.occurredAt } : {}), display: record.display && typeof record.display === "object" && !Array.isArray(record.display) ? record.display : {} });
       continue;
     }
-    const parsed = provider === "codex" ? parseCodex(value, events.length + 1) : provider === "claude" ? parseClaude(value, events.length + 1) : parsePi(value, events.length + 1);
+    const parsed = provider === "codex" ? parseCodex(value, events.length + 1) : provider === "claude" ? parseClaude(value, events.length + 1, claudeTools) : parsePi(value, events.length + 1);
     events.push(...parsed);
   }
   return events.map((item, index) => ({ ...item, sequence: index + 1 }));
@@ -112,10 +121,11 @@ export async function consumeTraceStream(provider: "codex" | "claude" | "pi", st
   const reader = stream.getReader(), decoder = new TextDecoder();
   let batch: TraceEvent[] = [], sequence = 0;
   let pending = "";
+  const claudeTools = new Map<string, string>();
   const flush = async () => { if (!batch.length) return; const ready = batch; batch = []; await consumeBatch(ready); };
   const consume = async (line: string) => {
     if (!line.trim()) return;
-    const parsed = parseTrace(provider, line, sourceKind);
+    const parsed = parseTrace(provider, line, sourceKind, claudeTools);
     for (const item of parsed) { batch.push({ ...item, sequence: ++sequence }); if (batch.length >= batchSize) await flush(); }
   };
   for (;;) {

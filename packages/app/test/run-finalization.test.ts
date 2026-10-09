@@ -35,6 +35,14 @@ function fixture(exit = 42) {
 }
 
 describe("durable run finalization", () => {
+  it("keeps historical Claude runs on native discovery without a source declaration", async () => {
+    const f = fixture(0);
+    f.run.executionTarget.agentKind = "claude";
+    expect(f.scheduler.sources(f.run).primary).toMatchObject({ kind: "native_session", provider: "claude", discoverCommand: expect.stringContaining(".claude/projects") });
+    await f.scheduler.poll(f.run);
+    expect(f.native).toHaveBeenCalledOnce();
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "stored", undefined, true);
+  });
   it("stores real nonzero harness stderr and exit metadata before deleting the VM", async () => {
     const f = fixture();
     await f.scheduler.poll(f.run);
