@@ -1,16 +1,17 @@
 /** Shared browser orchestration. Completion-based timers prevent overlapping polls. */
 export const pageRefreshBrowserSource = `
 function pageRefresh(load,{delay=()=>3000,onError=()=>{}}={}){
-  let timer,busy=false,stopped=false,failures=0;
+  let timer,busy=false,stopped=false,failures=0,queued=false;
   const clear=()=>{clearTimeout(timer);timer=undefined};
   const schedule=ms=>{clear();if(!stopped&&!document.hidden&&ms!==null)timer=setTimeout(refresh,ms)};
   async function refresh(){
-    if(stopped||document.hidden||busy)return;
+    if(stopped||document.hidden||busy){queued=true;return}
+    queued=false;
     clear();busy=true;
     let next;
     try{await load();failures=0;next=delay()}
     catch(error){failures++;next=Math.min(30000,5000*2**(failures-1));onError(error)}
-    finally{busy=false;schedule(next)}
+    finally{busy=false;if(queued&&!stopped&&!document.hidden){queued=false;refresh()}else schedule(next)}
   }
   const resume=()=>{clear();if(!document.hidden)refresh()};
   const hide=()=>{stopped=true;clear()};

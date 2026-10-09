@@ -58,7 +58,7 @@ describe("job split Run button", () => {
     const posts = fetcher.mock.calls.filter(([, init]) => init?.method === 'POST');
     expect(posts).toHaveLength(1);
     expect(posts[0]).toEqual(['/api/v1/jobs/job-1/invocations', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: expect.any(String),
     }]);
     expect(document.querySelector('#run-options').disabled).toBe(true);
     finish(json({ runId: 'created-run' })); await flush();
@@ -80,7 +80,7 @@ describe("job split Run button", () => {
     document.querySelector('#manual-run-prompt').value = 'Review the release';
     document.querySelector('#manual-run-form').dispatchEvent(new Event('submit', { cancelable: true }));
     await flush();
-    expect(JSON.parse(fetcher.mock.calls.find(([, init]) => init?.method === 'POST')![1].body)).toEqual({ prompt: 'Review the release' });
+    expect(JSON.parse(fetcher.mock.calls.find(([, init]) => init?.method === 'POST')![1].body)).toEqual({ prompt: 'Review the release', idempotencyKey: expect.any(String) });
   });
 
   it("supports keyboard opening, Escape focus restoration, and outside dismissal", async () => {
@@ -111,6 +111,138 @@ describe("job split Run button", () => {
   });
 });
 
+describe("mutation reconciliation", () => {
+  it("gives immediate feedback during a controlled 600ms response and navigates only on confirmation",async()=>{
+    const fetcher=vi.fn(async(url: string,init: any)=>{
+      if(init?.method)return new Promise<Response>(resolve=>setTimeout(()=>resolve(json({runId:'timed-run'})),600));
+      return json(url.startsWith('/api/v1/jobs/')?job:{items:[],nextCursor:null});
+    });
+    render(jobDetailPage(viewer,job.id),fetcher);await flush();
+    const start=Date.now();document.querySelector('#run').click();
+    expect(Date.now()-start).toBe(0);
+    expect(document.querySelector('#run').textContent).toBe('Starting…');
+    await vi.advanceTimersByTimeAsync(599);
+    expect(document.querySelector('#run').disabled).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(Date.now()-start).toBe(600);
+    expect(window.location.pathname).toBe('/job-runs/timed-run');
+  });
+  it("closes the prompt modal immediately and recovers the draft after rejection",async()=>{
+    let finish!: (response: Response)=>void;
+    const fetcher=vi.fn(async(url: string,init: any)=>{
+      if(init?.method)return new Promise<Response>(resolve=>{finish=resolve});
+      return json(url.startsWith('/api/v1/jobs/')?job:{items:[],nextCursor:null});
+    });
+    render(jobDetailPage(viewer,job.id),fetcher);await flush();
+    const dialog=document.querySelector('#manual-run-dialog');dialog.showModal=()=>{dialog.open=true};
+    document.querySelector('#run-options').click();document.querySelector('#run-with-prompt').click();
+    document.querySelector('#manual-run-prompt').value='Keep my input';
+    document.querySelector('#manual-run-form').dispatchEvent(new Event('submit',{cancelable:true}));
+    expect(dialog.open).toBe(false);
+    finish(json({error:'Queue full'},409));await flush();
+    document.querySelector('#run-options').click();document.querySelector('#run-with-prompt').click();
+    expect(document.querySelector('#manual-run-prompt').value).toBe('Keep my input');
+    expect(document.querySelector('#manual-run-error').textContent).toContain('Queue full');
+  });
+  it("keeps deletion pending through artifact cleanup and only navigates after confirmation",async()=>{
+    let finish!: (response: Response)=>void;vi.stubGlobal('confirm',()=>true);
+    const fetcher=vi.fn(async(url: string,init: any)=>{
+      if(init?.method)return new Promise<Response>(resolve=>{finish=resolve});
+      return json(url.startsWith('/api/v1/jobs/')?job:{items:[],nextCursor:null});
+    });
+    render(jobDetailPage(viewer,job.id),fetcher);await flush();
+    const before=window.location.pathname;
+    document.querySelector('#delete').click();document.querySelector('#delete').click();
+    expect(document.querySelector('#delete').textContent).toBe('Deleting…');
+    expect(window.location.pathname).toBe(before);
+    expect(fetcher.mock.calls.filter(([,init])=>init?.method)).toHaveLength(1);
+    finish(json({deleted:true}));await flush();
+    expect(window.location.pathname).toBe('/jobs');
+  });
+
+  it("retains Starting feedback across a changed poll and reuses the key after a lost response", async () => {
+    let count=0, finish!: (response: Response) => void;
+    const fetcher=vi.fn(async (url: string, init: any) => {
+      if(init?.method) return new Promise<Response>(resolve=>{finish=resolve});
+      return json(url.startsWith('/api/v1/jobs/')?{...job,runningCount:count}:{items:[],nextCursor:null});
+    });
+    render(jobDetailPage(viewer,job.id),fetcher);await flush();
+    document.querySelector('#run').click();
+    expect(document.querySelector('#run').textContent).toBe('Starting…');
+    expect(document.querySelector('[data-pending-run]').textContent).toContain('Awaiting acceptance');
+    const key=JSON.parse(fetcher.mock.calls.find(([,init])=>init?.method)![1].body).idempotencyKey;
+    count=1;await vi.advanceTimersByTimeAsync(10000);
+    expect(document.querySelector('#run').disabled).toBe(true);
+    expect(document.querySelector('#run').textContent).toBe('Starting…');
+    document.querySelector('#manual-run-form').dispatchEvent(new Event('submit',{cancelable:true}));
+    expect(fetcher.mock.calls.filter(([,init])=>init?.method)).toHaveLength(1);
+    finish(json({error:'Wake failed'},500));await flush();
+    expect(document.querySelector('#run-error').textContent).toContain('Outcome unknown');
+    document.querySelector('#run').click();
+    expect(JSON.parse(fetcher.mock.calls.filter(([,init])=>init?.method).at(-1)![1].body).idempotencyKey).toBe(key);
+    finish(json({runId:'recovered'}));await flush();
+    expect(window.location.pathname).toBe('/job-runs/recovered');
+  });
+
+  it.each([409,500])("reconciles an enable rejection (%s) without stale reads undoing the action",async status=>{
+    let serverEnabled=true,finishMutation!: (response: Response)=>void,finishRead!: (response: Response)=>void,hold=false;
+    const fetcher=vi.fn(async(url: string,init: any)=>{
+      if(init?.method)return new Promise<Response>(resolve=>{finishMutation=resolve});
+      if(url.startsWith('/api/v1/jobs/')){
+        if(hold){hold=false;return new Promise<Response>(resolve=>{finishRead=resolve})}
+        return json({...job,enabled:serverEnabled});
+      }
+      return json({items:[],nextCursor:null});
+    });
+    render(jobDetailPage(viewer,job.id),fetcher);await flush();
+    hold=true;await vi.advanceTimersByTimeAsync(10000);
+    document.querySelector('#toggle').click();
+    expect(document.querySelector('[data-enabled-badge]').textContent).toBe('Disabled');
+    expect(document.querySelector('#toggle').textContent).toBe('Disabling…');
+    serverEnabled=status===409;
+    finishMutation(json({error:'Rejected'},status));await flush();
+    expect(document.querySelector('[data-enabled-badge]').textContent).toBe(status===409?'Enabled':'Disabled');
+    finishRead(json(job));await flush();
+    expect(document.querySelector('[data-enabled-badge]').textContent).toBe(serverEnabled?'Enabled':'Disabled');
+    expect(fetcher.mock.calls.filter(([url,init])=>url.startsWith('/api/v1/jobs/')&&!init?.method).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("confirms enable directly from the mutation response before reconciliation",async()=>{
+    let finish!: (response: Response)=>void,hold=false;
+    const fetcher=vi.fn(async(url: string,init: any)=>{
+      if(init?.method)return new Promise<Response>(resolve=>{finish=resolve});
+      if(hold)return new Promise<Response>(()=>{});
+      return json(url.startsWith('/api/v1/jobs/')?job:{items:[],nextCursor:null});
+    });
+    render(jobDetailPage(viewer,job.id),fetcher);await flush();
+    document.querySelector('#toggle').click();hold=true;
+    finish(json({id:job.id,enabled:false}));await flush();
+    expect(document.querySelector('[data-enabled-badge]').textContent).toBe('Disabled');
+    expect(document.querySelector('#toggle').textContent).toBe('Enable');
+  });
+
+  it.each(['queued','starting','running','blocked','stopping','succeeded','failed','stopped'])("offers stop only for API-supported %s state",async state=>{
+    let finish!: (response: Response)=>void;
+    vi.stubGlobal('confirm',()=>true);
+    const fetcher=vi.fn(async(url: string,init: any)=>{
+      if(init?.method)return new Promise<Response>(resolve=>{finish=resolve});
+      if(url.includes('/trace?'))return json({items:[],nextCursor:null});
+      return json(url.startsWith('/api/v1/jobs/')?job:{...run,state});
+    });
+    render(jobRunPage(viewer,run.id),fetcher);await flush();
+    const button=document.querySelector('#kill-run');
+    expect(Boolean(button)).toBe(['starting','running','blocked'].includes(state));
+    if(button){
+      button.click();button.click();
+      expect(button.textContent).toBe('Stopping…');
+      expect(fetcher.mock.calls.filter(([,init])=>init?.method)).toHaveLength(1);
+      expect(document.querySelector('[data-run-state]').textContent).toBe(state);
+      finish(json({id:run.id,state:'stopping'}));await flush();
+      expect(document.querySelector('#run-detail h1')).not.toBeNull();
+    }
+  });
+});
+
 describe("lifecycle page refresh", () => {
   it("discovers jobs while idle, updates running counts, and preserves unchanged DOM", async () => {
     let jobs: any[] = [];
@@ -136,18 +268,20 @@ describe("lifecycle page refresh", () => {
     await vi.advanceTimersByTimeAsync(30000);
     expect(fetcher).toHaveBeenCalledTimes(1);
     resolve(json([job])); await flush();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    resolve(json([job])); await flush();
     Object.defineProperty(document, 'hidden', { configurable: true, value: true });
     document.dispatchEvent(new Event('visibilitychange'));
     await vi.advanceTimersByTimeAsync(30000);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     document.dispatchEvent(new Event('visibilitychange'));
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(3);
     window.dispatchEvent(new Event('pagehide'));
     resolve(json([job])); await flush(); await vi.advanceTimersByTimeAsync(30000);
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    window.dispatchEvent(new Event('pageshow'));
     expect(fetcher).toHaveBeenCalledTimes(3);
+    window.dispatchEvent(new Event('pageshow'));
+    expect(fetcher).toHaveBeenCalledTimes(4);
     resolve(json([job])); await flush();
   });
 
