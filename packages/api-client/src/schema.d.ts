@@ -1883,6 +1883,8 @@ export interface operations {
             /** @description Unauthenticated sessions return authenticated:false; expired, unverified, removed or revoked owners are unauthenticated. */
             200: {
                 headers: {
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
                 };
                 content: {
@@ -1940,6 +1942,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
                 };
                 content: {
@@ -1981,6 +1985,8 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
                 };
                 content: {
@@ -2020,6 +2026,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
                 };
                 content: {
@@ -2058,6 +2066,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
                 };
                 content: {
@@ -2097,6 +2107,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
                 };
                 content: {
@@ -2136,6 +2148,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
                 };
                 content: {
@@ -2175,6 +2189,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
                 };
                 content: {
@@ -2207,6 +2223,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
                 };
                 content: {

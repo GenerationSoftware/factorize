@@ -44,6 +44,13 @@ async function contract(response: Response, path: string, method: string) {
   return body;
 }
 
+it("publishes the deployment contract marker on the public session read", async () => {
+  const response = await protectedApiFetch(new Request("https://factorize.test/api/v1/session"), { APP_ORIGIN: "https://factorize.test" } as Env, null, {} as ExecutionContext);
+  expect(response.headers.get("X-Factorize-Contract")).toBe("gen-2157-static-v1");
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ authenticated: false });
+});
+
 describe("public auth API and cookie security", () => {
   it("returns a documented unauthenticated session without backend data access", async () => {
     const response = await call("/api/v1/session");
