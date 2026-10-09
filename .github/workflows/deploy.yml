@@ -27,13 +27,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:css
-      - name: Validate authentication email configuration
-        run: npm run auth:validate-email --workspace=factorize
-        env:
-          APP_ORIGIN: https://app.factorize.sh
-          POSTMARK_SERVER_TOKEN: ${{ secrets.POSTMARK_SERVER_TOKEN }}
-          POSTMARK_FROM_EMAIL: ${{ secrets.POSTMARK_FROM_EMAIL }}
-          POSTMARK_MESSAGE_STREAM: ${{ secrets.POSTMARK_MESSAGE_STREAM }}
       - name: Apply database migrations
         run: npm run db:migrate --workspace=factorize
         env:

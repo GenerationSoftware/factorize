@@ -84,7 +84,7 @@ Factorize owns authentication in PostgreSQL. Create a native account at `/auth/s
 
 Postmark sends one-hour, single-use verification and password-reset links. `/auth/verify/request` resends verification; `/auth/password-reset` handles recovery. Links never appear in application responses or logs. Passwords use salted PBKDF2-SHA-256. **Change password** in the account menu requires the current password. Password reset, password change and sign-out invalidate existing sessions via membership session versions, including delegated API credentials.
 
-Before deploying, configure these **production GitHub environment secrets** for the Postmark preflight. The deployment copies only `POSTMARK_SERVER_TOKEN` to a Worker secret; the verified sender and transactional message stream are non-secret Worker vars in `packages/app/wrangler.jsonc`.
+Before deploying, configure `POSTMARK_SERVER_TOKEN` as a **production GitHub environment secret**. The deployment copies it to a Worker secret; the verified sender and transactional message stream are non-secret Worker vars in `packages/app/wrangler.jsonc`. For a manual Postmark preflight, set the following environment variables along with `APP_ORIGIN`:
 
 | Setting | Required value |
 | --- | --- |
@@ -92,7 +92,7 @@ Before deploying, configure these **production GitHub environment secrets** for 
 | `POSTMARK_FROM_EMAIL` | Plain email address on a verified Postmark sender signature or verified domain |
 | `POSTMARK_MESSAGE_STREAM` | Active **transactional** stream ID, commonly `outbound` |
 
-`APP_ORIGIN` must be the canonical HTTPS origin, without a trailing slash. Deploy runs `npm run auth:validate-email --workspace=factorize` **before migrations**: it checks the server token/stream with Postmark and sends one preflight email from/to the configured sender, rejecting unverified senders or sending failures. It prints no credentials. Missing configuration stops deployment. Runtime signup and recovery also fail closed if configuration or delivery fails; users can resend verification after a delivery failure. Local mail testing needs an HTTPS origin and a separate Postmark test server/sender; automated tests mock Postmark and never send mail.
+`APP_ORIGIN` must be the canonical HTTPS origin, without a trailing slash. Run `npm run auth:validate-email --workspace=factorize` manually when needed: it checks the server token/stream with Postmark and sends one preflight email from/to the configured sender, rejecting unverified senders or sending failures. It prints no credentials. Missing configuration fails the manual check. The deploy workflow does not run this check or send a preflight email. Runtime signup and recovery also fail closed if configuration or delivery fails; users can resend verification after a delivery failure. Local mail testing needs an HTTPS origin and a separate Postmark test server/sender; automated tests mock Postmark and never send mail.
 
 ### Existing account migration
 
