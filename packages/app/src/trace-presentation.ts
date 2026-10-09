@@ -34,7 +34,7 @@ const traceContent=input=>{
 };
 const traceCard=e=>{
   const type=e.type,title=traceEscape(e.title),preview=String(e.preview||'').slice(0,32768);
-  if(type==='reasoning')return '<div class="trace-thinking"><span class="trace-spinner" aria-hidden="true"></span><span class="trace-thinking-live">Thinking…</span><span class="trace-thinking-past">Thought</span></div>';
+  if(type==='reasoning')return '<div class="trace-thinking"><span class="trace-spinner" aria-hidden="true"></span><span>Thought</span></div>';
   if(type==='user_message'||type==='assistant_message')return '<article class="trace-message trace-'+type+'"><h3>'+ (type==='user_message'?'You':'Assistant')+'</h3><div class="trace-prose">'+traceContent(preview)+'</div></article>';
   const tool=['tool_call','tool_result','command','file_change'].includes(type);
   let content=traceCode(preview);

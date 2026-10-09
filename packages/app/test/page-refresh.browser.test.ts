@@ -305,3 +305,61 @@ describe("lifecycle page refresh", () => {
   });
 
 });
+
+describe("persistent trace activity", () => {
+  it.each(['succeeded', 'failed', 'canceled'])("stays at the trace end between events and disappears on %s", async terminal => {
+    let current = { ...run, state: 'running', artifact_state: 'stored' };
+    let items = [event(1)];
+    let resolveTrace: ((response: Response) => void) | undefined;
+    let pause = false;
+    render(jobRunPage(viewer, run.id), vi.fn(async (input: string) => {
+      if (input.includes('/trace?')) {
+        if (pause) return new Promise<Response>(resolve => { resolveTrace = resolve; });
+        const after = Number(new URL(input, 'https://app').searchParams.get('after'));
+        return json({ items: items.filter(item => item.sequence > after), nextCursor: null });
+      }
+      return json(input.startsWith('/api/v1/jobs/') ? job : current);
+    }));
+    await flush();
+    const trace = document.querySelector('[data-run-trace]');
+    const activity = document.querySelector('[data-trace-activity]');
+    expect(activity.hidden).toBe(false);
+    expect(trace.nextElementSibling).toBe(activity);
+    expect(activity.textContent).toBe('Thinking…');
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(trace.children).toHaveLength(1);
+    expect(activity.hidden).toBe(false);
+    pause = true;
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(activity.hidden).toBe(false);
+    items.push(event(2));
+    resolveTrace!(json({ items: [event(2)], nextCursor: null }));
+    await flush();
+    expect(trace.children).toHaveLength(2);
+    expect(trace.nextElementSibling).toBe(activity);
+    expect(activity.hidden).toBe(false);
+    pause = false;
+    current = { ...current, state: terminal };
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(activity.hidden).toBe(true);
+  });
+
+  it.each(['queued', 'starting', 'blocked', 'stopping', 'succeeded', 'failed', 'canceled'])("does not show activity when opening a %s run", async state => {
+    render(jobRunPage(viewer, run.id), vi.fn(async (input: string) => {
+      if (input.includes('/trace?')) return json({ items: [event(1)], nextCursor: null });
+      return json(input.startsWith('/api/v1/jobs/') ? job : { ...run, state });
+    }));
+    await flush();
+    expect(document.querySelector('[data-trace-activity]').hidden).toBe(true);
+  });
+
+  it("shows activity for a running run with no trace events yet", async () => {
+    render(jobRunPage(viewer, run.id), vi.fn(async (input: string) => {
+      if (input.includes('/trace?')) return json({ items: [], nextCursor: null });
+      return json(input.startsWith('/api/v1/jobs/') ? job : { ...run, state: 'running' });
+    }));
+    await flush();
+    expect(document.querySelector('[data-run-trace]').children).toHaveLength(0);
+    expect(document.querySelector('[data-trace-activity]').hidden).toBe(false);
+  });
+});

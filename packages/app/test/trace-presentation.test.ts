@@ -40,7 +40,7 @@ describe('trace presentation', () => {
   });
   it('replaces reasoning bodies with a compact indicator and leaves errors visible', () => {
     const node = dom(traceCard({type:'reasoning',title:'Reasoning',preview:'private reasoning'}));
-    expect(node.textContent).toContain('Thinking…');
+    expect(node.textContent).toBe('Thought');
     expect(node.textContent).not.toContain('private reasoning');
     expect(node.textContent).not.toContain('Reasoning');
     expect(dom(traceCard({type:'error',title:'Failed',preview:'error'})).querySelector('details')?.open).toBe(true);
@@ -51,7 +51,7 @@ describe('trace presentation', () => {
     expect(dom(traceContent('<task>\n'.repeat(4000))).querySelectorAll('details')).toHaveLength(1);
     expect(dom(traceCard({type:'tool_result',title:'Output',preview:'x'.repeat(40000)})).querySelector('code')?.textContent).toHaveLength(32768);
   });
-  it('keeps cursor-based append rendering and gates animation on the latest page and running state', () => {
+  it('keeps cursor-based append rendering and keeps activity separate from trace pagination and reasoning events', () => {
     const html = jobRunPage({email:'test@example.com'},'run');
     expect(html).toContain("list.insertAdjacentHTML('beforeend',page.items.map(traceCard).join(''))");
     expect(html).toContain("list.classList.toggle('trace-at-end',!page.nextCursor)");
