@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+@layer base {
+  body { @apply bg-slate-950 text-slate-100 antialiased; }
+  a { @apply underline underline-offset-4; }
+  :focus-visible { @apply outline-2 outline-offset-4 outline-sky-400; }
+}

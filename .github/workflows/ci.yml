@@ -44,7 +44,7 @@ jobs:
       - run: npm ci
       - name: Verify generated API contract
         run: |
-          npm run generate:openapi
-          git diff --exit-code -- packages/docs/openapi.yaml
+          npm run generate
+          git diff --exit-code -- packages/docs/openapi.yaml packages/api-client/src/schema.d.ts
       - run: npm run build:css
       - run: npm run check

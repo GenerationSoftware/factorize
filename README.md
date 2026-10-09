@@ -224,3 +224,18 @@ Factorize also supports the OAuth 2.0 Device Authorization Grant (RFC 8628) for 
 
 [Apache License 2.0](LICENSE)
 Test line for the Factorize PR-check and merge-queue flow.
+
+### Static application migration
+
+The existing Worker now lives in `packages/api`. `packages/app` contains the Vite/React frontend foundation and `packages/api-client` contains the generated public API client. Production still serves the existing dashboard while feature routes migrate. See [the staged rollout and route inventory](docs/package-migration.md).
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev:api` | Run the existing API/legacy dashboard Worker |
+| `npm run dev:app` | Run the static frontend development server |
+| `npm run generate` | Generate OpenAPI and browser client types |
+| `npm run build:app` | Build static frontend assets |
+| `npm run check:boundaries` | Reject frontend/backend implementation imports |
+| `npm run check` | Validate packages, generated client, tests and builds |
+
+Use Node 24. Keep local secrets in `packages/api/.dev.vars`; the static frontend does not expose environment variables.

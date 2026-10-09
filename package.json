@@ -2,19 +2,31 @@
   "name": "factorize-workspace",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace=factorize",
     "dev:marketing": "npm run dev --workspace=factorize-marketing",
     "build:marketing": "npm run build:marketing --workspace=factorize-marketing",
     "build:css": "npm run build:css --workspace=factorize",
     "test": "npm run test --workspaces --if-present",
-    "check": "npm run check --workspace=factorize && npm run check --workspace=factorize-marketing && npm run check --workspace=factorize-tail-relay",
+    "check": "npm run check:boundaries && npm run check:client && npm run check --workspace=factorize-app && npm run check --workspace=factorize && npm run check --workspace=factorize-marketing && npm run check --workspace=factorize-tail-relay",
     "deploy": "npm run deploy:marketing && npm run deploy:app && npm run deploy:tail-relay",
     "deploy:marketing": "npm run deploy --workspace=factorize-marketing",
     "deploy:app": "npm run deploy --workspace=factorize",
     "deploy:tail-relay": "npm run deploy --workspace=factorize-tail-relay",
     "generate:openapi": "npm run generate:openapi --workspace=factorize",
-    "check:openapi": "npm run check:openapi --workspace=factorize"
+    "check:openapi": "npm run check:openapi --workspace=factorize",
+    "dev:api": "npm run dev --workspace=factorize",
+    "dev:app": "npm run dev --workspace=factorize-app",
+    "build:app": "npm run build --workspace=factorize-app",
+    "generate:client": "npm run generate --workspace=factorize-api-client",
+    "check:client": "npm run check --workspace=factorize-api-client",
+    "check:boundaries": "node --test scripts/check-package-boundaries.test.mjs && node scripts/check-package-boundaries.mjs",
+    "generate": "npm run generate:openapi && npm run generate:client"
+  },
+  "engines": {
+    "node": ">=24.12.0"
   }
 }
