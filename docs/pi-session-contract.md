@@ -11,7 +11,7 @@ The compatibility reference is the release's
 [session format](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/session-format.md)
 and [message types](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/message-types.md),
 also shipped in the binary's docs directory. Fixtures live in
-`packages/app/test/fixtures/pi/1.1.0`; their README documents reproduction.
+`packages/api/test/fixtures/pi/1.1.0`; their README documents reproduction.
 
 Pi's primary source is the native session discovered under its run-specific
 `--session-dir`. Both live projection and terminal reconciliation read this file.

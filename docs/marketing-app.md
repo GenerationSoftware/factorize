@@ -3,7 +3,7 @@
 Factorize is deployed as a Cloudflare Pages site and an app Worker:
 
 - `packages/marketing` owns the public landing page at `https://factorize.sh`. It is a static Cloudflare Pages project named `factorize-marketing`; its production branch is `main` and its output directory is `packages/marketing/public`. It contains no authenticated APIs or tenant data. Login and Create a Job links cross to `https://app.factorize.sh`.
-- `packages/app` owns the authenticated dashboard, OAuth callbacks, API/MCP endpoints, provider webhooks, and job deep links at `https://app.factorize.sh`. Its `/` route is the signed-out login entry point and redirects signed-in users to `/jobs`.
+- `packages/api` owns the authenticated dashboard, OAuth callbacks, API/MCP endpoints, provider webhooks, and job deep links at `https://app.factorize.sh`. Its `/` route is the signed-out login entry point and redirects signed-in users to `/jobs`.
 
 The Pages project is connected to `GenerationSoftware/factorize` for pull request previews, but Cloudflare's automatic production deployments are disabled. Production deploys from `main` run through `.github/workflows/deploy.yml`, where failures are visible in GitHub Actions. For a manual deployment, authenticate Wrangler and run `npm run deploy:marketing`; this uploads `packages/marketing/public` to the `factorize-marketing` project.
 

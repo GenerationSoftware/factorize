@@ -19,7 +19,7 @@ Normalized execution streams contain UTF-8, newline-terminated JSON objects in a
 
 Required fields: `version` (1), `id`, `type`, `title`, `preview`. Optional fields:
 `parentId`, `role`, `occurredAt` (ISO timestamp), `display` (object). Event types
-match `TraceEventType` in `packages/app/src/trace.ts`. Sequence is assigned by the
+match `TraceEventType` in `packages/api/src/trace.ts`. Sequence is assigned by the
 projection, never trusted from the producer. Producers must append whole records
 and finish each with LF. They must write human stdout/stderr to their separate
 supervisor logs, never to the stream. The supervisor creates the stream directory
@@ -96,7 +96,7 @@ persisted source declaration continue to use native discovery. Native fallback
 parsing retains tool IDs, result names and error flags, including across artifact
 read chunks.
 
-`packages/app/test/fixtures/claude-2.1.293/` contains synthetic, version-pinned
+`packages/api/test/fixtures/claude-2.1.293/` contains synthetic, version-pinned
 schema fixtures for Claude Code 2.1.293 (the installed CLI version used during
 implementation). They model default root/subagent-tool behavior, not forwarded
 child text. Boundary tests execute the exact guest supervisor with a fake CLI,

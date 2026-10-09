@@ -1,7 +1,7 @@
 # Factorize
 
 [![CI](https://github.com/GenerationSoftware/factorize/actions/workflows/ci.yml/badge.svg)](https://github.com/GenerationSoftware/factorize/actions/workflows/ci.yml)
-[![Deploy to Cloudflare](https://img.shields.io/badge/Deploy_to-Cloudflare-F38020?style=flat&logo=cloudflare&logoColor=white)](https://deploy.workers.cloudflare.com/?url=https://github.com/GenerationSoftware/factorize&path=packages/app)
+[![Deploy to Cloudflare](https://img.shields.io/badge/Deploy_to-Cloudflare-F38020?style=flat&logo=cloudflare&logoColor=white)](https://deploy.workers.cloudflare.com/?url=https://github.com/GenerationSoftware/factorize&path=packages/api)
 
 **A no-code software factory for Linear teams.** Factorize turns selected Linear issue changes into coding-agent jobs on isolated, ephemeral exe.dev VMs.
 
@@ -21,15 +21,15 @@ Linear webhook → Cloudflare Worker → Durable Object → exe.dev /exec → is
 
 ## Deploy to Cloudflare
 
-Click the **Deploy to Cloudflare** button above to create a copy of the app Worker in your own Cloudflare account. The button selects `packages/app` as the Worker root; Cloudflare provisions the Durable Object binding and configures Workers Builds for the copied repository.
+Click the **Deploy to Cloudflare** button above to create a copy of the app Worker in your own Cloudflare account. The button selects `packages/api` as the Worker root; Cloudflare provisions the Durable Object binding and configures Workers Builds for the copied repository.
 
 > The Deploy to Cloudflare button works for public GitHub or GitLab repositories. If you are using a private fork, deploy with Wrangler instead.
 
 ### Deploy with Wrangler
 
 1. Clone the repository and install dependencies.
-2. Set `APP_ORIGIN` in `packages/app/wrangler.jsonc` to your final HTTPS Worker URL or custom domain.
-3. Create a dedicated OAuth KV namespace with `npm exec --workspace=factorize -- wrangler kv namespace create OAUTH_KV`, then set its ID in `packages/app/wrangler.jsonc`.
+2. Set `APP_ORIGIN` in `packages/api/wrangler.jsonc` to your final HTTPS Worker URL or custom domain.
+3. Create a dedicated OAuth KV namespace with `npm exec --workspace=factorize -- wrangler kv namespace create OAUTH_KV`, then set its ID in `packages/api/wrangler.jsonc`.
 4. Configure the Linear OAuth callback as `https://your-domain.example/auth/linear/callback`.
 5. Build assets, add secrets, and deploy:
 
@@ -62,7 +62,7 @@ For a headless machine, authenticate first with `npx wrangler login --device --b
 
 ```bash
 npm install
-cp packages/app/.dev.vars.example packages/app/.dev.vars
+cp packages/api/.dev.vars.example packages/api/.dev.vars
 npm run dev
 ```
 
@@ -84,7 +84,7 @@ Factorize owns authentication in PostgreSQL. Create a native account at `/auth/s
 
 Postmark sends one-hour, single-use verification and password-reset links. `/auth/verify/request` resends verification; `/auth/password-reset` handles recovery. Links never appear in application responses or logs. Passwords use salted PBKDF2-SHA-256. **Change password** in the account menu requires the current password. Password reset, password change and sign-out invalidate existing sessions via membership session versions, including delegated API credentials.
 
-Before deploying, configure `POSTMARK_SERVER_TOKEN` as a **production GitHub environment secret**. The deployment copies it to a Worker secret; the verified sender and transactional message stream are non-secret Worker vars in `packages/app/wrangler.jsonc`. For a manual Postmark preflight, set the following environment variables along with `APP_ORIGIN`:
+Before deploying, configure `POSTMARK_SERVER_TOKEN` as a **production GitHub environment secret**. The deployment copies it to a Worker secret; the verified sender and transactional message stream are non-secret Worker vars in `packages/api/wrangler.jsonc`. For a manual Postmark preflight, set the following environment variables along with `APP_ORIGIN`:
 
 | Setting | Required value |
 | --- | --- |
@@ -142,7 +142,7 @@ Cloudflare Worker failures can also start Jobs through the separately deployable
 | `CLICKUP_CLIENT_SECRET` | ClickUp OAuth client secret; ClickUp also uses a per-installation webhook secret stored encrypted by Factorize |
 | `CREDENTIAL_ENCRYPTION_KEY` | Base64-encoded 32-byte key for encrypted credentials |
 | `SESSION_SIGNING_SECRET` | Independent secret for signed browser sessions |
-| `APP_ORIGIN` | Public Worker origin, configured in `packages/app/wrangler.jsonc` |
+| `APP_ORIGIN` | Public Worker origin, configured in `packages/api/wrangler.jsonc` |
 | `OAUTH_KV` | KV binding containing OAuth clients, grants, refresh tokens, and revocation state |
 
 Never commit `.dev.vars` or production secret values. The included `.dev.vars.example` is a safe template.
@@ -152,7 +152,7 @@ Never commit `.dev.vars` or production secret values. The included `.dev.vars.ex
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Build CSS and start local Wrangler development |
-| `npm run build:css` | Compile Tailwind into `packages/app/public/styles.css` |
+| `npm run build:css` | Compile Tailwind into `packages/api/public/styles.css` |
 | `npm test` | Run the unit test suite |
 | `npm run check` | Type-check/test the app and dry-run both Worker deployments |
 | `npm run deploy:app` | Deploy only the `factorize` app Worker |
