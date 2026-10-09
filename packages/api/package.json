@@ -4,12 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run build:css && wrangler dev",
-    "build:css": "tailwindcss -i ./src/tailwind.css -o ./public/styles.css --minify",
+    "dev": "wrangler dev --local-protocol https --var APP_ORIGIN:https://localhost:5173",
     "check": "npm run check:openapi && npm run check:api-boundaries && node --test scripts/validate-auth-email.check.mjs && tsc --noEmit && vitest run && wrangler deploy --dry-run",
     "check:api-boundaries": "node scripts/check-api-boundaries.mjs",
     "test": "vitest run",
-    "deploy": "wrangler deploy",
+    "deploy": "node ../../scripts/prepare-app-deploy.mjs && wrangler deploy",
     "benchmark:loading": "vitest run --config scripts/loading-baseline.config.ts",
     "db:migrate": "node scripts/migrate.mjs",
     "db:verify": "node scripts/verify-schema.mjs",
@@ -18,7 +17,8 @@
     "generate:openapi": "tsx scripts/generate-openapi.ts",
     "check:openapi": "tsx scripts/generate-openapi.ts --check",
     "test:static-slice": "vitest run --config scripts/static-slice.config.ts",
-    "benchmark:migration": "vitest run --config scripts/migration-measurements.config.ts"
+    "benchmark:migration": "vitest run --config scripts/migration-measurements.config.ts",
+    "deploy:prepared": "wrangler deploy"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.10.3",
@@ -34,7 +34,6 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.10.10",
     "@cloudflare/workers-types": "^5.20260910.1",
-    "@tailwindcss/cli": "^4.1.14",
     "@types/mustache": "^4.2.6",
     "@types/node": "^26.5.1",
     "@types/pg": "^8.15.5",
@@ -42,7 +41,6 @@
     "drizzle-kit": "^0.31.10",
     "happy-dom": "^20.14.5",
     "playwright": "^1.64.0",
-    "tailwindcss": "^4.1.14",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4",

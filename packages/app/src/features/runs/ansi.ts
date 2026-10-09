@@ -73,4 +73,3 @@ export function parseAnsi(input: unknown): AnsiToken[] {
   flush();
   return tokens;
 }
-

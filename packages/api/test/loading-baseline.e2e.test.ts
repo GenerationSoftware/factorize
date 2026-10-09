@@ -24,13 +24,13 @@ describe.skipIf(!databaseUrl)("cookie loading baseline", () => {
   afterAll(async () => { await browser?.close(); vi.restoreAllMocks(); await fixture?.cleanup(); });
   it("records endpoint latency and navigation-to-useful-content for requested authenticated screens", async () => {
     const cases = [
-      { name: "Jobs", page: "/jobs", endpoint: "/api/v1/jobs", selector: "#jobs a[href^='/jobs/']" },
-      { name: "Job detail", page: `/jobs/${fixture.jobIds[0]}`, endpoint: `/api/v1/jobs/${fixture.jobIds[0]}`, selector: "#job-detail h1" },
-      { name: "Run detail", page: `/job-runs/${fixture.runId}`, endpoint: `/api/v1/runs/${fixture.runId}`, selector: "#run-detail h1" },
-      { name: "Job create", page: "/jobs/new", endpoint: "/api/v1/execution-targets", selector: "#job select[name='executionTargetId'] option[value='local']" },
-      { name: "Job edit", page: `/jobs/${fixture.jobIds[0]}/edit`, endpoint: `/api/v1/jobs/${fixture.jobIds[0]}`, selector: "#job select[name='executionTargetId'] option[value='local']" },
-      { name: "Integrations", page: "/settings/integrations", endpoint: "/api/v1/integrations", selector: "#installed-integrations article" },
-      { name: "API Keys", page: "/settings/api-keys", endpoint: "/api/v1/access-tokens", selector: "#tokens-empty:not(.hidden)" },
+      { name: "Jobs", page: "/jobs", endpoint: "/api/v1/jobs", selector: "main a[href^='/jobs/']" },
+      { name: "Job detail", page: `/jobs/${fixture.jobIds[0]}`, endpoint: `/api/v1/jobs/${fixture.jobIds[0]}`, selector: "main h1" },
+      { name: "Run detail", page: `/job-runs/${fixture.runId}`, endpoint: `/api/v1/runs/${fixture.runId}`, selector: "main h1" },
+      { name: "Job create", page: "/jobs/new", endpoint: "/api/v1/execution-targets", selector: "main select option[value='local']" },
+      { name: "Job edit", page: `/jobs/${fixture.jobIds[0]}/edit`, endpoint: `/api/v1/jobs/${fixture.jobIds[0]}`, selector: "main select option[value='local']" },
+      { name: "Integrations", page: "/settings/integrations", endpoint: "/api/v1/integrations", selector: "main h1" },
+      { name: "API Keys", page: "/settings/api-keys", endpoint: "/api/v1/access-tokens", selector: "main h1" },
     ];
     const report: any[] = [];
     const summarize = (samples: number[]) => ({ median_ms: Number([...samples].sort((a,b)=>a-b)[Math.floor(samples.length/2)].toFixed(1)), range_ms: [Math.min(...samples), Math.max(...samples)].map(v=>Number(v.toFixed(1))) });
@@ -44,7 +44,6 @@ describe.skipIf(!databaseUrl)("cookie loading baseline", () => {
           await context.addCookies([{ name: "factorize_session", value: fixture.cookie.slice("factorize_session=".length), domain: "factorize.test", path: "/", secure: true, httpOnly: true, sameSite: "Lax" }]);
           await context.route("**/*", async route => {
             const url = new URL(route.request().url());
-            if (url.pathname === "/styles.css") return route.fulfill({ contentType: "text/css", body: await readFile(new URL("../public/styles.css", import.meta.url), "utf8") });
             if (url.pathname === "/favicon.ico") return route.fulfill({ status: 204 });
             const response = await fixture.request(url.pathname + url.search, await route.request().headerValue("cookie") ?? "");
             const headers: Record<string, string> = {};
@@ -56,7 +55,7 @@ describe.skipIf(!databaseUrl)("cookie loading baseline", () => {
           await page.goto("https://factorize.test" + scenario.page);
           await page.locator(scenario.selector).first().waitFor({ state: "attached", timeout: 5000 });
           content.push(performance.now()-started);
-          expect(await page.locator("#error:not(.hidden), #access-error:not(.hidden), #integration-error:not(.hidden)").count()).toBe(0);
+          expect(await page.getByRole("alert").count()).toBe(0);
         } finally { await context.close(); }
       }
       report.push({ screen: scenario.name, endpoint: summarize(api), useful_content: summarize(content) });
@@ -68,7 +67,7 @@ describe.skipIf(!databaseUrl)("cookie loading baseline", () => {
     for (const [name, sql, values] of [["old_single_job", oldSql, [fixture.tenantId, fixture.jobIds[0]]], ...(batchedSql ? [["new_batch", batchedSql, [fixture.tenantId, fixture.jobIds]]] : [])] as [string, string, unknown[]][]) {
       plans[name] = (await fixture.db.pool.query("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + sql, values)).rows[0]["QUERY PLAN"];
     }
-    const result = { samples: 5, query_delay_ms: delayMs, environment: "Disposable local PostgreSQL; signed cookie Worker dispatch; headless Chromium with local CSS; intercepted HTTP, no Cloudflare/Hyperdrive/network transit", results: report, indexes, plans };
+    const result = { samples: 5, query_delay_ms: delayMs, environment: "Disposable local PostgreSQL; signed cookie Worker dispatch; headless Chromium with compiled static assets; intercepted HTTP, no Cloudflare/Hyperdrive/network transit", results: report, indexes, plans };
     console.log(JSON.stringify(result));
     if (process.env.LOADING_REPORT_PATH) await writeFile(process.env.LOADING_REPORT_PATH, JSON.stringify(result,null,2)+"\n");
   }, 120000);

@@ -1,3 +1,4 @@
+import { staticApp, securityHeaders } from "./static-app";
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import app from "./index";
 import { readSession, requestCookie } from "./session";
@@ -13,7 +14,6 @@ import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 
 const scopes = ["flows:read", "flows:write", "runs:read", "runs:write"];
-const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 async function currentOwner(request: Request, env: Env) {
   const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
   if (!session) return null;
@@ -41,15 +41,12 @@ const defaultHandler: ExportedHandler<Env> = {
       if (!session) {
         return deviceLoginRedirect(env.APP_ORIGIN, url.pathname + url.search);
       }
-      if (url.pathname === "/device") return deviceVerification(request, env, env.OAUTH_PROVIDER!, session);
-      if (request.method === "GET") {
+      if (url.pathname === "/device") return request.method === "GET" || request.method === "HEAD" ? (await staticApp(request, env))! : deviceVerification(request, env, env.OAUTH_PROVIDER!, session);
+      if (request.method === "GET" || request.method === "HEAD") {
         const parsed = await env.OAUTH_PROVIDER!.parseAuthRequest(request);
         const client = await env.OAUTH_PROVIDER!.lookupClient(parsed.clientId);
         if (!client) return new Response("Unknown OAuth client", { status: 400 });
-        const payload = btoa(JSON.stringify(parsed));
-        const signature = await hmac(`${payload}.${session.tenantId}.${session.userId}`, env.SESSION_SIGNING_SECRET);
-        const requested = parsed.scope.filter(scope => scopes.includes(scope));
-        return new Response(`<!doctype html><html><head><meta charset="utf-8"><title>Authorize Factorize</title><link rel="stylesheet" href="/styles.css"></head><body><main><h1>Authorize ${escape(client.clientName ?? "this client")}</h1><p>Signed in as ${escape(session.email)}. This client is requesting:</p><form method="post"><input type="hidden" name="request" value="${escape(payload)}"><input type="hidden" name="signature" value="${signature}">${requested.map(scope => `<label><input type="checkbox" name="scope" value="${scope}" checked> ${scope}</label><br>`).join("")}<p><button name="decision" value="allow">Allow</button> <button name="decision" value="deny">Deny</button></p></form></main></body></html>`, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+        return (await staticApp(request, env))!;
       }
       if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
       const form = await request.formData(), payload = String(form.get("request") ?? ""), signature = String(form.get("signature") ?? "");
@@ -80,7 +77,9 @@ function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
 function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)); }
 
 export { AlarmCoordinator } from "./alarm-coordinator";
-export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+  const staticResponse = !["/authorize", "/device"].includes(new URL(request.url).pathname) ? await staticApp(request, env) : null;
+  if (staticResponse) return staticResponse;
   const oauth = provider(env);
   const url = new URL(request.url);
   const apiEnv = { ...env, OAUTH_PROVIDER: env.OAUTH_PROVIDER ?? getOAuthApi(providerOptions(env), env) };
@@ -112,3 +111,5 @@ export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) 
   if (url.pathname === "/.well-known/oauth-authorization-server") return addDeviceMetadata(response, env.APP_ORIGIN);
   return response;
 } } satisfies ExportedHandler<Env>;
+
+export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) { return securityHeaders(request, await backend.fetch(request, env, ctx)); } } satisfies ExportedHandler<Env>;

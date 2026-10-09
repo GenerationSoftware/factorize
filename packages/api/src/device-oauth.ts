@@ -1,3 +1,4 @@
+import { staticApp } from "./static-app";
 import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { hmac } from "./crypto";
 import type { Env, OAuthProps } from "./types";
@@ -191,22 +192,13 @@ export async function deviceVerification(request: Request, env: Env, oauth: OAut
   const url = new URL(request.url);
   const form = request.method === "POST" ? await request.formData() : null;
   const suppliedCode = String(form?.get("user_code") ?? url.searchParams.get("user_code") ?? "");
-  const normalized = normalizeUserCode(suppliedCode);
-  const deviceCode = normalized.length === 8 ? await deviceCodeForUser(env, normalized) : null;
-  const record = deviceCode ? await readDevice(env, deviceCode) : null;
-  const valid = record && record.status === "pending" && record.expiresAt > Math.floor(Date.now() / 1000);
-  if (request.method === "GET") {
-    const detail = valid ? `<h1>Authorize ${escapeHtml(record.clientName)}</h1><p>Signed in as ${escapeHtml(session.email)}.</p><p>This client is requesting: ${record.scope.length ? record.scope.map(escapeHtml).join(", ") : "basic access"}.</p>` : `<h1>Connect a device</h1><p>Enter the code shown by your application.</p>`;
-    return new Response(`<!doctype html><html><head><meta charset="utf-8"><title>Connect a device — Factorize</title><link rel="stylesheet" href="/styles.css"></head><body><main>${detail}<form method="post"><label>Device code <input name="user_code" value="${escapeHtml(suppliedCode)}" required autocomplete="one-time-code"></label><p>${valid ? `<button name="decision" value="allow">Allow</button> <button name="decision" value="deny">Deny</button>` : `<button>Continue</button>`}</p></form></main></body></html>`, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
-  }
-  if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, POST" } });
-  if (!valid || !deviceCode || !record) return new Response("Invalid or expired device code", { status: 400 });
+  if (request.method === "GET" || request.method === "HEAD") return (await staticApp(request, env))!;
+  if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD, POST" } });
   if (request.headers.get("Origin") !== env.APP_ORIGIN || request.headers.get("Sec-Fetch-Site") === "cross-site") return new Response("Invalid request origin", { status: 403 });
   const decision = form?.get("decision");
-  if (decision !== "allow" && decision !== "deny") return Response.redirect(`${env.APP_ORIGIN}/device?user_code=${encodeURIComponent(displayUserCode(normalized))}`, 303);
+  if (decision !== "allow" && decision !== "deny") return Response.redirect(`${env.APP_ORIGIN}/device?user_code=${encodeURIComponent(suppliedCode)}`, 303);
   const result = await decideDevice(env, oauth, session, suppliedCode, decision);
-  if (!result) return new Response("Invalid or expired device code", { status: 400 });
-  return result.status === "denied" ? confirmation("Authorization denied", "You can close this window.") : confirmation("Device connected", "Authorization is complete. You can close this window.");
+  return new Response(result ? result.status === "approved" ? "Device connected. You can close this window." : "Authorization denied. You can close this window." : "Invalid or expired device code", { status: result ? 200 : 400, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
 export async function inspectDevice(env: Env, userCode: string) {
@@ -271,9 +263,4 @@ export async function deviceClientRegistration(request: Request, env: Env, oauth
   if (!originallyHadAuthorizationCode) result.response_types = [];
   result.redirect_uris = originalRedirectUris;
   return json(result, response.status);
-}
-
-function escapeHtml(value: string): string { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;"); }
-function confirmation(title: string, message: string): Response {
-  return new Response(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)} — Factorize</title><link rel="stylesheet" href="/styles.css"></head><body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></main></body></html>`, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }

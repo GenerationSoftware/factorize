@@ -21,7 +21,7 @@ Linear webhook → Cloudflare Worker → Durable Object → exe.dev /exec → is
 
 ## Deploy to Cloudflare
 
-Click the **Deploy to Cloudflare** button above to create a copy of the app Worker in your own Cloudflare account. The button selects `packages/api` as the Worker root; Cloudflare provisions the Durable Object binding and configures Workers Builds for the copied repository.
+Click the **Deploy to Cloudflare** button above to create a copy of the app Worker in your own Cloudflare account. The button selects `packages/api` as the Worker root; Cloudflare provisions the bindings for the copied repository. Configure Workers Builds to run `npm run build --workspace=factorize-app` before deploying; static output lives beside the backend package. Follow the API-first bootstrap in the rollout guide.
 
 > The Deploy to Cloudflare button works for public GitHub or GitLab repositories. If you are using a private fork, deploy with Wrangler instead.
 
@@ -31,11 +31,11 @@ Click the **Deploy to Cloudflare** button above to create a copy of the app Work
 2. Set `APP_ORIGIN` in `packages/api/wrangler.jsonc` to your final HTTPS Worker URL or custom domain.
 3. Create a dedicated OAuth KV namespace with `npm exec --workspace=factorize -- wrangler kv namespace create OAUTH_KV`, then set its ID in `packages/api/wrangler.jsonc`.
 4. Configure the Linear OAuth callback as `https://your-domain.example/auth/linear/callback`.
-5. Build assets, add secrets, and deploy:
+5. Bootstrap the additive API stage and verify its marker as described in [the rollout guide](docs/package-migration.md), then build assets, add secrets, and deploy:
 
 ```bash
 npm ci
-npm run build:css
+npm run build:app
 
 npm exec --workspace=factorize -- wrangler secret put LINEAR_CLIENT_ID
 npm exec --workspace=factorize -- wrangler secret put LINEAR_CLIENT_SECRET
@@ -151,11 +151,11 @@ Never commit `.dev.vars` or production secret values. The included `.dev.vars.ex
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | Build CSS and start local Wrangler development |
-| `npm run build:css` | Compile Tailwind into `packages/api/public/styles.css` |
+| `npm run dev` | Build the static frontend and start HTTPS Vite + local API development |
+| `npm run build:app` | Build static React/Tailwind assets in `packages/app/dist` |
 | `npm test` | Run the unit test suite |
-| `npm run check` | Type-check/test the app and dry-run both Worker deployments |
-| `npm run deploy:app` | Deploy only the `factorize` app Worker |
+| `npm run check` | Check package boundaries/contracts, React/API tests, local routing and Worker dry runs |
+| `npm run deploy:app` | Verify the API stage, build static assets and deploy the existing `factorize` Worker |
 | `npm run deploy:tail-relay` | Deploy only the `factorize-tail-relay` Worker |
 | `npm run deploy` | Deploy the app, then the Tail relay; stop on the first failure |
 
@@ -227,11 +227,11 @@ Test line for the Factorize PR-check and merge-queue flow.
 
 ### Static application migration
 
-The existing Worker now lives in `packages/api`. `packages/app` contains the Vite/React frontend foundation and `packages/api-client` contains the generated public API client. Production still serves the existing dashboard while feature routes migrate. See [the staged rollout and route inventory](docs/package-migration.md).
+The Worker lives in `packages/api`, the static React frontend in `packages/app`, and the OpenAPI-generated public client in `packages/api-client`. The frontend consumes only documented `/api/v1` operations. Same-origin routing preserves the existing Worker and state identities. See [the required API-first rollout and rollback procedure](docs/package-migration.md).
 
 | Command | Purpose |
 | --- | --- |
-| `npm run dev:api` | Run the existing API/legacy dashboard Worker |
+| `npm run dev:api` | Run the local HTTPS API Worker |
 | `npm run dev:app` | Run the static frontend development server |
 | `npm run generate` | Generate OpenAPI and browser client types |
 | `npm run build:app` | Build static frontend assets |
@@ -240,4 +240,4 @@ The existing Worker now lives in `packages/api`. `packages/app` contains the Vit
 
 Use Node 24. Keep local secrets in `packages/api/.dev.vars`; the static frontend does not expose environment variables.
 
-The static application currently includes native-auth screens for local testing. Its generated session/auth contract is additive; production continues to serve the legacy dashboard. Run `npx playwright install chromium` before `npm run check` to enable the compiled-app browser checks. See [the staged migration guide](docs/package-migration.md) for routing ownership and rollout gates.
+The static app includes native auth, consent/device, jobs/editor/provider, run/history/trace, integration and credential-management screens. Install Chromium with `npx playwright install --with-deps chromium` before checking. Local development uses HTTPS at `https://localhost:5173`; `npm run dev` creates an ignored local Vite certificate. See [the migration guide](docs/package-migration.md) for local database setup, production gates, asset retention and rollback. No production deployment is implied by this source migration.

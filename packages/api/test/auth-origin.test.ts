@@ -2,34 +2,15 @@ import { describe, expect, it } from "vitest";
 import app from "../src/index";
 import type { Env } from "../src/types";
 
-const env = { APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "test-secret" } as Env;
+const env = { APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "test-secret", ASSETS: { fetch: async () => new Response("entry", { headers: { "Content-Type": "text/html" } }) } } as unknown as Env;
 
 describe("browser auth form origin protection", () => {
-  it("renders the password completion form for a reset link token", async () => {
-    const response = await app.request(`${env.APP_ORIGIN}/auth/password-reset?token=reset-token`);
-    const html = await response.text();
+  it("serves native auth deep links from static assets without embedding one-time tokens", async () => {
+    const response = await app.request(`${env.APP_ORIGIN}/auth/password-reset?token=reset-token`, {}, env);
     expect(response.status).toBe(200);
-    expect(html).toContain('action="/auth/password-reset/complete"');
-    expect(html).toContain('name="token" value="reset-token"');
-    expect(html).toContain('name="password"');
-    expect(html).not.toContain('name="username"');
-  });
-
-  it("renders the reset request form when no token is supplied", async () => {
-    const response = await app.request(`${env.APP_ORIGIN}/auth/password-reset`);
-    const html = await response.text();
-    expect(response.status).toBe(200);
-    expect(html).toContain('action="/auth/password-reset"');
-    expect(html).toContain('name="email"');
-    expect(html).not.toContain('action="/auth/password-reset/complete"');
-  });
-
-  it("uses email rather than usernames for signup and login", async () => {
-    for (const path of ["/auth/signup", "/auth/login"]) {
-      const html = await (await app.request(`${env.APP_ORIGIN}${path}`)).text();
-      expect(html).toContain('name="email"');
-      expect(html).not.toContain('name="username"');
-    }
+    expect(response.headers.get("Content-Type")).toBe("text/html");
+    expect(response.headers.get("Cache-Control")).toBe("no-cache, must-revalidate");
+    expect(await response.text()).toBe("entry");
   });
 
   it("keeps same-origin form origins while suppressing external referrers", async () => {

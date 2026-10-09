@@ -20,7 +20,12 @@ export async function loadingFixture(url: string) {
     db = new Database({ connectionString: address.toString() });
     const dir = new URL("../../migrations/", import.meta.url);
     for (const file of (await readdir(dir)).filter(f => f.endsWith(".sql")).sort()) await db.pool.query(await readFile(new URL(file, dir), "utf8"));
-    env = { DATABASE: db, APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "local-test-signing", OAUTH_PROVIDER: { listUserGrants: async () => ({ items: [] }) } as any, CREDENTIAL_ENCRYPTION_KEY: btoa("a".repeat(32)) } as Env;
+    env = { ASSETS: { fetch: async (request: Request) => {
+      const path = new URL(request.url).pathname;
+      if (path !== "/index.html" && !/^\/assets\/[A-Za-z0-9_.-]+$/.test(path)) return new Response("Not found", { status: 404 });
+      try { return new Response(request.method === "HEAD" ? null : await readFile(new URL("../../../app/dist" + path, import.meta.url)), { headers: { "Content-Type": path.endsWith(".js") ? "application/javascript" : path.endsWith(".css") ? "text/css" : "text/html" } }); }
+      catch { return new Response("Not found", { status: 404 }); }
+    } } as unknown as Fetcher, DATABASE: db, APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "local-test-signing", OAUTH_PROVIDER: { listUserGrants: async () => ({ items: [] }) } as any, CREDENTIAL_ENCRYPTION_KEY: btoa("a".repeat(32)) } as Env;
     await new IdentityRepository(db, tenantId).upsertOwner(userId, "owner@example.test");
     await db.pool.query("INSERT INTO app.tenants(id) VALUES ($1)", [otherTenant]);
     auth = { tenantId, userId, sessionVersion: 0, scopes: ["flows:read", "flows:write", "runs:read", "runs:write"], authMethod: "session" };

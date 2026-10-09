@@ -1,10 +1,10 @@
+import { STATIC_CSP, staticApp } from "./static-app";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { readSession, signSession, type Session } from "./session";
 export { readSession, signSession, requestCookie, type Session } from "./session";
 import { equalHmac, hmac } from "./crypto";
 import { createAppJwt, githubHeaders, readSetupState, signSetupState } from "./github";
-import { apiKeysSettingsPage, authPage, jobDetailPage, jobPage, jobsPage, jobRunPage, landingPage, loginPage, settingsPage } from "./ui";
 import type { Env } from "./types";
 import { databaseFor } from "./postgres/database";
 import { AuthRepository } from "./postgres/auth-repository";
@@ -13,17 +13,15 @@ import { ConnectionRepository } from "./postgres/connection-repository";
 import { GitHubRepository } from "./postgres/github-repository";
 import { WebhookService } from "./postgres/webhook-service";
 
-const app = new Hono<{ Bindings: Env; Variables: { cspNonce: string; authorizationDuration: number } }>();
+const app = new Hono<{ Bindings: Env; Variables: { authorizationDuration: number } }>();
 
 app.use("*", async (c, next) => {
   const started = performance.now();
   c.set("authorizationDuration", 0);
-  const nonce = crypto.randomUUID();
-  c.set("cspNonce", nonce);
   await next();
   const authorizationDuration = c.get("authorizationDuration");
   c.header("Server-Timing", `auth;dur=${authorizationDuration.toFixed(1)}, application;dur=${Math.max(0, performance.now() - started - authorizationDuration).toFixed(1)}`);
-  c.header("Content-Security-Policy", `default-src 'self'; script-src 'nonce-${nonce}'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`);
+  c.header("Content-Security-Policy", STATIC_CSP);
   // Keep Origin on same-origin form POSTs; no-referrer makes it "null" in
   // browsers and breaks the auth CSRF check. External requests still omit Referer.
   c.header("Referrer-Policy", "same-origin");
@@ -67,7 +65,6 @@ async function owner(c: any): Promise<Session | null> {
   } finally { c.set("authorizationDuration", (c.get("authorizationDuration") ?? 0) + performance.now() - started); }
 }
 
-app.get("/styles.css", (c) => c.env.ASSETS.fetch(c.req.raw));
 app.get("/healthz", (c) => c.json({ ok: true }));
 
 app.get("/auth/linear", async (c) => {
@@ -108,29 +105,26 @@ app.post("/auth/logout", async (c) => {
   return c.redirect("/");
 });
 
-app.post("/auth/signup", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/signup", input as Record<string, unknown>); return c.html(render(authPage(result.response.ok ? "Check your email to verify your account" : "Create your Factorize account", result.response.ok ? "verify-request" : "signup", "", result.body.error), c.get("cspNonce")), result.response.status as any); });
-app.post("/auth/login", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/login", input as Record<string, unknown>); if (!result.response.ok) return c.html(render(authPage("Sign in", "login", String(input.email ?? ""), result.body.error), c.get("cspNonce")), result.response.status as any); if (!await establishSession(c, result.body)) return c.text("This account cannot access the tenant", 403); const oauthReturn = getCookie(c, "factorize_oauth_return");
+app.post("/auth/signup", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/signup", input as Record<string, unknown>); return c.text(result.response.ok ? "Check your email for the next step." : "The request could not be completed. Try again.", result.response.status as any); });
+app.post("/auth/login", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/login", input as Record<string, unknown>); if (!result.response.ok) return c.text("The request could not be completed. Return to the sign-in page and try again.", result.response.status as any); if (!await establishSession(c, result.body)) return c.text("This account cannot access the tenant", 403); const oauthReturn = getCookie(c, "factorize_oauth_return");
   if (oauthReturn?.startsWith("/authorize?") || oauthReturn?.startsWith("/device")) { deleteCookie(c, "factorize_oauth_return", { path: "/" }); return c.redirect(oauthReturn, 303); }
   return c.redirect("/settings/integrations", 303); });
-app.post("/auth/password-reset", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/reset/request", input as Record<string, unknown>); return c.html(render(authPage("Check your email", "reset", "", result.body.error), c.get("cspNonce")), result.response.status as any); });
-app.post("/auth/password-reset/complete", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/reset/complete", input as Record<string, unknown>); return result.response.ok ? c.redirect("/auth/login", 303) : c.html(render(authPage("Reset password", "complete", String(input.token ?? ""), result.body.error), c.get("cspNonce")), result.response.status as any); });
+app.post("/auth/password-reset", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/reset/request", input as Record<string, unknown>); return c.text(result.response.ok ? "Check your email for the next step." : "The request could not be completed. Try again.", result.response.status as any); });
+app.post("/auth/password-reset/complete", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/reset/complete", input as Record<string, unknown>); return result.response.ok ? c.redirect("/auth/login", 303) : c.text("The request could not be completed. Return to the sign-in page and try again.", result.response.status as any); });
 
-app.get("/auth/verify", (c) => c.html(render(authPage("Verify your email", "verify", c.req.query("token") ?? ""), c.get("cspNonce"))));
 app.post("/auth/verify", async (c) => {
   const input = await c.req.parseBody();
   const result = await new AuthRepository(databaseFor(c.env), c.env).completeVerification(String(input.token ?? ""));
-  return result.status === 200 ? c.redirect("/auth/login", 303) : c.html(render(authPage("Verify your email", "verify-request", "", "The verification link is invalid or expired. Request a new one."), c.get("cspNonce")), 400);
+  return result.status === 200 ? c.redirect("/auth/login", 303) : c.text("The request could not be completed. Return to the sign-in page and try again.", 400);
 });
 app.post("/auth/verify/request", async (c) => {
   const result = await new AuthRepository(databaseFor(c.env), c.env).requestEmail(await c.req.parseBody(), "verify");
-  return c.html(render(authPage("Check your email", "verify-request"), c.get("cspNonce")), result.status as any);
+  return c.text(result.status === 202 ? "Check your email for the next step." : "The request could not be completed. Try again.", result.status as any);
 });
-app.get("/auth/verify/request", (c) => c.html(render(authPage("Resend verification email", "verify-request"), c.get("cspNonce"))));
-app.get("/settings/password", async (c) => await owner(c) ? c.html(render(authPage("Change password", "change"), c.get("cspNonce"))) : c.redirect("/auth/login"));
 app.post("/auth/password-change", async (c) => {
   const session = await owner(c); if (!session) return c.text("Unauthorized", 401);
   const result = await new AuthRepository(databaseFor(c.env), c.env).changePassword(session.userId, await c.req.parseBody());
-  if (result.status !== 200) return c.html(render(authPage("Change password", "change", "", "error" in result.body ? result.body.error : ""), c.get("cspNonce")), result.status as any);
+  if (result.status !== 200) return c.text("The request could not be completed. Return to the sign-in page and try again.", result.status as any);
   deleteCookie(c, "factorize_session", { path: "/" });
   return c.redirect("/auth/login", 303);
 });
@@ -240,25 +234,8 @@ app.post("/webhooks/github", async (c) => {
   await new WebhookService(databaseFor(c.env), c.env, registration.tenant_id).github(event, `github:${delivery}`, eventName); return c.body(null, 202);
 });
 
-const render = (page: string, nonce: string) => page.replaceAll("<script>", `<script nonce="${nonce}">`);
-
-app.get("/", async (c) => {
-  const session = await owner(c);
-  return session ? c.redirect("/jobs") : c.html(render(loginPage(c.env.MARKETING_ORIGIN), c.get("cspNonce")));
-});
-app.get("/auth/signup", (c) => c.html(render(authPage("Create your Factorize account", "signup"), c.get("cspNonce"))));
-app.get("/auth/login", (c) => c.html(render(authPage("Sign in to Factorize", "login"), c.get("cspNonce"))));
-app.get("/auth/password-reset", (c) => {
-  const token = c.req.query("token") ?? "";
-  return c.html(render(authPage("Reset your password", token ? "complete" : "reset", token), c.get("cspNonce")));
-});
-app.get("/jobs", async (c) => { const session = await owner(c); return session ? c.html(render(jobsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/login"); });
-app.get("/jobs/new", async (c) => { const session = await owner(c); return session ? c.html(render(jobPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/login"); });
-app.get("/jobs/:id", async (c) => { const session = await owner(c); return session ? c.html(render(jobDetailPage({ email: session.email }, c.req.param("id")), c.get("cspNonce"))) : c.redirect("/auth/login"); });
-app.get("/jobs/:id/edit", async (c) => { const session = await owner(c); return session ? c.html(render(jobPage({ email: session.email }, c.req.param("id")), c.get("cspNonce"))) : c.redirect("/auth/login"); });
-app.get("/job-runs/:id", async (c) => { const session = await owner(c); return session ? c.html(render(jobRunPage({ email: session.email }, c.req.param("id")), c.get("cspNonce"))) : c.redirect("/auth/login"); });
-app.get("/settings", async (c) => { const session = await owner(c); return session ? c.redirect("/settings/integrations") : c.redirect("/auth/login"); });
-app.get("/settings/integrations", async (c) => { const session = await owner(c); return session ? c.html(render(settingsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/login"); });
-app.get("/settings/api-keys", async (c) => { const session = await owner(c); return session ? c.html(render(apiKeysSettingsPage({ email: session.email }), c.get("cspNonce"))) : c.redirect("/auth/login"); });
+// Only explicit application reads receive the static entry point. Callback and
+// protocol routes registered above keep their existing ownership.
+app.get("*", async c => await staticApp(c.req.raw, c.env) ?? c.notFound());
 
 export default app;

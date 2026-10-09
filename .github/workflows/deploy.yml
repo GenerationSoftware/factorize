@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: production
@@ -21,12 +22,40 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build:css
+      - name: Require the additive API stage before static cutover
+        run: node scripts/verify-public-routing.mjs https://app.factorize.sh --api-ready
+      - run: npm run build:app
+      - name: Retain legacy open-tab stylesheet during migration
+        run: git show 2d63d6480c398d29513329d7a604a4585d21de24:packages/api/public/styles.css > packages/app/dist/styles.css
+      - name: Snapshot this release before restoring older chunks
+        run: cp -R packages/app/dist "$RUNNER_TEMP/factorize-app-release"
+      - name: Restore assets from successful main deployments in the last 30 days
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { execFileSync } = require('node:child_process');
+            const cutoff = Date.now() - 30 * 86400000;
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, { ...context.repo, per_page: 100 });
+            for (const artifact of artifacts) {
+              if (artifact.name !== 'factorize-app-assets' || artifact.expired || Date.parse(artifact.created_at) < cutoff || artifact.workflow_run?.head_branch !== 'main') continue;
+              const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: artifact.workflow_run.id });
+              if (run.path !== '.github/workflows/deploy.yml' || run.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}`) continue;
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { ...context.repo, run_id: run.id, per_page: 100 });
+              if (!jobs.some(job => job.steps?.some(step => step.name === 'Deploy app Worker' && step.conclusion === 'success'))) continue;
+              const { data } = await github.rest.actions.downloadArtifact({ ...context.repo, artifact_id: artifact.id, archive_format: 'zip' });
+              const archive = `${process.env.RUNNER_TEMP}/factorize-assets-${artifact.id}.zip`;
+              fs.writeFileSync(archive, Buffer.from(data));
+              execFileSync('python3', ['scripts/retain-app-assets.py', archive, 'packages/app/dist'], { stdio: 'inherit' });
+              fs.unlinkSync(archive);
+            }
       - name: Apply database migrations
         run: npm run db:migrate --workspace=factorize
         env:
@@ -39,13 +68,22 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           POSTMARK_SERVER_TOKEN: ${{ secrets.POSTMARK_SERVER_TOKEN }}
-      - name: Deploy app Worker
-        run: npm run deploy:app
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy marketing site
         run: npm run deploy:marketing
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Deploy app Worker
+        run: npm run deploy:prepared --workspace=factorize
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Retain deployed assets for subsequent releases and rollback
+        uses: actions/upload-artifact@v4
+        with:
+          name: factorize-app-assets
+          path: ${{ runner.temp }}/factorize-app-release
+          retention-days: 35
+          if-no-files-found: error
+      - name: Verify public production routing after deployment
+        run: node scripts/verify-public-routing.mjs https://app.factorize.sh

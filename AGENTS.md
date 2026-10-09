@@ -16,4 +16,6 @@ This project in Linear is "Factorize"
 - `packages/app` is the static frontend (`factorize-app`). It may only import the generated public contract through `factorize-api-client`; never import backend implementations.
 - `packages/api-client` is generated from the published OpenAPI document. It must have no backend or frontend implementation dependencies. Run `npm run generate` after contract changes.
 - Run `npm run check:boundaries` to validate imports, including dynamic imports and type imports. Do not add aliases or build configuration that bypasses these boundaries.
-- Keep the legacy UI and production routing working until each replacement screen has parity and the rollout checks in `docs/package-migration.md` pass.
+- Application HTML belongs to the static frontend. Backend protocol/form compatibility handlers may redirect or return JSON/text but must not generate UI HTML.
+- Keep full-list/detail/trace and conditional-write omission compatibility for external REST/MCP clients.
+- Deploy the documented additive API anchor before static cutover; preserve Worker identity/bindings/migrations and retain old hashed assets. Follow the release and rollback gates in `docs/package-migration.md`.

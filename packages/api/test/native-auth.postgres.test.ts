@@ -34,7 +34,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
       }
       await db.pool.query(await readFile(new URL(file, dir), "utf8"));
     }
-    env = { DATABASE: db, APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "test-signing-secret", CREDENTIAL_ENCRYPTION_KEY: btoa("a".repeat(32)), POSTMARK_SERVER_TOKEN: "test-postmark", POSTMARK_FROM_EMAIL: "accounts@example.test", POSTMARK_MESSAGE_STREAM: "outbound", LINEAR_CLIENT_ID: "client", LINEAR_CLIENT_SECRET: "test-client-secret", LINEAR_WEBHOOK_SIGNING_SECRET: "test-webhook" } as Env;
+    env = { ASSETS: { fetch: async () => new Response("Static entry", { headers: { "Content-Type": "text/html" } }) } as unknown as Fetcher, DATABASE: db, APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "test-signing-secret", CREDENTIAL_ENCRYPTION_KEY: btoa("a".repeat(32)), POSTMARK_SERVER_TOKEN: "test-postmark", POSTMARK_FROM_EMAIL: "accounts@example.test", POSTMARK_MESSAGE_STREAM: "outbound", LINEAR_CLIENT_ID: "client", LINEAR_CLIENT_SECRET: "test-client-secret", LINEAR_WEBHOOK_SIGNING_SECRET: "test-webhook" } as Env;
     auth = new AuthRepository(db, env);
   });
   afterEach(() => { vi.unstubAllGlobals(); sent = []; });
@@ -63,6 +63,11 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
   }
   function post(path: string, body: Record<string, string>, cookie = "", origin = env.APP_ORIGIN) {
     return app.request(path, { method: "POST", headers: { Origin: origin, Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body) }, env);
+  }
+
+  async function sessionBody(cookie: string) {
+    const response = await protectedApiFetch(new Request(env.APP_ORIGIN + "/api/v1/session", { headers: { Cookie: cookie } }), env, null, {} as ExecutionContext);
+    return response.json();
   }
 
   it("serves the complete JSON native-auth lifecycle through the public dispatcher", async () => {
@@ -135,7 +140,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     const login = await post("/auth/login", { email, password }); expect(login.status).toBe(303);
     expect(login.headers.get("location")).toBe("/settings/integrations"); expect(login.headers.get("set-cookie")).toContain("HttpOnly");
     const loggedIn = await sessionFor(email);
-    expect(await (await app.request("/jobs", { headers: { Cookie: loggedIn.cookie } }, env)).text()).toContain('href="/settings/password"');
+    expect(await sessionBody(loggedIn.cookie)).toMatchObject({ authenticated: true });
   });
   it("expires verification and supports resending without changing credentials", async () => {
     const user = await registered();
@@ -154,7 +159,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect((await auth.completeReset({ token: reset, password })).status).toBe(400);
     expect((await auth.login({ email: user.email, password })).status).toBe(401);
     expect((await auth.login({ email: user.email, password: newPassword })).status).toBe(200);
-    expect((await app.request("/jobs", { headers: { Cookie: session.cookie } }, env)).headers.get("location")).toBe("/auth/login");
+    expect(await sessionBody(session.cookie)).toEqual({ authenticated: false });
     await auth.requestReset({ email: user.email }); const expired = token();
     await db.pool.query("UPDATE app.auth_reset_tokens SET expires_at=now()-interval '1 second' WHERE digest=$1", [await tokenDigest(expired, env.SESSION_SIGNING_SECRET)]);
     expect((await auth.completeReset({ token: expired, password })).status).toBe(400);
@@ -182,10 +187,10 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect((await post("/auth/password-change", { currentPassword: "incorrect password", password }, session.cookie)).status).toBe(401);
     const changed = await post("/auth/password-change", { currentPassword: password, password: "new changed password" }, session.cookie);
     expect(changed.status).toBe(303); expect((await auth.login({ email: user.email, password: "new changed password" })).status).toBe(200);
-    expect((await app.request("/jobs", { headers: { Cookie: session.cookie } }, env)).headers.get("location")).toBe("/auth/login");
+    expect(await sessionBody(session.cookie)).toEqual({ authenticated: false });
     const other = await verified(), active = await sessionFor(other.email);
     expect((await post("/auth/logout", {}, active.cookie)).status).toBe(302);
-    expect((await app.request("/jobs", { headers: { Cookie: active.cookie } }, env)).headers.get("location")).toBe("/auth/login");
+    expect(await sessionBody(active.cookie)).toEqual({ authenticated: false });
   });
   it("migrates legacy Linear users through email proof while preserving workspace and connection", async () => {
     mail();
@@ -204,11 +209,11 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect((await auth.login({ email: "member@example.test", password })).status).toBe(403);
     const user = await verified(), session = await sessionFor(user.email);
     const forgedTenantCookie = await signSession({ ...session, tenantId: legacyTenant }, env.SESSION_SIGNING_SECRET);
-    expect((await app.request("/jobs", { headers: { Cookie: `factorize_session=${forgedTenantCookie}` } }, env)).headers.get("location")).toBe("/auth/login");
+    expect(await sessionBody(`factorize_session=${forgedTenantCookie}`)).toEqual({ authenticated: false });
   });
   it("uses native login as the primary entry and requires authentication to connect Linear", async () => {
-    const home = await app.request("/", {}, env), html = await home.text();
-    expect(html).toContain('href="/auth/login"'); expect(html).not.toContain('href="/auth/linear"');
+    const home = await app.request("/", {}, env);
+    expect(home.status).toBe(200); expect(home.headers.get("Content-Type")).toContain("text/html");
     expect((await app.request("/auth/linear", {}, env)).headers.get("location")).toBe("/auth/login");
     expect((await app.request("/auth/linear/callback?code=fake&state=fake", {}, env)).status).toBe(400);
   });

@@ -4,7 +4,7 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-09-10",
   "compatibility_flags": ["global_fetch_strictly_public"],
-  "assets": { "directory": "../app/dist", "binding": "ASSETS", "run_worker_first": true, "not_found_handling": "none" },
+  "assets": { "directory": "./public", "binding": "ASSETS" },
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "cacbf744337747ffbb9c0153329aad4f" }],
   "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9b6c8a09921d4ee18cdf3723135c82ad" }],
   "r2_buckets": [{ "binding": "RUN_ARTIFACTS", "bucket_name": "factorize-run-artifacts" }],

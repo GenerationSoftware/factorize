@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { jobResponse } from "../src/job-contracts";
 import { describe, expect, it, vi } from "vitest";
 import { chromium } from "playwright";
@@ -26,8 +25,9 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
           return route.fulfill({ status: response.status, headers: responseHeaders, body: await response.text() });
         }
         if (target.pathname === "/favicon.ico") return route.fulfill({ status: 204 });
-        const asset = target.pathname.startsWith("/assets/") ? target.pathname : "/index.html";
-        return route.fulfill({ contentType: asset.endsWith(".js") ? "application/javascript" : asset.endsWith(".css") ? "text/css" : "text/html", body: await readFile(new URL("../../app/dist" + asset, import.meta.url)) });
+        const response = await worker.fetch(new Request(target.toString()), f.env, { waitUntil() {} } as any);
+        const headers: Record<string, string> = {}; response.headers.forEach((value, name) => { headers[name] = value; });
+        return route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
       });
       const page = await context.newPage(); page.setDefaultTimeout(10000); page.on("pageerror", error => failures.push(error.message));
       await page.goto("https://factorize.test/jobs");
@@ -73,8 +73,9 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
           return route.fulfill({ status: response.status, contentType: "application/json", body: await response.text() });
         }
         if (target.pathname === "/favicon.ico") return route.fulfill({ status: 204 });
-        const asset = target.pathname.startsWith("/assets/") ? target.pathname : "/index.html";
-        return route.fulfill({ contentType: asset.endsWith(".js") ? "application/javascript" : asset.endsWith(".css") ? "text/css" : "text/html", body: await readFile(new URL("../../app/dist" + asset, import.meta.url)) });
+        const response = await worker.fetch(new Request(target.toString()), f.env, { waitUntil() {} } as any);
+        const headers: Record<string, string> = {}; response.headers.forEach((value, name) => { headers[name] = value; });
+        return route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
       });
       const page = await context.newPage(); page.setDefaultTimeout(10000);
       await page.goto(`https://factorize.test/jobs/${job.id}/edit`);
