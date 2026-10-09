@@ -102,7 +102,7 @@ export class ApiService {
       execution: run.execution_diagnostics, traceSources: run.trace_sources,
       trace: { ...evidence, provider: primary?.provider ?? artifacts.find(item => item.kind === "native_session")?.provider ?? run.agent_kind ?? null, primarySource: primary?.kind ?? "native_session", sourceVersion: primary?.formatVersion ?? null,
         artifacts: artifacts.filter(item => ["execution_stream", "native_session"].includes(item.kind)),
-        nativeArtifactState: artifacts.some(item => item.kind === "native_session" && item.state === "stored") ? "stored" : "missing",
+        nativeArtifactState: primary?.provider === "codex" && primary.kind === "execution_stream" ? "not_applicable" : artifacts.some(item => item.kind === "native_session" && item.state === "stored") ? "stored" : "missing",
         fallbackUsed: evidence.projection?.source_kind === "native_session" && primary?.kind === "execution_stream" },
       harnessLog: run.harness_log, artifact: { state: run.artifact_state, error: run.artifact_error }, activity: run.activity, createdAt: run.created_at, updatedAt: run.updated_at };
   }

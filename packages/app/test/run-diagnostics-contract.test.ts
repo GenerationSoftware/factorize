@@ -15,7 +15,7 @@ async function fixture(tenantId = "tenant", scopes = ["runs:read"], authMethod?:
   vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue({ role: "owner", sessionVersion: 1 } as any);
   const query = vi.fn(async (sql: string, values: any[]) => {
     if (values[0] !== "tenant") return { rows: [] };
-    if (sql.includes("SELECT r.*")) return { rows: [{ id: "run", job_id: "job", state: "failed", encrypted_prompt: encryptedPrompt, execution_diagnostics: execution, trace_sources: traceSources, execution_backend_kind: "exe-vm", artifact_state: "partial", artifact_error: "Native session upload failed" }] };
+    if (sql.includes("SELECT r.*")) return { rows: [{ id: "run", job_id: "job", state: "failed", encrypted_prompt: encryptedPrompt, execution_diagnostics: execution, trace_sources: traceSources, execution_backend_kind: "exe-vm", artifact_state: "partial", artifact_error: "Canonical execution stream upload failed: /tmp/events.jsonl" }] };
     if (sql.includes("app.run_artifacts")) return { rows: [artifact] };
     return { rows: [] };
   });
@@ -29,7 +29,7 @@ describe("run diagnostics API boundary", () => {
     expect(isDeclaredApiOperation("GET", "/api/v1/runs/run/diagnostics")).toBe(true);
     expect(await service.getRun("run")).toMatchObject({ execution_diagnostics: execution, harness_log: artifact, trace_sources: traceSources });
     const diagnostics = await service.getRunDiagnostics("run");
-    expect(diagnostics).toMatchObject({ trace: { provider: "codex", primarySource: "execution_stream" }, execution, traceSources, harnessLog: artifact, artifact: { state: "partial", error: "Native session upload failed" } });
+    expect(diagnostics).toMatchObject({ trace: { provider: "codex", primarySource: "execution_stream", nativeArtifactState: "not_applicable" }, execution, traceSources, harnessLog: artifact, artifact: { state: "partial", error: "Canonical execution stream upload failed: /tmp/events.jsonl" } });
     expect(JSON.stringify(diagnostics)).not.toContain("private prompt");
     expect(JSON.stringify(diagnostics)).not.toContain("encrypted_prompt");
   });

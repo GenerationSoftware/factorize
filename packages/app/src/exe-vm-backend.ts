@@ -146,6 +146,13 @@ export class ExeVmBackend implements ExecutionBackend {
     return { state: "failed", systemd, detail: `The supervised agent process exited unsuccessfully (Result=${systemd.result}, ExecMainCode=${systemd.execMainCode}, ExecMainStatus=${systemd.execMainStatus}).` };
   }
 
+  /** Stop the writer but preserve the guest until terminal artifacts are retained. */
+  async terminate(handle: RunHandle): Promise<ExecutionObservation> {
+    const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(`sudo systemctl stop ${shellAtom(this.vm(handle))}`)}`);
+    if (!result.ok) return { state: "stopping", detail: "Agent process termination is temporarily unavailable" };
+    return { ...await this.inspect(handle), state: "stopped" };
+  }
+
   async readHarnessLog(handle: RunHandle): Promise<string> {
     // Read the first bounded bytes: starting in the middle of a credential could evade redaction.
     // Old VMs have only the combined log.

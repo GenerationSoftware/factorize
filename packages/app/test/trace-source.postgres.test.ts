@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Database } from "../src/postgres/database";
 import { LiveTraceRepository } from "../src/postgres/live-trace-repository";
 import { TraceRepository } from "../src/postgres/trace-repository";
@@ -7,6 +7,11 @@ import { ArtifactRepository } from "../src/postgres/artifact-repository";
 import { replayTrace } from "../src/trace-replay";
 import { TraceProjectionRepository } from "../src/postgres/trace-projection-repository";
 import { artifactUpload, issueArtifactUploadGrant } from "../src/artifact-upload";
+
+import { RunRepository } from "../src/postgres/run-repository";
+import { RunScheduler } from "../src/postgres/run-scheduler";
+import { ExeVmBackend } from "../src/exe-vm-backend";
+import { agentDriver } from "../src/agent-driver";
 
 const url = process.env.TRACE_TEST_DATABASE_URL ?? process.env.AUTH_TEST_DATABASE_URL;
 const zero = "0".repeat(64), secret = "test-signing-secret";
@@ -47,6 +52,96 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     return { tenantId, env, runId, upload, blobs, live: new LiveTraceRepository(database, tenantId), trace: new TraceRepository(database, tenantId), artifacts: new ArtifactRepository(database, tenantId) };
   }
 
+  it.each([
+    { state: "succeeded", completed: true, projectionFailure: false },
+    { state: "succeeded", completed: true, projectionFailure: true },
+    { state: "failed", completed: true },
+    { state: "stopped", completed: true },
+    { state: "succeeded", completed: false },
+  ])("persists Codex sources through polling and finalizes $state (completed=$completed) before VM cleanup", async ({ state, completed, projectionFailure }) => {
+    const f = await fixture();
+    const { job_id: jobId, invocation_id: invocationId } = (await database.pool.query("SELECT job_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    await database.pool.query("UPDATE app.jobs SET execution_target=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, jobId, { agentKind: "codex" }]);
+    await database.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'starting','test')", [f.tenantId, f.runId, jobId, invocationId]);
+    const repository = new RunRepository(database), sources = agentDriver("codex").launch(f.runId, {}).traceSources!;
+    await repository.markLaunched({ tenantId: f.tenantId, id: f.runId } as any, { backendKind: "exe-vm", id: "factorize-test" }, "https://vm", [], sources);
+    const due = async () => {
+      await database.pool.query("UPDATE app.job_runs SET next_poll_at=now() WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+      return (await repository.dueForPoll()).find(run => run.id === f.runId)!;
+    };
+    const run = await due();
+    expect(run.traceSources).toEqual(sources);
+    expect(run.executionTarget.traceSources).toBeUndefined();
+    const backend = new ExeVmBackend({ apiToken: "local-test", tags: [] });
+    const scheduler: any = new RunScheduler(database, f.env);
+    const backendSpy = vi.spyOn(scheduler, "backend").mockResolvedValue(backend);
+    const prefix = JSON.stringify({ type: "thread.started", thread_id: "thread" }) + "\n";
+    const text = prefix + JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "Done" } }) + "\n" +
+      (completed ? JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }) + "\n" : "");
+    const bytes = new TextEncoder().encode(text);
+    const inspect = vi.spyOn(backend, "inspect").mockResolvedValue({ state: "running" });
+    const live = vi.spyOn(backend, "collectTraceChunk").mockImplementation(async (_handle, request) => {
+      expect(request.source).toEqual(sources.primary);
+      const bytes = new TextEncoder().encode(prefix);
+      await f.live.append(f.runId, "codex", { generation: "guest-file", expectedGeneration: null, startOffset: 0, chunkSha256: await hash(bytes), previousHash: zero, bytes }, "execution_stream", sources.primary.path);
+      return { ok: true, detail: undefined, command: { ok: true, status: 200, exitCode: 0, body: "", requestBody: "" } };
+    });
+    const collect = vi.spyOn(backend, "collectArtifact").mockImplementation(async (_handle, request) => {
+      expect(request.source).toEqual(sources.primary);
+      const token = decodeURIComponent(request.uploadUrl.split("/").at(-1)!);
+      const response = await artifactUpload(new Request("https://app/upload", { method: "PUT", headers: { "Content-Type": "application/x-ndjson", "Content-Length": String(bytes.length), "X-Artifact-SHA256": await hash(bytes) }, body: bytes }), f.env, token);
+      return { ok: response.ok, detail: undefined, command: { ok: response.ok, status: response.status, exitCode: 0, body: "", requestBody: "" } };
+    });
+    const log = vi.spyOn(backend, "readHarnessLog").mockResolvedValue("stderr");
+    const stop = vi.spyOn(backend, "stop").mockImplementation(async () => {
+      const artifacts = await f.artifacts.list(f.runId);
+      expect(artifacts.filter(a => a.kind !== "terminal_log")).toHaveLength(1);
+      expect(artifacts.find(a => a.kind === "execution_stream")).toMatchObject({ source_path: sources.primary.path, source_generation: "guest-file", byte_size: String(bytes.length), sha256: await hash(bytes) });
+      expect((await f.trace.page(f.runId)).items.at(-1)?.type).toBe(completed ? "usage" : "assistant_message");
+      return { state: "stopped" };
+    });
+    try {
+      await scheduler.poll(run);
+      expect(live).toHaveBeenCalledOnce();
+      inspect.mockResolvedValue({ state } as any);
+      const terminate = vi.spyOn(backend, "terminate").mockResolvedValue({ state: "stopped" });
+      if (state === "stopped") await database.pool.query("UPDATE app.job_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+      if (projectionFailure) await database.pool.query("ALTER TABLE app.run_trace_events ADD CONSTRAINT reject_done CHECK (preview_text <> 'Done') NOT VALID");
+      await scheduler.poll(await due());
+      if (projectionFailure) {
+        expect(stop).not.toHaveBeenCalled();
+        expect((await f.artifacts.list(f.runId)).filter(a => a.kind === "execution_stream")).toHaveLength(1);
+        expect((await database.pool.query("SELECT artifact_state,artifact_error FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0]).toMatchObject({ artifact_state: "partial", artifact_error: expect.stringContaining("projection failed") });
+        await database.pool.query("ALTER TABLE app.run_trace_events DROP CONSTRAINT reject_done");
+        await scheduler.poll(await due());
+      }
+      if (!completed) { await scheduler.poll(await due()); await scheduler.poll(await due()); }
+      expect(collect).toHaveBeenCalledOnce();
+      expect(stop).toHaveBeenCalledOnce();
+      if (state === "stopped") expect(terminate).toHaveBeenCalledOnce();
+      const saved = (await database.pool.query("SELECT state,artifact_state,artifact_error,vm_cleanup_complete FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+      expect(saved).toMatchObject({ state, artifact_state: completed ? "stored" : "partial", vm_cleanup_complete: true });
+      if (!completed) expect(saved.artifact_error).toContain("missing turn.completed");
+      const artifact = (await f.artifacts.list(f.runId)).find(a => a.kind === "execution_stream")!;
+      expect(new TextDecoder().decode(f.blobs.get(artifact.object_key))).toBe(text);
+      const evidence = await new TraceProjectionRepository(database, f.tenantId).diagnostics(f.runId);
+      expect(evidence.projection.reconciliation).toMatchObject({ state: "matched", generation: "guest-file", liveOffset: new TextEncoder().encode(prefix).length, artifactBytes: bytes.length });
+      await expect(replayTrace(f.env, f.tenantId, "owner", f.runId, { requestId: crypto.randomUUID(), source: "native_session" })).rejects.toMatchObject({ code: "invalid_source" });
+      // Read/replay the retained artifact after the guest transport disappears.
+      backendSpy.mockRejectedValue(new Error("VM deleted"));
+      expect(await replayTrace(f.env, f.tenantId, "owner", f.runId, { requestId: crypto.randomUUID(), source: "primary" })).toMatchObject({ status: "already_projected", sourceKind: "execution_stream" });
+    } finally { await database.pool.query("ALTER TABLE app.run_trace_events DROP CONSTRAINT IF EXISTS reject_done"); vi.restoreAllMocks(); }
+  });
+
+  it("retains an empty Codex stdout snapshot with explicit missing completion evidence", async () => {
+    const f = await fixture();
+    expect((await f.upload("")).status).toBe(201);
+    const artifacts = await f.artifacts.list(f.runId);
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({ kind: "execution_stream", byte_size: "0", sha256: await hash(new Uint8Array()) });
+    expect((await new TraceProjectionRepository(database, f.tenantId).diagnostics(f.runId)).projection.reconciliation).toMatchObject({ state: "no_live_cursor", codexCompletion: "missing_turn_completed" });
+  });
+
   it.each(["codex", "claude"] as const)("reconciles %s durable bytes, preserves native audit data, and rejects late chunks", async provider => {
     const f = await fixture(provider), text = record("event-1") + '{"partial":', bytes = new TextEncoder().encode(text);
     const chunk = { generation: "file-1", expectedGeneration: null, startOffset: 0, chunkSha256: await hash(bytes), previousHash: zero, bytes };
@@ -57,10 +152,10 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     expect((await f.upload(text)).status).toBe(201);
     expect(await f.trace.page(f.runId)).toEqual(live);
     expect((await new TraceProjectionRepository(database, f.tenantId).diagnostics(f.runId)).projection?.reconciliation.state).toBe("matched");
-    expect((await f.upload('{"type":"session_meta","payload":{"id":"native"}}\n', "native_session")).status).toBe(201);
+    expect((await f.upload('{"type":"session_meta","payload":{"id":"native"}}\n', "native_session")).status).toBe(provider === "codex" ? 409 : 201);
     expect(await f.trace.page(f.runId)).toEqual(live);
     const artifacts = await f.artifacts.list(f.runId);
-    expect(artifacts.map(item => item.kind).sort()).toEqual(["execution_stream", "native_session"]);
+    expect(artifacts.map(item => item.kind).sort()).toEqual(provider === "codex" ? ["execution_stream"] : ["execution_stream", "native_session"]);
     const stream = artifacts.find(item => item.kind === "execution_stream")!;
     expect(stream).toMatchObject({ source_path: "/tmp/trace.jsonl", media_type: "application/x-ndjson", format_version: "1", cli_version: "p1", harness_version: "h1" });
     expect(new TextDecoder().decode(f.blobs.get(stream.object_key))).toBe(text);
@@ -69,26 +164,27 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     await expect(f.live.append(f.runId, provider, chunk, "execution_stream")).rejects.toThrow("already finalized");
   });
 
-  it("rolls back failed final projection and its receipt without losing live events", async () => {
+  it("retains the immutable receipt when projection fails and retries the same snapshot", async () => {
     const f = await fixture(), bytes = new TextEncoder().encode(record("live"));
     await f.live.append(f.runId, "codex", { generation: "file-1", expectedGeneration: null, startOffset: 0, chunkSha256: await hash(bytes), previousHash: zero, bytes }, "execution_stream");
     const live = await f.trace.page(f.runId);
     // Malformed provider records may be tolerated. Force a real persistence failure
     // after a complete batch was inserted to exercise the transaction rollback.
     await database.pool.query("ALTER TABLE app.run_trace_events ADD CONSTRAINT reject_final_projection CHECK (preview_text <> 'reject-final-projection')");
+    const text = Array.from({ length: 250 }, (_, index) => record(`new-${index}`)).join("") + record("reject-final-projection");
     try {
-      const text = Array.from({ length: 250 }, (_, index) => record(`new-${index}`)).join("") + record("reject-final-projection");
-      await expect(f.upload(text)).rejects.toThrow("reject_final_projection");
+      expect((await f.upload(text)).status).toBe(409);
     } finally {
       await database.pool.query("ALTER TABLE app.run_trace_events DROP CONSTRAINT reject_final_projection");
     }
     expect(await f.trace.page(f.runId)).toEqual(live);
-    expect(await f.artifacts.list(f.runId)).toHaveLength(0);
-    expect((await f.upload(record("live"))).status).toBe(201);
+    expect(await f.artifacts.list(f.runId)).toHaveLength(1);
+    expect((await f.upload(record("live"))).status).toBe(409);
+    expect((await f.upload(text)).status).toBe(201);
   });
-  it("replays corrected historical Codex calls, resumes, rate limits, and preserves artifacts across rollback", async () => {
-    const f = await fixture();
-    const native = JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", call_id: "apply-1", name: "apply_patch", input: "patch" } }) + "\n";
+  it("preserves Claude native replay, resumes, rate limits, and keeps artifacts across rollback", async () => {
+    const f = await fixture("claude");
+    const native = JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "apply-1", name: "apply_patch", input: "patch" }] } }) + "\n";
     await f.upload(record("stream"));
     await f.upload(native, "native_session");
     await database.pool.query("UPDATE app.runs SET state='succeeded' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
@@ -122,13 +218,13 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
   });
 
   it("persists mismatch evidence, rejects stale terminal generations, and makes failed replay resumable", async () => {
-    const f = await fixture(), liveText = record("old"), bytes = new TextEncoder().encode(liveText);
-    await f.live.append(f.runId, "codex", { generation: "file-1", expectedGeneration: null, startOffset: 0, chunkSha256: await hash(bytes), previousHash: zero, bytes }, "execution_stream");
+    const f = await fixture("claude"), liveText = record("old"), bytes = new TextEncoder().encode(liveText);
+    await f.live.append(f.runId, "claude", { generation: "file-1", expectedGeneration: null, startOffset: 0, chunkSha256: await hash(bytes), previousHash: zero, bytes }, "execution_stream");
     const stale = await issueArtifactUploadGrant({ tenantId: f.tenantId, runId: f.runId, path: "trace/stream.jsonl", contentType: "application/x-ndjson", provider: "codex", format: "jsonl", sourceKind: "execution_stream", traceGeneration: null, expiresAt: Date.now() + 60_000 }, secret);
     expect((await artifactUpload(new Request("https://app/upload", { method: "PUT", headers: { "Content-Type": "application/x-ndjson", "Content-Length": String(bytes.length), "X-Artifact-SHA256": await hash(bytes) }, body: bytes }), f.env, stale)).status).toBe(409);
     expect((await f.upload(record("new"))).status).toBe(201);
     expect((await new TraceProjectionRepository(database, f.tenantId).diagnostics(f.runId)).projection?.reconciliation).toMatchObject({ state: "mismatch", mismatches: 1 });
-    await f.upload(JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", call_id: "call", name: "apply_patch", input: "reject" } }) + "\n", "native_session");
+    await f.upload(JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "call", name: "apply_patch", input: "reject" }] } }) + "\n", "native_session");
     await database.pool.query("UPDATE app.runs SET state='succeeded' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     const input = { requestId: crypto.randomUUID(), source: "native_session" as const };
     await database.pool.query("ALTER TABLE app.run_trace_events ADD CONSTRAINT reject_replay CHECK (preview_text <> 'reject')");

@@ -9,7 +9,7 @@ export interface ArtifactLocator {
   roots: string[];
   fileNameIncludes: string;
   sessionId?: string;
-  /** Prints one canonical native session path from inside the guest. */
+  /** Prints the declared trace file path from inside the guest. */
   discoverCommand: string;
 }
 export interface AgentLaunchSpec {
@@ -31,13 +31,11 @@ class CodexDriver implements AgentDriver {
     const args = ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--color", "never", "-c", "model_provider=exe-llm", "-c", 'model_providers.exe-llm.name="exe-llm"', "-c", 'model_providers.exe-llm.base_url="https://llm.int.exe.xyz/v1"'];
     if (config.model?.trim()) args.push("--model", config.model.trim());
     if (config.effort?.trim()) args.push("-c", `model_reasoning_effort=${config.effort.trim()}`);
-    const nativeSession = { kind: "native_session" as const, path: "${CODEX_HOME:-$HOME/.codex}/sessions", mediaType: "application/x-ndjson" as const, provider: this.kind, discoverCommand: `find "\${CODEX_HOME:-$HOME/.codex}/sessions" -type f -name 'rollout-*.jsonl' -printf '%T@ %p\\n' | sort -nr | head -1 | cut -d' ' -f2-` };
     return {
       executable: "codex", args, env: {}, stdin: "prompt",
-      artifacts: { roots: [nativeSession.path], fileNameIncludes: "rollout-", discoverCommand: nativeSession.discoverCommand },
+      artifacts: { roots: [`/tmp/factorize-artifacts/${runId}`], fileNameIncludes: "codex-exec.jsonl", discoverCommand: `printf '%s' '/tmp/factorize-artifacts/${runId}/codex-exec.jsonl'` },
       traceSources: {
         primary: { kind: "execution_stream", path: `/tmp/factorize-artifacts/${runId}/codex-exec.jsonl`, mediaType: "application/x-ndjson", provider: this.kind, formatVersion: "codex-exec-jsonl" },
-        nativeSession,
       },
     };
   }

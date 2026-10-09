@@ -20,7 +20,7 @@ describe("RunRepository", () => {
     expect(query.mock.calls[1][0]).toContain("trace_sources=$7");
     expect(query.mock.calls[1][1][6]).toBe(JSON.stringify(sources));
     await repository.dueForPoll();
-    expect(query.mock.calls.at(-1)![0]).toContain("'traceSources',x.trace_sources");
+    expect(query.mock.calls.at(-1)![0]).toContain("x.trace_sources,x.execution_handle");
   });
 
   it("claims queue work with row locking and persisted concurrency", async () => {

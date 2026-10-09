@@ -35,6 +35,7 @@ export function validateTraceSources(sources: TraceSources): void {
 /** Deployment controls affect new launches only; never change an active run's source. */
 export function rolloutTraceSources(sources: TraceSources, tenantId: string, config: { TRACE_PRIMARY_MODE?: string; TRACE_STREAM_TENANTS?: string }): TraceSources {
   if (config.TRACE_PRIMARY_MODE && !["execution_stream", "native_session"].includes(config.TRACE_PRIMARY_MODE)) throw new Error("Invalid TRACE_PRIMARY_MODE");
+  if (sources.primary.provider === "codex") return { primary: sources.primary };
   const canaries = config.TRACE_STREAM_TENANTS?.split(",").map(value => value.trim()).filter(Boolean);
   const native = config.TRACE_PRIMARY_MODE === "native_session" || (canaries !== undefined && !canaries.includes(tenantId));
   return native && sources.nativeSession ? { primary: sources.nativeSession } : sources;

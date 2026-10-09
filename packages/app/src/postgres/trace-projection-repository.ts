@@ -3,7 +3,7 @@ import type { TraceSource } from "../trace-source";
 import { TraceRepository } from "./trace-repository";
 import { traceMetric } from "../trace-observability";
 
-export const TRACE_PARSER_VERSION = "trace-v2-custom-tool-call";
+export const TRACE_PARSER_VERSION = "trace-v3-canonical-codex";
 export class TraceProjectionRepository {
   constructor(private database: Database, private tenantId: string) { if (!tenantId) throw new Error("tenantId is required"); }
 
@@ -27,10 +27,15 @@ export class TraceProjectionRepository {
     if (reconcile) {
       const comparison = (await client.query(`SELECT (SELECT count(*) FROM trace_before)::int live_events,
         (SELECT count(*) FROM (SELECT * FROM trace_before EXCEPT SELECT sequence,id,parent_id,event_type,role,title,preview_text,display_data,occurred_at FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2) missing)::int mismatches,
+        (SELECT generation FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2) generation,
         (SELECT committed_offset FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2) live_offset`, [this.tenantId, runId])).rows[0] ?? { live_events: 0, mismatches: 0, live_offset: null };
       const mismatch = comparison.mismatches > 0 || Number(comparison.live_offset ?? 0) > Number(artifact.byte_size);
-      reconciliation = { state: comparison.live_offset == null ? "no_live_cursor" : mismatch ? "mismatch" : "matched", events, liveEvents: comparison.live_events, mismatches: comparison.mismatches, liveOffset: comparison.live_offset == null ? null : Number(comparison.live_offset), artifactBytes: Number(artifact.byte_size) };
+      reconciliation = { state: comparison.live_offset == null ? "no_live_cursor" : mismatch ? "mismatch" : "matched", events, liveEvents: comparison.live_events, mismatches: comparison.mismatches, liveOffset: comparison.live_offset == null ? null : Number(comparison.live_offset), artifactBytes: Number(artifact.byte_size), generation: comparison.generation ?? null };
       traceMetric("terminal_reconciliation", this.tenantId, runId, { mismatch, events, mismatches: comparison.mismatches });
+    }
+    if (artifact.provider === "codex" && artifact.kind === "execution_stream") {
+      const completed = (await client.query("SELECT count(*)::int completed FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2 AND display_data->>'eventType'='turn.completed'", [this.tenantId, runId])).rows[0]?.completed ?? 0;
+      reconciliation.codexCompletion = completed ? "turn.completed" : "missing_turn_completed";
     }
     await client.query(`INSERT INTO app.run_trace_projections(tenant_id,run_id,source_kind,artifact_sha256,parser_version,reconciliation)
       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (tenant_id,run_id) DO UPDATE SET source_kind=excluded.source_kind,artifact_sha256=excluded.artifact_sha256,parser_version=excluded.parser_version,reconciliation=excluded.reconciliation,updated_at=now()`, [this.tenantId, runId, artifact.kind, artifact.sha256, TRACE_PARSER_VERSION, reconciliation]);
