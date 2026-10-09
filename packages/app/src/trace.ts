@@ -1,3 +1,5 @@
+import { safeDiagnosticText } from "./harness-diagnostics";
+import { parseCodexExec, parseCodexNativeCall, type CodexCalls } from "./codex-trace";
 import { parsePi } from "./pi-trace";
 import type { TraceSource } from "./trace-source";
 export type TraceEventType = "user_message" | "assistant_message" | "reasoning" | "tool_call" | "tool_result" | "command" | "file_change" | "compaction" | "branch" | "usage" | "warning" | "error" | "metadata";
@@ -28,16 +30,17 @@ function event(sequence: number, type: TraceEventType, title: string, preview: u
 }
 
 function parseCodex(value: any, sequence: number): TraceEvent[] {
+  if (!value || typeof value !== "object") return [event(sequence, "warning", "Invalid Codex record", "Expected an object", {})];
   const payload = value.payload ?? {};
-  if (value.type === "session_meta") return [event(sequence, "metadata", "Session started", payload.cwd ?? "", { ...value, id: payload.id ?? payload.session_id })];
+  if (value.type === "session_meta") return [event(sequence, "metadata", "Session started", safeDiagnosticText(String(payload.cwd ?? ""), MAX_PREVIEW), { ...value, id: payload.id ?? payload.session_id })];
   if (value.type === "response_item") {
     const kind = payload.type;
-    if (kind === "message") return [event(sequence, payload.role === "user" ? "user_message" : "assistant_message", payload.role === "user" ? "User" : "Assistant", contentText(payload.content), { ...value, ...payload })];
+    if (kind === "message") return [event(sequence, payload.role === "user" ? "user_message" : "assistant_message", payload.role === "user" ? "User" : "Assistant", safeDiagnosticText(contentText(payload.content), MAX_PREVIEW), { ...value, ...payload })];
     if (kind === "function_call") return [{ ...event(sequence, "tool_call", String(payload.name ?? "Tool call"), payload.arguments, { ...value, ...payload }), display: { arguments: payload.arguments ?? {} } }];
     if (kind === "function_call_output") return [event(sequence, "tool_result", "Tool result", payload.output, { ...value, ...payload })];
-    if (kind === "reasoning") return [event(sequence, "reasoning", "Reasoning", contentText(payload.summary ?? payload.content), { ...value, ...payload })];
+    if (kind === "reasoning") return [event(sequence, "reasoning", "Reasoning", safeDiagnosticText(contentText(payload.summary ?? payload.content), MAX_PREVIEW), { ...value, ...payload })];
   }
-  if (value.type === "event_msg" && payload.type === "agent_reasoning") return [event(sequence, "reasoning", "Reasoning", payload.text, { ...value, ...payload })];
+  if (value.type === "event_msg" && payload.type === "agent_reasoning") return [event(sequence, "reasoning", "Reasoning", safeDiagnosticText(String(payload.text ?? ""), MAX_PREVIEW), { ...value, ...payload })];
   return [];
 }
 
@@ -69,12 +72,16 @@ function parseClaude(value: any, sequence: number, tools: Map<string, string>): 
 }
 
 /** Parses source JSONL into bounded, provider-neutral display events. */
-export function parseTrace(provider: "codex" | "claude" | "pi", jsonl: string, sourceKind: TraceSource["kind"] = "native_session", claudeTools = new Map<string, string>()): TraceEvent[] {
+export function parseTrace(provider: "codex" | "claude" | "pi", jsonl: string, sourceKind: TraceSource["kind"] = "native_session", startSequence = 1, calls: CodexCalls = new Map(), claudeTools = new Map<string, string>()): TraceEvent[] {
   const events: TraceEvent[] = [];
   for (const line of jsonl.split(/\r?\n/)) {
     if (!line.trim()) continue;
     let value: unknown;
-    try { value = JSON.parse(line); } catch { if (sourceKind === "execution_stream") throw new Error("Invalid execution stream JSON"); events.push(event(events.length + 1, "warning", "Unparseable session record", line, {})); continue; }
+    try { value = JSON.parse(line); } catch { if (sourceKind === "execution_stream" && provider !== "codex") throw new Error("Invalid execution stream JSON"); events.push(event(startSequence + events.length, "warning", "Unparseable session record", provider === "codex" ? "Invalid JSON record skipped" : line, {})); continue; }
+    if (sourceKind === "execution_stream" && provider === "codex" && (value as any)?.version !== 1) {
+      events.push(...parseCodexExec(value, startSequence + events.length));
+      continue;
+    }
     if (sourceKind === "execution_stream") {
       const record = value as any;
       if (!record || record.version !== 1 || typeof record.id !== "string" || typeof record.title !== "string" || typeof record.preview !== "string" || !["user_message", "assistant_message", "reasoning", "tool_call", "tool_result", "command", "file_change", "compaction", "branch", "usage", "warning", "error", "metadata"].includes(record.type)) throw new Error("Invalid execution stream record");
@@ -82,10 +89,10 @@ export function parseTrace(provider: "codex" | "claude" | "pi", jsonl: string, s
       events.push({ sequence: events.length + 1, id: record.id, type: record.type, title: clipped(record.title), preview: clipped(record.preview), ...(typeof record.parentId === "string" ? { parentId: record.parentId } : {}), ...(typeof record.role === "string" ? { role: record.role } : {}), ...(typeof record.occurredAt === "string" ? { occurredAt: record.occurredAt } : {}), display: record.display && typeof record.display === "object" && !Array.isArray(record.display) ? record.display : {} });
       continue;
     }
-    const parsed = provider === "codex" ? parseCodex(value, events.length + 1) : provider === "claude" ? parseClaude(value, events.length + 1, claudeTools) : parsePi(value, events.length + 1);
-    events.push(...parsed);
+    const parsed = provider === "codex" ? parseCodexNativeCall(value, startSequence + events.length, calls) ?? parseCodex(value, startSequence + events.length) : provider === "claude" ? parseClaude(value, startSequence + events.length, claudeTools) : parsePi(value, events.length + 1);
+    events.push(...(provider === "codex" ? parsed.map(item => ({ ...item, title: safeDiagnosticText(item.title, 512), preview: safeDiagnosticText(item.preview, MAX_PREVIEW) })) : parsed));
   }
-  return events.map((item, index) => ({ ...item, sequence: index + 1 }));
+  return events.map((item, index) => ({ ...item, sequence: startSequence + index }));
 }
 
 /** Byte framing matches live ingestion, including an incomplete UTF-8 tail at exit. */
@@ -103,7 +110,7 @@ async function consumeExecutionStream(provider: "codex" | "claude" | "pi", strea
       for (let index = 0; index < combined.length; index++) {
         if (combined[index] !== 10) continue;
         if (index - start > 16 * 1024 * 1024) throw new Error("Execution stream record exceeds 16 MiB");
-        const events = parseTrace(provider, decoder.decode(combined.subarray(start, index)), "execution_stream");
+        const events = parseTrace(provider, decoder.decode(combined.subarray(start, index)), "execution_stream", sequence + 1);
         for (const item of events) { batch.push({ ...item, sequence: ++sequence }); if (batch.length >= batchSize) await flush(); }
         start = index + 1;
       }
@@ -121,11 +128,12 @@ export async function consumeTraceStream(provider: "codex" | "claude" | "pi", st
   const reader = stream.getReader(), decoder = new TextDecoder();
   let batch: TraceEvent[] = [], sequence = 0;
   let pending = "";
+  const calls: CodexCalls = new Map();
   const claudeTools = new Map<string, string>();
   const flush = async () => { if (!batch.length) return; const ready = batch; batch = []; await consumeBatch(ready); };
   const consume = async (line: string) => {
     if (!line.trim()) return;
-    const parsed = parseTrace(provider, line, sourceKind, claudeTools);
+    const parsed = parseTrace(provider, line, sourceKind, sequence + 1, calls, claudeTools);
     for (const item of parsed) { batch.push({ ...item, sequence: ++sequence }); if (batch.length >= batchSize) await flush(); }
   };
   for (;;) {

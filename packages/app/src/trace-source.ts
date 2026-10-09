@@ -1,6 +1,6 @@
 import { shellAtom } from "./exe";
 
-/** A guest file, never a terminal log. Execution streams use Factorize JSONL v1. */
+/** A guest file, never a terminal log. Execution streams use Factorize JSONL v1 or declared provider stdout JSONL. */
 export interface TraceSource {
   kind: "execution_stream" | "native_session";
   path: string;
@@ -23,7 +23,7 @@ export function validateTraceSources(sources: TraceSources): void {
     sourceCommand(source);
     if (source.mediaType !== "application/x-ndjson") throw new Error("Trace sources must be JSONL");
     if (!["execution_stream", "native_session"].includes(source.kind) || !["codex", "claude", "pi"].includes(source.provider)) throw new Error("Invalid trace source");
-    if (source.kind === "execution_stream" && source.formatVersion && source.formatVersion !== "1") throw new Error("Unsupported execution stream version");
+    if (source.kind === "execution_stream" && source.formatVersion && source.formatVersion !== "1" && !(source.provider === "codex" && source.formatVersion === "codex-exec-jsonl")) throw new Error("Unsupported execution stream version");
   }
   if (sources.primary.kind === "execution_stream" && ["/tmp/factorize.log", "/tmp/factorize.stderr", "/tmp/factorize-prompt.md"].includes(sources.primary.path)) throw new Error("Trace stream path is reserved for JSONL only");
   if (sources.nativeSession) {

@@ -7,10 +7,10 @@ const source: TraceSource = { kind: "execution_stream", path: "/tmp/trace/events
 export const record = JSON.stringify({ version: 1, id: "a", type: "assistant_message", title: "Assistant", preview: "hello 😀", display: { model: "test" } });
 
 describe("execution stream contract", () => {
-  it("declares native-only compatibility explicitly for unchanged drivers", () => {
-    for (const provider of ["codex", "pi"] as const) {
+  it("declares Codex and Claude primary streams and preserves the Pi native driver", () => {
+    for (const provider of ["codex", "claude", "pi"] as const) {
       const launch = agentDriver(provider).launch("run-1", {});
-      expect(launch.traceSources?.primary).toMatchObject({ kind: "native_session", mediaType: "application/x-ndjson", provider });
+      expect(launch.traceSources?.primary).toMatchObject({ kind: provider === "pi" ? "native_session" : "execution_stream", mediaType: "application/x-ndjson", provider });
       validateTraceSources(launch.traceSources!);
     }
   });
@@ -32,7 +32,7 @@ describe("execution stream contract", () => {
     const complete: any[] = [];
     await consumeTraceStream("codex", new Response(truncatedUtf8).body!, async items => { complete.push(...items); }, 250, "execution_stream");
     expect(complete).toEqual(events);
-    expect(() => parseTrace("codex", "{}", "execution_stream")).toThrow("Invalid execution stream record");
-    expect(() => parseTrace("codex", "invalid", "execution_stream")).toThrow("Invalid execution stream JSON");
+    expect(() => parseTrace("claude", "{}", "execution_stream")).toThrow("Invalid execution stream record");
+    expect(() => parseTrace("claude", "invalid", "execution_stream")).toThrow("Invalid execution stream JSON");
   });
 });

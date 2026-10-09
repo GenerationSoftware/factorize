@@ -1,0 +1,4 @@
+{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"custom-1","name":"exec_command","input":"{\"cmd\":\"printf test\"}"}}
+{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"custom-1","output":"test"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"legacy-1","name":"shell","arguments":"{\"command\":\"pwd\"}"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"legacy-1","output":"/workspace"}}

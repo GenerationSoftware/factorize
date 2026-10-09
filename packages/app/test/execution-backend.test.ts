@@ -69,6 +69,22 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("systemctl show");
   });
 
+  it("routes Codex JSON stdout exclusively to its stream and records the guest CLI version", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const body = String(init.body); requests.push(body);
+      return new Response(body.includes("codex --version") ? "codex-cli 0.161.0" : requests.length === 1 ? "{}" : "started", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    const launch = agentDriver("codex").launch("run-1", {});
+    await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "test", harness: launch, traceSources: launch.traceSources });
+    expect(launch.traceSources?.primary.cliVersion).toBe("codex-cli 0.161.0");
+    const supervisor = requests.find(body => body.includes("systemd-run"))!;
+    expect(supervisor).toContain("append:/tmp/factorize-artifacts/run-1/codex-exec.jsonl");
+    expect(supervisor).not.toContain("append:/tmp/factorize.log");
+    expect(supervisor).toContain("StandardError=append:/tmp/factorize.stderr");
+    expect(supervisor).toContain("--json");
+  });
+
   it("uses the systemd unit as the authoritative run state", async () => {
     const states = [
       "LoadState=loaded\nActiveState=active\nSubState=running\nResult=success\nExecMainCode=0\nExecMainStatus=0",
