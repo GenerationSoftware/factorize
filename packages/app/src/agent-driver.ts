@@ -1,3 +1,4 @@
+import { CLAUDE_STREAM_HARNESS } from "./claude-stream";
 import type { TraceSources } from "./trace-source";
 export type AgentKind = "codex" | "claude" | "pi";
 
@@ -36,10 +37,13 @@ class CodexDriver implements AgentDriver {
 class ClaudeDriver implements AgentDriver {
   readonly kind = "claude" as const;
   launch(runId: string, config: AgentConfiguration): AgentLaunchSpec {
-    const args = ["-p", "--dangerously-skip-permissions", "--session-id", runId];
+    const path = `/tmp/factorize-artifacts/${runId}/claude/trace.jsonl`;
+    const args = ["-u", "-c", CLAUDE_STREAM_HARNESS, path, "claude", "-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", "--session-id", runId];
     if (config.model?.trim()) args.push("--model", config.model.trim());
     if (config.effort?.trim()) args.push("--effort", config.effort.trim());
-    return { executable: "claude", args, env: {}, stdin: "prompt", artifacts: { roots: ["$HOME/.claude/projects"], fileNameIncludes: runId, sessionId: runId, discoverCommand: `find "$HOME/.claude/projects" -type f -name '*${runId}.jsonl' -print | head -1` } };
+    const artifacts: ArtifactLocator = { roots: ["$HOME/.claude/projects"], fileNameIncludes: runId, sessionId: runId, discoverCommand: `find "$HOME/.claude/projects" -type f -name '*${runId}.jsonl' -print | head -1` };
+    const nativeSession = { kind: "native_session" as const, path: artifacts.roots[0], mediaType: "application/x-ndjson" as const, provider: this.kind, discoverCommand: artifacts.discoverCommand };
+    return { executable: "python3", args, env: {}, stdin: "prompt", artifacts, traceSources: { primary: { kind: "execution_stream", path, mediaType: "application/x-ndjson", provider: this.kind, formatVersion: "1", harnessVersion: "claude-stream-v1" }, nativeSession } };
   }
 }
 

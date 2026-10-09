@@ -24,7 +24,7 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
   });
   afterAll(async () => { await database?.close(); if (admin) { await admin.pool.query(`DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`); await admin.close(); } });
 
-  async function fixture() {
+  async function fixture(provider: "codex" | "claude" = "codex") {
     const tenantId = crypto.randomUUID(), jobId = crypto.randomUUID(), triggerId = crypto.randomUUID(), invocationId = crypto.randomUUID(), runId = crypto.randomUUID();
     await database.pool.query("INSERT INTO app.tenants(id) VALUES ($1)", [tenantId]);
     await database.pool.query("INSERT INTO app.jobs(tenant_id,id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,'Trace test','trace-test','test','{}',1)", [tenantId, jobId]);
@@ -38,16 +38,16 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     } } as any;
     const upload = async (text: string, kind: "execution_stream" | "native_session" = "execution_stream") => {
       const bytes = new TextEncoder().encode(text), sha256 = await hash(bytes);
-      const token = await issueArtifactUploadGrant({ tenantId, runId, path: kind === "execution_stream" ? "trace/stream.jsonl" : "native/session.jsonl", contentType: "application/x-ndjson", provider: "codex", format: "jsonl", sourceKind: kind, sourcePath: "/tmp/trace.jsonl", formatVersion: "1", cliVersion: "p1", harnessVersion: "h1", primary: kind === "execution_stream", expiresAt: Date.now() + 60_000 }, secret);
+      const token = await issueArtifactUploadGrant({ tenantId, runId, path: kind === "execution_stream" ? "trace/stream.jsonl" : "native/session.jsonl", contentType: "application/x-ndjson", provider, format: "jsonl", sourceKind: kind, sourcePath: "/tmp/trace.jsonl", formatVersion: "1", cliVersion: "p1", harnessVersion: "h1", primary: kind === "execution_stream", expiresAt: Date.now() + 60_000 }, secret);
       return artifactUpload(new Request("https://app/upload", { method: "PUT", headers: { "Content-Type": "application/x-ndjson", "Content-Length": String(bytes.length), "X-Artifact-SHA256": sha256 }, body: bytes }), env, token);
     };
     return { runId, upload, blobs, live: new LiveTraceRepository(database, tenantId), trace: new TraceRepository(database, tenantId), artifacts: new ArtifactRepository(database, tenantId) };
   }
 
-  it("reconciles durable bytes, preserves native audit data, and rejects late chunks", async () => {
-    const f = await fixture(), text = record("event-1") + '{"partial":', bytes = new TextEncoder().encode(text);
+  it.each(["codex", "claude"] as const)("reconciles %s durable bytes, preserves native audit data, and rejects late chunks", async provider => {
+    const f = await fixture(provider), text = record("event-1") + '{"partial":', bytes = new TextEncoder().encode(text);
     const chunk = { generation: "file-1", expectedGeneration: null, startOffset: 0, chunkSha256: await hash(bytes), previousHash: zero, bytes };
-    const receipts = await Promise.all([f.live.append(f.runId, "codex", chunk, "execution_stream"), f.live.append(f.runId, "codex", chunk, "execution_stream")]);
+    const receipts = await Promise.all([f.live.append(f.runId, provider, chunk, "execution_stream"), f.live.append(f.runId, provider, chunk, "execution_stream")]);
     expect(receipts.filter(receipt => receipt.duplicate)).toHaveLength(1);
     const live = await f.trace.page(f.runId);
     expect(live.items).toHaveLength(1);
@@ -62,7 +62,7 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     expect(new TextDecoder().decode(f.blobs.get(stream.object_key))).toBe(text);
     expect((await f.upload(text)).status).toBe(201);
     expect((await f.upload(record("replacement"))).status).toBe(409);
-    await expect(f.live.append(f.runId, "codex", chunk, "execution_stream")).rejects.toThrow("already finalized");
+    await expect(f.live.append(f.runId, provider, chunk, "execution_stream")).rejects.toThrow("already finalized");
   });
 
   it("rolls back corrupt final projection and its receipt without losing live events", async () => {

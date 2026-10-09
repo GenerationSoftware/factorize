@@ -7,8 +7,8 @@ const source: TraceSource = { kind: "execution_stream", path: "/tmp/trace/events
 export const record = JSON.stringify({ version: 1, id: "a", type: "assistant_message", title: "Assistant", preview: "hello 😀", display: { model: "test" } });
 
 describe("execution stream contract", () => {
-  it("declares native-only compatibility explicitly for all existing drivers", () => {
-    for (const provider of ["codex", "claude", "pi"] as const) {
+  it("declares native-only compatibility explicitly for unchanged drivers", () => {
+    for (const provider of ["codex", "pi"] as const) {
       const launch = agentDriver(provider).launch("run-1", {});
       expect(launch.traceSources?.primary).toMatchObject({ kind: "native_session", mediaType: "application/x-ndjson", provider });
       validateTraceSources(launch.traceSources!);
