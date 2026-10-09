@@ -62,6 +62,12 @@ describe("shared webhook conditions", () => {
     expect(typeof result.details[0].conditions).toBe("object");
     expect(JSON.parse(JSON.stringify(result))).toStrictEqual(result); expect(webhook).toEqual(original);
   });
+  it("reports actual evaluation failures explicitly without leaking webhook values", async () => {
+    const webhook = Object.defineProperty({}, "value", { enumerable: true, get() { throw new Error("private-webhook-value"); } });
+    const result = await evaluateWebhookConditions(leaf("$.value", "equal", true), webhook);
+    expect(result.decision).toBe("error"); expect(result.details).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain("private-webhook-value");
+  });
   it("validates conditions for every provider and rejects legacy requests", () => {
     const configs = [{ provider: "linear", projectId: "p", matchRules: [{ type: "status", targetId: "done" }] }, { provider: "clickup", listId: "l", matchRules: [{ type: "status", targetId: "done" }] }, { provider: "github", installationId: 1, repositoryId: 2, event: "check_suite", action: "completed" }, { provider: "cloudflareTail", integrationId: "tail" }];
     for (const config of configs) {

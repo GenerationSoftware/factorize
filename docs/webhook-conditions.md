@@ -65,7 +65,9 @@ Trigger identity, routing and prompt context stay intact. A database constraint
 rejects future writes of the removed property.
 
 Before production, validate on an isolated Neon branch and inventory again.
-The production workflow migrates before deploying the conditions Worker, then
+Land the conditions replacement on main before production cutover so later
+main deployments (including concurrent frontend work) cannot restore the old
+backend over converted data. The production workflow migrates before deploying the conditions Worker, then
 runs `restore-webhook-conditions.mjs` only after deployment. The public session
 response's `X-Factorize-Webhook-Conditions: v1` marker gates restoration. On any
 migration/deployment/verification failure, affected triggers remain disabled.
