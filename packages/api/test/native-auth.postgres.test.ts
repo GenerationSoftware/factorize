@@ -5,11 +5,14 @@ import { AuthRepository } from "../src/postgres/auth-repository";
 import { ConnectionRepository } from "../src/postgres/connection-repository";
 import { IdentityRepository } from "../src/postgres/identity-repository";
 import { ApiService } from "../src/flow-service";
+import { protectedApiFetch } from "../src/protected-api";
 import { tokenDigest } from "../src/auth";
 import { hmac } from "../src/crypto";
 import { signSetupState } from "../src/github";
 import app, { readSession, signSession } from "../src/index";
 import type { Env } from "../src/types";
+
+vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {} }));
 
 // CI provides a disposable PostgreSQL service. Each suite owns a fresh database.
 describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with PostgreSQL", () => {
@@ -61,6 +64,54 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
   function post(path: string, body: Record<string, string>, cookie = "", origin = env.APP_ORIGIN) {
     return app.request(path, { method: "POST", headers: { Origin: origin, Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body) }, env);
   }
+
+  it("serves the complete JSON native-auth lifecycle through the public dispatcher", async () => {
+    mail();
+    const email = `api_${crypto.randomUUID().slice(0, 8)}@example.test`;
+    const json = (path: string, input?: object, cookie = "") => protectedApiFetch(
+      new Request(env.APP_ORIGIN + path, {
+        method: input ? "POST" : "GET",
+        headers: { Origin: env.APP_ORIGIN, Cookie: cookie, "Content-Type": "application/json" },
+        ...(input ? { body: JSON.stringify(input) } : {}),
+      }), env, null, {} as ExecutionContext,
+    );
+    expect((await json("/api/v1/auth/signup", { email, password })).status).toBe(202);
+    const verification = token();
+    expect((await json("/api/v1/auth/signup", { email, password })).status).toBe(202);
+    expect((await json("/api/v1/auth/login", { email, password })).status).toBe(403);
+    expect((await json("/api/v1/auth/email-verification/complete", { token: verification })).status).toBe(200);
+    expect((await json("/api/v1/auth/email-verification/complete", { token: verification })).status).toBe(400);
+    const login = await json("/api/v1/auth/login", { email, password, returnTo: "/device?user_code=ABCD-EFGH" });
+    expect(login.status).toBe(200);
+    expect(await login.json()).toEqual({ ok: true, returnTo: "/device?user_code=ABCD-EFGH" });
+    const cookie = login.headers.get("Set-Cookie")!.split(";")[0];
+    const active = await (await json("/api/v1/session", undefined, cookie)).json() as any;
+    expect(active).toMatchObject({ authenticated: true, user: { email }, workspace: { role: "owner" } });
+    const workspaceId = active.workspace.id;
+    await db.pool.query("UPDATE app.tenants SET name='API workspace' WHERE id=$1", [workspaceId]);
+    expect(await (await json("/api/v1/session", undefined, cookie)).json()).toMatchObject({ workspace: { name: "API workspace" } });
+    const delegate = new ApiService(env, {
+      tenantId: workspaceId, userId: active.user.id,
+      sessionVersion: (await new IdentityRepository(db, workspaceId).member(active.user.id))!.sessionVersion,
+      scopes: ["flows:read"], authMethod: "oauth",
+    });
+    expect(await delegate.listJobs()).toEqual([]);
+    expect((await json("/api/v1/auth/logout", {}, cookie)).status).toBe(200);
+    expect(await (await json("/api/v1/session", undefined, cookie)).json()).toEqual({ authenticated: false });
+    await expect(delegate.listJobs()).rejects.toMatchObject({ status: 401 });
+    const next = await json("/api/v1/auth/login", { email, password });
+    const nextCookie = next.headers.get("Set-Cookie")!.split(";")[0];
+    expect((await json("/api/v1/auth/password-reset/request", { email })).status).toBe(200);
+    const reset = token();
+    expect((await json("/api/v1/auth/password-reset/complete", { token: reset, password: "replacement long password" })).status).toBe(200);
+    expect(await (await json("/api/v1/session", undefined, nextCookie)).json()).toEqual({ authenticated: false });
+    expect((await json("/api/v1/auth/password-reset/complete", { token: reset, password })).status).toBe(400);
+    const final = await json("/api/v1/auth/login", { email, password: "replacement long password" });
+    expect(final.status).toBe(200);
+    const finalCookie = final.headers.get("Set-Cookie")!.split(";")[0];
+    expect((await json("/api/v1/auth/password", { currentPassword: "replacement long password", password }, finalCookie)).status).toBe(200);
+    expect(await (await json("/api/v1/session", undefined, finalCookie)).json()).toEqual({ authenticated: false });
+  });
 
   it("requires an email, delivers verification, and denies access before verification", async () => {
     mail(); expect((await auth.signup({ email: "not-an-email", password })).status).toBe(400);

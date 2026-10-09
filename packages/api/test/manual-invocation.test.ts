@@ -29,7 +29,7 @@ describe("manual invocation API and shared service", () => {
     const env = { CREDENTIAL_ENCRYPTION_KEY: key, APP_ORIGIN: "https://example.com" } as any;
     const request = async (body: Record<string, unknown>) => {
       const response = await protectedApiFetch(new Request("https://example.com" + (transport === "REST" ? "/api/v1/jobs/job-1/invocations" : "/mcp"), {
-        method: "POST", headers: { Host: "example.com", "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        method: "POST", headers: { Origin: env.APP_ORIGIN, Host: "example.com", "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
         body: JSON.stringify(transport === "REST" ? body : { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "invoke_job", arguments: { jobId: "job-1", ...body } } }),
       }), env, { scopes: ["runs:write"], authMethod: "session" } as any, {} as any);
       if (transport === "REST") return response;

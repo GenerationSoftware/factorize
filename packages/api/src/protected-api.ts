@@ -6,6 +6,7 @@ import { z } from "zod";
 import { ApiService, ServiceError } from "./flow-service";
 import { jobHandlerTestSchema, jobIdSchema, jobInputSchema, listRunsSchema, manualInvocationSchema, runIdSchema } from "./flow-schemas";
 import type { Env, OAuthProps } from "./types";
+import { executeAuth, validBrowserOrigin } from "./auth-api";
 import { matchApiOperation } from "./api-contract";
 
 function errorResponse(error: unknown): Response {
@@ -37,20 +38,28 @@ function structured(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(output) }], structuredContent: output };
 }
 
-export async function protectedApiFetch(request: Request, env: Env, auth: OAuthProps, ctx: ExecutionContext): Promise<Response> {
-    const started = performance.now(), service = new ApiService(env, auth);
+export async function protectedApiFetch(request: Request, env: Env, auth: OAuthProps | null, ctx: ExecutionContext): Promise<Response> {
+    const started = performance.now();
+    let service: ApiService | undefined;
     const timed = (response: Response) => {
-      response.headers.set("Server-Timing", `auth;dur=${service.authorizationDuration.toFixed(1)}, application;dur=${Math.max(0, performance.now() - started - service.authorizationDuration).toFixed(1)}`);
+      response.headers.set("Cache-Control", "no-store");
+      response.headers.set("X-Content-Type-Options", "nosniff");
+      response.headers.set("Server-Timing", `auth;dur=${(service?.authorizationDuration ?? 0).toFixed(1)}, application;dur=${Math.max(0, performance.now() - started - (service?.authorizationDuration ?? 0)).toFixed(1)}`);
       return response;
     };
     try {
       const url = new URL(request.url), path = url.pathname;
-      if (path === "/mcp") return mcp(request, service, env, ctx);
+      if (path === "/mcp") {
+        if (!auth) throw new ServiceError(401, "invalid_token", "Unauthorized");
+        return mcp(request, new ApiService(env, auth), env, ctx);
+      }
       const matched = matchApiOperation(request.method, path);
       if (!matched) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
       const { route, params } = matched;
-      if (!auth.scopes.includes(route.scope)) throw new ServiceError(403, "insufficient_scope", `The ${route.scope} scope is required.`);
-      if (route.ownerSession && auth.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required.");
+      if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && (route.authOperation || auth?.authMethod === "session") && !validBrowserOrigin(request, env)) throw new ServiceError(403, "invalid_origin", "Invalid request origin.");
+      if (!route.authOperation && !auth) throw new ServiceError(401, "invalid_token", "Unauthorized");
+      if (!route.authOperation && !auth!.scopes.includes(route.scope)) throw new ServiceError(403, "insufficient_scope", `The ${route.scope} scope is required.`);
+      if (!route.authOperation && route.ownerSession && auth!.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required.");
       let body: unknown;
       if (route.body) {
         if (request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() !== "application/json") throw new ServiceError(415, "unsupported_media_type", "Content-Type must be application/json.");
@@ -58,6 +67,8 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
         catch { throw new ServiceError(400, "invalid_request", "Request body must be valid JSON."); }
         body = route.body.parse(body);
       }
+      if (route.authOperation) return timed(await executeAuth(route.authOperation, request, env, body as Record<string, unknown>));
+      service = new ApiService(env, auth!);
       const query = route.query?.parse(queryInput(url));
       return timed(Response.json(await route.execute(service, { params: route.parameters.parse(params) as Record<string, string>, body, query, url }), { status: route.status }));
     } catch (error) { return timed(errorResponse(error)); }

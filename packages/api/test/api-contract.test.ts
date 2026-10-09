@@ -62,7 +62,10 @@ describe("versioned API contract", () => {
   it("documents validation, authorization, media types, and resolvable response schemas for every operation", () => {
     for (const route of API_ROUTES) {
       const operation = openapi.paths[route.path][route.method.toLowerCase()];
-      expect(operation["x-required-scope"]).toBe(route.scope);
+      if (route.authOperation) {
+        expect(operation["x-required-scope"]).toBeUndefined();
+        expect(operation.security).toEqual(route.ownerSession ? [{ cookieAuth: [] }] : []);
+      } else expect(operation["x-required-scope"]).toBe(route.scope);
       expect(operation["x-owner-session-required"]).toBe(route.ownerSession);
       expect(
         operation.parameters

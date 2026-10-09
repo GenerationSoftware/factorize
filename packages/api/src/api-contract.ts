@@ -9,6 +9,7 @@ import {
 } from "./flow-schemas";
 import { traceReplaySchema } from "./trace-replay-schemas";
 import document from "./api-document.json";
+import { authInputs, authSuccess, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
 
 type JsonSchema = Record<string, any>;
 export interface RouteContract {
@@ -16,6 +17,7 @@ export interface RouteContract {
   path: string;
   scope: z.infer<typeof scopeSchema>;
   ownerSession: boolean;
+  authOperation?: AuthAction;
   body?: z.ZodType;
   query?: z.ZodObject;
   parameters: z.ZodObject;
@@ -142,7 +144,30 @@ function route(
 /** The executable API catalog: change an operation here, then run generate:openapi.
  * Service methods retain tenant/identity authorization for both REST and MCP.
  */
+function authRoute(method: string, path: string, action: AuthAction, summary: string, response: z.ZodType, body?: z.ZodType, status = 200): RouteContract {
+  return {
+    method, path, authOperation: action, scope: "flows:read", ownerSession: action === "password",
+    parameters: z.object({}), body, status,
+    documentation: {
+      summary,
+      description: "Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.",
+      responses: { [status]: { description: "session" === action ? "Unauthenticated sessions return authenticated:false; expired, unverified, removed or revoked owners are unauthenticated." : "Success", content: { "application/json": { schema: jsonSchema(response, "output") } } } },
+    },
+    execute: async () => { throw new Error("Auth operations must use the protected API dispatcher"); },
+  };
+}
+
 export const API_ROUTES: RouteContract[] = [
+  authRoute("GET", "/api/v1/session", "session", "Get current browser session", sessionResponse),
+  authRoute("POST", "/api/v1/auth/login", "login", "Sign in", loginSuccess, authInputs.login),
+  authRoute("POST", "/api/v1/auth/signup", "signup", "Request signup; existing accounts return the same accepted response", authSuccess, authInputs.signup, 202),
+  authRoute("POST", "/api/v1/auth/email-verification/request", "verification-request", "Request email verification", authSuccess, authInputs.request),
+  authRoute("POST", "/api/v1/auth/email-verification/complete", "verification", "Complete email verification", authSuccess, authInputs.verify),
+  authRoute("POST", "/api/v1/auth/password-reset/request", "reset-request", "Request password reset", authSuccess, authInputs.request),
+  authRoute("POST", "/api/v1/auth/password-reset/complete", "reset", "Complete password reset", authSuccess, authInputs.reset),
+  authRoute("POST", "/api/v1/auth/password", "password", "Change password and invalidate sessions", authSuccess, authInputs.change),
+  authRoute("POST", "/api/v1/auth/logout", "logout", "Revoke current session and clear browser cookie", authSuccess),
+
   route(
     "GET",
     "/api/v1/exe-connections",
@@ -940,6 +965,9 @@ export function matchApiOperation(method: string, path: string) {
   }
   return undefined;
 }
+export function isBrowserAuthOperation(method: string, path: string): boolean {
+  return API_ROUTES.some(route => route.authOperation && route.method === method && route.path === path);
+}
 export function isDeclaredApiOperation(method: string, path: string): boolean {
   return matchApiOperation(method, path) !== undefined;
 }
@@ -1037,8 +1065,8 @@ export function generateOpenApi() {
       ...route.documentation,
       description: [
         route.documentation.description,
-        `Requires the ${route.scope} scope.`,
-        route.ownerSession
+        route.authOperation ? undefined : `Requires the ${route.scope} scope.`,
+        route.authOperation ? undefined : route.ownerSession
           ? "An interactive owner session is required; bearer tokens cannot call this operation."
           : "Accepts a scoped bearer token or interactive owner session.",
       ]
@@ -1046,8 +1074,8 @@ export function generateOpenApi() {
         .join("\n\n"),
       operationId: `${route.method.toLowerCase()}_${route.path.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, "")}`,
       tags: [route.path.split("/")[3]],
-      security: [{ bearerAuth: [] }],
-      "x-required-scope": route.scope,
+      security: route.authOperation ? (route.ownerSession ? [{ cookieAuth: [] }] : []) : [{ bearerAuth: [] }, { cookieAuth: [] }],
+      ...(route.authOperation ? { "x-browser-auth-operation": route.authOperation } : { "x-required-scope": route.scope }),
       "x-owner-session-required": route.ownerSession,
       ...(parameters.length ? { parameters } : {}),
       ...(route.body
@@ -1065,7 +1093,7 @@ export function generateOpenApi() {
   }
   return {
     ...document,
-    components: { ...document.components, schemas, responses: errorResponses },
+    components: { ...document.components, securitySchemes: { ...document.components.securitySchemes, cookieAuth: { type: "apiKey", in: "cookie", name: "factorize_session" } }, schemas, responses: errorResponses },
     paths,
   };
 }

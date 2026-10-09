@@ -36,15 +36,17 @@ function request(
 ) {
   const worker = new ProtectedApiHandler(
     { props: options.auth ?? auth } as ExecutionContext<OAuthProps>,
-    {} as Env,
+    { APP_ORIGIN: "https://example.com" } as Env,
   );
   return worker.fetch(
     new Request("https://example.com" + path, {
       method,
+      headers: { Origin: "https://example.com" },
       ...(body !== undefined || options.raw !== undefined
         ? {
             body: options.raw ?? JSON.stringify(body),
             headers: {
+              Origin: "https://example.com",
               "Content-Type": options.mediaType ?? "application/json",
             },
           }

@@ -1,5 +1,7 @@
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
-import app, { readSession, requestCookie } from "./index";
+import app from "./index";
+import { readSession, requestCookie } from "./session";
+import { isBrowserAuthOperation } from "./api-contract";
 import { ProtectedApiHandler, protectedApiFetch } from "./protected-api";
 import { hmac } from "./crypto";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceLoginRedirect, deviceToken, deviceVerification } from "./device-oauth";
@@ -82,6 +84,7 @@ export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) 
   if (traceChunkMatch) return traceChunkUpload(request, env, decodeURIComponent(traceChunkMatch[1]!));
   const artifactMatch = url.pathname.match(/^\/internal\/run-artifacts\/([^/]+)$/);
   if (artifactMatch) return artifactUpload(request, env, decodeURIComponent(artifactMatch[1]!));
+  if (isBrowserAuthOperation(request.method, url.pathname)) return protectedApiFetch(request, env, null, ctx);
   if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {
     // Signature and expiry here; the service performs the authoritative owner,
     // verified-email and session-version lookup once for this API request.
