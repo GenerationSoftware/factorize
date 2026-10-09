@@ -12,6 +12,17 @@ describe("RunRepository", () => {
     expect(calls.every(([sql]) => !sql.includes("created_at="))).toBe(true);
   });
 
+  it("persists the source declaration at launch and reads it independently of current driver defaults", async () => {
+    const query = vi.fn(async (_sql: string, _values: unknown[]) => ({ rows: [], rowCount: 1 }));
+    const repository = new RunRepository({ transaction: (work: any) => work({ query }), pool: { query } } as any);
+    const sources = { primary: { kind: "execution_stream" as const, path: "/tmp/stream.jsonl", mediaType: "application/x-ndjson" as const, provider: "codex" as const, harnessVersion: "v1" } };
+    await repository.markLaunched({ tenantId: "tenant", id: "run" } as any, { backendKind: "exe-vm", id: "factorize-run" }, "https://vm", [], sources);
+    expect(query.mock.calls[1][0]).toContain("trace_sources=$7");
+    expect(query.mock.calls[1][1][6]).toBe(JSON.stringify(sources));
+    await repository.dueForPoll();
+    expect(query.mock.calls.at(-1)![0]).toContain("'traceSources',x.trace_sources");
+  });
+
   it("claims queue work with row locking and persisted concurrency", async () => {
     const query = vi.fn(async (sql: string) => ({ rows: sql.includes("WITH candidate") ? [] : [], rowCount: 0 }));
     const database = { transaction: (work: any) => work({ query }), pool: { query } } as any;

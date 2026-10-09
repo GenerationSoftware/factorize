@@ -1,3 +1,4 @@
+import type { TraceSource } from "../trace-source";
 import { parseTrace, type TraceEvent } from "../trace";
 import type { Database, DatabaseClient } from "./database";
 
@@ -19,11 +20,14 @@ export class LiveTraceRepository {
     return row ? { generation: row.generation, offset: Number(row.committed_offset), rollingHash: row.rolling_hash } : { generation: null, offset: 0, rollingHash: ZERO_HASH };
   }
 
-  async append(runId: string, provider: "codex" | "claude" | "pi", chunk: TraceChunk) {
+  async append(runId: string, provider: "codex" | "claude" | "pi", chunk: TraceChunk, sourceKind: TraceSource["kind"] = "native_session") {
     if (!chunk.generation || chunk.generation.length > 200 || !Number.isSafeInteger(chunk.startOffset) || chunk.startOffset < 0) throw new Error("Invalid trace chunk metadata");
     const actualHash = await sha256(chunk.bytes);
     if (actualHash !== chunk.chunkSha256) throw new Error("Trace chunk checksum mismatch");
     return this.database.transaction(async client => {
+      await client.query("SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, runId]);
+      const finalized = (await client.query("SELECT id FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2 AND kind='execution_stream' AND state='stored'", [this.tenantId, runId])).rows;
+      if (finalized.length) throw new Error("Trace stream is already finalized");
       let cursor = (await client.query<CursorRow>("SELECT generation,committed_offset,pending_bytes,next_sequence,rolling_hash FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2 FOR UPDATE", [this.tenantId, runId])).rows[0];
       if (!cursor || cursor.generation !== chunk.generation) {
         if (chunk.startOffset !== 0) throw new Error("Trace generation changed; restart at offset zero");
@@ -49,7 +53,14 @@ export class LiveTraceRepository {
       if (boundary < 0) { complete = new Uint8Array(); remainder = combined; }
       else { complete = combined.slice(0, boundary + 1); remainder = combined.slice(boundary + 1); }
       if (remainder.byteLength > 16 * 1024 * 1024) throw new Error("Incomplete trace record exceeds 16 MiB");
-      const parsed = parseTrace(provider, new TextDecoder("utf-8", { fatal: true }).decode(complete));
+      if (sourceKind === "execution_stream") {
+        let start = 0;
+        for (let index = 0; index < complete.length; index++) if (complete[index] === 10) {
+          if (index - start > 16 * 1024 * 1024) throw new Error("Execution stream record exceeds 16 MiB");
+          start = index + 1;
+        }
+      }
+      const parsed = parseTrace(provider, new TextDecoder("utf-8", { fatal: true }).decode(complete), sourceKind);
       const nextSequence = Number(cursor.next_sequence), events = parsed.map((item, index) => ({ ...item, sequence: nextSequence + index }));
       for (let offset = 0; offset < events.length; offset += 250) await this.insertBatch(client, runId, events.slice(offset, offset + 250));
       const rollingHash = await sha256(`${cursor.rolling_hash}:${chunk.startOffset}:${endOffset}:${chunk.chunkSha256}`);

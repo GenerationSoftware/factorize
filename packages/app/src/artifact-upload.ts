@@ -1,3 +1,4 @@
+import type { DatabaseClient } from "./postgres/database";
 import { artifactKey } from "./artifacts";
 import { hmac } from "./crypto";
 import type { Env } from "./types";
@@ -13,6 +14,12 @@ export interface ArtifactUploadGrant {
   provider: "codex" | "claude" | "pi";
   format: "jsonl";
   nativeSessionId?: string;
+  sourceKind?: "execution_stream" | "native_session";
+  sourcePath?: string;
+  formatVersion?: string;
+  cliVersion?: string;
+  harnessVersion?: string;
+  primary?: boolean;
   purpose?: "artifact" | "trace_chunk";
   expiresAt: number;
 }
@@ -37,6 +44,7 @@ export async function readArtifactUploadGrant(token: string, secret: string, now
   try {
     const value = JSON.parse(fromB64url(payload)) as ArtifactUploadGrant;
     if (!value.tenantId || !value.runId || !value.path || !value.contentType || !Number.isSafeInteger(value.expiresAt) || value.expiresAt < now) return null;
+    if (value.sourceKind && !["execution_stream", "native_session"].includes(value.sourceKind)) return null;
     artifactKey(value.tenantId, value.runId, value.path);
     return value;
   } catch { return null; }
@@ -54,11 +62,28 @@ export async function artifactUpload(request: Request, env: Env, token: string):
   if (size > 256 * 1024 * 1024) return new Response("Artifact exceeds the 256 MiB limit", { status: 413 });
   const suppliedType = request.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (suppliedType !== grant.contentType.toLowerCase()) return new Response("Artifact content type does not match the grant", { status: 400 });
-  const key = artifactKey(grant.tenantId, grant.runId, grant.path);
+  // Content-addressed stream keys preserve the exact terminal snapshot across retries.
+  const key = artifactKey(grant.tenantId, grant.runId, grant.sourceKind === "execution_stream" ? `trace/${sha256}.jsonl` : grant.path);
+  const repository = new ArtifactRepository(databaseFor(env), grant.tenantId);
+  const existing = await repository.list(grant.runId);
+  const terminal = existing.find(item => item.kind === "execution_stream" && item.state === "stored");
+  if (grant.sourceKind === "execution_stream" && terminal && terminal.sha256 !== sha256) return new Response("Terminal trace stream is immutable", { status: 409 });
   const object = await env.RUN_ARTIFACTS.put(key, request.body, { httpMetadata: { contentType: grant.contentType }, customMetadata: { tenantId: grant.tenantId, runId: grant.runId }, sha256 });
-  await new ArtifactRepository(databaseFor(env), grant.tenantId).record({ runId: grant.runId, kind: "native_session", objectKey: key, provider: grant.provider, format: grant.format, nativeSessionId: grant.nativeSessionId, byteSize: size, sha256 });
+  const record = (client: DatabaseClient) => repository.record({ runId: grant.runId, kind: grant.sourceKind ?? "native_session", sourcePath: grant.sourcePath, mediaType: grant.contentType, harnessVersion: grant.harnessVersion, formatVersion: grant.formatVersion, cliVersion: grant.cliVersion, objectKey: key, provider: grant.provider, format: grant.format, nativeSessionId: grant.nativeSessionId, byteSize: size, sha256 }, client);
   const stored = await env.RUN_ARTIFACTS.get(key);
   if (!stored) return new Response("Artifact disappeared after upload", { status: 502 });
-  await new TraceRepository(databaseFor(env), grant.tenantId).replaceStream(grant.runId, grant.provider, stored.body);
+  const database = databaseFor(env);
+  const conflict = await database.transaction(async client => {
+    // Shares the lock with incremental ingestion: terminal projection wins atomically.
+    const run = (await client.query("SELECT id,trace_sources FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [grant.tenantId, grant.runId])).rows[0];
+    const artifacts = await repository.list(grant.runId, client);
+    const terminal = artifacts.find(item => item.kind === "execution_stream" && item.state === "stored");
+    if (grant.sourceKind === "execution_stream" && terminal && terminal.sha256 !== sha256) return true;
+    const primary = grant.sourceKind === "execution_stream" || (grant.primary !== false && !terminal && run?.trace_sources?.primary?.kind !== "execution_stream");
+    if (primary) await new TraceRepository(database, grant.tenantId).replaceStream(grant.runId, grant.provider, stored.body, grant.sourceKind, client);
+    await record(client);
+    return false;
+  });
+  if (conflict) return new Response("Terminal trace stream is immutable", { status: 409 });
   return Response.json({ key, etag: object.httpEtag }, { status: 201 });
 }

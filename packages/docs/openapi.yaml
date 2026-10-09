@@ -66,6 +66,23 @@ components:
         sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
         state: { type: string, enum: [stored] }
         created_at: { type: string, format: date-time }
+    TraceSource:
+      type: object
+      required: [kind, path, mediaType, provider]
+      properties:
+        kind: { type: string, enum: [execution_stream, native_session] }
+        path: { type: string, description: Guest source path; historical native sources may use a discovery root }
+        mediaType: { type: string, const: application/x-ndjson }
+        provider: { type: string, enum: [codex, claude, pi] }
+        formatVersion: { type: string }
+        cliVersion: { type: string }
+        harnessVersion: { type: string }
+        discoverCommand: { type: string, description: Native session discovery only }
+    TraceSources:
+      type: [object, 'null']
+      properties:
+        primary: { $ref: '#/components/schemas/TraceSource' }
+        nativeSession: { $ref: '#/components/schemas/TraceSource' }
     RunDetail:
       allOf:
         - $ref: '#/components/schemas/Run'
@@ -74,6 +91,7 @@ components:
       properties:
         id: { type: string }
         state: { type: string }
+        trace_sources: { $ref: '#/components/schemas/TraceSources' }
         execution_diagnostics: { $ref: '#/components/schemas/ExecutionDiagnostics' }
         harness_log: { $ref: '#/components/schemas/HarnessLog' }
         artifact_error: { type: [string, 'null'], description: Secondary artifact or cleanup error; does not replace execution_diagnostics }
@@ -86,6 +104,7 @@ components:
         state: { type: string }
         provider: { type: string }
         backendKind: { type: string }
+        traceSources: { $ref: '#/components/schemas/TraceSources' }
         execution: { $ref: '#/components/schemas/ExecutionDiagnostics' }
         harnessLog: { $ref: '#/components/schemas/HarnessLog' }
         artifact:

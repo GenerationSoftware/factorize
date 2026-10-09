@@ -1,4 +1,4 @@
-export type ArtifactKind = "native_session" | "related_session" | "terminal_log" | "manifest";
+export type ArtifactKind = "execution_stream" | "native_session" | "related_session" | "terminal_log" | "manifest";
 export type ArtifactState = "pending" | "collecting" | "stored" | "partial" | "failed";
 
 export interface RunArtifact {
@@ -10,6 +10,9 @@ export interface RunArtifact {
   format: string;
   formatVersion?: string;
   cliVersion?: string;
+  harnessVersion?: string;
+  sourcePath?: string;
+  mediaType?: string;
   nativeSessionId?: string;
   byteSize: number;
   sha256: string;
