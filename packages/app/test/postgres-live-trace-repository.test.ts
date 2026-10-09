@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseTrace, consumeTraceStream } from "../src/trace";
 import { LiveTraceRepository } from "../src/postgres/live-trace-repository";
@@ -69,6 +70,29 @@ describe("LiveTraceRepository", () => {
     await repository.append("run-1", "codex", { generation: "file-2", expectedGeneration: "file-1", startOffset: 0, chunkSha256: await digest(`${record}\n`), previousHash: zero, bytes: rotated }, "execution_stream");
     expect(fake.state().events).toHaveLength(1);
     expect(fake.state().cursor.pending_bytes).toHaveLength(0);
+  });
+
+  it("preserves Pi native tree and tool links across chunk retries and reconciliation", async () => {
+    const text = readFileSync(new URL("./fixtures/pi/1.1.0/documented-v3.jsonl", import.meta.url), "utf8");
+    const fake = fakeDatabase(), repository = new LiveTraceRepository(fake.database, "tenant-1");
+    let offset = 0, previousHash = zero;
+    for (let index = 0; index < text.length; index += 317) {
+      const part = text.slice(index, index + 317), bytes = new TextEncoder().encode(part);
+      const chunk = { generation: "pi-native", expectedGeneration: offset ? "pi-native" : null, startOffset: offset, chunkSha256: await digest(part), previousHash, bytes };
+      const receipt = await repository.append("run-1", "pi", chunk, "native_session");
+      expect((await repository.append("run-1", "pi", chunk, "native_session")).duplicate).toBe(true);
+      offset = receipt.offset; previousHash = receipt.rollingHash;
+    }
+    const expected = parseTrace("pi", text);
+    const stored = fake.state().events;
+    expect(stored).toEqual(expected.map(e => ({
+      sequence: e.sequence, id: e.id, parent_id: e.parentId ?? null,
+      event_type: e.type, role: e.role ?? null, title: e.title,
+      preview_text: e.preview, display_data: JSON.parse(JSON.stringify(e.display)),
+      occurred_at: e.occurredAt ?? null,
+    })));
+    expect(stored.filter(e => e.event_type === "tool_call")).toHaveLength(2);
+    expect(stored.find(e => e.id === "branch").display_data.fromId).toBe("compact");
   });
 
 });
