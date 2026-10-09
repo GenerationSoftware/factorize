@@ -11,7 +11,7 @@
     "build:marketing": "npm run build:marketing --workspace=factorize-marketing",
     "build:css": "npm run build:app",
     "test": "npm run test --workspaces --if-present",
-    "check": "npm run check:hosting && npm run check:boundaries && npm run check:client && npm run check --workspace=factorize-app && npm run check --workspace=factorize && npm run test:hosting-runtime && npm run test:oauth-runtime && npm run test:rollback-runtime && npm run check --workspace=factorize-marketing && npm run check --workspace=factorize-tail-relay",
+    "check": "npm run check:hosting && npm run check:boundaries && npm run check:client && npm run check --workspace=factorize-app && npm run check --workspace=factorize && npm run test:conditions-runtime && npm run test:hosting-runtime && npm run test:oauth-runtime && npm run test:rollback-runtime && npm run check --workspace=factorize-marketing && npm run check --workspace=factorize-tail-relay",
     "deploy": "npm run deploy:marketing && npm run deploy:app && npm run deploy:tail-relay",
     "deploy:marketing": "npm run deploy --workspace=factorize-marketing",
     "deploy:app": "npm run deploy --workspace=factorize",
@@ -29,7 +29,8 @@
     "check:hosting": "node --test scripts/hosting-invariants.test.mjs scripts/deployment-gate.test.mjs scripts/trusted-app-release.test.mjs && python3 scripts/test-retain-app-assets.py",
     "test:hosting-runtime": "node --test scripts/hosting-runtime.test.mjs",
     "test:oauth-runtime": "node --test scripts/oauth-runtime.test.mjs",
-    "test:rollback-runtime": "node --test scripts/rollback-runtime.test.mjs"
+    "test:rollback-runtime": "node --test scripts/rollback-runtime.test.mjs",
+    "test:conditions-runtime": "node --test scripts/webhook-conditions-runtime.test.mjs"
   },
   "engines": {
     "node": ">=24.12.0"

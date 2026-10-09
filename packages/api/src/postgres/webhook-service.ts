@@ -2,7 +2,7 @@ import { clickUpJson, matchingClickUpTask } from "../clickup";
 import { verifyTailDelivery, sanitizeTailEvent, suppressTailEvent } from "../cloudflare-tail";
 import { decrypt, equalHmac, encrypt } from "../crypto";
 import { InvocationError, InvocationService, type Job } from "../job-domain";
-import { invokeCustomHandler } from "../custom-handler";
+import { evaluateWebhookConditions } from "../webhook-conditions";
 import type { Env } from "../types";
 import { adaptWebhook, type WebhookProvider, type WebhookTriggerConfig } from "../webhook-trigger";
 import { ConnectionRepository } from "./connection-repository";
@@ -38,12 +38,10 @@ export class WebhookService {
       const invocation = adaptWebhook(candidate.config, provider, deliveryId, payload, eventName);
       if (!invocation) { await this.event(deliveryPk, candidate.job.id, provider, deliveryId, "ignored", "Webhook did not match this job trigger."); continue; }
       let context: Record<string, unknown> = invocation.payload;
-      if (candidate.config.handlerCode) {
-        if (!this.env.CUSTOM_HANDLER_LOADER) { await this.event(deliveryPk, candidate.job.id, provider, deliveryId, "platform_error", "Webhook handler platform is unavailable; no run was created."); continue; }
-        const decision = await invokeCustomHandler(this.env.CUSTOM_HANDLER_LOADER, { handlerCode: candidate.config.handlerCode }, payload);
-        if (!decision.ok) { await this.event(deliveryPk, candidate.job.id, provider, deliveryId, decision.category, "Webhook handler failed closed; no run was created."); continue; }
-        if (decision.decision === false) { await this.event(deliveryPk, candidate.job.id, provider, deliveryId, "rejected", "Handler returned false; no run was created."); continue; }
-        if (decision.decision !== true) context = decision.decision;
+      const decision = await evaluateWebhookConditions(candidate.config.conditions, context);
+      if (decision.decision !== "match") {
+        await this.event(deliveryPk, candidate.job.id, provider, deliveryId, decision.decision === "error" ? "conditions_error" : "excluded", decision.decision === "error" ? "Webhook conditions failed; no run was created." : "Webhook conditions did not match; no run was created.");
+        continue;
       }
       const service = new InvocationService(this.jobs, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY));
       try {

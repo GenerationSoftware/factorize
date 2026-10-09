@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      validate_conditions_only:
+        description: Validate GEN-2158 on its isolated Neon clone without deploying
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -15,7 +20,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-conditions:
+    if: github.event_name == 'workflow_dispatch' && inputs.validate_conditions_only
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Validate explicit cutover on isolated Neon branch
+        run: npx tsx packages/api/scripts/validate-webhook-conditions-cutover.ts --neon
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
   deploy:
+    if: github.event_name != 'workflow_dispatch' || !inputs.validate_conditions_only
     name: Deploy app and marketing site
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -84,5 +105,9 @@ jobs:
           path: ${{ runner.temp }}/factorize-app-release
           retention-days: 35
           if-no-files-found: error
+      - name: Restore explicitly migrated webhook triggers after conditions deployment
+        run: node packages/api/scripts/restore-webhook-conditions.mjs https://app.factorize.sh
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
       - name: Verify public production routing after deployment
         run: node scripts/verify-public-routing.mjs https://app.factorize.sh --wait

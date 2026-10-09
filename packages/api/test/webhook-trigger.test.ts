@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adaptWebhook, publicWebhookConfig, validateWebhookHandler } from "../src/webhook-trigger";
+import { adaptWebhook, publicWebhookConfig } from "../src/webhook-trigger";
 
 describe("webhook Job trigger adapters", () => {
   it("matches Linear and derives a stable claim plus string invocation inputs", () => {
@@ -29,13 +29,7 @@ describe("webhook Job trigger adapters", () => {
   });
 
   it("never exposes webhook secrets", () => {
-    expect(publicWebhookConfig({ provider: "cloudflareTail", signingSecret: "super-secret-value", handlerCode: "function handler(webhook) { return true; }" })).toEqual({ provider: "cloudflareTail", handlerCode: "function handler(webhook) { return true; }", secretConfigured: true });
+    expect(publicWebhookConfig({ provider: "cloudflareTail", signingSecret: "super-secret-value", conditions: { all: [{ fact: "webhook", path: "$.outcome", operator: "equal", value: "exception" }] } })).toEqual({ provider: "cloudflareTail", conditions: { all: [{ fact: "webhook", path: "$.outcome", operator: "equal", value: "exception" }] }, secretConfigured: true });
   });
 
-  it("validates optional handlers for every provider", () => {
-    for (const provider of ["linear", "clickup", "github", "cloudflareTail"] as const) {
-      expect(() => validateWebhookHandler({ provider, handlerCode: "function handler(webhook) { return { id: webhook.id }; }" })).not.toThrow();
-    }
-    expect(() => validateWebhookHandler({ provider: "linear", handlerCode: "return true" })).toThrow("complete function handler(webhook)");
-  });
 });

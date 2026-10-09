@@ -23,8 +23,8 @@ import { GitHubRepository } from "./postgres/github-repository";
 import { IntegrationService } from "./postgres/integration-service";
 import { OperationsRepository } from "./postgres/operations-repository";
 import { installedTriggerAvailability } from "./trigger-availability";
-import { invokeCustomHandler } from "./custom-handler";
-import { validateWebhookHandler } from "./webhook-trigger";
+import { evaluateWebhookConditions } from "./webhook-conditions";
+import { jobConditionsTestSchema } from "./flow-schemas";
 import { ProviderCatalog } from "./postgres/provider-catalog";
 import { ArtifactRepository } from "./postgres/artifact-repository";
 import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tokens";
@@ -185,7 +185,7 @@ export class ApiService {
   async listJobEvents(jobId: string, limit = 50) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).jobEvents(jobId, limit); }
   async listWebhookDeliveries(query: URLSearchParams) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).deliveries(query); }
   async getWebhookDelivery(deliveryId: string) { await this.authorize("runs:read"); const value = await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).delivery(deliveryId); if (!value) throw new ServiceError(404,"not_found","Webhook delivery not found"); return value; }
-  async testJobHandler(input: { handlerCode: string; payload: Record<string, unknown> }) { await this.authorize("flows:write"); const config: any = { provider: "linear", projectId: "handler-test", matchRules: [], handlerCode: input.handlerCode }; validateWebhookHandler(config); if (!this.env.CUSTOM_HANDLER_LOADER) throw new ServiceError(503,"operation_failed","Webhook handler platform is unavailable"); return invokeCustomHandler(this.env.CUSTOM_HANDLER_LOADER, config, input.payload); }
+  async testJobConditions(input: unknown) { await this.authorize("flows:write"); const parsed = jobConditionsTestSchema.parse(input); return evaluateWebhookConditions(parsed.conditions, parsed.webhook); }
   async createJob(input: JobInput) {
     await this.authorize("flows:write"); const timestamp = new Date().toISOString(), id = crypto.randomUUID();
     const triggers = this.normalizedTriggers(input.triggers).map(trigger => ({ ...trigger, jobId: id }));

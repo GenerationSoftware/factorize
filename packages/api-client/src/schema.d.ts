@@ -978,7 +978,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/job-handlers/test": {
+    "/api/v1/job-conditions/test": {
         parameters: {
             query?: never;
             header?: never;
@@ -988,12 +988,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Test webhook handler
-         * @description Requires the flows:write scope.
+         * Test webhook conditions
+         * @description Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke jobs.
+         *
+         *     Requires the flows:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
-        post: operations["post_api_v1_job_handlers_test"];
+        post: operations["post_api_v1_job_conditions_test"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1701,7 +1703,9 @@ export interface components {
                 /** @default true */
                 enabled: boolean;
                 config: {
-                    handlerCode?: string;
+                    conditions?: {
+                        [key: string]: unknown;
+                    };
                     /** @constant */
                     provider: "linear";
                     projectId: string;
@@ -1711,7 +1715,9 @@ export interface components {
                         targetId: string;
                     }[];
                 } | {
-                    handlerCode?: string;
+                    conditions?: {
+                        [key: string]: unknown;
+                    };
                     /** @constant */
                     provider: "clickup";
                     listId: string;
@@ -1721,7 +1727,9 @@ export interface components {
                         targetId: string;
                     }[];
                 } | {
-                    handlerCode?: string;
+                    conditions?: {
+                        [key: string]: unknown;
+                    };
                     /** @constant */
                     provider: "github";
                     installationId: number;
@@ -1734,7 +1742,9 @@ export interface components {
                         targetId: string;
                     }[];
                 } | {
-                    handlerCode?: string;
+                    conditions?: {
+                        [key: string]: unknown;
+                    };
                     /** @constant */
                     provider: "cloudflareTail";
                     integrationId: string;
@@ -1761,9 +1771,11 @@ export interface components {
             name?: string;
             idempotencyKey?: string;
         };
-        JobHandlerTest: {
-            handlerCode: string;
-            payload: {
+        JobConditionsTest: {
+            conditions?: {
+                [key: string]: unknown;
+            };
+            webhook: {
                 [key: string]: unknown;
             };
         };
@@ -1883,6 +1895,8 @@ export interface operations {
             /** @description Unauthenticated sessions return authenticated:false; expired, unverified, removed or revoked owners are unauthenticated. */
             200: {
                 headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
                     /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
                     "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
@@ -1942,6 +1956,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
                     /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
                     "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
@@ -1985,6 +2001,8 @@ export interface operations {
             /** @description Success */
             202: {
                 headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
                     /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
                     "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
@@ -2026,6 +2044,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
                     /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
                     "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
@@ -2066,6 +2086,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
                     /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
                     "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
@@ -2107,6 +2129,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
                     /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
                     "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
@@ -2148,6 +2172,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
                     /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
                     "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
@@ -2189,6 +2215,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
                     /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
                     "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
@@ -2223,6 +2251,8 @@ export interface operations {
             /** @description Success */
             200: {
                 headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
                     /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
                     "X-Factorize-Contract"?: "gen-2157-static-v1";
                     [name: string]: unknown;
@@ -3807,7 +3837,9 @@ export interface operations {
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "linear";
                                 projectId: string;
@@ -3818,7 +3850,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "clickup";
                                 listId: string;
@@ -3829,7 +3863,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "github";
                                 installationId: number;
@@ -3843,7 +3879,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "cloudflareTail";
                                 integrationId: string;
@@ -3967,7 +4005,9 @@ export interface operations {
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "linear";
                                 projectId: string;
@@ -3978,7 +4018,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "clickup";
                                 listId: string;
@@ -3989,7 +4031,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "github";
                                 installationId: number;
@@ -4003,7 +4047,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "cloudflareTail";
                                 integrationId: string;
@@ -4047,7 +4093,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_job_handlers_test: {
+    post_api_v1_job_conditions_test: {
         parameters: {
             query?: never;
             header?: never;
@@ -4056,7 +4102,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["JobHandlerTest"];
+                "application/json": components["schemas"]["JobConditionsTest"];
             };
         };
         responses: {
@@ -4067,16 +4113,12 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        /** @constant */
-                        ok: true;
-                        decision: boolean | {
-                            [key: string]: unknown;
-                        };
-                    } | {
-                        /** @constant */
-                        ok: false;
                         /** @enum {string} */
-                        category: "handler_error" | "invalid_return" | "timeout" | "platform_error";
+                        decision: "match" | "no-match" | "error";
+                        error?: string;
+                        details: {
+                            [key: string]: unknown;
+                        }[];
                     };
                 };
             };
@@ -4303,7 +4345,9 @@ export interface operations {
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "linear";
                                 projectId: string;
@@ -4314,7 +4358,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "clickup";
                                 listId: string;
@@ -4325,7 +4371,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "github";
                                 installationId: number;
@@ -4339,7 +4387,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "cloudflareTail";
                                 integrationId: string;
@@ -4432,7 +4482,9 @@ export interface operations {
                         /** @default true */
                         enabled?: boolean;
                         config: {
-                            handlerCode?: string;
+                            conditions?: {
+                                [key: string]: unknown;
+                            };
                             /** @constant */
                             provider: "linear";
                             projectId: string;
@@ -4442,7 +4494,9 @@ export interface operations {
                                 targetId: string;
                             }[];
                         } | {
-                            handlerCode?: string;
+                            conditions?: {
+                                [key: string]: unknown;
+                            };
                             /** @constant */
                             provider: "clickup";
                             listId: string;
@@ -4452,7 +4506,9 @@ export interface operations {
                                 targetId: string;
                             }[];
                         } | {
-                            handlerCode?: string;
+                            conditions?: {
+                                [key: string]: unknown;
+                            };
                             /** @constant */
                             provider: "github";
                             installationId: number;
@@ -4465,7 +4521,9 @@ export interface operations {
                                 targetId: string;
                             }[];
                         } | {
-                            handlerCode?: string;
+                            conditions?: {
+                                [key: string]: unknown;
+                            };
                             /** @constant */
                             provider: "cloudflareTail";
                             integrationId: string;
@@ -4556,7 +4614,9 @@ export interface operations {
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "linear";
                                 projectId: string;
@@ -4567,7 +4627,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "clickup";
                                 listId: string;
@@ -4578,7 +4640,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "github";
                                 installationId: number;
@@ -4592,7 +4656,9 @@ export interface operations {
                                 }[];
                                 secretConfigured?: boolean;
                             } | {
-                                handlerCode?: string;
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
                                 /** @constant */
                                 provider: "cloudflareTail";
                                 integrationId: string;

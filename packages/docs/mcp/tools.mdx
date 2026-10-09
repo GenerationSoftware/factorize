@@ -18,7 +18,7 @@ description: Every tool exposed at /mcp.
 | `update_job` | flows:write | Job object plus `jobId` |
 | `delete_job` | flows:write | `{jobId}` |
 | `enable_job` / `disable_job` | flows:write | `{jobId}` |
-| `test_job_webhook_handler` | flows:write | `{handlerCode,payload}` |
+| `test_job_webhook_conditions` | flows:write | `{conditions?,webhook}` |
 | `invoke_job` | runs:write | `{jobId,name?,prompt?,data?,idempotencyKey?}` |
 | `stop_run` | runs:write | `{runId}` |
 | `kill_run` | runs:write | `{runId}` |

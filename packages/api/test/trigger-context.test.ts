@@ -14,9 +14,9 @@ describe("trigger context reflection", () => {
     expect(triggerContextCatalog.github).toContainEqual(expect.objectContaining({ path: "issue.title", type: "string" }));
   });
 
-  it("preserves the slug and explicitly marks unknown handler output", () => {
-    const reflected = reflectTriggerContext({ slug: "trigger-7", kind: "webhook", config: { provider: "linear", handlerCode: "function handler() { return {}; }" } });
-    expect(reflected).toMatchObject({ slug: "trigger-7", provider: "linear", dynamic: true });
-    expect(reflected.paths).toEqual([{ path: "*", type: "unknown", description: expect.any(String) }]);
+  it("preserves the slug and retains provider context with conditions", () => {
+    const reflected = reflectTriggerContext({ slug: "trigger-7", kind: "webhook", config: { provider: "linear", conditions: { all: [] } } });
+    expect(reflected).toMatchObject({ slug: "trigger-7", provider: "linear", dynamic: false });
+    expect(reflected.paths).toEqual(triggerContextCatalog.linear);
   });
 });

@@ -1,0 +1,60 @@
+{
+  "not": {
+    "any": [
+      {
+        "all": [
+          {
+            "fact": "webhook",
+            "path": "$.check_suite.conclusion",
+            "operator": "equal",
+            "value": "success"
+          },
+          {
+            "fact": "webhook",
+            "path": "$.check_suite.head_branch",
+            "operator": "startsWith",
+            "value": "gh-readonly-queue/"
+          }
+        ]
+      },
+      {
+        "all": [
+          {
+            "fact": "webhook",
+            "path": "$.check_suite.conclusion",
+            "operator": "equal",
+            "value": "success"
+          },
+          {
+            "fact": "webhook",
+            "path": "$.check_suite.head_branch",
+            "operator": "equal",
+            "value": "main"
+          },
+          {
+            "fact": "webhook",
+            "path": "$.sender.login",
+            "operator": "equal",
+            "value": "github-merge-queue[bot]"
+          }
+        ]
+      },
+      {
+        "all": [
+          {
+            "fact": "webhook",
+            "path": "$.check_suite.conclusion",
+            "operator": "equal",
+            "value": "skipped"
+          },
+          {
+            "fact": "webhook",
+            "path": "$.check_suite.app.slug",
+            "operator": "equal",
+            "value": "mintlify"
+          }
+        ]
+      }
+    ]
+  }
+}

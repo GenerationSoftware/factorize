@@ -1,6 +1,6 @@
-import { Button, Input, Textarea, Select, Label } from "../../shared/ui";
+import { Button, Input, Select, Label } from "../../shared/ui";
 import type { operations } from "factorize-api-client";
-import { HandlerTest } from "./handler-test";
+import { ConditionsEditor } from "./conditions-editor";
 import { useQuery } from "@tanstack/react-query";
 import type { Trigger } from "./editor-state";
 import { availabilityQuery } from "./editor-queries";
@@ -30,7 +30,7 @@ function GithubFields({ config, onChange }: { config: Extract<Config, { provider
     <Label>GitHub installation <Select aria-label="GitHub installation" required value={config.installationId || ""} onChange={e => onChange({ ...config, installationId: Number(e.target.value), repositoryId: 0 })}><option value="">Choose installation</option>{installations.data?.filter(i => i.state === "active").map(i => <option key={i.installationId} value={i.installationId}>{i.accountLogin}</option>)}{config.installationId > 0 && <option value={config.installationId}>Current: {config.installationId}</option>}</Select></Label>
     <Label>GitHub repository <Select aria-label="GitHub repository" required value={config.repositoryId || ""} onChange={e => onChange({ ...config, repositoryId: Number(e.target.value) })}><option value="">Choose repository</option>{repositories.data?.map(r => <option key={r.id} value={r.id}>{r.fullName}</option>)}{config.repositoryId > 0 && <option value={config.repositoryId}>Current: {config.repositoryId}</option>}</Select></Label>
     <Label>GitHub event <Input value={config.event ?? ""} onChange={e => onChange({ ...config, event: e.target.value })} /></Label><Label>GitHub action <Input value={config.action ?? ""} onChange={e => onChange({ ...config, action: e.target.value })} /></Label>
-    <Rules rules={config.matchRules ?? []} options={options.data} onChange={matchRules => onChange({ ...config, matchRules })} />
+    <Rules rules={config.matchRules ?? []} options={options.data} onChange={matchRules => onChange({ ...config, matchRules: matchRules.length ? matchRules : undefined })} />
   </>;
 }
 function TailFields({ config, onChange }: { config: Extract<Config, { provider: "cloudflareTail" }>; onChange: (value: Config) => void }) {
@@ -40,8 +40,8 @@ function TailFields({ config, onChange }: { config: Extract<Config, { provider: 
 const providerDefaults: Record<Config["provider"], Config> = { linear: { provider: "linear", projectId: "", matchRules: [] }, clickup: { provider: "clickup", listId: "", matchRules: [] }, github: { provider: "github", installationId: 0, repositoryId: 0, event: "pull_request", action: "opened" }, cloudflareTail: { provider: "cloudflareTail", integrationId: "" } };
 export function ProviderFields({ config, onChange }: { config: Config; onChange: (value: Config) => void }) {
   const availability = useQuery(availabilityQuery);
-  return <div className="grid gap-3"><Label>Provider <Select aria-label="Provider" value={config.provider} onChange={e => onChange(structuredClone(providerDefaults[e.target.value as Config["provider"]]))}>{Object.keys(providerDefaults).map(p => <option key={p} value={p} disabled={availability.data && !availability.data[p as Config["provider"]]}>{p}{availability.data && !availability.data[p as Config["provider"]] ? " (connect in settings)" : ""}</option>)}</Select></Label>
+  return <div className="grid gap-3"><Label>Provider <Select aria-label="Provider" value={config.provider} onChange={e => onChange({ ...structuredClone(providerDefaults[e.target.value as Config["provider"]]), ...(config.conditions === undefined ? {} : { conditions: config.conditions }) })}>{Object.keys(providerDefaults).map(p => <option key={p} value={p} disabled={availability.data && !availability.data[p as Config["provider"]]}>{p}{availability.data && !availability.data[p as Config["provider"]] ? " (connect in settings)" : ""}</option>)}</Select></Label>
     {config.provider === "linear" && <LinearFields config={config} onChange={onChange} />}{config.provider === "clickup" && <ClickupFields config={config} onChange={onChange} />}{config.provider === "github" && <GithubFields config={config} onChange={onChange} />}{config.provider === "cloudflareTail" && <TailFields config={config} onChange={onChange} />}
-    <Label>Webhook handler (optional) <Textarea maxLength={16_384} rows={5} value={config.handlerCode ?? ""} onChange={e => onChange({ ...config, handlerCode: e.target.value })} /></Label><HandlerTest handlerCode={config.handlerCode ?? ""} />
+    <ConditionsEditor conditions={config.conditions} onChange={conditions => onChange({ ...config, conditions })} />
   </div>;
 }
