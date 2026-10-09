@@ -53,12 +53,23 @@ export class AutomationScheduler {
   }
 
   private async lifecycle() {
-    const rows = await this.database.pool.query<any>(`SELECT t.tenant_id,t.id trigger_id,t.job_id,t.slug,t.config,r.id source_run_id,r.job_id source_job_id,r.state,r.updated_at FROM app.triggers t JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id JOIN app.runs r ON r.tenant_id=t.tenant_id AND r.job_id=(t.config->>'sourceJobId')::uuid LEFT JOIN app.lifecycle_deliveries d ON d.tenant_id=t.tenant_id AND d.trigger_id=t.id AND d.source_run_id=r.id AND d.terminal_state=r.state WHERE t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled AND r.state IN ('succeeded','failed','stopped') AND d.source_run_id IS NULL ORDER BY r.updated_at LIMIT 100`);
+    const rows = await this.database.pool.query<any>(`SELECT t.tenant_id,t.id trigger_id,t.job_id,t.slug,t.config,r.id source_run_id,r.job_id source_job_id,r.state,r.updated_at
+      FROM app.triggers t
+      JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
+      JOIN app.runs r ON r.tenant_id=t.tenant_id
+        AND COALESCE(t.config->'sourceJobIds',jsonb_build_array(t.config->>'sourceJobId')) ? r.job_id::text
+      LEFT JOIN app.lifecycle_deliveries d ON d.tenant_id=t.tenant_id AND d.trigger_id=t.id AND d.source_run_id=r.id AND d.terminal_state=r.state
+      WHERE t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
+        AND r.state IN ('succeeded','failed','stopped')
+        AND COALESCE(t.config->'states',t.config->'terminalStates','["succeeded","failed","stopped"]'::jsonb) ? r.state
+        AND d.source_run_id IS NULL ORDER BY r.updated_at LIMIT 100`);
     for (const row of rows.rows) {
-      const states: string[] = row.config.states ?? row.config.terminalStates ?? ["succeeded", "failed", "stopped"]; if (!states.includes(row.state)) continue;
-      const inserted = await this.database.pool.query("INSERT INTO app.lifecycle_deliveries(tenant_id,trigger_id,source_run_id,terminal_state) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING", [row.tenant_id, row.trigger_id, row.source_run_id, row.state]); if (!inserted.rowCount) continue;
       const context = { sourceRunId: row.source_run_id, sourceJobId: row.source_job_id, state: row.state, completedAt: row.updated_at.toISOString() }, occurrence = { occurredAt: context.completedAt, externalId: `${row.source_run_id}:${row.state}`, metadata: context };
+      // Acknowledge after invocation so transient failures remain retryable.
+      // The stable claim key deduplicates concurrent passes and retries after
+      // an invocation commits but its delivery acknowledgement fails.
       await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.job_id, { source: "jobLifecycle", triggerId: row.trigger_id, claimKey: `lifecycle:${row.trigger_id}:${row.source_run_id}:${row.state}`, context: { [row.slug]: context }, occurrence }).catch(skipFullQueue);
+      await this.database.pool.query("INSERT INTO app.lifecycle_deliveries(tenant_id,trigger_id,source_run_id,terminal_state) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING", [row.tenant_id, row.trigger_id, row.source_run_id, row.state]);
     }
   }
 
