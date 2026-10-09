@@ -132,7 +132,7 @@ Performance samples and limitations are in
 `gen-2157-legacy-compatibility.json` records seven legacy screens against the new API,
 using five Chromium samples per screen and disposable PostgreSQL with 20 ms query delay.
 
-## Staged production rollout (no deployment performed by this PR)
+## Staged production rollout
 
 1. Deploy **API compatibility anchor `ff4b51b`** before the static cutover. This anchor
    contains every dependent API addition and the documented session response header
@@ -199,3 +199,28 @@ snapshot and actual Cloudflare local route ownership. They do not perform a prod
 rollback, configure external OAuth clients, or migrate production data. Production
 release gates intentionally remain operator-visible rather than silently claiming a
 successful rollout from a draft PR or a prior agent's exit status.
+
+## Production execution evidence (2026-10-09)
+
+The compatibility anchor `ff4b51b` and static tree `c64590c` were deployed through
+the existing production workflow, preserving infrastructure identity. The final
+[deployment run](https://github.com/GenerationSoftware/factorize/actions/runs/37994318377)
+passed, including archive restoration/upload and public routing/security/cache
+verification. The first static run reached the previous Worker immediately after
+deploy and failed on a 302 for `/jobs`; a later complete verifier passed. Post-deploy
+verification now retries the full suite for at most 55 seconds of propagation waits
+and still fails persistent errors. The API-first pre-write gate remains immediate.
+
+Asset restoration explicitly trusts main and the initial cutover branch
+`gen-2157-auth-contracts`, with repository/workflow/successful Worker-step checks.
+This preserves initial-cutover chunks when future main deployments take over.
+Read-only production bearer REST/MCP checks and anonymous Chromium auth/deep-link
+screens passed. See `packages/api/performance/gen-2157-production-rollout.json`.
+The earlier cutover-validation artifact remains historical local evidence.
+
+Authenticated owner/provider release acceptance is still outstanding. The attached
+Factorize integration has bearer access and correctly receives 403 from session,
+API-key and authorized-client operations. It cannot exercise browser owner flows.
+An owner must complete job edit/invoke/run trace, provider setup, API-key lifecycle,
+OAuth consent and device approval checks and report results before GEN-2157 is Done
+or PR #206 is marked ready. Do not transmit credentials or tokens to perform review.

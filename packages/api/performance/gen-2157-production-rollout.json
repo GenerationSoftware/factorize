@@ -1,0 +1,143 @@
+{
+  "observedAt": "2026-10-09T21:36:51.952439+00:00",
+  "scope": "Production rollout and limited read-only acceptance; authenticated release acceptance remains outstanding",
+  "deployedCommit": "c64590cd3d8a6bcf39c9e71b90b9bf3f6f001170",
+  "anchor": {
+    "commit": "ff4b51bcbea0d30afbdbbccb0719c3f3bfb4e77c",
+    "run": "https://github.com/GenerationSoftware/factorize/actions/runs/37993971255",
+    "conclusion": "success"
+  },
+  "staticRollout": {
+    "run": "https://github.com/GenerationSoftware/factorize/actions/runs/37994318377",
+    "conclusion": "success",
+    "retainedReleaseArtifactId": 11646108499,
+    "publicRoutingSecurityCachePassed": true
+  },
+  "recoveredFailure": {
+    "run": "https://github.com/GenerationSoftware/factorize/actions/runs/37994119517",
+    "failure": "Immediate public verifier reached prior Worker: /jobs returned 302. Static deployment and archive upload succeeded. Subsequent complete verifier passed. Added bounded propagation retry and verified successful second rollout."
+  },
+  "rest": {
+    "observedAt": "2026-10-09T21:33:53.777035+00:00",
+    "checks": [
+      {
+        "path": "/api/v1/job-summaries?limit=2",
+        "status": 200,
+        "expected": 200,
+        "passed": true
+      },
+      {
+        "path": "/api/v1/job-selector?limit=2",
+        "status": 200,
+        "expected": 200,
+        "passed": true
+      },
+      {
+        "path": "/api/v1/trigger-contexts",
+        "status": 200,
+        "expected": 200,
+        "passed": true
+      },
+      {
+        "path": "/api/v1/execution-targets",
+        "status": 200,
+        "expected": 200,
+        "passed": true
+      },
+      {
+        "path": "/api/v1/job-trigger-availability",
+        "status": 200,
+        "expected": 200,
+        "passed": true
+      },
+      {
+        "path": "/api/v1/access-tokens",
+        "status": 403,
+        "expected": 403,
+        "passed": true
+      },
+      {
+        "path": "/api/v1/access/authorized-clients",
+        "status": 403,
+        "expected": 403,
+        "passed": true
+      },
+      {
+        "path": "/api/v1/session",
+        "status": 403,
+        "expected": 403,
+        "passed": true
+      },
+      {
+        "path": "/api/v1/runs?limit=1",
+        "status": 200,
+        "expected": 200,
+        "passed": true
+      },
+      {
+        "path": "/api/v1/runs/f8ae3688-a65c-4149-a511-4762d796c222/status",
+        "status": 200,
+        "expected": 200,
+        "passed": true
+      },
+      {
+        "path": "/api/v1/runs/f8ae3688-a65c-4149-a511-4762d796c222/trace-pages?limit=2",
+        "status": 200,
+        "expected": 200,
+        "passed": true
+      }
+    ],
+    "scope": "Read-only production REST through attached bearer integration; no cookie-owner or provider mutation checks"
+  },
+  "mcp": {
+    "observedAt": "2026-10-09T21:35:28.704523+00:00",
+    "scope": "Read-only production MCP initialization/tool discovery with attached bearer credentials",
+    "checks": [
+      {
+        "method": "initialize",
+        "status": 200,
+        "passed": true
+      },
+      {
+        "method": "tools/list",
+        "status": 200,
+        "passed": true
+      }
+    ]
+  },
+  "anonymousBrowser": {
+    "observedAt": "2026-10-09T21:36:24.826Z",
+    "scope": "Anonymous Chromium against production static screens; no auth mutations",
+    "checks": [
+      {
+        "path": "/jobs",
+        "status": 200,
+        "heading": "Sign in to Factorize",
+        "passed": true
+      },
+      {
+        "path": "/auth/signup",
+        "status": 200,
+        "heading": "Create your Factorize account",
+        "passed": true
+      },
+      {
+        "path": "/auth/password-reset",
+        "status": 200,
+        "heading": "Reset password",
+        "passed": true
+      },
+      {
+        "path": "/auth/verify",
+        "status": 200,
+        "heading": "Verify your email",
+        "passed": true
+      }
+    ],
+    "pageErrors": []
+  },
+  "outstanding": {
+    "ownerProviderOAuthDeviceChecks": "Not completed: attached integration supplies bearer credentials, not an interactive owner session. Auth API, API keys and authorized-client management correctly reject this access with 403.",
+    "nextAction": "An authenticated owner must verify job edit/invoke/run trace, provider integration setup, API-key create/revoke, OAuth consent and device approval at app.factorize.sh, then report results. Keep issue In Progress and PR draft until release acceptance is complete."
+  }
+}
