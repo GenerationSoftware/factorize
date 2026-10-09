@@ -98,9 +98,9 @@ export class ApiService {
       new ArtifactRepository(database, this.auth.tenantId).list(runId),
     ]);
     const primary = run.trace_sources?.primary ?? null;
-    return { runId: run.id, jobId: run.job_id, state: run.state, provider: primary?.provider ?? run.agent_kind ?? null, backendKind: run.execution_backend_kind,
+    return { runId: run.id, jobId: run.job_id, state: run.state, provider: run.provider, backendKind: run.execution_backend_kind,
       execution: run.execution_diagnostics, traceSources: run.trace_sources,
-      trace: { ...evidence, primarySource: primary?.kind ?? "native_session", sourceVersion: primary?.formatVersion ?? null,
+      trace: { ...evidence, provider: primary?.provider ?? artifacts.find(item => item.kind === "native_session")?.provider ?? run.agent_kind ?? null, primarySource: primary?.kind ?? "native_session", sourceVersion: primary?.formatVersion ?? null,
         artifacts: artifacts.filter(item => ["execution_stream", "native_session"].includes(item.kind)),
         nativeArtifactState: artifacts.some(item => item.kind === "native_session" && item.state === "stored") ? "stored" : "missing",
         fallbackUsed: evidence.projection?.source_kind === "native_session" && primary?.kind === "execution_stream" },

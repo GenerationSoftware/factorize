@@ -29,7 +29,7 @@ describe("run diagnostics API boundary", () => {
     expect(isDeclaredApiOperation("GET", "/api/v1/runs/run/diagnostics")).toBe(true);
     expect(await service.getRun("run")).toMatchObject({ execution_diagnostics: execution, harness_log: artifact, trace_sources: traceSources });
     const diagnostics = await service.getRunDiagnostics("run");
-    expect(diagnostics).toMatchObject({ execution, traceSources, harnessLog: artifact, artifact: { state: "partial", error: "Native session upload failed" } });
+    expect(diagnostics).toMatchObject({ trace: { provider: "codex", primarySource: "execution_stream" }, execution, traceSources, harnessLog: artifact, artifact: { state: "partial", error: "Native session upload failed" } });
     expect(JSON.stringify(diagnostics)).not.toContain("private prompt");
     expect(JSON.stringify(diagnostics)).not.toContain("encrypted_prompt");
   });

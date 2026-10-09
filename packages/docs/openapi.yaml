@@ -102,8 +102,9 @@ components:
             artifactBytes: { type: integer }
     TraceDiagnostics:
       type: object
-      required: [primarySource, sourceVersion, projection, liveCursor, counts, artifacts, nativeArtifactState, fallbackUsed, lastReplay]
+      required: [provider, primarySource, sourceVersion, projection, liveCursor, counts, artifacts, nativeArtifactState, fallbackUsed, lastReplay]
       properties:
+        provider: { type: [string, 'null'], description: Agent trace provider; the outer diagnostics provider remains the trigger provider. }
         primarySource: { type: string, enum: [execution_stream, native_session] }
         sourceVersion: { type: [string, 'null'] }
         projection: { $ref: '#/components/schemas/TraceProjection' }
