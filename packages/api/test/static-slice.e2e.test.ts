@@ -32,9 +32,9 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       const page = await context.newPage(); page.setDefaultTimeout(10000); page.on("pageerror", error => failures.push(error.message));
       await page.goto("https://factorize.test/jobs");
       await page.locator("header img").waitFor();
-      expect(await page.locator("header img").evaluate("image => image.complete && image.naturalWidth > 0")).toBe(true);
+      expect(await page.locator("header img").evaluate(async (image: any) => { await image.decode(); return image.complete && image.naturalWidth > 0; })).toBe(true);
       expect(await page.locator("html").getAttribute("data-theme")).toBe("light");
-      expect(await page.locator("body").evaluate("element => getComputedStyle(element).backgroundColor")).toBe("rgb(252, 251, 246)");
+      expect(await page.locator("body").evaluate((element: any) => (globalThis as any).getComputedStyle(element).backgroundColor)).toBe("rgb(252, 251, 246)");
       await page.getByRole("link", { name: "Job-1", exact: true }).click();
       await page.getByRole("button", { name: "Run job", exact: true }).click();
       await page.getByLabel("Prompt", { exact: true }).fill("Real invocation");
