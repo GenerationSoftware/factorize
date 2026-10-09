@@ -88,7 +88,7 @@ test("search dialog keeps keyboard focus, escapes results and leaves a draft int
 });
 test("provider changes load ClickUp, GitHub and Tail resources lazily and submit the selected configuration", async () => {
   const { context, page } = await setup(); const reads = []; let written;
-  const value = { ...initial, triggers: [...initial.triggers, { ...initial.triggers[0], id: "00000000-0000-4000-8000-000000000004", slug: "trigger-2", kind: "webhook", config: { provider: "clickup", listId: "list", matchRules: [{ type: "status", targetId: "open" }] } }] };
+  const value = { ...initial, triggers: [...initial.triggers, { ...initial.triggers[0], id: "00000000-0000-4000-8000-000000000004", slug: "trigger-2", kind: "webhook", config: { provider: "clickup", listId: "list", matchRules: [{ type: "status", targetId: "open" }], conditions: { fact: "webhook", path: "$.event", operator: "notEqual", value: "ignored" } } }] };
   await page.route("**/api/v1/providers/**", route => {
     const path = new URL(route.request().url()).pathname; reads.push(path);
     const json = path.endsWith("/clickup/lists") ? [{ id: "list", name: "Build tasks" }] : path.endsWith("/installations") ? [{ installationId: "123", accountLogin: "owner", state: "active" }] : path.endsWith("/repositories") ? [{ id: 456, fullName: "owner/repo" }] : { statuses: [{ id: "open", name: "Open" }], users: [], labels: [] };
@@ -100,7 +100,7 @@ test("provider changes load ClickUp, GitHub and Tail resources lazily and submit
   assert.ok(reads.some(path => path.endsWith("/clickup/lists"))); assert.ok(!reads.some(path => path.includes("github") || path === "tail" || path.includes("linear")));
   await page.getByLabel("Provider", { exact: true }).selectOption("github"); await page.getByLabel("GitHub installation", { exact: true }).selectOption("123"); await page.getByLabel("GitHub repository", { exact: true }).selectOption("456");
   await page.getByLabel("Provider", { exact: true }).selectOption("cloudflareTail"); await page.getByLabel("Tail integration", { exact: true }).selectOption("tail"); await page.getByRole("button", { name: "Save job", exact: true }).click();
-  await page.getByRole("heading", { name: initial.name, exact: true }).waitFor(); assert.deepEqual(written.triggers[1].config, { provider: "cloudflareTail", integrationId: "tail" }); assert.equal(written.expectedUpdatedAt, initial.updatedAt);
+  await page.getByRole("heading", { name: initial.name, exact: true }).waitFor(); assert.deepEqual(written.triggers[1].config, { provider: "cloudflareTail", integrationId: "tail", conditions: value.triggers[1].config.conditions }); assert.equal(written.expectedUpdatedAt, initial.updatedAt);
   await context.close();
 });
 for (const config of [
