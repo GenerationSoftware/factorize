@@ -265,7 +265,7 @@ Available states are `succeeded`, `failed`, `stopped`, and `edited`. **Edited** 
 ## Connect your accounts
 Source: https://docs.factorize.sh/integrations/oauth
 
-Sign up with email/password, verify email, then open [Settings → Integrations](https://app.factorize.sh/settings). Linear OAuth connects a workspace; it does not sign you in to Factorize.
+Factorize accounts own dashboard identity. Sign up with an email and password, verify your email to sign in automatically, then open [Settings → Integrations](https://app.factorize.sh/settings) to connect Linear when using Linear-backed jobs. Linear OAuth only connects the workspace; it never signs you in. Register `/auth/linear/callback`, configure issue and issue-label webhooks at `/webhooks/linear`, and store the client credentials and signing secret as Worker secrets. ClickUp is optional: register `/auth/clickup/callback`; connecting it automatically registers its task webhook. GitHub uses an installed GitHub App, while exe.dev and Cloudflare Tail connections are configured in Settings.
 
 | Account | Browser action and required access | Verification |
 | --- | --- | --- |
@@ -583,9 +583,17 @@ Protected API and MCP requests use `Authorization: Bearer <token>`. Browser user
 
 ## Browser accounts
 
-Create an email/password account at `/auth/signup` and verify the email delivered by Postmark before signing in at `/auth/login`. Recovery is at `/auth/password-reset`; legacy Linear-only users use that flow to choose a password while retaining their workspace. Change your password from the account menu. Resetting/changing passwords or signing out invalidates existing sessions and delegated credentials.
+Create an email/password account at `/auth/signup`. Confirm the Postmark verification link to verify your email and sign in automatically. Recovery is at `/auth/password-reset`; legacy Linear-only users use that flow to choose a password while retaining their workspace. Change your password from the account menu. Resetting/changing passwords or signing out invalidates existing sessions and delegated credentials.
 
 Linear OAuth is an integration connection available only after native sign-in. Workspace membership, not the connected Linear identity, controls authorization.
+
+## Connecting an MCP client
+
+Start connecting in your MCP client, then sign in or choose **Create an account**. Signup, resend verification, and password recovery retain an individual server-stored connection, including the client, state, PKCE challenge, and validated callback. Simultaneous attempts have separate browser cookies and cannot overwrite each other. Verification signs you in, then resumes an explicit **Allow / Deny** screen. Verifying an email never grants MCP access or changes existing workspace authorization.
+
+Callback requests remain active for one hour from initiation; email links expire after one hour and can be used once. If you verify on another browser or device, return to the browser where you started the connection. Its waiting signup screen resumes automatically after verification. The callback is completed there, because local callback listeners and client browser state may belong to that device. The verification browser cannot approve that callback request. Device-flow requests can instead be reviewed and approved in the verification browser.
+
+An expired or completed request cannot be extended by resending email or recovering a password. Start a new connection in the MCP client; for device flow request a new code. Email verification can still succeed even if its associated client request expired.
 
 ## Scopes
 
@@ -602,9 +610,10 @@ Authorization-code clients must use PKCE S256. Implicit and plain PKCE are disab
 
 1. Register a public client at `POST /oauth/register` with `grant_types` containing `urn:ietf:params:oauth:grant-type:device_code` and `token_endpoint_auth_method: none`.
 2. POST form data to `/oauth/device_authorization` with `client_id`, `scope`, and optional `resource`.
-3. Send the user to `/device?user_code=...` and poll `/oauth/token` with the device code.
+3. Display `user_code` and `verification_uri` (or open `verification_uri_complete`). The user enters the code, signs in or creates an account, verifies email if needed, and explicitly allows or denies the named client.
+4. Poll `/oauth/token` with form fields `grant_type=urn:ietf:params:oauth:grant-type:device_code`, `client_id`, and `device_code`. Confidential clients must also authenticate. A successful response contains the usual OAuth tokens; the device code is consumed once. The browser displays completion and can be closed.
 
-Device codes expire after 10 minutes and polling is rate limited. The token endpoint returns `authorization_pending`, `slow_down`, `access_denied`, or `expired_token` as appropriate.
+Device codes expire after 10 minutes from issuance, including time spent signing up. Honor the returned `interval` (initially 5 seconds). Each early poll returns `slow_down` and permanently increases that request’s interval by 5 seconds; wait the new interval before polling again. Invalid client authentication never changes another client’s polling schedule. The token endpoint returns `authorization_pending`, `slow_down`, `access_denied`, or `expired_token` as appropriate.
 
 Never send Linear, exe.dev, or connection credentials to an API client. Tokens are revocable and responses omit stored secrets.
 
