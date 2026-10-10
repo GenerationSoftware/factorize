@@ -31,7 +31,7 @@ export function InvokeJob({ jobId, enabled }: { jobId: string; enabled: boolean 
     } catch { setValidation("JSON data must be an object."); return; }
     mutation.mutate({ prompt: String(form.get("prompt") ?? ""), data, ...(String(form.get("name") ?? "").trim() ? { name: String(form.get("name")).trim() } : {}) });
   }
-  return <div className="my-4"><Button variant="primary" disabled={!enabled} onClick={() => setOpen(true)}>Run job</Button>{open && <Dialog title="Run job" close={() => setOpen(false)}><p className="mb-5 text-sm text-slate-600 dark:text-slate-400">Start a run with optional instructions and trigger data.</p>
+  return <div><Button className="min-h-9 px-2.5 py-1.5 text-xs" variant="primary" disabled={!enabled} onClick={() => setOpen(true)}>Run job</Button>{open && <Dialog title="Run job" close={() => setOpen(false)}><p className="mb-5 text-sm text-slate-600 dark:text-slate-400">Start a run with optional instructions and trigger data.</p>
     <form onSubmit={submit} className="grid gap-3">
       <Label>Run name (optional)<Input name="name" maxLength={120} /></Label>
       <Label>Prompt<Textarea name="prompt" maxLength={50000} /></Label>
