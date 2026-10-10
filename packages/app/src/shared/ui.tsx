@@ -4,6 +4,19 @@ export const buttonClasses = {
   secondary: "bg-white text-slate-700 border-stone-200 hover:bg-stone-100 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-800",
   destructive: "bg-red-50 text-red-800 border-red-200 hover:bg-red-100 dark:bg-red-950 dark:text-red-200 dark:border-red-800",
 };
+export const tableShellClasses = "overflow-x-auto rounded-xl border border-stone-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
+export const tableClasses = "w-full text-left text-sm";
+export const tableHeadClasses = "bg-stone-100 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400";
+export const tableRowClasses = "group relative border-t border-stone-200 transition-colors hover:bg-factorize-50 focus-within:bg-factorize-50 focus-within:shadow-[inset_3px_0_0_var(--color-factorize-500)] dark:border-slate-800 dark:hover:bg-factorize-500/10 dark:focus-within:bg-factorize-500/10";
+export const tableCellClasses = "px-2 py-2 sm:px-3";
+export function Table({ className = "", children, shellProps, ...props }: ComponentProps<"table"> & { shellProps?: ComponentProps<"div"> }) {
+  return <div {...shellProps} className={`${tableShellClasses} overflow-hidden ${shellProps?.className ?? ""}`}><table {...props} className={`${tableClasses} ${className}`}>{children}</table></div>;
+}
+export function SortableHeader({ label, active = false, direction = "asc", onSort, className = "", ariaLabel = label }: { label: string; active?: boolean; direction?: "asc" | "desc"; onSort: () => void; className?: string; ariaLabel?: string }) {
+  const order = active ? (direction === "desc" ? "descending" : "ascending") : "none";
+  const next = active && direction === "asc" ? "descending" : "ascending";
+  return <th scope="col" aria-sort={order} className={`${tableCellClasses} ${className}`}><button type="button" className="font-semibold underline decoration-transparent underline-offset-4 hover:decoration-current focus-visible:rounded-sm focus-visible:decoration-current focus-visible:outline-none" onClick={onSort} aria-label={`${ariaLabel}, ${active ? `sorted ${order}` : "not sorted"}. Activate to sort ${next}`}>{label}{active && <span aria-hidden="true"> {direction === "desc" ? "↓" : "↑"}</span>}</button></th>;
+}
 export function Button({ variant = "secondary", className = "", ...props }: ComponentProps<"button"> & { variant?: keyof typeof buttonClasses }) {
   return <button {...props} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${buttonClasses[variant]} ${className}`} />;
 }

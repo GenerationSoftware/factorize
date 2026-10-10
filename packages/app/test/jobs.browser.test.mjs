@@ -40,7 +40,7 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
   const table = page.getByRole("table", { name: "Jobs", exact: true });
   await table.getByRole("link", { name: "Alpha running", exact: true }).waitFor();
   assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Running", "Title"]);
-  assert.deepEqual(await table.locator("tbody td:last-child").allTextContents(), ["Alpha running", longTitle, ...fixtures.slice(1, 29).map(job => job.name)]);
+  assert.deepEqual(await table.locator("tbody td:last-child a").allTextContents(), ["Alpha running", longTitle, ...fixtures.slice(1, 29).map(job => job.name)]);
   assert.deepEqual(await table.locator("tbody tr").first().locator("td").allTextContents(), ["Disabled", "2/10", "Alpha running"]);
   assert.deepEqual(await table.locator("tbody tr").nth(2).locator("td").allTextContents(), ["Disabled", "0/2", "Idle 01"]);
   assert.equal(await page.getByLabel("Search jobs", { exact: true }).count(), 0);
@@ -65,7 +65,89 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
   await page.getByRole("heading", { name: "Alpha running", exact: true }).waitFor();
   await context.close();
 });
-test("invocation validates JSON, preserves retry idempotency and navigates to lightweight run/trace", async () => {
+test("mobile jobs list only navigates when a job title is tapped", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
+  const jobs = [
+    { ...summary, id: "security-checker", name: "Security Checker Dispatcher" },
+    { ...summary, id: "release-build", name: "Release build" },
+  ];
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: jobs, nextCursor: null } }));
+  await page.goto(origin + "/jobs");
+  const table = page.getByRole("table", { name: "Jobs", exact: true });
+  await table.getByRole("link", { name: "Security Checker Dispatcher", exact: true }).waitFor();
+
+  await page.getByRole("heading", { name: "Jobs", exact: true }).click();
+  await table.locator("tbody tr").nth(1).locator("td").first().click();
+  assert.match(page.url(), /\/jobs(?:\?|$)/);
+
+  await table.getByRole("link", { name: "Release build", exact: true }).click();
+  await page.waitForURL("**/jobs/release-build");
+  assert.equal(page.url().endsWith("/jobs/release-build"), true);
+  await context.close();
+});
+test("jobs can sort running and title in both directions with accessible state", async () => {
+  const { page, context } = await contextFor();
+  const fixtures = [
+    { ...summary, id: "job-z", name: "Zulu", runningCount: 1 },
+    { ...summary, id: "job-a", name: "Alpha", runningCount: 3, enabled: false },
+    { ...summary, id: "job-b", name: "Beta", runningCount: 3 },
+    { ...summary, id: "job-i", name: "Idle", runningCount: 0 },
+  ];
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: fixtures, nextCursor: null } }));
+  await page.goto(origin + "/jobs");
+  const table = page.getByRole("table", { name: "Jobs", exact: true });
+  await table.getByRole("link", { name: "Zulu", exact: true }).waitFor();
+  assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Alpha", "Beta", "Zulu", "Idle"]);
+  const running = table.getByRole("button", { name: /Running sort/ });
+  await running.click();
+  await page.waitForFunction(() => document.querySelector("thead th:nth-child(2)")?.getAttribute("aria-sort") === "ascending");
+  assert.equal(await table.locator("th").nth(1).getAttribute("aria-sort"), "ascending");
+  assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Idle", "Zulu", "Alpha", "Beta"]);
+  await running.click();
+  await page.waitForFunction(() => document.querySelector("thead th:nth-child(2)")?.getAttribute("aria-sort") === "descending");
+  assert.equal(await table.locator("th").nth(1).getAttribute("aria-sort"), "descending");
+  assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Alpha", "Beta", "Zulu", "Idle"]);
+  const title = table.getByRole("button", { name: /Title sort/ });
+  await title.click();
+  await page.waitForFunction(() => document.querySelectorAll("thead th")[2]?.getAttribute("aria-sort") === "ascending");
+  assert.equal(await table.locator("th").nth(2).getAttribute("aria-sort"), "ascending");
+  assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Alpha", "Beta", "Idle", "Zulu"]);
+  await page.reload(); await table.getByRole("link", { name: "Alpha", exact: true }).waitFor();
+  assert.equal(await table.locator("th").nth(2).getAttribute("aria-sort"), "ascending");
+  await title.click();
+  await page.waitForFunction(() => document.querySelectorAll("thead th")[2]?.getAttribute("aria-sort") === "descending");
+  assert.equal(await table.locator("th").nth(2).getAttribute("aria-sort"), "descending");
+  assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Zulu", "Idle", "Beta", "Alpha"]);
+  await context.close();
+});
+test("split invocation runs defaults immediately and supports prompt-only modal", async () => {
+  const { page, context } = await contextFor();
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", runNameTemplate: "", executionTargetId: "local", executionTarget: { connectionId: "local", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex" }, triggers: [], currentRuns: 0, maxConcurrency: 2 } }));
+  const inputs = [];
+  await page.route(`**/api/v1/jobs/${jobId}/invocations`, route => {
+    inputs.push(route.request().postDataJSON());
+    return inputs.length < 3 ? route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Try again" } } }) : route.fulfill({ status: 202, json: { runId, invocationId: "invocation", state: "queued", duplicate: true } });
+  });
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Review builds", run_name: "Manual run", state: "succeeded", finalizing: false, trace_revision: "rev-1", artifact_state: "stored", started_at: null, created_at: summary.createdAt, updated_at: summary.updatedAt, destination_url: null } }));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [{ id: "e1", sequence: 1, type: "reasoning", title: "Thinking", preview: "<script>alert('xss')</script>", display: {} }], nextCursor: null, revision: "rev-1", reset: false } }));
+  await page.goto(origin + "/jobs/" + jobId);
+  await page.getByRole("button", { name: "Run job", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
+  assert.equal(inputs.length, 1); assert.equal(inputs[0].prompt, ""); assert.equal(await page.getByRole("dialog").count(), 0);
+  await page.getByRole("button", { name: "More run options", exact: true }).click(); await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
+  assert.equal(await page.getByLabel("Run name (optional)").count(), 1); assert.equal(await page.getByLabel("JSON data (optional)").count(), 1);
+  await page.mouse.click(1, 1); await page.waitForTimeout(50); assert.equal(await page.getByRole("dialog").count(), 0); assert.equal(inputs.length, 1);
+  await page.getByRole("button", { name: "More run options", exact: true }).click(); await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
+  await page.getByLabel("Prompt", { exact: true }).fill("Review");
+  await page.getByRole("heading", { name: "Run with prompt", exact: true }).click(); assert.equal(await page.getByRole("dialog").count(), 1);
+  await page.getByRole("button", { name: "Run with prompt", exact: true }).click(); await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
+  await page.getByRole("button", { name: "Run with prompt", exact: true }).click(); await page.waitForURL(`**/job-runs/${runId}?**`);
+  await page.getByText("Thinking · reasoning", { exact: true }).click();
+  await page.getByText("<script>alert('xss')</script>", { exact: true }).waitFor();
+  assert.equal(inputs.length, 3); assert.equal(inputs[1].prompt, "Review"); assert.equal(inputs[1].idempotencyKey, inputs[2].idempotencyKey);
+  assert.equal(await page.locator("main script").count(), 0); await context.close();
+});
+test("invocation preserves retry idempotency and navigates to lightweight run/trace", async () => {
   const { page, context } = await contextFor();
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", runNameTemplate: "", executionTargetId: "local", executionTarget: { connectionId: "local", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex" }, triggers: [], currentRuns: 0, maxConcurrency: 2 } }));
   const inputs = [];
@@ -76,16 +158,49 @@ test("invocation validates JSON, preserves retry idempotency and navigates to li
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Review builds", run_name: "Manual run", state: "succeeded", finalizing: false, trace_revision: "rev-1", artifact_state: "stored", started_at: null, created_at: summary.createdAt, updated_at: summary.updatedAt, destination_url: null } }));
   await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [{ id: "e1", sequence: 1, type: "reasoning", title: "Thinking", preview: "<script>alert('xss')</script>", display: {} }], nextCursor: null, revision: "rev-1", reset: false } }));
   await page.goto(origin + "/jobs/" + jobId);
-  await page.getByRole("button", { name: "Run job", exact: true }).click();
-  await page.getByLabel("JSON data (optional)").fill("[]"); await page.getByRole("button", { name: "Invoke", exact: true }).click();
-  await page.getByRole("alert").filter({ hasText: "JSON data must be an object" }).waitFor(); assert.equal(inputs.length, 0);
-  await page.getByLabel("JSON data (optional)").fill('{"build":42}'); await page.getByLabel("Prompt", { exact: true }).fill("Review");
-  await page.getByRole("button", { name: "Invoke", exact: true }).click(); await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
-  await page.getByRole("button", { name: "Invoke", exact: true }).click(); await page.waitForURL(`**/job-runs/${runId}?**`);
-  await page.getByText("Thinking · reasoning", { exact: true }).click();
-  await page.getByText("<script>alert('xss')</script>", { exact: true }).waitFor();
-  assert.equal(inputs.length, 2); assert.equal(inputs[0].idempotencyKey, inputs[1].idempotencyKey); assert.deepEqual(inputs[1].data, { build: 42 });
+  await page.getByRole("button", { name: "More run options", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
+  await page.getByLabel("Prompt", { exact: true }).fill("Review");
+  await page.getByRole("button", { name: "Run with prompt", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
+  await page.getByRole("button", { name: "Run with prompt", exact: true }).click(); await page.waitForURL(`**/job-runs/${runId}?**`);
+  await page.getByText("Thinking · reasoning", { exact: true }).click(); await page.getByText("<script>alert('xss')</script>", { exact: true }).waitFor();
+  assert.equal(inputs.length, 2); assert.equal(inputs[0].idempotencyKey, inputs[1].idempotencyKey); assert.equal(inputs[1].prompt, "Review");
   assert.equal(await page.locator("main script").count(), 0); await context.close();
+});
+test("prompt modal Escape restores focus and does not run", async () => {
+  const { page, context } = await contextFor();
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", runNameTemplate: "", executionTargetId: "local", executionTarget: { connectionId: "local", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex" }, triggers: [], currentRuns: 0, maxConcurrency: 2 } }));
+  const inputs = [];
+  await page.route(`**/api/v1/jobs/${jobId}/invocations`, route => { inputs.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: { runId, invocationId: "invocation", state: "queued", duplicate: false } }); });
+  await page.goto(origin + "/jobs/" + jobId);
+  await page.getByRole("button", { name: "More run options", exact: true }).click(); await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
+  await page.getByLabel("Prompt", { exact: true }).fill("Do not run"); await page.keyboard.press("Escape");
+  assert.equal(inputs.length, 0); assert.equal(await page.getByRole("dialog").count(), 0);
+  await page.getByRole("button", { name: "More run options", exact: true }).focus(); assert.equal(await page.getByRole("button", { name: "More run options", exact: true }).evaluate(el => el === document.activeElement), true);
+  await context.close();
+});
+for (const width of [1280, 390]) test(`job header actions and status remain usable at ${width}px`, async () => {
+  const { page, context } = await contextFor({ viewport: { width, height: 844 } });
+  let enabled = true;
+  const longTitle = "Production deployment " + "with a deliberately long title ".repeat(12);
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, name: longTitle, enabled, runningCount: 1, concurrencyLimit: 3, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  await page.goto(origin + "/jobs/" + jobId);
+  const heading = page.getByRole("heading", { name: longTitle, exact: true });
+  await heading.waitFor();
+  assert.equal(await page.getByText("codex · Default model · 1/3 running", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("Enabled", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).isEnabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 1);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  enabled = false;
+  await page.reload();
+  await page.getByRole("heading", { name: longTitle, exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Enable job", exact: true }).count(), 1);
+  assert.equal(await heading.evaluate(element => getComputedStyle(element).color !== "rgb(15, 23, 42)"), true);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await context.close();
 });
 test("trace reset between requests discards old pages and finalization keeps terminal polling alive", async () => {
   const { page, context } = await contextFor();
@@ -97,8 +212,7 @@ test("trace reset between requests discards old pages and finalization keeps ter
     return route.fulfill({ json: { items: [{ id: reset ? "new" : "old", sequence: 1, type: "assistant_message", title: reset ? "New projection" : "Old projection", preview: "Safe text", display: {} }], nextCursor: reset ? null : 100, revision: reset ? "new" : "old", reset: reset && query.get("revision") === "old" } });
   });
   await page.goto(origin + "/job-runs/" + runId); await page.getByText("Old projection · assistant_message", { exact: true }).waitFor();
-  await page.getByRole("link", { name: "Next trace page" }).click(); await page.getByText("New projection · assistant_message", { exact: true }).waitFor();
-  await page.waitForURL("**?after=0");
+  await page.getByText("New projection · assistant_message", { exact: true }).waitFor();
   assert.equal(await page.getByText("Old projection · assistant_message", { exact: true }).count(), 0);
   await page.waitForTimeout(2200); assert.ok(statusCalls >= 2);
   await context.close();
@@ -110,12 +224,12 @@ test("20k-event continuous trace keeps DOM bounded, retains expanded details on 
     traceRequests++; const query = new URL(route.request().url()).searchParams, reset = !!query.get("revision") && query.get("revision") !== revision, after = reset ? 0 : Number(query.get("after") || 0), limit = Number(query.get("limit")), count = revision === "large" ? 20000 : 1;
     return route.fulfill({ json: { items: Array.from({ length: Math.min(limit, count - after) }, (_, index) => ({ id: `${revision}-${after + index + 1}`, sequence: after + index + 1, type: "assistant_message", title: `${revision} event ${after + index + 1}`, preview: "Safe text", display: {} })), nextCursor: after + limit < count ? after + limit : null, revision, reset } });
   });
-  await page.goto(origin + "/job-runs/" + runId); await page.getByLabel("Continuous virtualized trace").check();
-  const region = page.getByRole("region", { name: "Continuous trace", exact: true });
+  await page.goto(origin + "/job-runs/" + runId);
+  const region = page.getByRole("region", { name: "Full trace", exact: true });
   await page.getByText("large event 1 · assistant_message", { exact: true }).waitFor(); await page.getByText("large event 1 · assistant_message", { exact: true }).click();
   for (let count = 400; count <= 20000; count += 200) {
     await region.evaluate(el => { el.scrollTop = el.scrollHeight; });
-    await page.getByRole("status").filter({ hasText: `${count} events loaded` }).waitFor();
+    await page.waitForFunction(expected => Math.max(...[...document.querySelectorAll('[role="status"]')].map(element => Number(element.textContent?.match(/^(\d+) events loaded/)?.[1] ?? 0))) >= expected, count);
     peakNodes = Math.max(peakNodes, await region.locator("li").count());
   }
   assert.ok(await region.locator("li").count() < 60); assert.ok(traceRequests <= 110);
@@ -171,6 +285,28 @@ test("job Runs tab paginates distinct records, supports refresh/back and keeps c
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   const region = page.getByRole("region", { name: "Runs table" }); await region.focus(); assert.equal(await region.evaluate(el => el === document.activeElement), true);
   assert.ok(cursors.includes("page-2") && cursors.includes("page-3"));
+  await page.goto(origin + `/jobs/${jobId}/settings`);
+  await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
+  assert.equal(await page.getByText("codex · Default model · 0/2 running", { exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 1);
+  await context.close();
+});
+
+test("run table headers sort every column accessibly and persist in the URL", async () => {
+  const { page, context } = await contextFor();
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  const requests = [];
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: [{ id: runId, run_name: "Run", issue_title: "", state: "succeeded", created_at: summary.createdAt, agent_kind: "codex" }], nextCursor: null } }); });
+  await page.goto(origin + `/jobs/${jobId}`);
+  const table = page.getByRole("table");
+  await table.getByRole("columnheader").nth(0).getByRole("button").waitFor();
+  for (const index of [0, 1, 2, 3]) assert.equal(await table.getByRole("columnheader").nth(index).getByRole("button").count(), 1);
+  const runHeader = table.getByRole("button", { name: /Run, not sorted/ });
+  await runHeader.focus(); await page.keyboard.press("Enter"); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=asc`);
+  assert.equal(await table.getByRole("columnheader", { name: /Run/ }).getAttribute("aria-sort"), "ascending");
+  await table.getByRole("button", { name: /Run, sorted ascending/ }).click(); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=desc`);
+  assert.equal(requests.at(-1).searchParams.get("direction"), "desc");
   await context.close();
 });
 

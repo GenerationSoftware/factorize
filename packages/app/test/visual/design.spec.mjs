@@ -65,13 +65,13 @@ test("mobile profile, search and run dialog keyboard/focus behavior; long conten
   const profile = page.getByRole("button", { name: "Your account", exact: true });
   await profile.click(); await expect(page.getByRole("link", { name: "Settings", exact: true }).last()).toBeVisible();
   await page.keyboard.press("Escape"); await expect(profile).toBeFocused();
-  await page.getByRole("button", { name: "Search jobs and runs", exact: true }).click();
-  await expect(page.getByRole("combobox", { name: "Search jobs and runs", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true })).toBeFocused();
   await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0);
-  const run = page.getByRole("button", { name: "Run job", exact: true }); await run.click();
-  await page.getByLabel("JSON data (optional)").fill("[]"); await page.getByRole("button", { name: "Invoke", exact: true }).click();
-  await expect(page.getByRole("alert")).toHaveText("JSON data must be an object.");
-  await expect(page).toHaveScreenshot("run-dialog-validation-mobile.png");
+  const run = page.getByRole("button", { name: "More run options", exact: true }); await run.click();
+  await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
+  await page.getByLabel("Prompt", { exact: true }).fill("Review");
+  await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape"); await expect(run).toBeFocused();
   await expect(page.getByText("Prompt template", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -112,14 +112,14 @@ test("loading, error, disabled and search states", async ({ page }) => {
   fail = true; await pending.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } });
   await expect(page.getByRole("alert")).toHaveText("This workspace is unavailable.");
   await expect(page).toHaveScreenshot("jobs-error-mobile.png");
-  await page.getByRole("button", { name: "Search jobs and runs", exact: true }).click();
+  await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
   await expect(page.getByRole("combobox")).toBeFocused();
   await expect(page).toHaveScreenshot("search-empty-mobile.png");
   await page.getByRole("combobox").fill("release");
   await expect(page.getByRole("option")).toBeVisible();
   await expect(page).toHaveScreenshot("search-results-mobile.png");
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
-  await page.keyboard.press("Escape"); await expect(page.getByRole("button", { name: "Search jobs and runs", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape"); await expect(page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true })).toBeFocused();
   await page.goto(origin + "/auth/signup");
   await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
   await expect(page).toHaveScreenshot("signup-mobile.png");
@@ -130,8 +130,8 @@ for (const theme of ["light", "dark"]) test(`search loading, error and no result
   const failure = { status: 403, json: { error: { code: "forbidden", message: "Search is unavailable for this workspace." } } };
   await page.route("**/api/v1/search?**", route => mode === "pending" ? (pending = route) : mode === "error" ? route.fulfill(failure) : route.fulfill({ json: { items: [] } }));
   await page.goto(origin + "/jobs"); await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Search jobs and runs", exact: true }).click();
-  const dialog = page.getByRole("dialog"), input = dialog.getByRole("combobox", { name: "Search jobs and runs", exact: true });
+  await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
+  const dialog = page.getByRole("dialog"), input = dialog.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true });
   await input.fill("release"); await expect(dialog.getByRole("status")).toHaveText("Searching…");
   await expect(page).toHaveScreenshot(`search-loading-${theme}-390.png`);
   mode = "error"; await pending.fulfill(failure);
@@ -151,7 +151,7 @@ for (const theme of ["light", "dark"]) test(`run tabs, context and breadcrumbs o
   const trace = page.getByRole("tab", { name: "Trace", exact: true });
   await expect(trace).toHaveAttribute("aria-selected", "true");
   await trace.focus(); await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("tab", { name: "Context", exact: true })).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Info", exact: true })).toBeFocused();
   await page.getByText("Prompt, context and provenance", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Prompt", exact: true })).toBeVisible();
   await page.getByText("Diagnostics and artifacts", { exact: true }).click();
@@ -179,7 +179,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
   let pending;
   await page.route("**/api/v1/search?**", route => { pending = route; });
   await page.goto(origin + "/jobs");
-  const opener = page.getByRole("button", { name: "Search jobs and runs", exact: true });
+  const opener = page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true });
   await opener.click();
   const dialog = page.getByRole("dialog"), input = dialog.getByRole("combobox");
   await expect(input).toBeFocused();
@@ -187,7 +187,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
   const initial = await geometry();
   expect(initial.panel.y).toBeGreaterThanOrEqual(0);
   expect(initial.panel.y + initial.panel.height).toBeLessThanOrEqual(viewport.height);
-  const items = count => Array.from({ length: count }, (_, index) => ({ kind: "job", id: jobId, title: `Result ${index + 1}`, subtitle: "Matching job " + "long text ".repeat(8) }));
+  const items = count => Array.from({ length: count }, (_, index) => ({ kind: "job", id: jobId, title: `Result ${index + 1}`, subtitle: "Matching job " + "long text ".repeat(8), url: "/jobs/" + jobId, source: { kind: "job", label: "Review release builds", id: jobId }, match: { text: `Result ${index + 1}`, ranges: [{ start: 0, end: 6 }] } }));
   for (const [query, count] of [["missing", 0], ["few", 2], ["many", 30], ["changed", 1], ["empty again", 0]]) {
     pending = undefined;
     await input.fill(query);
@@ -213,7 +213,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     }
   }
   await input.fill("");
-  await expect(dialog.getByText("Find jobs and runs", { exact: false })).toBeVisible();
+  await expect(dialog.getByText("Find jobs and runs by approximate name, title, or issue identifier", { exact: false })).toBeVisible();
   expect(await geometry()).toEqual(initial);
   await input.fill("select");
   await expect(dialog.getByRole("status")).toHaveText("Searching…");

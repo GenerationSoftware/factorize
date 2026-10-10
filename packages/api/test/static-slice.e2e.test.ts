@@ -36,15 +36,15 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       expect(await page.locator("html").getAttribute("data-theme")).toBe("light");
       expect(await page.locator("body").evaluate((element: any) => (globalThis as any).getComputedStyle(element).backgroundColor)).toBe("rgb(252, 251, 246)");
       await page.getByRole("link", { name: "Job-1", exact: true }).click();
-      await page.getByRole("button", { name: "Run job", exact: true }).click();
+      await page.getByRole("button", { name: "More run options", exact: true }).click();
+      await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
       await page.getByLabel("Prompt", { exact: true }).fill("Real invocation");
-      await page.getByLabel("JSON data (optional)").fill('{"number":7}');
-      await page.getByRole("button", { name: "Invoke", exact: true }).click();
+      await page.getByRole("button", { name: "Run with prompt", exact: true }).click();
       await page.getByRole("heading", { name: "Trace", exact: true }).waitFor();
       const runId = new URL(page.url()).pathname.split("/").at(-1)!;
       expect(calls.filter(call => call === `POST /api/v1/jobs/${f.jobIds[1]}/invocations`)).toHaveLength(1);
       const row = (await f.db.pool.query("SELECT i.context,jr.state FROM app.invocations i JOIN app.job_runs jr ON jr.tenant_id=i.tenant_id AND jr.invocation_id=i.id WHERE jr.tenant_id=$1 AND jr.id=$2", [f.tenantId, runId])).rows[0];
-      expect(row).toMatchObject({ state: "queued", context: { manual: { prompt: "Real invocation", data: { number: 7 } } } });
+      expect(row).toMatchObject({ state: "queued", context: { manual: { prompt: "Real invocation", data: {} } } });
       await page.reload(); await page.getByText("No trace events yet.", { exact: true }).waitFor();
       await f.db.transaction(async client => {
         await client.query("INSERT INTO app.run_trace_events(tenant_id,run_id,sequence,id,event_type,title,preview_text,display_data) VALUES ($1,$2,1,'canonical','assistant_message','Final output','Safe output','{}')", [f.tenantId, runId]);
@@ -55,10 +55,9 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       await page.getByText("Final output · assistant_message", { exact: true }).waitFor();
       expect(calls.some(call => call === `GET /api/v1/runs/${runId}/status`)).toBe(true);
       expect(calls.some(call => call === `GET /api/v1/runs/${runId}`)).toBe(false);
-      await page.getByLabel("Continuous virtualized trace").check();
-      const continuous = page.getByRole("region", { name: "Continuous trace" });
-      await continuous.getByText("Final output · assistant_message", { exact: true }).waitFor();
-      expect(await continuous.locator("li").count()).toBe(1);
+      const trace = page.getByRole("region", { name: "Full trace" });
+      await trace.getByText("Final output · assistant_message", { exact: true }).waitFor();
+      expect(await trace.locator("li").count()).toBe(1);
       expect(failures).toEqual([]);
       await context.close();
     } finally { await browser.close(); await f.cleanup(); }

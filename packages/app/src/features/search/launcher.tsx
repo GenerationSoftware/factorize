@@ -11,5 +11,5 @@ export function SearchLauncher() {
     };
     window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler);
   }, []);
-  return <><Button aria-label="Search jobs and runs" onClick={() => setOpen(true)}>Search (/)</Button>{open && <Suspense fallback={<p role="status">Loading search…</p>}><Dialog close={() => setOpen(false)} /></Suspense>}</>;
+  return <><Button aria-label="Search jobs, runs, and messages" onClick={() => setOpen(true)}>Search (/)</Button>{open && <Suspense fallback={<p role="status">Loading search…</p>}><Dialog close={() => setOpen(false)} /></Suspense>}</>;
 }

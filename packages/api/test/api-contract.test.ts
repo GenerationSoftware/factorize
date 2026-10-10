@@ -8,6 +8,7 @@ import {
   isDeclaredApiOperation,
   matchApiOperation,
 } from "../src/api-contract";
+import { listRunsSchema } from "../src/flow-schemas";
 
 export const openapi = parse(
   readFileSync(new URL("../../docs/openapi.yaml", import.meta.url), "utf8"),
@@ -24,6 +25,12 @@ const methods = new Set([
 ]);
 
 describe("versioned API contract", () => {
+  it("validates run sorting fields and directions", () => {
+    expect(listRunsSchema.safeParse({ sort: "job", direction: "asc" }).success).toBe(true);
+    expect(listRunsSchema.safeParse({ sort: "agent", direction: "desc" }).success).toBe(true);
+    expect(listRunsSchema.safeParse({ sort: "not-a-column" }).success).toBe(false);
+    expect(listRunsSchema.safeParse({ direction: "asc" }).success).toBe(false);
+  });
   it("has full bidirectional method/path equality with the executable catalog", () => {
     const documented = Object.entries(openapi.paths).flatMap(([path, item]) =>
       Object.keys(item as object)

@@ -1175,7 +1175,9 @@ export interface paths {
         };
         /**
          * List runs
-         * @description Requires the runs:read scope.
+         * @description Returns tenant-authorized runs. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.
+         *
+         *     Requires the runs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1196,8 +1198,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search jobs and runs
-         * @description Requires the runs:read scope.
+         * Search jobs and runs by approximate metadata matches
+         * @description Search uses PostgreSQL pg_trgm approximate matching over job names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.
+         *
+         *     Requires the runs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1449,6 +1453,7 @@ export interface components {
         Run: {
             id: string;
             job_id: string;
+            job_name: string;
             issue_id: string;
             issue_url: string | null;
             issue_title: string;
@@ -1475,6 +1480,7 @@ export interface components {
             items: {
                 id: string;
                 job_id: string;
+                job_name: string;
                 issue_id: string;
                 issue_url: string | null;
                 issue_title: string;
@@ -1682,7 +1688,7 @@ export interface components {
             invocation_trigger_id?: string | null;
             /** Format: date-time */
             invocation_created_at?: string;
-        } & WithRequired<components["schemas"]["Run"], "id" | "state">;
+        } & WithRequired<components["schemas"]["Run"], "id" | "state" | "job_name">;
         RunDiagnostics: {
             runId: string;
             jobId: string;
@@ -4895,6 +4901,8 @@ export interface operations {
                 jobId?: string;
                 state?: "queued" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped";
                 contextQuery?: string;
+                sort?: "job" | "run" | "status" | "created" | "agent";
+                direction?: "asc" | "desc";
                 limit?: number;
                 cursor?: string;
             };
@@ -4943,11 +4951,24 @@ export interface operations {
                     "application/json": {
                         items: {
                             /** @enum {string} */
-                            kind: "job" | "run";
+                            kind: "job" | "run" | "trace";
                             id: string;
                             title: string;
                             subtitle: string;
                             url: string;
+                            source: {
+                                /** @enum {string} */
+                                kind: "job" | "run" | "trace";
+                                label: string;
+                                id: string;
+                            };
+                            match: {
+                                text: string;
+                                ranges: {
+                                    start: number;
+                                    end: number;
+                                }[];
+                            };
                         }[];
                     };
                 };

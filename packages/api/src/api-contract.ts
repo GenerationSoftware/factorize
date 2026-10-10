@@ -783,6 +783,7 @@ export const API_ROUTES: RouteContract[] = [
     "runs:read",
     {
       summary: "List runs",
+      description: "Returns tenant-authorized runs. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.",
       responses: {
         "200": {
           description: "Paginated runs",
@@ -802,7 +803,8 @@ export const API_ROUTES: RouteContract[] = [
     "/api/v1/search",
     "runs:read",
     {
-      summary: "Search jobs and runs",
+      summary: "Search jobs and runs by approximate metadata matches",
+      description: "Search uses PostgreSQL pg_trgm approximate matching over job names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.",
       responses: { "200": { description: "Search results", content: { "application/json": { schema: jsonSchema(searchResponse, "output") } } } },
     },
     (service, { query }) => service.search(query.q),

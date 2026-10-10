@@ -8,6 +8,30 @@ const jobId = "00000000-0000-4000-8000-000000000001", runId = "00000000-0000-400
 before(async () => { server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } }); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 async function setup() { const context = await browser.newContext(), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
+test("all-jobs runs index uses a tenant-scoped page, navigation, refresh, and created time", async () => {
+  const { context, page } = await setup(); const requests = []; let refreshes = 0;
+  const runs = Array.from({ length: 21 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, run_name: `Run ${index}`, state: index === 0 ? "running" : "succeeded", created_at: time, updated_at: time, started_at: index === 0 ? time : null, agent_kind: "codex" }));
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); refreshes++; const second = url.searchParams.has("cursor"); return route.fulfill({ json: { items: second ? [runs[20]] : runs.slice(0, 20), nextCursor: second ? null : "page-2" } }); });
+  await page.goto(origin + "/job-runs"); await page.getByRole("heading", { name: "Runs", exact: true }).waitFor(); await page.getByRole("link", { name: "Run 0", exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: "Jobs", exact: true }).getAttribute("href"), "/jobs?q="); assert.equal(await page.getByRole("link", { name: "Runs", exact: true }).evaluate(el => el.className.includes("text-factorize-700")), true);
+  assert.equal(await page.getByText("Run 0", { exact: true }).count(), 1); assert.equal(await page.locator("td time").count(), 20); assert.equal(await page.locator("td time").first().getAttribute("datetime"), time);
+  assert.ok(requests.every(url => url.searchParams.get("limit") === "20" && !url.searchParams.has("jobId")));
+  await page.getByRole("link", { name: "Next page" }).click(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); await page.reload(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); assert.ok(refreshes >= 2);
+  await context.close();
+});
+test("all-runs table sorts its data columns with accessible headers", async () => {
+  const { context, page } = await setup(); const requests = [];
+  const runs = [{ id: runId, run_name: "Run", state: "succeeded", created_at: time, updated_at: time, started_at: null, agent_kind: "codex" }];
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: runs, nextCursor: null } }); });
+  await page.goto(origin + "/job-runs"); const table = page.getByRole("region", { name: "Runs table" });
+  const created = table.getByRole("button", { name: /Created/ }); await created.focus(); await page.keyboard.press("Enter"); await page.waitForURL("**/job-runs?sort=created&direction=asc");
+  await page.waitForFunction(() => document.querySelector('th[aria-sort="ascending"]')?.textContent?.includes("Created"));
+  assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "ascending"); assert.equal(requests.at(-1).searchParams.get("sort"), "created");
+  await table.getByRole("button", { name: /Created/ }).click(); await page.waitForURL("**/job-runs?sort=created&direction=desc");
+  await page.waitForFunction(() => document.querySelector('th[aria-sort="descending"]')?.textContent?.includes("Created"));
+  assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "descending");
+  await context.close();
+});
 test("job run history restores its cursor on direct refresh and ignores legacy filters", async () => {
   const { context, page } = await setup(); const requests = [];
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Job", enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: 0, promptTemplate: "Prompt", triggers: [] } }));
@@ -28,7 +52,8 @@ test("prompt/provenance and diagnostics are lazy, terminal replay retries reuse 
   const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
   assert.equal(await breadcrumbs.getByRole("link", { name: "Jobs", exact: true }).getAttribute("href"), "/jobs?q=");
   assert.equal(await breadcrumbs.getByRole("link", { name: "Job", exact: true }).getAttribute("href"), "/jobs/" + jobId);
-  await page.getByRole("tab", { name: "Context", exact: true }).click();
+  await page.getByRole("tab", { name: "Info", exact: true }).click();
+  await page.getByText("Created", { exact: true }).waitFor(); await page.getByText("Started", { exact: true }).waitFor(); await page.getByText("Queue time", { exact: true }).waitFor(); await page.getByText("Runtime", { exact: true }).waitFor(); await page.getByText("Execution destination", { exact: true }).waitFor();
   await page.getByText("Prompt, context and provenance", { exact: true }).click(); await page.getByText("Private prompt", { exact: true }).waitFor(); await page.getByText("trigger-fixture", { exact: true }).waitFor(); await page.getByRole("heading", { name: "Trigger context and occurrence" }).waitFor(); await page.getByText("Diagnostics and artifacts", { exact: true }).click(); await page.getByText(/retained\/log.txt/).waitFor(); assert.equal(detailReads, 1); assert.equal(diagnosticReads, 1);
   await page.getByRole("tab", { name: "Settings", exact: true }).click();
   await page.getByText("Replay trace", { exact: true }).click(); page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "Replay retained trace" }).click(); await page.getByRole("alert").filter({ hasText: "Retry replay" }).waitFor(); await page.getByRole("tab", { name: "Trace", exact: true }).click(); await page.getByRole("tab", { name: "Settings", exact: true }).click(); await page.getByRole("alert").filter({ hasText: "Retry replay" }).waitFor(); page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "Replay retained trace" }).click(); await page.getByRole("status").filter({ hasText: "projected" }).waitFor(); await page.getByRole("tab", { name: "Trace", exact: true }).click(); await page.getByText("Replayed trace · assistant_message", { exact: true }).waitFor();
