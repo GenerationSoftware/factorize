@@ -249,6 +249,11 @@ test("job Runs tab paginates distinct records, supports refresh/back and keeps c
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   const region = page.getByRole("region", { name: "Runs table" }); await region.focus(); assert.equal(await region.evaluate(el => el === document.activeElement), true);
   assert.ok(cursors.includes("page-2") && cursors.includes("page-3"));
+  await page.goto(origin + `/jobs/${jobId}/settings`);
+  await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
+  assert.equal(await page.getByText("codex · Default model · 0/2 running", { exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 1);
   await context.close();
 });
 
