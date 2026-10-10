@@ -1196,7 +1196,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search jobs and runs
+         * Search jobs, runs, and trace messages
          * @description Requires the runs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
@@ -4943,11 +4943,23 @@ export interface operations {
                     "application/json": {
                         items: {
                             /** @enum {string} */
-                            kind: "job" | "run";
+                            kind: "job" | "run" | "trace";
                             id: string;
                             title: string;
                             subtitle: string;
                             url: string;
+                            source: {
+                                kind: "job" | "run" | "trace";
+                                label: string;
+                                id: string;
+                            };
+                            match: {
+                                text: string;
+                                ranges: {
+                                    start: number;
+                                    end: number;
+                                }[];
+                            };
                         }[];
                     };
                 };

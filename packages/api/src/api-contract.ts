@@ -802,7 +802,7 @@ export const API_ROUTES: RouteContract[] = [
     "/api/v1/search",
     "runs:read",
     {
-      summary: "Search jobs and runs",
+      summary: "Search jobs, runs, and trace messages",
       responses: { "200": { description: "Search results", content: { "application/json": { schema: jsonSchema(searchResponse, "output") } } } },
     },
     (service, { query }) => service.search(query.q),
