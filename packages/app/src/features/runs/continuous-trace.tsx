@@ -54,14 +54,9 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   const virtualizer = useVirtualizer({ count: items.length, getScrollElement: () => container.current, estimateSize: () => 70, overscan: 8, rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...selection, ...(focused === null ? [] : [focused])])].filter(index => index >= 0 && index < items.length).sort((a, b) => a - b), getItemKey: index => `${revision}:${items[index].sequence}:${items[index].id}` });
   const virtualItems = virtualizer.getVirtualItems();
   useEffect(() => {
-    if ((virtualItems.at(-1)?.index ?? -1) < items.length - 8 || !trace.hasNextPage || trace.isFetching) return;
-    void trace.fetchNextPage();
-  }, [virtualItems, items.length, trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
-  useEffect(() => {
     if (!trace.hasNextPage || trace.isFetching) return;
-    const timer = window.setTimeout(() => void trace.fetchNextPage(), 100);
-    return () => window.clearTimeout(timer);
-  }, [trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
+    void trace.fetchNextPage({ cancelRefetch: false });
+  }, [items.length, trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
   return <Card>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading trace…</p>}
     <h3 className="mt-4 text-lg font-semibold">Status</h3>
     {latestAssistant ? <div className="mt-2 min-w-0 rounded-lg border border-stone-200 p-3 dark:border-slate-700"><EventBody event={latestAssistant} /></div> : <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">No assistant message yet.</p>}
