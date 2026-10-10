@@ -7424,7 +7424,7 @@ paths:
                   type: string
                   enum:
                     - queued
-                  - reserved
+                    - reserved
                     - starting
                     - running
                     - done
