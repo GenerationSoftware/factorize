@@ -8,6 +8,17 @@ const jobId = "00000000-0000-4000-8000-000000000001", runId = "00000000-0000-400
 before(async () => { server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } }); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 async function setup() { const context = await browser.newContext(), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
+test("all-jobs runs index uses a tenant-scoped page, navigation, refresh, and elapsed time", async () => {
+  const { context, page } = await setup(); const requests = []; let refreshes = 0;
+  const runs = Array.from({ length: 21 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, run_name: `Run ${index}`, state: index === 0 ? "running" : "succeeded", created_at: time, updated_at: time, started_at: index === 0 ? time : null, agent_kind: "codex" }));
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); refreshes++; const second = url.searchParams.has("cursor"); return route.fulfill({ json: { items: second ? [runs[20]] : runs.slice(0, 20), nextCursor: second ? null : "page-2" } }); });
+  await page.goto(origin + "/job-runs"); await page.getByRole("heading", { name: "Runs", exact: true }).waitFor(); await page.getByRole("link", { name: "Run 0", exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: "Jobs", exact: true }).getAttribute("href"), "/jobs?q="); assert.equal(await page.getByRole("link", { name: "Runs", exact: true }).evaluate(el => el.className.includes("text-factorize-700")), true);
+  assert.equal(await page.getByText("Run 0", { exact: true }).count(), 1); assert.match(await page.getByRole("cell", { name: /\d+s/ }).first().textContent(), /\d+s/);
+  assert.ok(requests.every(url => url.searchParams.get("limit") === "20" && !url.searchParams.has("jobId")));
+  await page.getByRole("link", { name: "Next page" }).click(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); await page.reload(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); assert.ok(refreshes >= 2);
+  await context.close();
+});
 test("job run history restores its cursor on direct refresh and ignores legacy filters", async () => {
   const { context, page } = await setup(); const requests = [];
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Job", enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: 0, promptTemplate: "Prompt", triggers: [] } }));
