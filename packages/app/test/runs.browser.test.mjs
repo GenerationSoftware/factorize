@@ -19,6 +19,19 @@ test("all-jobs runs index uses a tenant-scoped page, navigation, refresh, and cr
   await page.getByRole("link", { name: "Next page" }).click(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); await page.reload(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); assert.ok(refreshes >= 2);
   await context.close();
 });
+test("all-runs table sorts its data columns with accessible headers", async () => {
+  const { context, page } = await setup(); const requests = [];
+  const runs = [{ id: runId, run_name: "Run", state: "succeeded", created_at: time, updated_at: time, started_at: null, agent_kind: "codex" }];
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: runs, nextCursor: null } }); });
+  await page.goto(origin + "/job-runs"); const table = page.getByRole("region", { name: "Runs table" });
+  const created = table.getByRole("button", { name: /Created/ }); await created.focus(); await page.keyboard.press("Enter"); await page.waitForURL("**/job-runs?sort=created&direction=asc");
+  await page.waitForFunction(() => document.querySelector('th[aria-sort="ascending"]')?.textContent?.includes("Created"));
+  assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "ascending"); assert.equal(requests.at(-1).searchParams.get("sort"), "created");
+  await table.getByRole("button", { name: /Created/ }).click(); await page.waitForURL("**/job-runs?sort=created&direction=desc");
+  await page.waitForFunction(() => document.querySelector('th[aria-sort="descending"]')?.textContent?.includes("Created"));
+  assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "descending");
+  await context.close();
+});
 test("job run history restores its cursor on direct refresh and ignores legacy filters", async () => {
   const { context, page } = await setup(); const requests = [];
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Job", enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: 0, promptTemplate: "Prompt", triggers: [] } }));
