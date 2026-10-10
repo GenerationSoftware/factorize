@@ -59,7 +59,7 @@ export class InvocationRepository {
 
   async create(invocation: Invocation, run: JobRun, wakeAt = new Date()): Promise<PersistedInvocation & { duplicate: boolean }> {
     return this.database.transaction(async (client) => {
-      await lockJobQueue(client, this.tenantId, invocation.jobId);
+      const concurrencyLimit = await lockJobQueue(client, this.tenantId, invocation.jobId);
       const inserted = await client.query<{ id: string }>(`
         INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context,occurrence,created_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
@@ -67,7 +67,7 @@ export class InvocationRepository {
       [this.tenantId, invocation.id, invocation.jobId, invocation.source, invocation.claimKey, invocation.triggerId, invocation.context, invocation.occurrence ?? null, invocation.createdAt]);
 
       if (inserted.rowCount) {
-        await reserveExecutionSlot(client, this.tenantId, invocation.jobId, run);
+        await reserveExecutionSlot(client, this.tenantId, invocation.jobId, run, concurrencyLimit);
         await client.query(`
           INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,run_name,created_at,updated_at,started_at)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,

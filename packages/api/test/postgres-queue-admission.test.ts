@@ -33,9 +33,9 @@ describe.skipIf(!url)("PostgreSQL queue admission", () => {
     const f = await fixture();
     const sources: InvocationSource[] = ["manual", "webhook", "schedule", "jobLifecycle"];
     const results = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => f.invoke(`event:${i}`, sources[i % 4])));
-    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(2);
     for (const result of results) if (result.status === "rejected") expect(result.reason.code).toBe("queue_full");
-    expect(await f.counts()).toEqual({ invocations: 1, queued: 0, reserved: 1, runs: 1 });
+    expect(await f.counts()).toEqual({ invocations: 2, queued: 1, reserved: 1, runs: 2 });
     const otherTenant = await fixture(f.jobId);
     await expect(otherTenant.invoke("other")).resolves.toMatchObject({ duplicate: false });
   });
