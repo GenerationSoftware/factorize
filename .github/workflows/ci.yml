@@ -51,7 +51,7 @@ jobs:
       - name: Run docs, API, authorization, integration and Worker checks
         run: npm run check:backend
       - name: Install Chromium for compiled static-slice checks
-        run: npx playwright install --with-deps chromium
+        run: npm exec --workspace=factorize -- playwright install --with-deps chromium
       - name: Exercise compiled jobs/invocation/run slice against PostgreSQL
         run: npm run test:static-slice --workspace=factorize
       - name: Record backend timing
@@ -75,7 +75,7 @@ jobs:
       - name: Build static application
         run: npm run build --workspace=factorize-app
       - name: Install Chromium for functional checks
-        run: npx playwright install --with-deps chromium
+        run: npm exec --workspace=factorize-app -- playwright install --with-deps chromium
       - name: Run required functional browser coverage
         run: npm run test:functional --workspace=factorize-app
       - name: Run non-browser app unit tests
