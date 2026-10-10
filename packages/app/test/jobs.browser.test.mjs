@@ -65,6 +65,26 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
   await page.getByRole("heading", { name: "Alpha running", exact: true }).waitFor();
   await context.close();
 });
+test("mobile jobs list only navigates when a job title is tapped", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
+  const jobs = [
+    { ...summary, id: "security-checker", name: "Security Checker Dispatcher" },
+    { ...summary, id: "release-build", name: "Release build" },
+  ];
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: jobs, nextCursor: null } }));
+  await page.goto(origin + "/jobs");
+  const table = page.getByRole("table", { name: "Jobs", exact: true });
+  await table.getByRole("link", { name: "Security Checker Dispatcher", exact: true }).waitFor();
+
+  await page.getByRole("heading", { name: "Jobs", exact: true }).click();
+  await table.locator("tbody tr").nth(1).locator("td").first().click();
+  assert.match(page.url(), /\/jobs(?:\?|$)/);
+
+  await table.getByRole("link", { name: "Release build", exact: true }).click();
+  await page.waitForURL("**/jobs/release-build");
+  assert.equal(page.url().endsWith("/jobs/release-build"), true);
+  await context.close();
+});
 test("jobs can sort running and title in both directions with accessible state", async () => {
   const { page, context } = await contextFor();
   const fixtures = [
