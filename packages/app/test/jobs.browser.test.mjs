@@ -301,9 +301,9 @@ test("run table headers sort every column accessibly and persist in the URL", as
   await page.goto(origin + `/jobs/${jobId}`);
   const table = page.getByRole("table");
   await table.getByRole("columnheader").nth(0).getByRole("button").waitFor();
-  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Run", "Created"]);
-  assert.equal(await table.getByRole("columnheader", { name: /Agent/ }).count(), 0);
-  for (const index of [0, 1, 2]) assert.equal(await table.getByRole("columnheader").nth(index).getByRole("button").count(), 1);
+  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Run", "Status", "Created", "Agent"]);
+  assert.equal(await table.getByRole("columnheader", { name: /Agent/ }).count(), 1);
+  for (const index of [0, 1, 2, 3]) assert.equal(await table.getByRole("columnheader").nth(index).getByRole("button").count(), 1);
   const runButton = page.getByRole("button", { name: "Run job", exact: true }), optionsButton = page.getByRole("button", { name: "More run options", exact: true });
   const runBox = await runButton.boundingBox(), optionsBox = await optionsButton.boundingBox();
   assert.equal(runBox.x + runBox.width, optionsBox.x);
