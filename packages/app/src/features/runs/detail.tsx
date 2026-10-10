@@ -1,23 +1,20 @@
-import { traceClasses } from "./event-body";
-import { Disclosure, Summary, Badge, Button, Input, Label, Page } from "../../shared/ui";
-import { EventBody } from "./event-body";
+import { Badge, Button, Page } from "../../shared/ui";
 import { ContinuousTrace } from "./continuous-trace";
 import { ExpandedRunDetail } from "./expanded-detail";
 import { ReplayTrace } from "./replay";
 import { useEffect, useState, useRef } from "react";
-import { Link, useLocation, useParams, useSearch, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useParams, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { runStatusQuery, runTraceQuery } from "./queries";
+import { runStatusQuery } from "./queries";
 import { messageOf } from "../auth/session";
 export function RunDetail() {
-  const { runId } = useParams({ strict: false }), search = useSearch({ strict: false }) as { after: number };
+  const { runId } = useParams({ strict: false });
   const location = useLocation(), navigate = useNavigate(), cache = useQueryClient();
   const tab: "trace" | "info" | "settings" = location.pathname.endsWith("/info") ? "info" : location.pathname.endsWith("/settings") ? "settings" : "trace";
   const tabPath = (name: "trace" | "info" | "settings"): "/job-runs/$runId" | "/job-runs/$runId/info" | "/job-runs/$runId/settings" => name === "trace" ? "/job-runs/$runId" : name === "info" ? "/job-runs/$runId/info" : "/job-runs/$runId/settings";
   const status = useQuery(runStatusQuery(runId!));
   const [revision, setRevision] = useState("");
-  const [continuous, setContinuous] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const active = !status.data || !["succeeded", "failed", "stopped"].includes(status.data.state) || status.data.finalizing;
   useEffect(() => {
@@ -35,24 +32,10 @@ export function RunDetail() {
     }
     finalizedSnapshot.current = next;
   }, [status.data?.state, status.data?.finalizing, status.data?.artifact_state, cache, runId]);
-  const trace = useQuery({ ...runTraceQuery(runId!, revision, search.after, active), enabled: !!revision && !continuous });
   useEffect(() => {
-    const next = trace.data?.reset ? trace.data.revision : status.data?.trace_revision;
-    if (next && next !== revision) {
-      if (trace.data?.reset) {
-        void cache.cancelQueries({ queryKey: ["runs", runId, "status"] });
-        cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous);
-      }
-      setRevision(next);
-      void cache.cancelQueries({ queryKey: ["runs", runId, "trace"] });
-      cache.removeQueries({ queryKey: ["runs", runId, "trace"] });
-      void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] });
-      cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] });
-      void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-tail"] });
-      cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] });
-      if (revision || trace.data?.reset) void navigate({ to: tabPath(tab), params: { runId: runId! }, search: { after: 0 }, replace: true });
-    }
-  }, [status.data?.trace_revision, trace.data?.revision, trace.data?.reset, revision, cache, runId, navigate]);
+    const next = status.data?.trace_revision;
+    if (next && next !== revision) setRevision(next);
+  }, [status.data?.trace_revision, revision]);
   const stop = useMutation({ retry: false, mutationFn: async () => {
     const { error } = await api.POST("/api/v1/runs/{runId}/stop", { params: { path: { runId: runId! } } });
     if (error) throw new Error(messageOf(error));
@@ -92,20 +75,7 @@ export function RunDetail() {
     </section>
     <section role="tabpanel" id="run-panel-trace" aria-labelledby="run-tab-trace" hidden={tab !== "trace"} tabIndex={0}>
     <h2 className="my-4 text-xl font-semibold">Trace</h2>
-    <Label><Input type="checkbox" checked={continuous} onChange={e => setContinuous(e.target.checked)} /> Continuous virtualized trace</Label>
-    {continuous && <ContinuousTrace key={revision} runId={runId!} revision={revision} active={active} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />}
-    {!continuous && trace.error && <p role="alert">{trace.error.message}</p>}
-    {!continuous && trace.isPending && <p role="status">Loading trace…</p>}
-    {!continuous && trace.data && trace.data.revision === revision && <>
-      {!trace.data.items.length && <p>No trace events yet.</p>}
-      <ol className="grid gap-3">{trace.data.items.map(event => <li key={`${revision}:${event.id}:${event.sequence}`}><Disclosure className={traceClasses(event.type)}>
-        <Summary>{event.title} · {event.type}</Summary><EventBody event={event} />
-      </Disclosure></li>)}</ol>
-      <nav aria-label="Trace pages" className="my-4 flex gap-4">
-        {!!search.after && <Link to={tabPath("trace")} params={{ runId: runId! }} search={{ after: 0 }}>First trace page</Link>}
-        {trace.data.nextCursor !== null && <Link to={tabPath("trace")} params={{ runId: runId! }} search={{ after: trace.data.nextCursor }}>Next trace page</Link>}
-      </nav>
-    </>}
+    <ContinuousTrace key={revision} runId={runId!} revision={revision} active={active} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />
     </section>
   </Page>;
 }
