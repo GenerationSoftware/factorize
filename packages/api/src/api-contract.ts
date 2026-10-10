@@ -1,3 +1,4 @@
+import { queryOf } from "./query-params";
 import { searchResponse } from "./search-contracts";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
 import { exeConnection, integrationStatus, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
@@ -34,13 +35,6 @@ export interface RouteContract {
     service: ApiService,
     input: { params: Record<string, string>; body: any; query: any; url: URL },
   ) => Promise<unknown>;
-}
-
-function queryOf(value: Record<string, unknown>): URLSearchParams {
-  const query = new URLSearchParams();
-  for (const [key, item] of Object.entries(value))
-    if (item !== undefined) query.set(key, String(item));
-  return query;
 }
 
 const exeBody = z.object({

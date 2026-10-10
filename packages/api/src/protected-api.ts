@@ -1,3 +1,4 @@
+import { queryOf } from "./query-params";
 import { jobUpdateInput } from "./job-contracts";
 import { InvocationError } from "./job-domain";
 import { WorkerEntrypoint } from "cloudflare:workers";
@@ -20,12 +21,6 @@ function errorResponse(error: unknown): Response {
   }
   console.error("Protected API request failed", error);
   return Response.json({ error: { code: "internal_error", message: "Factorize could not complete this request." } }, { status: 500 });
-}
-
-function queryOf(value: Record<string, unknown>): URLSearchParams {
-  const query = new URLSearchParams();
-  for (const [key, item] of Object.entries(value)) if (item !== undefined) query.set(key, String(item));
-  return query;
 }
 
 function queryInput(url: URL): Record<string, string | string[]> {

@@ -30,6 +30,38 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
         return route.fulfill({ status: response.status, headers, body: Buffer.from(await response.arrayBuffer()) });
       });
       const page = await context.newPage(); page.setDefaultTimeout(10000); page.on("pageerror", error => failures.push(error.message));
+      // Exercise the compiled client's repeated parameters through the real API and SQL.
+      for (const path of ["/job-runs", `/jobs/${f.jobIds[0]}`]) {
+        await page.goto(`https://factorize.test${path}`);
+        await page.getByRole("img", { name: "Status: Queued", exact: true }).waitFor();
+        await page.getByRole("button", { name: /Status, all statuses/ }).click();
+        await page.getByRole("dialog", { name: "Status filter and sort" }).getByLabel("Failed", { exact: true }).click();
+        await page.getByText("No runs match the selected statuses.", { exact: true }).waitFor();
+        await page.getByRole("dialog", { name: "Status filter and sort" }).getByLabel("Running", { exact: true }).click();
+        await page.getByRole("img", { name: "Status: Running", exact: true }).waitFor();
+        await page.getByRole("dialog", { name: "Status filter and sort" }).getByLabel("Failed", { exact: true }).click();
+        await page.getByRole("button", { name: /Status, 1 status selected/ }).waitFor();
+        expect(await page.getByRole("dialog", { name: "Status filter and sort" }).isVisible()).toBe(true);
+        const filtered = page.waitForResponse(response => {
+          const url = new URL(response.url());
+          return url.pathname === "/api/v1/runs" && url.searchParams.getAll("state").length === 2;
+        });
+        await page.getByRole("dialog", { name: "Status filter and sort" }).getByLabel("Succeeded", { exact: true }).click();
+        const response = await filtered;
+        expect(response.status()).toBe(200);
+        expect((await response.json()).items.map((run: any) => run.state).sort()).toEqual(["running", "succeeded"]);
+        await page.getByRole("img", { name: "Status: Running", exact: true }).waitFor();
+        await page.getByRole("img", { name: "Status: Succeeded", exact: true }).waitFor();
+        expect(await page.getByRole("img", { name: "Status: Queued", exact: true }).count()).toBe(0);
+        const dialog = page.getByRole("dialog", { name: "Status filter and sort" });
+        expect(await dialog.isVisible()).toBe(true);
+        await page.mouse.click(1200, 700);
+        await dialog.waitFor({ state: "hidden" });
+        await page.reload();
+        expect(await dialog.isVisible()).toBe(false);
+        await page.getByRole("img", { name: "Status: Running", exact: true }).waitFor();
+        await page.getByRole("img", { name: "Status: Succeeded", exact: true }).waitFor();
+      }
       await page.goto("https://factorize.test/jobs");
       await page.locator("header img").waitFor();
       expect(await page.locator("header img").evaluate(async (image: any) => { await image.decode(); return image.complete && image.naturalWidth > 0; })).toBe(true);
