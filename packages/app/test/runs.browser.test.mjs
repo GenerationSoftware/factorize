@@ -14,7 +14,7 @@ test("all-jobs runs index uses a tenant-scoped page, navigation, refresh, and el
   await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); refreshes++; const second = url.searchParams.has("cursor"); return route.fulfill({ json: { items: second ? [runs[20]] : runs.slice(0, 20), nextCursor: second ? null : "page-2" } }); });
   await page.goto(origin + "/job-runs"); await page.getByRole("heading", { name: "Runs", exact: true }).waitFor(); await page.getByRole("link", { name: "Run 0", exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: "Jobs", exact: true }).getAttribute("href"), "/jobs?q="); assert.equal(await page.getByRole("link", { name: "Runs", exact: true }).evaluate(el => el.className.includes("text-factorize-700")), true);
-  assert.equal(await page.getByText("Run 0", { exact: true }).count(), 1); assert.match(await page.getByRole("cell", { name: /\d+s/ }).first().textContent(), /\d+s/);
+  assert.equal(await page.getByText("Run 0", { exact: true }).count(), 1); assert.match(await page.getByRole("cell", { name: /\d+(?:s|m \d+s|h \d+m)$/ }).first().textContent(), /\d+(?:s|m \d+s|h \d+m)$/);
   assert.ok(requests.every(url => url.searchParams.get("limit") === "20" && !url.searchParams.has("jobId")));
   await page.getByRole("link", { name: "Next page" }).click(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); await page.reload(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); assert.ok(refreshes >= 2);
   await context.close();
