@@ -29,7 +29,7 @@ export function JobsList() {
           <tbody>{query.data.items.map(job => <tr key={job.id} className={tableRowClasses}>
             <td className={`whitespace-nowrap ${tableCellClasses}`}><Badge active={job.enabled}>{job.enabled ? "Enabled" : "Disabled"}</Badge></td>
             <td className={`whitespace-nowrap ${tableCellClasses} font-mono tabular-nums ${job.runningCount > 0 ? "font-semibold text-factorize-700 dark:text-factorize-500" : "text-slate-600 dark:text-slate-400"}`}>{job.runningCount}/{job.concurrencyLimit}</td>
-            <td className={tableCellClasses}><Link to="/jobs/$jobId" params={{ jobId: job.id }} title={job.name} className="block truncate font-semibold outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-factorize-500">{job.name}</Link></td>
+            <td className={tableCellClasses}><Link to="/jobs/$jobId" params={{ jobId: job.id }} title={job.name} className="relative block truncate font-semibold outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-factorize-500">{job.name}</Link></td>
           </tr>)}</tbody>
         </table>
       </div>}
