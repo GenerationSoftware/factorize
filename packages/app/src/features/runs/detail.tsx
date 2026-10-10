@@ -18,7 +18,13 @@ export function RunDetail() {
   const status = useQuery(runStatusQuery(runId!));
   const [revision, setRevision] = useState("");
   const [continuous, setContinuous] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const active = !status.data || !["succeeded", "failed", "stopped"].includes(status.data.state) || status.data.finalizing;
+  useEffect(() => {
+    if (!status.data?.started_at || !active) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [status.data?.started_at, active]);
   const finalizedSnapshot = useRef("");
   useEffect(() => {
     if (!status.data) return;
@@ -55,12 +61,11 @@ export function RunDetail() {
     {status.isPending && <p role="status">Loading run…</p>}{status.error && <p role="alert">{status.error.message}</p>}
     <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2"><Link to="/jobs" search={{ q: "" }}>Jobs</Link>{status.data && <><span aria-hidden="true">→</span><Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: status.data.job_id }}>{status.data.job_name}</Link></>}</nav>
     {status.data && <>
-      <h1 className="mt-5 text-3xl font-semibold">{status.data.run_name || "Run"}</h1><p role="status" className="mb-4"><Badge active={active}>{status.data.state}</Badge>{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}</p>
-      <p className="text-sm text-slate-600 dark:text-slate-400">Created {new Date(status.data.created_at).toLocaleString()} · Started {status.data.started_at ? new Date(status.data.started_at).toLocaleString() : "Not yet"}</p>
-      {status.data.started_at && <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Queue time: {Math.max(0, Math.round((Date.parse(status.data.started_at) - Date.parse(status.data.created_at)) / 1000))}s · Runtime: {Math.max(0, Math.round(((active ? Date.now() : Date.parse(status.data.updated_at)) - Date.parse(status.data.started_at)) / 1000))}s</p>}
-      {active && <p role="status">{trace.data?.items.at(-1)?.type === "reasoning" ? "Thinking…" : trace.data?.items.at(-1)?.title ? `Activity: ${trace.data.items.at(-1)!.title}` : "Waiting for execution activity…"}</p>}
-      {status.data.destination_url && /^https?:\/\//.test(status.data.destination_url) && <a href={status.data.destination_url} target="_blank" rel="noopener noreferrer">Execution destination</a>}
-      {["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}
+      <div className="mt-5 flex min-w-0 flex-wrap items-start gap-3">
+        <h1 className="min-w-0 flex-1 break-words text-3xl font-semibold">{status.data.run_name || "Run"}</h1>
+        {["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button className="shrink-0" disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}
+      </div>
+      <p role="status" className="mb-4"><Badge active={active}>{status.data.state}</Badge>{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}</p>
     </>}
     {stop.error && <p role="alert">{stop.error.message}</p>}
     <nav role="tablist" aria-label="Run details" className="mt-6 flex gap-1 overflow-x-auto border-b border-stone-200 dark:border-slate-700">
@@ -73,6 +78,13 @@ export function RunDetail() {
         }}>{name === "info" ? "Info" : name[0].toUpperCase() + name.slice(1)}</Link>)}
     </nav>
     <section role="tabpanel" id="run-panel-info" aria-labelledby="run-tab-info" hidden={tab !== "info"} tabIndex={0}>
+      {status.data && <dl className="my-4 grid min-w-0 gap-4 sm:grid-cols-2">
+        <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Created</dt><dd className="break-words text-sm text-slate-600 dark:text-slate-400">{new Date(status.data.created_at).toLocaleString()}</dd></div>
+        <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Started</dt><dd className="break-words text-sm text-slate-600 dark:text-slate-400">{status.data.started_at ? new Date(status.data.started_at).toLocaleString() : "Not started yet"}</dd></div>
+        <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Queue time</dt><dd className="text-sm text-slate-600 dark:text-slate-400">{status.data.started_at ? `${Math.max(0, Math.round((Date.parse(status.data.started_at) - Date.parse(status.data.created_at)) / 1000))}s` : "Not available until the run starts"}</dd></div>
+        <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Runtime</dt><dd className="text-sm text-slate-600 dark:text-slate-400">{status.data.started_at ? `${Math.max(0, Math.round(((active ? now : Date.parse(status.data.updated_at)) - Date.parse(status.data.started_at)) / 1000))}s` : "Not available until the run starts"}</dd></div>
+        <div className="sm:col-span-2"><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Execution destination</dt><dd className="break-words text-sm text-slate-600 dark:text-slate-400">{status.data.destination_url && /^https?:\/\//.test(status.data.destination_url) ? <><a className="break-all underline" href={status.data.destination_url} target="_blank" rel="noopener noreferrer">{status.data.destination_url}</a><span className="mt-1 block text-xs">The location where this run executes.</span></> : "Not available for this run"}</dd></div>
+      </dl>}
       <ExpandedRunDetail runId={runId!} />
     </section>
     <section role="tabpanel" id="run-panel-settings" aria-labelledby="run-tab-settings" hidden={tab !== "settings"} tabIndex={0}>
