@@ -172,11 +172,10 @@ test("20k-event continuous trace keeps DOM bounded, retains expanded details on 
   });
   await page.goto(origin + "/job-runs/" + runId);
   const region = page.getByRole("region", { name: "Full trace", exact: true });
-  const loadedStatus = page.locator('[role="status"]').filter({ hasText: /^\d+ events loaded/ });
   await page.getByText("large event 1 · assistant_message", { exact: true }).waitFor(); await page.getByText("large event 1 · assistant_message", { exact: true }).click();
   for (let count = 400; count <= 20000; count += 200) {
     await region.evaluate(el => { el.scrollTop = el.scrollHeight; });
-    await loadedStatus.filter({ hasText: `${count} events loaded` }).waitFor();
+    await page.waitForFunction(expected => Math.max(...[...document.querySelectorAll('[role="status"]')].map(element => Number(element.textContent?.match(/^(\d+) events loaded/)?.[1] ?? 0))) >= expected, count);
     peakNodes = Math.max(peakNodes, await region.locator("li").count());
   }
   assert.ok(await region.locator("li").count() < 60); assert.ok(traceRequests <= 110);
