@@ -13,7 +13,6 @@ describe("InvocationRepository", () => {
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ id: invocation.id }], rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [{ concurrency_limit: 1 }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [{ count: "0" }], rowCount: 1 })
       .mockResolvedValueOnce({ rows: [], rowCount: 0 })
       .mockResolvedValueOnce({ rows: [{ count: "0" }], rowCount: 1 })
@@ -24,11 +23,11 @@ describe("InvocationRepository", () => {
     const result = await new InvocationRepository(database, tenantId).create(invocation, run);
     expect(result.duplicate).toBe(false);
     expect(result.run.runName).toBe(run.runName);
-    expect(query.mock.calls[6][1][6]).toBe(run.runName);
-    expect(query).toHaveBeenCalledTimes(9);
+    expect(query.mock.calls[5][1][6]).toBe(run.runName);
+    expect(query).toHaveBeenCalledTimes(8);
     expect(query.mock.calls[0][1][0]).toBe(tenantId);
-    expect(query.mock.calls[7][0]).toContain("app.wake_hints");
-    expect(query.mock.calls[8][1]).toEqual([tenantId, invocation.jobId, invocation.claimKey]);
+    expect(query.mock.calls[6][0]).toContain("app.wake_hints");
+    expect(query.mock.calls[7][1]).toEqual([tenantId, invocation.jobId, invocation.claimKey]);
   });
 
   it("returns the canonical winner without creating a second run", async () => {
