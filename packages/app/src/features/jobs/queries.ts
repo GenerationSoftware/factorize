@@ -1,9 +1,11 @@
 import { api } from "factorize-api-client";
 import { queryOptions } from "@tanstack/react-query";
 import { messageOf } from "../auth/session";
-export type JobsSearch = { q: string; cursor?: string; enabled?: "true" | "false" };
+export type JobsSort = "running" | "title";
+export type JobsOrder = "asc" | "desc";
+export type JobsSearch = { q: string; cursor?: string; enabled?: "true" | "false"; sort?: JobsSort; order?: JobsOrder };
 export const jobsQuery = (search: JobsSearch) => queryOptions({
-  queryKey: ["jobs", "summaries", { q: search.q, enabled: search.enabled }],
+  queryKey: ["jobs", "summaries", { q: search.q, enabled: search.enabled, sort: search.sort, order: search.order }],
   queryFn: async ({ signal }) => {
     // The API's UUID pages do not reflect running/title order. Collect lightweight
     // summaries before paginating so active jobs on later API pages come first.
@@ -15,7 +17,14 @@ export const jobsQuery = (search: JobsSearch) => queryOptions({
       items.push(...data.items);
       cursor = data.nextCursor ?? undefined;
     } while (cursor);
-    items.sort((a, b) => Number(b.runningCount > 0) - Number(a.runningCount > 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    items.sort((a, b) => {
+      if (!search.sort) return Number(b.runningCount > 0) - Number(a.runningCount > 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+      const direction = search.order === "desc" ? -1 : 1;
+      const comparison = search.sort === "running"
+        ? a.runningCount - b.runningCount
+        : a.name.localeCompare(b.name);
+      return direction * comparison || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+    });
     return items;
   },
   select: items => {

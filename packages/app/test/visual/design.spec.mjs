@@ -151,7 +151,7 @@ for (const theme of ["light", "dark"]) test(`run tabs, context and breadcrumbs o
   const trace = page.getByRole("tab", { name: "Trace", exact: true });
   await expect(trace).toHaveAttribute("aria-selected", "true");
   await trace.focus(); await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("tab", { name: "Context", exact: true })).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Info", exact: true })).toBeFocused();
   await page.getByText("Prompt, context and provenance", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Prompt", exact: true })).toBeVisible();
   await page.getByText("Diagnostics and artifacts", { exact: true }).click();
