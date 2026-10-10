@@ -291,13 +291,15 @@ describe("Worker OpenAPI request/response boundaries", () => {
       .spyOn(ApiService.prototype, "listRuns")
       .mockResolvedValue({ items: [], nextCursor: null });
     await assertResponse(
-      await request("GET", "/api/v1/runs?limit=100"),
+      await request("GET", "/api/v1/runs?limit=100&sort=agent&direction=desc"),
       "GET",
       "/api/v1/runs",
       200,
     );
     expect(list.mock.calls[0][0].get("limit")).toBe("100");
-    for (const query of ["limit=0", "limit=101", "limit=NaN", "state=invalid"])
+    expect(list.mock.calls[0][0].get("sort")).toBe("agent");
+    expect(list.mock.calls[0][0].get("direction")).toBe("desc");
+    for (const query of ["limit=0", "limit=101", "limit=NaN", "state=invalid", "sort=invalid", "direction=asc"])
       await assertResponse(
         await request("GET", "/api/v1/runs?" + query),
         "GET",
