@@ -213,7 +213,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     }
   }
   await input.fill("");
-  await expect(dialog.getByText("Find jobs, runs, and messages", { exact: false })).toBeVisible();
+  await expect(dialog.getByText("Find jobs and runs by approximate name, title, or issue identifier", { exact: false })).toBeVisible();
   expect(await geometry()).toEqual(initial);
   await input.fill("select");
   await expect(dialog.getByRole("status")).toHaveText("Searching…");
