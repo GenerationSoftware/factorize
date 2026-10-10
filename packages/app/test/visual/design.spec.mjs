@@ -63,7 +63,7 @@ test("mobile profile, search and run dialog keyboard/focus behavior; long conten
   await page.setViewportSize({ width: 390, height: 844 }); await mockApi(page, { long: true });
   await page.goto(origin + "/jobs/" + jobId);
   const profile = page.getByRole("button", { name: "Your account", exact: true });
-  await profile.click(); await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await profile.click(); await expect(page.getByRole("link", { name: "Settings", exact: true }).last()).toBeVisible();
   await page.keyboard.press("Escape"); await expect(profile).toBeFocused();
   await page.getByRole("button", { name: "Search jobs and runs", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Search jobs and runs", exact: true })).toBeFocused();
@@ -73,7 +73,7 @@ test("mobile profile, search and run dialog keyboard/focus behavior; long conten
   await expect(page.getByRole("alert")).toHaveText("JSON data must be an object.");
   await expect(page).toHaveScreenshot("run-dialog-validation-mobile.png");
   await page.keyboard.press("Escape"); await expect(run).toBeFocused();
-  await page.getByText("Prompt template", { exact: true }).click();
+  await expect(page.getByText("Prompt template", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(page).toHaveScreenshot("long-job-mobile.png", { fullPage: true });
 });
