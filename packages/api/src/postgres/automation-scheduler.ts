@@ -103,7 +103,7 @@ export class AutomationScheduler {
         const result = await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.job_id, { source: "webhook", triggerId: row.trigger_id, claimKey: `webhook:${row.trigger_id}:${invocation.claimKey}`, context: { [row.trigger_slug]: context }, occurrence: { ...invocation.occurrence, metadata: { ...invocation.occurrence.metadata, triggerId: row.trigger_id, mergeable: false } } });
         await finish(result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Verified occurrence was already claimed." : "Merge-conflicted pull request queued through canonical job invocation.");
       } catch (error) {
-        if (error instanceof InvocationError && error.code === "queue_full") { await finish("queue_full", "Job already has a queued run; occurrence skipped."); continue; }
+        if (error instanceof InvocationError && error.code === "queue_full") { await finish("queue_full", "Job has no free execution slot and already has a waiting run; occurrence skipped."); continue; }
         const attempt = Number(row.attempt) + 1, detail = error instanceof Error ? error.message : "GitHub verification failed";
         if (attempt >= 8) await finish("verification_failed", detail); else await this.database.pool.query("UPDATE app.pending_verifications SET attempt=$3,next_attempt_at=now()+make_interval(secs=>least(60,5*$3)) WHERE tenant_id=$1 AND id=$2", [row.tenant_id, row.id, attempt]);
       }

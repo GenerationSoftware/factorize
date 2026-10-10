@@ -706,7 +706,7 @@ export const API_ROUTES: RouteContract[] = [
         },
         "409": {
           description:
-            "queue_full \u2014 this job already has one queued run. Retry after it starts. Duplicate idempotency keys return the original run.",
+            "queue_full \u2014 all execution slots are reserved or occupied and one waiting run already exists. Duplicate idempotency keys return the original run.",
         },
       },
     },

@@ -59,5 +59,13 @@ export class RunQueryRepository {
     return { ...row, created_at: row.created_at.toISOString(), updated_at: row.updated_at.toISOString(), started_at: row.started_at?.toISOString() ?? null };
   }
   async activity(runId: string) { return (await this.database.pool.query("SELECT action,detail,created_at FROM app.run_activity WHERE tenant_id=$1 AND run_id=$2 ORDER BY created_at,id", [this.tenantId, runId])).rows; }
-  async stop(runId: string) { return (await this.database.pool.query<any>("UPDATE app.job_runs SET state='stopping',next_poll_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked') RETURNING id,state", [this.tenantId, runId])).rows[0] ?? null; }
+  async stop(runId: string) {
+    return this.database.transaction(async client => {
+      const result = await client.query<any>("UPDATE app.job_runs SET state=CASE WHEN state='reserved' THEN 'stopped' ELSE 'stopping' END,next_poll_at=CASE WHEN state='reserved' THEN NULL ELSE now() END,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('reserved','starting','running','blocked') RETURNING id,state", [this.tenantId, runId]);
+      const row = result.rows[0];
+      if (row?.state === "stopped") await client.query("UPDATE app.runs SET state='stopped',claim_released=true,vm_cleanup_complete=true,updated_at=now() WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId]);
+      if (row) await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");
+      return row ?? null;
+    });
+  }
 }

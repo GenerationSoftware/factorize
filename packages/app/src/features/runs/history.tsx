@@ -10,7 +10,7 @@ export function RunHistory({ jobId }: { jobId: string }) {
   const runs = useQuery(historyQuery(jobId, search.cursor, search.sort, search.direction, search.states));
   const previous = search.previous === undefined ? [] : search.previous.split(",");
   const pageClasses = `inline-flex min-h-10 items-center rounded-lg border px-3 py-2 text-sm font-semibold ${buttonClasses.secondary}`;
-  const columns: Array<[HistorySort, string]> = [["run", "Run"], ["status", "Status"], ["created", "Created"], ["agent", "Agent"]];
+  const columns: Array<[HistorySort, string]> = [["status", "Status"], ["run", "Run"], ["created", "Created"], ["agent", "Agent"]];
   const sortColumn = (column: HistorySort) => {
     const direction = search.sort === column && search.direction === "asc" ? "desc" : "asc";
     void navigate({ to: "/jobs/$jobId", params: { jobId }, search: { ...search, sort: column, direction, cursor: undefined, previous: undefined } });
@@ -26,6 +26,7 @@ export function RunHistory({ jobId }: { jobId: string }) {
         <tbody>{runs.data.items.map(run => <tr className={tableRowClasses} key={run.id}>
           <td className={`${tableCellClasses} truncate`}><Link to="/job-runs/$runId" params={{ runId: run.id }} search={{ after: 0 }} title={run.run_name || run.issue_title || "Run"} className="block truncate font-semibold hover:text-factorize-700 focus-visible:rounded-sm dark:hover:text-factorize-500">{run.run_name || run.issue_title || "Run"}</Link></td>
           <td className={`whitespace-nowrap ${tableCellClasses}`}><RunStatusDot state={run.state} /></td>
+          <td className={tableCellClasses}><Link to="/job-runs/$runId" params={{ runId: run.id }} search={{ after: 0 }} title={run.run_name || run.issue_title || "Run"} className="block truncate font-semibold hover:text-factorize-700 focus-visible:rounded-sm dark:hover:text-factorize-500">{run.run_name || run.issue_title || "Run"}</Link></td>
           <td className={`whitespace-nowrap ${tableCellClasses}`}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></td><td className={`${tableCellClasses} truncate`} title={run.agent_kind}>{run.agent_kind}</td>
         </tr>)}{runs.data.items.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center">{search.states?.length ? <><p>No runs match the selected statuses.</p><Button className="mt-3" onClick={() => void navigate({ to: "/jobs/$jobId", params: { jobId }, search: { ...search, states: undefined, cursor: undefined, previous: undefined } })}>Clear status filters</Button></> : "No runs found."}</td></tr>}</tbody>
       </Table></>}

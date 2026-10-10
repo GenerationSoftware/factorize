@@ -12,7 +12,7 @@ export const jobSelectorItem = z.object({ id: z.guid(), name: z.string(), slug: 
 export const jobSummary = jobSelectorItem.extend({
   model: z.string(), effort: z.string(), agentKind: z.string(),
   concurrencyLimit: z.number().int(), runningCount: z.number().int(),
-  lastRunState: z.enum(["queued", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(), createdAt: z.string(), updatedAt: z.string(),
+  lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(), createdAt: z.string(), updatedAt: z.string(),
 });
 export const jobSummaryPage = z.object({ items: z.array(jobSummary), nextCursor: z.guid().nullable() });
 export const jobSelectorPage = z.object({ items: z.array(jobSelectorItem), nextCursor: z.guid().nullable() });
@@ -34,7 +34,7 @@ export const jobResponse = z.object({
   promptTemplate: z.string(), runNameTemplate: z.string(), model: z.string(), effort: z.string().optional(),
   executionTarget: z.object({ connectionId: z.string(), workspace: z.string().optional(), cwd: z.string().optional(), agentKind: z.string() }),
   executionTargetId: z.string(), agentKind: z.string(), concurrencyLimit: z.number().int(),
-  runningCount: z.number().int(), currentRuns: z.number().int(), maxConcurrency: z.number().int(), lastRunState: z.enum(["queued", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(),
+  runningCount: z.number().int(), currentRuns: z.number().int(), maxConcurrency: z.number().int(), lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(),
   triggers: z.array(triggerResponse),
   createdAt: z.string(), updatedAt: z.string(),
 });
