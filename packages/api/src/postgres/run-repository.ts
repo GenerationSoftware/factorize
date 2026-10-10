@@ -29,8 +29,9 @@ export class RunRepository {
       const result = await client.query<RunRow>(`WITH candidate AS (
           SELECT r.tenant_id,r.id FROM app.job_runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id
           WHERE j.enabled AND ((r.state='starting' AND r.launch_lease_expires_at<now())
-            OR (r.state='queued' AND (SELECT count(*) FROM app.job_runs active WHERE active.tenant_id=r.tenant_id AND active.job_id=r.job_id AND active.state IN ('starting','running','blocked','stopping')) < j.concurrency_limit))
-          ORDER BY r.created_at FOR UPDATE OF r SKIP LOCKED LIMIT 1
+            OR r.state='reserved'
+            OR (r.state='queued' AND (SELECT count(*) FROM app.job_runs active WHERE active.tenant_id=r.tenant_id AND active.job_id=r.job_id AND active.state IN ('reserved','starting','running','blocked','stopping')) < j.concurrency_limit))
+          ORDER BY r.created_at FOR UPDATE OF j,r SKIP LOCKED LIMIT 1
         ), claimed AS (
           UPDATE app.job_runs r SET state='starting',launch_lease_expires_at=now()+interval '5 minutes',updated_at=now()
           FROM candidate c WHERE r.tenant_id=c.tenant_id AND r.id=c.id RETURNING r.*

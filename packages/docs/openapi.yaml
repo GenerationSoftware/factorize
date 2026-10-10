@@ -64,6 +64,7 @@ components:
           type: string
           enum:
             - queued
+            - reserved
             - starting
             - running
             - blocked
@@ -161,6 +162,7 @@ components:
                 type: string
                 enum:
                   - queued
+                  - reserved
                   - starting
                   - running
                   - blocked
@@ -4648,6 +4650,7 @@ paths:
                             - type: string
                               enum:
                                 - queued
+                                - reserved
                                 - starting
                                 - running
                                 - blocked
@@ -4913,6 +4916,7 @@ paths:
                         - type: string
                           enum:
                             - queued
+                            - reserved
                             - starting
                             - running
                             - blocked
@@ -5373,6 +5377,7 @@ paths:
                       - type: string
                         enum:
                           - queued
+                          - reserved
                           - starting
                           - running
                           - blocked
@@ -5875,7 +5880,7 @@ paths:
           $ref: "#/components/responses/Error404"
         "409":
           $ref: "#/components/responses/Error409"
-          description: queue_full — this job already has one queued run. Retry after it starts. Duplicate idempotency keys return the original run.
+          description: queue_full — all execution slots are reserved or occupied and one waiting run already exists. Duplicate idempotency keys return the original run.
         "415":
           $ref: "#/components/responses/Error415"
         "429":
@@ -6123,6 +6128,7 @@ paths:
                       - type: string
                         enum:
                           - queued
+                          - reserved
                           - starting
                           - running
                           - blocked
@@ -6596,6 +6602,7 @@ paths:
                       - type: string
                         enum:
                           - queued
+                          - reserved
                           - starting
                           - running
                           - blocked
@@ -7399,6 +7406,7 @@ paths:
             type: string
             enum:
               - queued
+              - reserved
               - starting
               - running
               - done
@@ -7728,6 +7736,7 @@ paths:
                     type: string
                     enum:
                       - queued
+                      - reserved
                       - starting
                       - running
                       - blocked

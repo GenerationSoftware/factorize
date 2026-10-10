@@ -1,4 +1,4 @@
-import { lockJobQueue, requireQueueCapacity } from "./queue-admission";
+import { lockJobQueue, reserveExecutionSlot } from "./queue-admission";
 import type { Invocation, JobRun } from "../job-domain";
 import type { Database, DatabaseClient } from "./database";
 
@@ -67,7 +67,7 @@ export class InvocationRepository {
       [this.tenantId, invocation.id, invocation.jobId, invocation.source, invocation.claimKey, invocation.triggerId, invocation.context, invocation.occurrence ?? null, invocation.createdAt]);
 
       if (inserted.rowCount) {
-        await requireQueueCapacity(client, this.tenantId, invocation.jobId);
+        await reserveExecutionSlot(client, this.tenantId, invocation.jobId, run);
         await client.query(`
           INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,run_name,created_at,updated_at,started_at)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,

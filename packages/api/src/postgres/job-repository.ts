@@ -1,4 +1,4 @@
-import { lockJobQueue, requireQueueCapacity } from "./queue-admission";
+import { lockJobQueue, reserveExecutionSlot } from "./queue-admission";
 import type { Invocation, Job, JobRepository, JobRun, Trigger } from "../job-domain";
 import type { Database, DatabaseClient } from "./database";
 import { nextOccurrence, validateScheduleConfig } from "../schedule";
@@ -120,7 +120,7 @@ export class PostgresJobRepository implements JobRepository {
       await lockJobQueue(client, this.tenantId, invocation.jobId);
       const inserted = await client.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context,occurrence,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (tenant_id,job_id,claim_key) DO NOTHING", [this.tenantId, invocation.id, invocation.jobId, invocation.source, invocation.claimKey, invocation.triggerId, invocation.context, invocation.occurrence ?? null, invocation.createdAt]);
       if (!inserted.rowCount) return false;
-      await requireQueueCapacity(client, this.tenantId, invocation.jobId);
+      await reserveExecutionSlot(client, this.tenantId, invocation.jobId, run);
       await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,run_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_capabilities,created_at,updated_at)
         SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_target->>'agentKind',$7,
@@ -131,7 +131,7 @@ export class PostgresJobRepository implements JobRepository {
       return true;
     });
   }
-  async countActiveRuns(jobId: string): Promise<number> { return Number((await this.database.pool.query<{ count: string }>("SELECT count(*)::text count FROM app.job_runs WHERE tenant_id=$1 AND job_id=$2 AND state IN ('starting','running','blocked','stopping')", [this.tenantId, jobId])).rows[0]?.count ?? 0); }
+  async countActiveRuns(jobId: string): Promise<number> { return Number((await this.database.pool.query<{ count: string }>("SELECT count(*)::text count FROM app.job_runs WHERE tenant_id=$1 AND job_id=$2 AND state IN ('reserved','starting','running','blocked','stopping')", [this.tenantId, jobId])).rows[0]?.count ?? 0); }
   async markRunRunning(runId: string, startedAt: string): Promise<JobRun> {
     const row = (await this.database.pool.query<any>("UPDATE app.job_runs SET state='running',started_at=$3,updated_at=$3 WHERE tenant_id=$1 AND id=$2 AND state='queued' RETURNING *", [this.tenantId, runId, startedAt])).rows[0];
     if (!row) throw new Error("Run is no longer queued");
