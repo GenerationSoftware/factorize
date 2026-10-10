@@ -24,24 +24,45 @@ async function contextFor(options) {
   await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } }));
   return { context, page };
 }
-test("job search/cursors survive direct refresh and mobile keyboard navigation", async () => {
-  const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
+for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) test(`compact jobs grouping, pagination, focus and long titles at ${width} ${theme}`, async () => {
+  const { page, context } = await contextFor({ viewport: { width, height: 844 }, colorScheme: theme });
+  const longTitle = "Zulu " + "long title ".repeat(30);
+  const fixtures = Array.from({ length: 31 }, (_, index) => ({ ...summary, id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, name: `Idle ${String(index).padStart(2, "0")}`, enabled: index % 2 === 0 }));
+  fixtures[0] = { ...fixtures[0], name: longTitle, enabled: true, runningCount: 1, concurrencyLimit: 10 };
+  fixtures[30] = { ...fixtures[30], name: "Alpha running", enabled: false, runningCount: 2, concurrencyLimit: 10 };
   const requests = [];
   await page.route("**/api/v1/job-summaries?**", route => {
     const url = new URL(route.request().url()); requests.push(url);
-    return route.fulfill({ json: { items: [{ ...summary, name: url.searchParams.has("cursor") ? "Second job" : "Review builds" }], nextCursor: url.searchParams.has("cursor") ? null : jobId } });
+    return route.fulfill({ json: { items: url.searchParams.has("cursor") ? fixtures.slice(30) : fixtures.slice(0, 30), nextCursor: url.searchParams.has("cursor") ? null : fixtures[29].id } });
   });
+  await page.route(`**/api/v1/jobs/${fixtures[30].id}`, route => route.fulfill({ json: { ...fixtures[30], promptTemplate: "Template", runNameTemplate: "", executionTargetId: "local", executionTarget: { connectionId: "local", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex" }, triggers: [], currentRuns: 2, maxConcurrency: 10 } }));
   await page.goto(origin + "/jobs?q=Review");
-  await page.getByRole("link", { name: "Review builds", exact: true }).waitFor();
-  await page.getByRole("link", { name: "Next page" }).click();
-  await page.getByRole("link", { name: "Second job" }).waitFor();
-  assert.equal(new URL(page.url()).searchParams.get("cursor"), jobId);
-  await page.reload(); await page.getByRole("link", { name: "Second job" }).waitFor();
-  await page.getByLabel("Search jobs", { exact: true }).fill("builds"); await page.getByLabel("Search jobs", { exact: true }).press("Enter");
-  await page.waitForURL("**/jobs?q=builds*");
-  assert.equal(new URL(page.url()).searchParams.has("cursor"), false);
-  assert.ok(requests.every(url => url.searchParams.get("limit") === "30"));
+  const table = page.getByRole("table", { name: "Jobs", exact: true });
+  await table.getByRole("link", { name: "Alpha running", exact: true }).waitFor();
+  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Running", "Title"]);
+  assert.deepEqual(await table.locator("tbody td:last-child").allTextContents(), ["Alpha running", longTitle, ...fixtures.slice(1, 29).map(job => job.name)]);
+  assert.deepEqual(await table.locator("tbody tr").first().locator("td").allTextContents(), ["Disabled", "2/10", "Alpha running"]);
+  assert.deepEqual(await table.locator("tbody tr").nth(2).locator("td").allTextContents(), ["Disabled", "0/2", "Idle 01"]);
+  assert.equal(await page.getByLabel("Search jobs", { exact: true }).count(), 0);
+  assert.equal(await page.getByText("Your software factory. Configure prompts, connect triggers, and follow every run.").count(), 0);
+  const heading = await page.getByRole("heading", { name: "Jobs", exact: true }).boundingBox(), create = await page.getByRole("link", { name: "Create job", exact: true }).boundingBox();
+  assert.ok(create.x > heading.x + heading.width && Math.abs(create.y - heading.y) < 12);
+  const longLink = table.getByRole("link", { name: longTitle, exact: true });
+  assert.equal(await longLink.evaluate(el => el.scrollWidth > el.clientWidth && getComputedStyle(el).whiteSpace === "nowrap"), true);
+  const first = table.locator("tbody tr").first(), idleColor = await first.evaluate(el => getComputedStyle(el).backgroundColor);
+  await first.hover(); await page.waitForFunction(() => getComputedStyle(document.querySelector("tbody tr")).backgroundColor !== "rgba(0, 0, 0, 0)"); assert.notEqual(await first.evaluate(el => getComputedStyle(el).backgroundColor), idleColor);
+  await page.mouse.move(0, 0); const link = first.getByRole("link"); await link.focus();
+  assert.equal(await link.evaluate(el => el === document.activeElement), true);
+  await page.waitForFunction(() => getComputedStyle(document.querySelector("tbody tr")).backgroundColor !== "rgba(0, 0, 0, 0)");
+  assert.notEqual(await first.evaluate(el => getComputedStyle(el).backgroundColor), idleColor);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.getByRole("link", { name: "Next page" }).click(); await table.getByRole("link", { name: "Idle 29", exact: true }).waitFor();
+  await page.reload(); await table.getByRole("link", { name: "Idle 29", exact: true }).waitFor();
+  await page.getByRole("link", { name: "First page" }).click(); await table.getByRole("link", { name: "Alpha running", exact: true }).waitFor();
+  assert.ok(requests.every(url => url.searchParams.get("limit") === "100" && url.searchParams.get("q") === "Review"));
+  await table.getByRole("link", { name: "Alpha running", exact: true }).focus(); await page.keyboard.press("Enter");
+  await page.waitForURL(`**/jobs/${fixtures[30].id}`);
+  await page.getByRole("heading", { name: "Alpha running", exact: true }).waitFor();
   await context.close();
 });
 test("invocation validates JSON, preserves retry idempotency and navigates to lightweight run/trace", async () => {
