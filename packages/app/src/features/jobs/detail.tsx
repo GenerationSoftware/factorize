@@ -21,6 +21,7 @@ export function JobDetail() {
       <Button className="min-h-9 px-2.5 py-1.5 text-xs" disabled={enabled.isPending} onClick={() => enabled.mutate(!job.enabled)}>{job.enabled ? "Disable job" : "Enable job"}</Button>
       </div></div><p className="mb-4 mt-2 text-sm text-slate-600 dark:text-slate-400">{job.agentKind} · {job.model || "Default model"} · {job.runningCount}/{job.concurrencyLimit} running</p><JobTabs jobId={job.id} /><div className="mb-6">{enabled.error && <p role="alert">{enabled.error.message}</p>}
       <RunHistory jobId={job.id} />
+      </div>
     </>}
   </Page>;
 }
