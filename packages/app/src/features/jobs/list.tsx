@@ -1,4 +1,4 @@
-import { Card, Badge, buttonClasses, Page, SortableHeader, Table, tableCellClasses, tableHeadClasses, tableRowClasses } from "../../shared/ui";
+import { Card, Badge, buttonClasses, Page, PageHeader, SortableHeader, Table, tableCellClasses, tableHeadClasses, tableRowClasses } from "../../shared/ui";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { jobsQuery, type JobsOrder, type JobsSearch, type JobsSort } from "./queries";
@@ -9,11 +9,10 @@ export function JobsList() {
   const sortLabel = (sort: JobsSort) => sort === "running" ? "Running" : "Title";
   const sortOrder = (sort: JobsSort): JobsOrder => search.sort === sort && search.order === "asc" ? "desc" : "asc";
   const chooseSort = (sort: JobsSort) => void navigate({ search: { ...search, cursor: undefined, sort, order: sortOrder(sort) } });
-  return <Page >
-    <div className="mb-5 flex min-w-0 items-center justify-between gap-3">
-      <h1 className="text-3xl font-bold tracking-tight">Jobs</h1>
+  return <Page>
+    <PageHeader title="Jobs">
       <Link to="/jobs/new" className={`shrink-0 whitespace-nowrap rounded-lg border px-4 py-2.5 text-sm font-semibold ${buttonClasses.primary}`}>Create job</Link>
-    </div>
+    </PageHeader>
     {query.isPending && <p role="status">Loading jobs…</p>}
     {query.error && <p role="alert">{query.error.message}</p>}
     {query.data && <>
