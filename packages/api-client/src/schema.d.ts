@@ -1686,7 +1686,7 @@ export interface components {
             invocation_trigger_id?: string | null;
             /** Format: date-time */
             invocation_created_at?: string;
-        } & WithRequired<components["schemas"]["Run"], "id" | "state">;
+        } & WithRequired<components["schemas"]["Run"], "id" | "state" | "job_name">;
         RunDiagnostics: {
             runId: string;
             jobId: string;
