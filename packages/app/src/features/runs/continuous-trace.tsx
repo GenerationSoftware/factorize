@@ -10,7 +10,7 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   const cache = useQueryClient();
   const [focused, setFocused] = useState<number | null>(null), [selection, setSelection] = useState<number[]>([]);
   const container = useRef<HTMLDivElement>(null), [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const followBottom = useRef(true), positioned = useRef(false);
+  const followBottom = useRef(true), positioned = useRef(false), hasRenderedItems = useRef(false);
   const trace = useInfiniteQuery({ queryKey: ["runs", runId, "continuous-trace", revision], initialPageParam: 0,
     queryFn: async ({ signal, pageParam }) => { const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: pageParam, revision, limit: 200 } } }); if (!data || error) throw new Error(messageOf(error)); return data; },
     enabled: !!revision, getNextPageParam: page => page.reset ? undefined : page.nextCursor ?? undefined,
@@ -39,6 +39,7 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   }, []);
   useEffect(() => {
     if (!items.length) return;
+    if (!hasRenderedItems.current) { hasRenderedItems.current = true; return; }
     requestAnimationFrame(() => {
       if (!positioned.current || followBottom.current) scrollToBottom();
       positioned.current = true;
@@ -58,7 +59,12 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   }, []);
   const virtualizer = useVirtualizer({ count: items.length, getScrollElement: () => container.current, estimateSize: () => 70, overscan: 8, rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...selection, ...(focused === null ? [] : [focused])])].filter(index => index >= 0 && index < items.length).sort((a, b) => a - b), getItemKey: index => `${revision}:${items[index].sequence}:${items[index].id}` });
   const virtualItems = virtualizer.getVirtualItems();
-  useEffect(() => { if ((virtualItems.at(-1)?.index ?? -1) >= items.length - 8 && trace.hasNextPage && !trace.isFetching) void trace.fetchNextPage(); }, [virtualItems, items.length, trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
+  useEffect(() => {
+    const element = container.current;
+    const nearBottom = element && element.scrollTop + element.clientHeight >= element.scrollHeight - 160;
+    const virtualNearBottom = (virtualItems.at(-1)?.index ?? -1) >= items.length - 8;
+    if ((nearBottom || (hasRenderedItems.current && virtualNearBottom)) && trace.hasNextPage && !trace.isFetching) void trace.fetchNextPage();
+  }, [virtualItems, items.length, trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
   return <Card>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading trace…</p>}
     <h3 className="mt-4 text-lg font-semibold">Status</h3>
     {latestAssistant ? <div className="mt-2 min-w-0 rounded-lg border border-stone-200 p-3 dark:border-slate-700"><EventBody event={latestAssistant} /></div> : <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">No assistant message yet.</p>}
