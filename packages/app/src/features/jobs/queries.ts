@@ -3,10 +3,26 @@ import { queryOptions } from "@tanstack/react-query";
 import { messageOf } from "../auth/session";
 export type JobsSearch = { q: string; cursor?: string; enabled?: "true" | "false" };
 export const jobsQuery = (search: JobsSearch) => queryOptions({
-  queryKey: ["jobs", "summaries", search],
+  queryKey: ["jobs", "summaries", { q: search.q, enabled: search.enabled }],
   queryFn: async ({ signal }) => {
-    const { data, error } = await api.GET("/api/v1/job-summaries", { signal, params: { query: { ...search, limit: 30 } } });
-    if (!data || error) throw new Error(messageOf(error)); return data;
+    // The API's UUID pages do not reflect running/title order. Collect lightweight
+    // summaries before paginating so active jobs on later API pages come first.
+    const items = [];
+    let cursor: string | undefined;
+    do {
+      const { data, error } = await api.GET("/api/v1/job-summaries", { signal, params: { query: { q: search.q, enabled: search.enabled, cursor, limit: 100 } } });
+      if (!data || error) throw new Error(messageOf(error));
+      items.push(...data.items);
+      cursor = data.nextCursor ?? undefined;
+    } while (cursor);
+    items.sort((a, b) => Number(b.runningCount > 0) - Number(a.runningCount > 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    return items;
+  },
+  select: items => {
+    const cursorIndex = search.cursor ? items.findIndex(job => job.id === search.cursor) : -1;
+    const start = cursorIndex + 1;
+    const page = items.slice(start, start + 30);
+    return { items: page, nextCursor: start + 30 < items.length ? page.at(-1)!.id : null };
   }, staleTime: 10_000,
 });
 export const jobQuery = (jobId: string) => queryOptions({
