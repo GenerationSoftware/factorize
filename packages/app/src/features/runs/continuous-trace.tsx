@@ -10,7 +10,7 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   const cache = useQueryClient();
   const [focused, setFocused] = useState<number | null>(null), [selection, setSelection] = useState<number[]>([]);
   const container = useRef<HTMLDivElement>(null), [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const followBottom = useRef(true), positioned = useRef(false), hasRenderedItems = useRef(false);
+  const followBottom = useRef(true), positioned = useRef(false), hasRenderedItems = useRef(false), initialPageShown = useRef(false), suppressScrollFetch = useRef(false), scrollFetchPending = useRef(false);
   const trace = useInfiniteQuery({ queryKey: ["runs", runId, "continuous-trace", revision], initialPageParam: 0,
     queryFn: async ({ signal, pageParam }) => { const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: pageParam, revision, limit: 200 } } }); if (!data || error) throw new Error(messageOf(error)); return data; },
     enabled: !!revision, getNextPageParam: page => page.reset ? undefined : page.nextCursor ?? undefined,
@@ -28,18 +28,29 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   const latestAssistant = [...items].reverse().find(event => event.type === "assistant_message");
   const scrollToBottom = () => {
     const element = container.current;
-    if (element) element.scrollTop = element.scrollHeight;
+    if (element && element.scrollTop !== element.scrollHeight) {
+      suppressScrollFetch.current = true;
+      element.scrollTop = element.scrollHeight;
+    }
   };
   useEffect(() => {
     const element = container.current;
     if (!element) return;
-    const changed = () => { followBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 8; };
+    const changed = () => {
+      followBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
+      if (suppressScrollFetch.current) { suppressScrollFetch.current = false; return; }
+      if (followBottom.current && trace.hasNextPage && !trace.isFetching && !scrollFetchPending.current) {
+        scrollFetchPending.current = true;
+        void trace.fetchNextPage();
+      }
+    };
     element.addEventListener("scroll", changed, { passive: true });
     return () => element.removeEventListener("scroll", changed);
-  }, []);
+  }, [trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
   useEffect(() => {
     if (!items.length) return;
     if (!hasRenderedItems.current) { hasRenderedItems.current = true; return; }
+    scrollFetchPending.current = false;
     requestAnimationFrame(() => {
       if (!positioned.current || followBottom.current) scrollToBottom();
       positioned.current = true;
@@ -60,11 +71,12 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   const virtualizer = useVirtualizer({ count: items.length, getScrollElement: () => container.current, estimateSize: () => 70, overscan: 8, rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...selection, ...(focused === null ? [] : [focused])])].filter(index => index >= 0 && index < items.length).sort((a, b) => a - b), getItemKey: index => `${revision}:${items[index].sequence}:${items[index].id}` });
   const virtualItems = virtualizer.getVirtualItems();
   useEffect(() => {
-    const element = container.current;
-    const nearBottom = element && element.scrollTop + element.clientHeight >= element.scrollHeight - 160;
-    const virtualNearBottom = (virtualItems.at(-1)?.index ?? -1) >= items.length - 8;
-    if ((nearBottom || (hasRenderedItems.current && virtualNearBottom)) && trace.hasNextPage && !trace.isFetching) void trace.fetchNextPage();
-  }, [virtualItems, items.length, trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
+    if (initialPageShown.current || !trace.hasNextPage || trace.isFetching) return;
+    const delay = initialPageShown.current ? 0 : 100;
+    initialPageShown.current = true;
+    const timer = window.setTimeout(() => void trace.fetchNextPage(), delay);
+    return () => window.clearTimeout(timer);
+  }, [trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
   return <Card>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading trace…</p>}
     <h3 className="mt-4 text-lg font-semibold">Status</h3>
     {latestAssistant ? <div className="mt-2 min-w-0 rounded-lg border border-stone-200 p-3 dark:border-slate-700"><EventBody event={latestAssistant} /></div> : <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">No assistant message yet.</p>}
