@@ -8,7 +8,7 @@ export const matchRuleSchema = z.object({
   targetId: z.string().min(1),
 });
 export const listRunsSchema = z.object({
-  jobId: z.string().min(1).optional(), state: runStateSchema.optional(),
+  jobId: z.string().min(1).optional(), state: z.union([runStateSchema, z.array(runStateSchema).min(1).max(10)]).optional(),
   contextQuery: z.string().min(1).max(50_000).optional(),
   sort: z.enum(["job", "run", "status", "created", "agent"]).optional(),
   direction: z.enum(["asc", "desc"]).optional(),

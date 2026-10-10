@@ -2,6 +2,11 @@ import { createRoute, lazyRouteComponent, redirect, type AnyRootRoute } from "@t
 import { sessionQuery } from "../auth/session";
 import { queryClient } from "../../shared/query-client";
 import { jobsQuery, jobQuery, type JobsSearch } from "./queries";
+const runStates = ["queued", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "ignored", "done"];
+const parseRunStates = (value: unknown) => {
+  const states = (Array.isArray(value) ? value : typeof value === "string" ? [value] : []).filter(state => runStates.includes(String(state)));
+  return states.length ? states : undefined;
+};
 export function jobsRoutes(root: AnyRootRoute) {
   const guard = async ({ location }: { location: { href: string } }) => {
     if (!(await queryClient.ensureQueryData(sessionQuery)).authenticated) throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } });
@@ -13,7 +18,7 @@ export function jobsRoutes(root: AnyRootRoute) {
     component: lazyRouteComponent(() => import("./list"), "JobsList"),
   });
   const job = createRoute({ getParentRoute: () => root, path: "/jobs/$jobId", beforeLoad: guard,
-    validateSearch: (s: Record<string, unknown>) => ({ cursor: typeof s.cursor === "string" ? s.cursor : undefined, previous: typeof s.previous === "string" ? s.previous.slice(0, 20_000) : undefined, sort: ["run", "status", "created", "agent"].includes(String(s.sort)) ? s.sort as "run" | "status" | "created" | "agent" : undefined, direction: s.direction === "asc" || s.direction === "desc" ? s.direction : undefined }),
+    validateSearch: (s: Record<string, unknown>) => ({ cursor: typeof s.cursor === "string" ? s.cursor : undefined, previous: typeof s.previous === "string" ? s.previous.slice(0, 20_000) : undefined, states: parseRunStates(s.states) as any, sort: ["run", "status", "created", "agent"].includes(String(s.sort)) ? s.sort as "run" | "status" | "created" | "agent" : undefined, direction: s.direction === "asc" || s.direction === "desc" ? s.direction : undefined }),
     loader: ({ params }) => queryClient.ensureQueryData(jobQuery(params.jobId)),
     component: lazyRouteComponent(() => import("./detail"), "JobDetail"),
   });

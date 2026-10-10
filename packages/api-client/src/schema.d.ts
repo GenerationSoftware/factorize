@@ -4899,7 +4899,7 @@ export interface operations {
         parameters: {
             query?: {
                 jobId?: string;
-                state?: "queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped";
+                state?: ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped") | ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped")[];
                 contextQuery?: string;
                 sort?: "job" | "run" | "status" | "created" | "agent";
                 direction?: "asc" | "desc";

@@ -30,6 +30,8 @@ describe("versioned API contract", () => {
     expect(listRunsSchema.safeParse({ sort: "agent", direction: "desc" }).success).toBe(true);
     expect(listRunsSchema.safeParse({ sort: "not-a-column" }).success).toBe(false);
     expect(listRunsSchema.safeParse({ direction: "asc" }).success).toBe(false);
+    expect(listRunsSchema.safeParse({ state: ["failed", "stopped"] }).success).toBe(true);
+    expect(listRunsSchema.safeParse({ state: ["failed", "not-a-state"] }).success).toBe(false);
   });
   it("has full bidirectional method/path equality with the executable catalog", () => {
     const documented = Object.entries(openapi.paths).flatMap(([path, item]) =>

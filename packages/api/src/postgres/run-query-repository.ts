@@ -18,7 +18,8 @@ export class RunQueryRepository {
   async list(query: URLSearchParams) {
     const limit = Math.max(1, Math.min(100, Number(query.get("limit") ?? 50))), cursor = decodeCursor(query.get("cursor")), sortParam = query.get("sort"), sort = sortParam && Object.hasOwn(sortExpressions, sortParam) ? sortParam as RunSort : null, direction = sort ? (query.get("direction") === "desc" ? "DESC" : "ASC") : "DESC", values: unknown[] = [this.tenantId], clauses = ["r.tenant_id=$1"];
     if (query.get("jobId")) { values.push(query.get("jobId")); clauses.push(`r.job_id=$${values.length}`); }
-    if (query.get("state")) { values.push(query.get("state") === "done" ? ["done", "succeeded"] : [query.get("state")]); clauses.push(`r.state=ANY($${values.length}::text[])`); }
+    const states = query.getAll("state");
+    if (states.length) { values.push(states.flatMap(state => state === "done" ? ["done", "succeeded"] : [state])); clauses.push(`r.state=ANY($${values.length}::text[])`); }
     if (query.get("contextQuery")) { values.push(`%${query.get("contextQuery")}%`); clauses.push(`i.context::text ILIKE $${values.length}`); }
     if (sort && cursor?.length === 5 && cursor[0] === sort && cursor[1] === direction.toLowerCase()) {
       const expression = sortExpressions[sort], nullFlag = `(CASE WHEN ${expression} IS NULL THEN 1 ELSE 0 END)`, after = direction === "ASC" ? ">" : "<";

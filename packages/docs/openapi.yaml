@@ -7403,19 +7403,37 @@ paths:
           in: query
           required: false
           schema:
-            type: string
-            enum:
-              - queued
-              - reserved
-              - starting
-              - running
-              - done
-              - blocked
-              - failed
-              - ignored
-              - succeeded
-              - stopping
-              - stopped
+            anyOf:
+              - type: string
+                enum:
+                  - queued
+                  - reserved
+                  - starting
+                  - running
+                  - done
+                  - blocked
+                  - failed
+                  - ignored
+                  - succeeded
+                  - stopping
+                  - stopped
+              - minItems: 1
+                maxItems: 10
+                type: array
+                items:
+                  type: string
+                  enum:
+                    - queued
+                    - reserved
+                    - starting
+                    - running
+                    - done
+                    - blocked
+                    - failed
+                    - ignored
+                    - succeeded
+                    - stopping
+                    - stopped
         - name: contextQuery
           in: query
           required: false

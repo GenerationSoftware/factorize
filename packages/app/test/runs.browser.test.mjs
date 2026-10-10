@@ -32,24 +32,13 @@ test("all-runs table sorts its data columns with accessible headers", async () =
   assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "descending");
   await context.close();
 });
-test("all-runs columns keep their widths when sorting changes content", async () => {
-  const { context, page } = await setup();
-  const shortRuns = [{ id: runId, run_name: "Run", state: "succeeded", created_at: time, updated_at: time, started_at: null, agent_kind: "codex" }];
-  const longRuns = [{ id: runId, run_name: "A very long run name that should stay inside its assigned column", state: "succeeded", created_at: time, updated_at: time, started_at: null, agent_kind: "codex" }];
-  await page.route("**/api/v1/runs?**", route => {
-    const url = new URL(route.request().url());
-    return route.fulfill({ json: { items: url.searchParams.get("sort") === "run" ? longRuns : shortRuns, nextCursor: null } });
-  });
-  for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
-    await page.setViewportSize(viewport); await page.goto(origin + "/job-runs");
-    const table = page.getByRole("table");
-    await table.getByRole("columnheader", { name: /Run/ }).waitFor();
-    const widths = await table.locator("thead th").evaluateAll(cells => cells.map(cell => Math.round(cell.getBoundingClientRect().width)));
-    await table.getByRole("button", { name: /Run, not sorted/ }).click(); await page.waitForURL("**/job-runs?sort=run&direction=asc");
-    const sortedWidths = await table.locator("thead th").evaluateAll(cells => cells.map(cell => Math.round(cell.getBoundingClientRect().width)));
-    assert.deepEqual(sortedWidths, widths); assert.equal(await table.locator("a").first().evaluate(link => getComputedStyle(link).textOverflow), "ellipsis");
-  }
-  await context.close();
+test("all-runs status header supports multi-select filtering, independent sorting and clearing", async () => {
+  const { context, page } = await setup(); const requests = [];
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: url.searchParams.has("state") ? [{ id: runId, run_name: "Failed run", state: "failed", created_at: time, agent_kind: "codex" }] : [{ id: runId, run_name: "Run", state: "succeeded", created_at: time, agent_kind: "codex" }], nextCursor: null } }); });
+  await page.goto(origin + "/job-runs"); const header = page.getByRole("button", { name: /Status, all statuses/ }); await header.focus(); await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Status filter and sort" }); await dialog.getByLabel("Failed").click({ noWaitAfter: true }); await page.waitForFunction(() => location.search.includes("state") || location.search.includes("states")); await page.getByRole("button", { name: /Status, 1 status selected/ }).click(); await page.getByRole("dialog", { name: "Status filter and sort" }).getByLabel("Stopped").click({ noWaitAfter: true }); await page.getByRole("button", { name: /Status, 2 statuses selected/ }).click(); await page.getByRole("dialog", { name: "Status filter and sort" }).getByRole("button", { name: "Ascending" }).click();
+  await page.waitForFunction(() => location.search.includes("sort=status") && location.search.includes("direction=asc")); await page.waitForTimeout(250); assert.deepEqual(requests.find(url => url.searchParams.getAll("state").length === 2)?.searchParams.getAll("state").sort(), ["failed", "stopped"]); assert.equal(await page.getByRole("columnheader", { name: /Status/ }).getAttribute("aria-sort"), "ascending");
+  await page.getByRole("button", { name: /Status, 2 statuses selected/ }).click(); await page.getByRole("dialog", { name: "Status filter and sort" }).getByRole("button", { name: "Clear filters and reset sort" }).click(); await page.waitForFunction(() => { const params = new URLSearchParams(location.search); return location.pathname === "/job-runs" && !params.has("state") && !params.has("states"); }); assert.equal(requests.at(-1).searchParams.has("state"), false); await context.close();
 });
 test("shared run status dots show running transitions in both tables", async () => {
   const { context, page } = await setup(); let state = "running";

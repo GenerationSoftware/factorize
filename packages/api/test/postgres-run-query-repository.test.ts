@@ -45,4 +45,12 @@ describe("run timing queries", () => {
     expect(sql).toContain("IS NOT DISTINCT FROM");
     expect(values).toEqual(["tenant", 0, "Alpha", "00000000-0000-4000-8000-000000000001", 51]);
   });
+
+  it("applies multi-select status filters before cursor pagination", async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    await new RunQueryRepository({ pool: { query } } as any, "tenant").list(new URLSearchParams([['state', 'failed'], ['state', 'stopped'], ['limit', '10']]));
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain("r.state=ANY($2::text[])");
+    expect(values).toEqual(["tenant", ["failed", "stopped"], 11]);
+  });
 });

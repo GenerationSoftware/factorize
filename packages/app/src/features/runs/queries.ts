@@ -1,6 +1,7 @@
 import { api } from "factorize-api-client";
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { messageOf } from "../auth/session";
+import type { RunStatus } from "../../shared/ui";
 export const runStatusQuery = (runId: string) => queryOptions({
   queryKey: ["runs", runId, "status"],
   queryFn: async ({ signal }) => {
@@ -18,9 +19,9 @@ export const runTraceQuery = (runId: string, revision: string, after: number, po
 });
 export const runDetailQuery = (runId: string) => queryOptions({ queryKey: ["runs", runId, "detail"], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs/{runId}", { signal, params: { path: { runId } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, staleTime: 60_000 });
 export const diagnosticsQuery = (runId: string) => queryOptions({ queryKey: ["runs", runId, "diagnostics"], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs/{runId}/diagnostics", { signal, params: { path: { runId } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, staleTime: 30_000 });
-export const runPageQuery = ({ jobId, cursor, limit, sort, direction }: { jobId?: string; cursor?: string; limit: number; sort?: "job" | "run" | "status" | "created" | "agent"; direction?: "asc" | "desc" }) => queryOptions({
-  queryKey: ["runs", "page", jobId, cursor, limit, sort, direction],
-  queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs", { signal, params: { query: { jobId, cursor, limit, sort, direction } } }); if (!data || error) throw new Error(messageOf(error)); return data; },
+export const runPageQuery = ({ jobId, cursor, limit, sort, direction, states }: { jobId?: string; cursor?: string; limit: number; sort?: "job" | "run" | "status" | "created" | "agent"; direction?: "asc" | "desc"; states?: RunStatus[] }) => queryOptions({
+  queryKey: ["runs", "page", jobId, cursor, limit, sort, direction, states],
+  queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs", { signal, params: { query: { jobId, cursor, limit, sort, direction, state: states } } }); if (!data || error) throw new Error(messageOf(error)); return data; },
   staleTime: 0, refetchInterval: 2_000, refetchIntervalInBackground: false,
 });
-export const historyQuery = (jobId: string, cursor?: string, sort?: "run" | "status" | "created" | "agent", direction?: "asc" | "desc") => queryOptions({ queryKey: ["runs", "history", jobId, cursor, sort, direction], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs", { signal, params: { query: { jobId, cursor, sort, direction: direction ?? (sort ? "asc" : undefined), limit: 30 } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, placeholderData: keepPreviousData, staleTime: 10_000 });
+export const historyQuery = (jobId: string, cursor?: string, sort?: "run" | "status" | "created" | "agent", direction?: "asc" | "desc", states?: RunStatus[]) => queryOptions({ queryKey: ["runs", "history", jobId, cursor, sort, direction, states], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs", { signal, params: { query: { jobId, cursor, sort, direction: direction ?? (sort ? "asc" : undefined), state: states, limit: 30 } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, placeholderData: keepPreviousData, staleTime: 0 });
