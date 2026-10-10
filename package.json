@@ -2,6 +2,7 @@
   "name": "factorize-workspace",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@11.19.0",
   "workspaces": [
     "packages/*"
   ],
@@ -10,8 +11,11 @@
     "dev:marketing": "npm run dev --workspace=factorize-marketing",
     "build:marketing": "npm run build:marketing --workspace=factorize-marketing",
     "build:css": "npm run build:app",
-    "test": "npm run test --workspaces --if-present",
-    "check": "npm run check:backend && npm run check:frontend",
+    "test": "node scripts/validation.mjs all",
+    "test:backend": "node scripts/validation.mjs backend",
+    "test:browser": "node scripts/validation.mjs browser",
+    "check": "npm test",
+    "bootstrap:test": "node scripts/bootstrap-test.mjs",
     "check:backend": "npm run check:hosting && npm run check:boundaries && npm run check:client && npm run validate --workspace=factorize-docs && npm run check --workspace=factorize && npm run test:conditions-runtime && npm run test:hosting-runtime && npm run test:oauth-runtime && npm run test:rollback-runtime && npm run check --workspace=factorize-marketing && npm run check --workspace=factorize-tail-relay",
     "check:frontend": "npm run check --workspace=factorize-app",
     "deploy": "npm run deploy:marketing && npm run deploy:app && npm run deploy:tail-relay",
@@ -35,6 +39,7 @@
     "test:conditions-runtime": "node --test scripts/webhook-conditions-runtime.test.mjs"
   },
   "engines": {
-    "node": ">=24.12.0"
+    "node": ">=24.12.0",
+    "npm": ">=11.19.0"
   }
 }

@@ -24,7 +24,9 @@ MCP provides selected scoped operations, not every REST capability. REST contrac
 
 ## Development and documentation
 
-Use Node 24, `npm ci`, `npm run dev`, and `npm run check`. The Worker lives in `packages/api`, React frontend in `packages/app`, and generated public contract in `packages/api-client`. Frontend calls documented `/api/v1` routes. Keep local secrets in ignored `packages/api/.dev.vars`.
+Use Node 24.12.0 and npm 11.19.0 (`.node-version` and `package.json`), then run `npm ci`, `npm run dev`, and `npm test`. The root test is the complete required validation used by CI; `npm run check` is an alias, and `npm run test:backend` / `npm run test:browser` are the focused shared lanes. The Worker lives in `packages/api`, React frontend in `packages/app`, and generated public contract in `packages/api-client`. Frontend calls documented `/api/v1` routes. Keep local secrets in ignored `packages/api/.dev.vars`.
+
+For a fresh VM, install PostgreSQL and Chromium, run `npm run bootstrap:test`, export the three printed database variables, and then run `npm test`. The bootstrap uses only an isolated local database and refuses remote URLs. Missing prerequisites must be fixed before handoff; do not mark work done after only `git diff --check`.
 
 Run `npm run generate --workspace=factorize-docs` after guide edits and `npm run validate --workspace=factorize-docs` before publishing. See [docs publishing](docs/mintlify.md) and [package migration](docs/package-migration.md) for development and release gates.
 
