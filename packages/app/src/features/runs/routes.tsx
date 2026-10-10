@@ -1,8 +1,15 @@
 import { createRoute, lazyRouteComponent, redirect, type AnyRootRoute } from "@tanstack/react-router";
 import { sessionQuery } from "../auth/session";
 import { queryClient } from "../../shared/query-client";
-import { runStatusQuery } from "./queries";
+import { runPageQuery, runStatusQuery } from "./queries";
 export function runRoutes(root: AnyRootRoute) {
+  const list = createRoute({ getParentRoute: () => root, path: "/job-runs",
+    validateSearch: (s: Record<string, unknown>) => ({ cursor: typeof s.cursor === "string" ? s.cursor : undefined, previous: typeof s.previous === "string" ? s.previous.slice(0, 20_000) : undefined }),
+    beforeLoad: async ({ location }) => { if (!(await queryClient.ensureQueryData(sessionQuery)).authenticated) throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } }); },
+    loaderDeps: ({ search }) => search,
+    loader: ({ deps }) => queryClient.ensureQueryData(runPageQuery({ cursor: deps.cursor, limit: 20 })),
+    component: lazyRouteComponent(() => import("./index"), "RunsIndex"),
+  });
   const validateSearch = (s: Record<string, unknown>) => ({ after: Number.isSafeInteger(Number(s.after)) && Number(s.after) >= 0 ? Number(s.after) : 0 });
   const beforeLoad = async ({ location }: { location: { href: string } }) => { if (!(await queryClient.ensureQueryData(sessionQuery)).authenticated) throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } }); };
   const loader = ({ params }: { params: { runId: string } }) => queryClient.ensureQueryData(runStatusQuery(params.runId));
@@ -16,5 +23,5 @@ export function runRoutes(root: AnyRootRoute) {
   const contextCompatibility = createRoute({ getParentRoute: () => root, path: "/job-runs/$runId/context",
     validateSearch, beforeLoad: ({ params, search }) => { throw redirect({ to: "/job-runs/$runId/info", params, search }); },
   });
-  return [base, tab("/trace"), tab("/info"), tab("/settings"), contextCompatibility];
+  return [list, base, tab("/trace"), tab("/info"), tab("/settings"), contextCompatibility];
 }

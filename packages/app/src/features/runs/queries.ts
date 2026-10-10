@@ -18,4 +18,9 @@ export const runTraceQuery = (runId: string, revision: string, after: number, po
 });
 export const runDetailQuery = (runId: string) => queryOptions({ queryKey: ["runs", runId, "detail"], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs/{runId}", { signal, params: { path: { runId } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, staleTime: 60_000 });
 export const diagnosticsQuery = (runId: string) => queryOptions({ queryKey: ["runs", runId, "diagnostics"], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs/{runId}/diagnostics", { signal, params: { path: { runId } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, staleTime: 30_000 });
+export const runPageQuery = ({ jobId, cursor, limit }: { jobId?: string; cursor?: string; limit: number }) => queryOptions({
+  queryKey: ["runs", "page", jobId, cursor, limit],
+  queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs", { signal, params: { query: { jobId, cursor, limit } } }); if (!data || error) throw new Error(messageOf(error)); return data; },
+  staleTime: 0, refetchInterval: 2_000, refetchIntervalInBackground: false,
+});
 export const historyQuery = (jobId: string, cursor?: string, sort?: "run" | "status" | "created" | "agent", direction?: "asc" | "desc") => queryOptions({ queryKey: ["runs", "history", jobId, cursor, sort, direction], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs", { signal, params: { query: { jobId, cursor, sort, direction: direction ?? (sort ? "asc" : undefined), limit: 30 } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, staleTime: 10_000 });

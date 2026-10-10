@@ -1,4 +1,4 @@
-import { Badge, Button, buttonClasses } from "../../shared/ui";
+import { Badge, Button, buttonClasses, tableCellClasses, tableClasses, tableHeadClasses, tableRowClasses, tableShellClasses } from "../../shared/ui";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { historyQuery } from "./queries";
@@ -18,13 +18,13 @@ export function RunHistory({ jobId }: { jobId: string }) {
   const sortLabel = (column: HistorySort) => search.sort === column ? (search.direction === "desc" ? "sorted descending" : "sorted ascending") : "not sorted";
   return <section aria-label="Runs" className="my-6 min-w-0">
     {runs.isPending && <p role="status">Loading run history…</p>}{runs.error && <p role="alert">{runs.error.message} <Button onClick={() => void runs.refetch()}>Retry</Button></p>}
-    {runs.data && <><div role="region" aria-label="Runs table" tabIndex={0} className="overflow-x-auto rounded-lg border border-stone-200 dark:border-slate-700">
-      <table className="w-full text-left text-sm"><caption className="sr-only">Job runs{search.sort ? "" : ", newest first"}</caption>
-        <thead className="bg-stone-100 dark:bg-slate-800"><tr>{columns.map(([column, label]) => <th key={column} scope="col" aria-sort={search.sort === column ? (search.direction === "desc" ? "descending" : "ascending") : "none"} className="px-3 py-2"><Button className="min-h-8 border-0 bg-transparent px-0 py-0 text-left hover:bg-transparent dark:bg-transparent" aria-label={`${label}, ${sortLabel(column)}. Activate to sort ${search.sort === column && search.direction === "asc" ? "descending" : "ascending"}`} onClick={() => sortColumn(column)}>{label}{search.sort === column && <span aria-hidden="true"> {search.direction === "desc" ? "↓" : "↑"}</span>}</Button></th>)}</tr></thead>
-        <tbody>{runs.data.items.map(run => <tr className="border-t border-stone-200 dark:border-slate-700" key={run.id}>
-          <td className="min-w-40 max-w-sm break-words px-3 py-2"><Link to="/job-runs/$runId" params={{ runId: run.id }} search={{ after: 0 }} className="font-semibold hover:text-factorize-700 dark:hover:text-factorize-500">{run.run_name || run.issue_title || "Run"}</Link></td>
-          <td className="px-3 py-2"><Badge active={run.state === "running"}>{run.state}</Badge></td>
-          <td className="whitespace-nowrap px-3 py-2"><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></td><td className="px-3 py-2">{run.agent_kind}</td>
+    {runs.data && <><div role="region" aria-label="Runs table" tabIndex={0} className={tableShellClasses}>
+      <table className={tableClasses}><caption className="sr-only">Job runs{search.sort ? "" : ", newest first"}</caption>
+        <thead className={tableHeadClasses}><tr>{columns.map(([column, label]) => <th key={column} scope="col" aria-sort={search.sort === column ? (search.direction === "desc" ? "descending" : "ascending") : "none"} className={tableCellClasses}><Button className="min-h-8 border-0 bg-transparent px-0 py-0 text-left hover:bg-transparent dark:bg-transparent" aria-label={`${label}, ${sortLabel(column)}. Activate to sort ${search.sort === column && search.direction === "asc" ? "descending" : "ascending"}`} onClick={() => sortColumn(column)}>{label}{search.sort === column && <span aria-hidden="true"> {search.direction === "desc" ? "↓" : "↑"}</span>}</Button></th>)}</tr></thead>
+        <tbody>{runs.data.items.map(run => <tr className={tableRowClasses} key={run.id}>
+          <td className={`min-w-40 max-w-sm break-words ${tableCellClasses}`}><Link to="/job-runs/$runId" params={{ runId: run.id }} search={{ after: 0 }} className="font-semibold hover:text-factorize-700 focus-visible:rounded-sm dark:hover:text-factorize-500">{run.run_name || run.issue_title || "Run"}</Link></td>
+          <td className={`whitespace-nowrap ${tableCellClasses}`}><Badge active={run.state === "running"}>{run.state}</Badge></td>
+          <td className={`whitespace-nowrap ${tableCellClasses}`}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></td><td className={tableCellClasses}>{run.agent_kind}</td>
         </tr>)}{runs.data.items.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center">No runs found.</td></tr>}</tbody>
       </table>
     </div></>}
