@@ -46,6 +46,8 @@ jobs:
         run: |
           npm run generate
           git diff --exit-code -- packages/docs/openapi.yaml packages/api-client/src/schema.d.ts
+      - name: Build static application for Worker dry-run
+        run: npm run build --workspace=factorize-app
       - name: Run docs, API, authorization, integration and Worker checks
         run: npm run check:backend
       - name: Exercise compiled jobs/invocation/run slice against PostgreSQL
