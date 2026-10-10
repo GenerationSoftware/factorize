@@ -137,3 +137,48 @@ test("20k-event continuous trace keeps DOM bounded, retains expanded details on 
   await page.getByText("replayed event 1 · assistant_message", { exact: true }).waitFor(); assert.equal(await page.getByText("large event 1 · assistant_message", { exact: true }).count(), 0);
   if (process.env.GEN_2157_RECORD_TRACE) await writeFile(new URL("../../api/performance/gen-2157-trace-browser.json", import.meta.url), JSON.stringify({ date: "2026-10-09", browser: browser.version(), fixtureEvents: 20000, traceRequests: loadedRequests, peakMountedEvents: peakNodes, loadAllPagesMs: Number(loadMs.toFixed(2)), expandedStatePreserved: true, liveRevisionResetObserved: true, scope: "One compiled-SPA Chromium sample with mocked HTTP trace pages, includes Playwright scrolling and selector waits; no production network/DB or frame-time claim." }, null, 2) + "\n"); await context.close();
 });
+
+test("job Runs tab paginates distinct records, supports refresh/back and keeps configuration in Settings on mobile", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Private template", runNameTemplate: "", executionTargetId: "local", triggers: [] } }));
+  const cursors = [];
+  await page.route("**/api/v1/runs?**", route => {
+    const url = new URL(route.request().url()), cursor = url.searchParams.get("cursor"); cursors.push(cursor);
+    assert.equal(url.searchParams.get("jobId"), jobId); assert.equal(url.searchParams.get("limit"), "30");
+    assert.equal(url.searchParams.has("state"), false); assert.equal(url.searchParams.has("contextQuery"), false);
+    const offset = cursor === "page-3" ? 60 : cursor === "page-2" ? 30 : 0;
+    return route.fulfill({ json: { items: Array.from({ length: offset === 60 ? 1 : 30 }, (_, i) => ({ id: `run-${offset + i}`, run_name: `Record ${offset + i}`, state: "succeeded", created_at: summary.createdAt, agent_kind: "codex" })), nextCursor: offset === 60 ? null : offset === 30 ? "page-3" : "page-2" } });
+  });
+  await page.goto(origin + `/jobs/${jobId}?state=failed&contextQuery=old`);
+  await page.getByRole("link", { name: "Record 0", exact: true }).waitFor();
+  assert.equal(await page.getByRole("navigation", { name: "Job views" }).getByRole("link", { name: "Runs", exact: true }).getAttribute("aria-current"), "page");
+  const activeTab = page.getByRole("navigation", { name: "Job views" }).getByRole("link", { name: "Runs", exact: true });
+  assert.deepEqual(await activeTab.evaluate(el => { const css = getComputedStyle(el); return [css.borderBottomWidth, css.borderBottomStyle, css.borderBottomColor]; }), ["2px", "solid", "rgb(253, 201, 1)"]);
+  assert.equal(await page.getByRole("table").locator("tbody tr").count(), 30);
+  assert.equal(await page.getByText("Prompt template", { exact: true }).count(), 0);
+  assert.equal(await page.getByText("Triggers", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Delete job", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("textbox").count(), 0);
+  await page.getByRole("link", { name: "Next page", exact: true }).click();
+  await page.getByRole("link", { name: "Record 30", exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: "Record 0", exact: true }).count(), 0);
+  await page.getByRole("link", { name: "Next page", exact: true }).click();
+  await page.getByRole("link", { name: "Record 60", exact: true }).waitFor();
+  await page.reload(); await page.getByRole("link", { name: "Record 60", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Next page", exact: true }).isDisabled(), true);
+  await page.getByRole("link", { name: "Previous page", exact: true }).click(); await page.getByRole("link", { name: "Record 30", exact: true }).waitFor();
+  await page.getByRole("link", { name: "Previous page", exact: true }).click(); await page.getByRole("link", { name: "Record 0", exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  const region = page.getByRole("region", { name: "Runs table" }); await region.focus(); assert.equal(await region.evaluate(el => el === document.activeElement), true);
+  assert.ok(cursors.includes("page-2") && cursors.includes("page-3"));
+  await context.close();
+});
+
+test("job with no runs has an empty table and disabled pagination", async () => {
+  const { page, context } = await contextFor();
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  await page.goto(origin + `/jobs/${jobId}`); await page.getByRole("cell", { name: "No runs found." }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Previous page", exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Next page", exact: true }).isDisabled(), true);
+  await context.close();
+});

@@ -63,7 +63,7 @@ test("mobile profile, search and run dialog keyboard/focus behavior; long conten
   await page.setViewportSize({ width: 390, height: 844 }); await mockApi(page, { long: true });
   await page.goto(origin + "/jobs/" + jobId);
   const profile = page.getByRole("button", { name: "Your account", exact: true });
-  await profile.click(); await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await profile.click(); await expect(page.getByRole("link", { name: "Settings", exact: true }).last()).toBeVisible();
   await page.keyboard.press("Escape"); await expect(profile).toBeFocused();
   await page.getByRole("button", { name: "Search jobs and runs", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Search jobs and runs", exact: true })).toBeFocused();
@@ -73,7 +73,7 @@ test("mobile profile, search and run dialog keyboard/focus behavior; long conten
   await expect(page.getByRole("alert")).toHaveText("JSON data must be an object.");
   await expect(page).toHaveScreenshot("run-dialog-validation-mobile.png");
   await page.keyboard.press("Escape"); await expect(run).toBeFocused();
-  await page.getByText("Prompt template", { exact: true }).click();
+  await expect(page.getByText("Prompt template", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(page).toHaveScreenshot("long-job-mobile.png", { fullPage: true });
 });
@@ -141,4 +141,91 @@ for (const theme of ["light", "dark"]) test(`search loading, error and no result
   await expect(dialog.getByText("No results found.", { exact: true })).toBeVisible();
   await expect(page).toHaveScreenshot(`search-no-results-${theme}-390.png`);
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+});
+
+for (const theme of ["light", "dark"]) test(`run tabs, context and breadcrumbs on mobile ${theme}`, async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: theme });
+  await mockApi(page, { long: true });
+  await page.goto(origin + screens[3][1]);
+  const trace = page.getByRole("tab", { name: "Trace", exact: true });
+  await expect(trace).toHaveAttribute("aria-selected", "true");
+  await trace.focus(); await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "Context", exact: true })).toBeFocused();
+  await page.getByText("Prompt, context and provenance", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Prompt", exact: true })).toBeVisible();
+  await page.getByText("Diagnostics and artifacts", { exact: true }).click();
+  await expect(page.getByText(/"artifacts":/)).toBeVisible();
+  await expect(page).toHaveScreenshot(`run-context-${theme}-390.png`, { fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await page.getByRole("tab", { name: "Settings", exact: true }).click();
+  await page.getByText("Replay trace", { exact: true }).click();
+  await expect(page.getByRole("button", { name: "Replay retained trace" })).toBeVisible();
+  await expect(page).toHaveScreenshot(`run-settings-${theme}-390.png`, { fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+  await breadcrumbs.getByRole("link", { name: "Review release builds", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp("/jobs/" + jobId));
+  await expect(page.getByRole("heading", { name: /^Long release review/ })).toBeVisible();
+  await page.goto(origin + screens[3][1]);
+  await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Jobs", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
+});
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }, { width: 390, height: 400 }]) test(`search geometry stays stable through asynchronous query changes ${viewport.width}x${viewport.height}`, async ({ page }) => {
+  await page.setViewportSize(viewport); await mockApi(page);
+  let pending;
+  await page.route("**/api/v1/search?**", route => { pending = route; });
+  await page.goto(origin + "/jobs");
+  const opener = page.getByRole("button", { name: "Search jobs and runs", exact: true });
+  await opener.click();
+  const dialog = page.getByRole("dialog"), input = dialog.getByRole("combobox");
+  await expect(input).toBeFocused();
+  const geometry = async () => ({ panel: await dialog.boundingBox(), input: await input.boundingBox() });
+  const initial = await geometry();
+  expect(initial.panel.y).toBeGreaterThanOrEqual(0);
+  expect(initial.panel.y + initial.panel.height).toBeLessThanOrEqual(viewport.height);
+  const items = count => Array.from({ length: count }, (_, index) => ({ kind: "job", id: jobId, title: `Result ${index + 1}`, subtitle: "Matching job " + "long text ".repeat(8) }));
+  for (const [query, count] of [["missing", 0], ["few", 2], ["many", 30], ["changed", 1], ["empty again", 0]]) {
+    pending = undefined;
+    await input.fill(query);
+    await expect(dialog.getByRole("status")).toHaveText("Searching…");
+    expect(await geometry()).toEqual(initial);
+    await expect.poll(() => pending && new URL(pending.request().url()).searchParams.get("q")).toBe(query);
+    await pending.fulfill({ json: { items: items(count) } });
+    await expect(dialog.getByRole("option")).toHaveCount(count);
+    await expect(dialog.getByRole("status")).toHaveCount(0);
+    if (!count) await expect(dialog.getByText("No results found.", { exact: true })).toBeVisible();
+    expect(await geometry()).toEqual(initial);
+    await expect(input).toBeFocused();
+    if (count === 30) {
+      await input.press("ArrowUp");
+      await expect(input).toHaveAttribute("aria-activedescendant", "search-result-29");
+      await expect(dialog.getByRole("option").last()).toHaveAttribute("aria-selected", "true");
+      const last = await dialog.getByRole("option").last().boundingBox();
+      expect(last.y + last.height).toBeLessThanOrEqual(initial.panel.y + initial.panel.height);
+      expect(await dialog.locator("#search-results").evaluate(list => list.parentElement.scrollTop)).toBeGreaterThan(0);
+      expect(await geometry()).toEqual(initial);
+      await input.press("ArrowDown");
+      await expect(input).toHaveAttribute("aria-activedescendant", "search-result-0");
+    }
+  }
+  await input.fill("");
+  await expect(dialog.getByText("Find jobs and runs", { exact: false })).toBeVisible();
+  expect(await geometry()).toEqual(initial);
+  await input.fill("select");
+  await expect(dialog.getByRole("status")).toHaveText("Searching…");
+  await expect.poll(() => pending && new URL(pending.request().url()).searchParams.get("q")).toBe("select");
+  await pending.fulfill({ json: { items: items(2) } });
+  await expect(dialog.getByRole("option")).toHaveCount(2);
+  await input.press("ArrowDown"); await input.press("Enter");
+  await expect(dialog).toHaveCount(0); await expect(page).toHaveURL(origin + "/jobs/" + jobId);
+  await opener.click(); await input.fill("click");
+  await expect(dialog.getByRole("status")).toHaveText("Searching…");
+  await expect.poll(() => pending && new URL(pending.request().url()).searchParams.get("q")).toBe("click");
+  await pending.fulfill({ json: { items: items(1) } });
+  await dialog.getByRole("option").click(); await expect(dialog).toHaveCount(0);
+  await opener.click(); await page.keyboard.press("Escape"); await expect(opener).toBeFocused();
 });

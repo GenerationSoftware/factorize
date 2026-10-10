@@ -3,7 +3,7 @@ import type { Env } from "./types";
 export const STATIC_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 const pages = new Set(["/", "/jobs", "/jobs/new", "/settings", "/settings/integrations", "/settings/api-keys", "/settings/authorized-clients", "/settings/password", "/auth/login", "/auth/signup", "/auth/password-reset", "/auth/verify", "/auth/verify/request", "/authorize", "/device"]);
 export function isStaticPage(path: string) {
-  return pages.has(path) || /^\/jobs\/[^/]+(?:\/edit)?$/.test(path) || /^\/job-runs\/[^/]+$/.test(path);
+  return pages.has(path) || /^\/jobs\/[^/]+(?:\/(?:edit|settings))?$/.test(path) || /^\/job-runs\/[^/]+$/.test(path);
 }
 export function isStaticAsset(path: string) {
   return /^\/assets\/[A-Za-z0-9_.-]+$/.test(path) || path === "/styles.css";

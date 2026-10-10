@@ -55,7 +55,7 @@ export async function mockApi(page, { legacy = false, authenticated = true, empt
 export const screens = [
   ["jobs", "/jobs", "Jobs"],
   ["job", "/jobs/" + jobId, job.name],
-  ["editor", "/jobs/" + jobId + "/edit", "Edit job"],
+  ["editor", "/jobs/" + jobId + "/settings", job.name],
   ["trace", "/job-runs/" + runId, run.run_name],
   ["settings", "/settings", "Integrations"],
   ["login", "/auth/login", "Sign in to Factorize"],

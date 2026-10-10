@@ -1,4 +1,6 @@
 import { Disclosure, Summary, Button, Input, Select, Label, Page, Card } from "../../shared/ui";
+import { JobTabs } from "./tabs";
+import { DeleteJob } from "./delete";
 import { validationMessage } from "./validation-message";
 import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useParams, useBlocker } from "@tanstack/react-router";
@@ -24,12 +26,12 @@ function EditorForm({ initial }: { initial?: Job }) {
   const [remote, setRemote] = useState<Job>(), [conflicts, setConflicts] = useState<(keyof JobInput)[]>([]);
   const [reconciling, setReconciling] = useState(false), [saved, setSaved] = useState(false);
   const savingNavigation = useRef(false);
-  const dirty = !saved && JSON.stringify(base) !== JSON.stringify(draft);
+  const dirty = JSON.stringify(base) !== JSON.stringify(draft);
   useBlocker({ shouldBlockFn: () => dirty && !savingNavigation.current && !window.confirm("Discard unsaved job changes?"), enableBeforeUnload: dirty });
   useEffect(() => { const handler = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } }; window.addEventListener("beforeunload", handler); return () => window.removeEventListener("beforeunload", handler); }, [dirty]);
   const targets = useQuery(targetsQuery), metadata = useQuery(metadataQuery);
   const target = targets.data?.find(t => t.id === draft.executionTargetId);
-  const update = <K extends keyof JobInput>(key: K, value: JobInput[K]) => setDraft(previous => ({ ...previous, [key]: value }));
+  const update = <K extends keyof JobInput>(key: K, value: JobInput[K]) => { setSaved(false); setDraft(previous => ({ ...previous, [key]: value })); };
   const refreshConflict = useMutation({ retry: false, mutationFn: async () => {
     if (!initial) throw new Error("No job selected");
     const { data, error } = await api.GET("/api/v1/jobs/{jobId}", { params: { path: { jobId: initial.id } } });
@@ -43,7 +45,7 @@ function EditorForm({ initial }: { initial?: Job }) {
       throw new Error(validationMessage(result.error));
     }
     return result.data;
-  }, onSuccess: async value => { savingNavigation.current = true; setSaved(true); setBase(editableJob(value)); cache.setQueryData(jobQuery(value.id).queryKey, value); await cache.invalidateQueries({ queryKey: ["jobs"] }); void navigate({ to: "/jobs/$jobId", params: { jobId: value.id } }); } });
+  }, onSuccess: async value => { savingNavigation.current = true; setSaved(true); setBase(editableJob(value)); setDraft(editableJob(value)); setRevision(value.updatedAt); cache.setQueryData(jobQuery(value.id).queryKey, value); await cache.invalidateQueries({ queryKey: ["jobs"] }); if (!initial) void navigate({ to: "/jobs/$jobId", params: { jobId: value.id } }); else savingNavigation.current = false; } });
   const acceptRemote = () => { if (!remote) return; const value = editableJob(remote); setDraft(value); setBase(value); setRevision(remote.updatedAt); setRemote(undefined); setConflicts([]); save.reset(); };
   const merge = () => { if (!remote) return; const value = editableJob(remote), result = reconcile(base, draft, value); setDraft(result.merged); setConflicts(result.conflicts); setBase(value); setRevision(remote.updatedAt); if (!result.conflicts.length) setRemote(undefined); save.reset(); };
   const resolve = (field: keyof JobInput, local: boolean) => {
@@ -52,7 +54,7 @@ function EditorForm({ initial }: { initial?: Job }) {
     if (conflicts.length === 1) setRemote(undefined);
   };
   const [localConflictDraft, setLocalConflictDraft] = useState(draft);
-  return <Page className="max-w-6xl"><Link to="/jobs" search={{ q: "" }}>Jobs</Link><h1 className="text-3xl font-semibold">{initial ? "Edit job" : "Create job"}</h1>
+  return <Page className="max-w-6xl"><Link to="/jobs" search={{ q: "" }}>Jobs</Link><h1 className="mt-5 break-words text-3xl font-semibold">{initial ? initial.name : "Create job"}</h1>{initial && <JobTabs jobId={initial.id} />}
     {(remote || reconciling || refreshConflict.error) && <Card role="alert" className="my-4 border p-4"><h2>This job changed while you were editing</h2><p>Your unsaved draft is retained. Review the latest configuration before retrying.</p>
       {refreshConflict.isPending && <p>Loading latest configuration…</p>}{refreshConflict.error && <><p>{refreshConflict.error.message}</p><Button onClick={() => refreshConflict.mutate()}>Retry loading latest</Button></>}
       {remote && !conflicts.length && <><pre className="max-h-64 overflow-auto whitespace-pre-wrap">{JSON.stringify(editableJob(remote), null, 2)}</pre><Button onClick={acceptRemote}>Reload latest and discard my changes</Button><Button onClick={() => { setLocalConflictDraft(draft); merge(); }}>Reconcile my changes</Button></>}
@@ -70,8 +72,9 @@ function EditorForm({ initial }: { initial?: Job }) {
       <TemplateField label="Run name template" value={draft.runNameTemplate ?? ""} onChange={value => update("runNameTemplate", value)} triggers={draft.triggers} />
       <Disclosure><Summary>Template variables</Summary>{metadata.error && <p role="alert">{metadata.error.message}</p>}{Object.entries(metadata.data ?? {}).map(([kind, fields]) => <Card key={kind}><h3>{kind}</h3><ul>{fields.map(field => <li key={field.path}><code>{field.path}</code> — {field.description}</li>)}</ul></Card>)}</Disclosure>
       </Card><Card><h2>Triggers</h2><p className="mb-5 text-sm text-slate-600 dark:text-slate-400">Choose the events that start this job.</p><TriggerEditor triggers={draft.triggers} onChange={value => update("triggers", value)} />
+      {initial?.triggers.map(trigger => trigger.kind === "webhook" && trigger.config.provider === "cloudflareTail" && trigger.config.destination ? <div key={trigger.id} className="mt-4 text-sm"><p>{trigger.slug} · Tail webhook destination</p><code className="break-all">{trigger.config.destination}</code></div> : null)}
       </Card>{save.error && <p role="alert">{save.error.message}</p>}
       <Button variant="primary" disabled={save.isPending || !!remote || reconciling || !!conflicts.length || targets.isPending || !!targets.error}>{save.isPending ? "Saving…" : "Save job"}</Button>
-    </form>
+    </form>{saved && <p role="status">Job settings saved.</p>}{initial && <DeleteJob jobId={initial.id} name={initial.name} disabled={save.isPending} onDeleted={() => { savingNavigation.current = true; }} />}
   </Page>;
 }

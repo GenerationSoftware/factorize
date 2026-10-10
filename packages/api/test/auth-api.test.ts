@@ -203,8 +203,8 @@ describe("public auth API and cookie security", () => {
 });
 
 describe("safe interrupted-flow navigation", () => {
-  it.each(["//evil.test", "https://evil.test", "/\\evil.test", "/device-evil", "/auth/logout", "/jobs\nLocation:evil", "/%2f%2fevil.test"])("rejects %s", value => expect(safeReturnTo(value)).toBe("/settings/integrations"));
-  it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/jobs/job-a/edit", "/job-runs/run-a"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
+  it.each(["//evil.test", "https://evil.test", "/\\evil.test", "/device-evil", "/jobs/job-a/settings/extra", "/auth/logout", "/jobs\nLocation:evil", "/%2f%2fevil.test"])("rejects %s", value => expect(safeReturnTo(value)).toBe("/settings/integrations"));
+  it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/jobs/job-a/edit", "/jobs/job-a/settings?tab=prompt", "/job-runs/run-a"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
 });
 
 describe("cookie-only consent and device API boundaries", () => {
