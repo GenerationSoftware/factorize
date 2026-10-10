@@ -82,6 +82,9 @@ test("invocation validates JSON, preserves retry idempotency and navigates to li
   await page.getByLabel("JSON data (optional)").fill('{"build":42}'); await page.getByLabel("Prompt", { exact: true }).fill("Review");
   await page.getByRole("button", { name: "Invoke", exact: true }).click(); await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
   await page.getByRole("button", { name: "Invoke", exact: true }).click(); await page.waitForURL(`**/job-runs/${runId}?**`);
+  await page.getByRole("heading", { name: "Status", exact: true }).waitFor();
+  await page.getByText("No assistant message yet.", { exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Full trace", exact: true }).waitFor();
   await page.getByText("Thinking · reasoning", { exact: true }).click();
   await page.getByText("<script>alert('xss')</script>", { exact: true }).waitFor();
   assert.equal(inputs.length, 2); assert.equal(inputs[0].idempotencyKey, inputs[1].idempotencyKey); assert.deepEqual(inputs[1].data, { build: 42 });
@@ -97,8 +100,7 @@ test("trace reset between requests discards old pages and finalization keeps ter
     return route.fulfill({ json: { items: [{ id: reset ? "new" : "old", sequence: 1, type: "assistant_message", title: reset ? "New projection" : "Old projection", preview: "Safe text", display: {} }], nextCursor: reset ? null : 100, revision: reset ? "new" : "old", reset: reset && query.get("revision") === "old" } });
   });
   await page.goto(origin + "/job-runs/" + runId); await page.getByText("Old projection · assistant_message", { exact: true }).waitFor();
-  await page.getByRole("link", { name: "Next trace page" }).click(); await page.getByText("New projection · assistant_message", { exact: true }).waitFor();
-  await page.waitForURL("**?after=0");
+  await page.getByText("New projection · assistant_message", { exact: true }).waitFor();
   assert.equal(await page.getByText("Old projection · assistant_message", { exact: true }).count(), 0);
   await page.waitForTimeout(2200); assert.ok(statusCalls >= 2);
   await context.close();
@@ -110,8 +112,8 @@ test("20k-event continuous trace keeps DOM bounded, retains expanded details on 
     traceRequests++; const query = new URL(route.request().url()).searchParams, reset = !!query.get("revision") && query.get("revision") !== revision, after = reset ? 0 : Number(query.get("after") || 0), limit = Number(query.get("limit")), count = revision === "large" ? 20000 : 1;
     return route.fulfill({ json: { items: Array.from({ length: Math.min(limit, count - after) }, (_, index) => ({ id: `${revision}-${after + index + 1}`, sequence: after + index + 1, type: "assistant_message", title: `${revision} event ${after + index + 1}`, preview: "Safe text", display: {} })), nextCursor: after + limit < count ? after + limit : null, revision, reset } });
   });
-  await page.goto(origin + "/job-runs/" + runId); await page.getByLabel("Continuous virtualized trace").check();
-  const region = page.getByRole("region", { name: "Continuous trace", exact: true });
+  await page.goto(origin + "/job-runs/" + runId);
+  const region = page.getByRole("region", { name: "Full trace", exact: true });
   await page.getByText("large event 1 · assistant_message", { exact: true }).waitFor(); await page.getByText("large event 1 · assistant_message", { exact: true }).click();
   for (let count = 400; count <= 20000; count += 200) {
     await region.evaluate(el => { el.scrollTop = el.scrollHeight; });
