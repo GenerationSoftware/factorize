@@ -9,6 +9,22 @@ export const tableClasses = "w-full text-left text-sm";
 export const tableHeadClasses = "bg-stone-100 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400";
 export const tableRowClasses = "group relative border-t border-stone-200 transition-colors hover:bg-factorize-50 focus-within:bg-factorize-50 focus-within:shadow-[inset_3px_0_0_var(--color-factorize-500)] dark:border-slate-800 dark:hover:bg-factorize-500/10 dark:focus-within:bg-factorize-500/10";
 export const tableCellClasses = "px-2 py-2 sm:px-3";
+const runStatusStyles: Record<string, { label: string; color: string; pulse?: boolean }> = {
+  queued: { label: "Queued", color: "bg-amber-500" },
+  starting: { label: "Starting", color: "bg-blue-500" },
+  running: { label: "Running", color: "bg-blue-500", pulse: true },
+  blocked: { label: "Blocked", color: "bg-amber-500" },
+  stopping: { label: "Stopping", color: "bg-amber-500" },
+  succeeded: { label: "Succeeded", color: "bg-emerald-500" },
+  done: { label: "Done", color: "bg-emerald-500" },
+  failed: { label: "Failed", color: "bg-red-500" },
+  stopped: { label: "Stopped", color: "bg-slate-500" },
+  ignored: { label: "Ignored", color: "bg-slate-400" },
+};
+export function RunStatusDot({ state }: { state: string }) {
+  const status = runStatusStyles[state] ?? { label: state || "Unknown", color: "bg-slate-400" };
+  return <span role="img" aria-label={`Status: ${status.label}`} title={status.label} className={`inline-block size-2.5 rounded-full ${status.color} ${status.pulse ? "motion-safe:animate-pulse" : ""}`} />;
+}
 export function Button({ variant = "secondary", className = "", ...props }: ComponentProps<"button"> & { variant?: keyof typeof buttonClasses }) {
   return <button {...props} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${buttonClasses[variant]} ${className}`} />;
 }

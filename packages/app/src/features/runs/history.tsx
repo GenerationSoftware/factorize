@@ -1,4 +1,4 @@
-import { Badge, Button, buttonClasses, tableCellClasses, tableClasses, tableHeadClasses, tableRowClasses, tableShellClasses } from "../../shared/ui";
+import { Button, buttonClasses, RunStatusDot, tableCellClasses, tableClasses, tableHeadClasses, tableRowClasses, tableShellClasses } from "../../shared/ui";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { historyQuery } from "./queries";
@@ -10,7 +10,7 @@ export function RunHistory({ jobId }: { jobId: string }) {
   const runs = useQuery(historyQuery(jobId, search.cursor, search.sort, search.direction));
   const previous = search.previous === undefined ? [] : search.previous.split(",");
   const pageClasses = `inline-flex min-h-10 items-center rounded-lg border px-3 py-2 text-sm font-semibold ${buttonClasses.secondary}`;
-  const columns: Array<[HistorySort, string]> = [["run", "Run"], ["status", "Status"], ["created", "Created"], ["agent", "Agent"]];
+  const columns: Array<[HistorySort, string]> = [["status", "Status"], ["run", "Run"], ["created", "Created"], ["agent", "Agent"]];
   const sortColumn = (column: HistorySort) => {
     const direction = search.sort === column && search.direction === "asc" ? "desc" : "asc";
     void navigate({ to: "/jobs/$jobId", params: { jobId }, search: { sort: column, direction, cursor: undefined, previous: undefined } });
@@ -22,8 +22,8 @@ export function RunHistory({ jobId }: { jobId: string }) {
       <table className={tableClasses}><caption className="sr-only">Job runs{search.sort ? "" : ", newest first"}</caption>
         <thead className={tableHeadClasses}><tr>{columns.map(([column, label]) => <th key={column} scope="col" aria-sort={search.sort === column ? (search.direction === "desc" ? "descending" : "ascending") : "none"} className={tableCellClasses}><Button className="min-h-8 border-0 bg-transparent px-0 py-0 text-left hover:bg-transparent dark:bg-transparent" aria-label={`${label}, ${sortLabel(column)}. Activate to sort ${search.sort === column && search.direction === "asc" ? "descending" : "ascending"}`} onClick={() => sortColumn(column)}>{label}{search.sort === column && <span aria-hidden="true"> {search.direction === "desc" ? "↓" : "↑"}</span>}</Button></th>)}</tr></thead>
         <tbody>{runs.data.items.map(run => <tr className={tableRowClasses} key={run.id}>
+          <td className={`whitespace-nowrap ${tableCellClasses}`}><RunStatusDot state={run.state} /></td>
           <td className={`min-w-40 max-w-sm break-words ${tableCellClasses}`}><Link to="/job-runs/$runId" params={{ runId: run.id }} search={{ after: 0 }} className="font-semibold hover:text-factorize-700 focus-visible:rounded-sm dark:hover:text-factorize-500">{run.run_name || run.issue_title || "Run"}</Link></td>
-          <td className={`whitespace-nowrap ${tableCellClasses}`}><Badge active={run.state === "running"}>{run.state}</Badge></td>
           <td className={`whitespace-nowrap ${tableCellClasses}`}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></td><td className={tableCellClasses}>{run.agent_kind}</td>
         </tr>)}{runs.data.items.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center">No runs found.</td></tr>}</tbody>
       </table>
