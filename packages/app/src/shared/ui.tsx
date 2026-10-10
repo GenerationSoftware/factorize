@@ -1,4 +1,5 @@
-import { Children, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { Children, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 export const buttonClasses = {
   primary: "bg-factorize-500 text-slate-950 border-factorize-500 hover:bg-factorize-100",
   secondary: "bg-white text-slate-700 border-stone-200 hover:bg-stone-100 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-800",
@@ -17,27 +18,36 @@ export function SortableHeader({ label, active = false, direction = "asc", onSor
   const next = active && direction === "asc" ? "descending" : "ascending";
   return <th scope="col" aria-sort={order} className={`${tableCellClasses} ${className}`}><button type="button" className="font-semibold underline decoration-transparent underline-offset-4 hover:decoration-current focus-visible:rounded-sm focus-visible:decoration-current focus-visible:outline-none" onClick={onSort} aria-label={`${ariaLabel}, ${active ? `sorted ${order}` : "not sorted"}. Activate to sort ${next}`}>{label}{active && <span aria-hidden="true"> {direction === "desc" ? "↓" : "↑"}</span>}</button></th>;
 }
-export const runStatuses = ["queued", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "ignored", "done"] as const;
+export const runStatuses = ["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "ignored", "done"] as const;
 export type RunStatus = typeof runStatuses[number];
-const runStatusLabels: Record<RunStatus, string> = { queued: "Queued", starting: "Starting", running: "Running", blocked: "Blocked", stopping: "Stopping", succeeded: "Succeeded", failed: "Failed", stopped: "Stopped", ignored: "Ignored", done: "Done" };
+const runStatusLabels: Record<RunStatus, string> = { queued: "Queued", reserved: "Reserved", starting: "Starting", running: "Running", blocked: "Blocked", stopping: "Stopping", succeeded: "Succeeded", failed: "Failed", stopped: "Stopped", ignored: "Ignored", done: "Done" };
 export function StatusHeader({ selected, sortDirection, onFilterChange, onSortChange, onClear }: { selected: RunStatus[]; sortDirection?: "asc" | "desc"; onFilterChange: (status: RunStatus, checked: boolean) => void; onSortChange: (direction?: "asc" | "desc") => void; onClear: () => void }) {
-  const [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null), buttonRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false), [dialogPosition, setDialogPosition] = useState({ top: 0, left: 0 }), ref = useRef<HTMLDivElement>(null), dialogRef = useRef<HTMLDivElement>(null), buttonRef = useRef<HTMLButtonElement>(null);
+  const positionDialog = () => {
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    setDialogPosition({ top: rect.bottom + 8, left: Math.min(rect.left, Math.max(8, window.innerWidth - 264)) });
+  };
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { setOpen(false); buttonRef.current?.focus(); } };
-    const onClick = (event: MouseEvent) => { if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener("keydown", onKey); document.addEventListener("mousedown", onClick);
-    return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onClick); };
+    const onClick = (event: MouseEvent) => { const target = event.target as Node; if (ref.current && !ref.current.contains(target) && dialogRef.current && !dialogRef.current.contains(target)) setOpen(false); };
+    const onViewportChange = () => positionDialog();
+    document.addEventListener("keydown", onKey); document.addEventListener("mousedown", onClick); window.addEventListener("resize", onViewportChange); window.addEventListener("scroll", onViewportChange, true);
+    return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onClick); window.removeEventListener("resize", onViewportChange); window.removeEventListener("scroll", onViewportChange, true); };
   }, [open]);
+  useLayoutEffect(() => { if (open) positionDialog(); }, [open]);
   const filterSummary = selected.length ? `${selected.length} status${selected.length === 1 ? "" : "es"} selected` : "all statuses";
   const showDialog = open || (sortDirection !== undefined && selected.length > 0);
+  const dialog = <div ref={dialogRef} role="dialog" aria-label="Status filter and sort" style={{ top: dialogPosition.top, left: dialogPosition.left }} className="fixed z-50 w-64 rounded-lg border border-stone-300 bg-white p-3 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900"><fieldset><legend className="font-semibold">Filter statuses</legend>{runStatuses.map(status => <label key={status} className="flex min-h-10 items-center gap-2 py-1"><input type="checkbox" checked={selected.includes(status)} onChange={event => { onFilterChange(status, event.target.checked); setOpen(false); }} /><RunStatusDot state={status} />{runStatusLabels[status]}</label>)}</fieldset><div className="mt-2 border-t border-stone-200 pt-2 dark:border-slate-700"><span className="font-semibold">Sort status</span><div className="mt-1 flex gap-2"><button type="button" className="min-h-10 rounded border px-2 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2" aria-pressed={sortDirection === "asc"} onClick={() => onSortChange("asc")}>Ascending</button><button type="button" className="min-h-10 rounded border px-2 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2" aria-pressed={sortDirection === "desc"} onClick={() => onSortChange("desc")}>Descending</button></div></div><button type="button" className="mt-2 min-h-10 text-left font-semibold underline underline-offset-4" onClick={onClear}>Clear filters and reset sort</button></div>;
   return <th scope="col" aria-sort={sortDirection ? sortDirection === "asc" ? "ascending" : "descending" : "none"} className={tableCellClasses}>
     <div ref={ref} className="relative"><button ref={buttonRef} type="button" aria-haspopup="dialog" aria-expanded={showDialog} aria-label={`Status, ${filterSummary}${sortDirection ? `, sorted ${sortDirection}` : ", not sorted"}`} className="font-semibold underline decoration-transparent underline-offset-4 hover:decoration-current focus-visible:rounded-sm focus-visible:decoration-current focus-visible:outline-none" onClick={() => setOpen(value => !value)}>Status{selected.length > 0 && <span aria-hidden="true"> ({selected.length})</span>}{sortDirection && <span aria-hidden="true"> {sortDirection === "asc" ? "↑" : "↓"}</span>}</button>
-      {showDialog && <div role="dialog" aria-label="Status filter and sort" className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-stone-300 bg-white p-3 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900"><fieldset><legend className="font-semibold">Filter statuses</legend>{runStatuses.map(status => <label key={status} className="flex min-h-10 items-center gap-2 py-1"><input type="checkbox" checked={selected.includes(status)} onChange={event => { onFilterChange(status, event.target.checked); setOpen(false); }} />{runStatusLabels[status]}</label>)}</fieldset><div className="mt-2 border-t border-stone-200 pt-2 dark:border-slate-700"><span className="font-semibold">Sort status</span><div className="mt-1 flex gap-2"><button type="button" className="min-h-10 rounded border px-2 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2" aria-pressed={sortDirection === "asc"} onClick={() => onSortChange("asc")}>Ascending</button><button type="button" className="min-h-10 rounded border px-2 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2" aria-pressed={sortDirection === "desc"} onClick={() => onSortChange("desc")}>Descending</button></div></div><button type="button" className="mt-2 min-h-10 text-left font-semibold underline underline-offset-4" onClick={onClear}>Clear filters and reset sort</button></div>}
+      {showDialog && createPortal(dialog, document.body)}
     </div></th>;
 }
 const runStatusStyles: Record<string, { label: string; color: string; pulse?: boolean }> = {
-  queued: { label: "Queued", color: "bg-amber-500" }, starting: { label: "Starting", color: "bg-blue-500" }, running: { label: "Running", color: "bg-blue-500", pulse: true },
+  queued: { label: "Queued", color: "bg-amber-500" }, reserved: { label: "Reserved", color: "bg-amber-500" }, starting: { label: "Starting", color: "bg-blue-500" }, running: { label: "Running", color: "bg-blue-500", pulse: true },
   blocked: { label: "Blocked", color: "bg-amber-500" }, stopping: { label: "Stopping", color: "bg-amber-500" }, succeeded: { label: "Succeeded", color: "bg-emerald-500" }, done: { label: "Done", color: "bg-emerald-500" },
   failed: { label: "Failed", color: "bg-red-500" }, stopped: { label: "Stopped", color: "bg-slate-500" }, ignored: { label: "Ignored", color: "bg-slate-400" },
 };
