@@ -69,6 +69,23 @@ test("job run history restores its cursor on direct refresh and ignores legacy f
   await page.goto(origin + `/jobs/${jobId}?state=succeeded&contextQuery=needle`); await page.getByRole("link", { name: "First run", exact: true }).waitFor(); await page.getByRole("link", { name: "Next page" }).click(); await page.getByRole("link", { name: "Second run", exact: true }).waitFor(); await page.reload(); await page.getByRole("link", { name: "Second run", exact: true }).waitFor();
   assert.equal(new URL(page.url()).searchParams.get("cursor"), "next-cursor"); assert.ok(requests.every(url => url.searchParams.get("jobId") === jobId && url.searchParams.get("limit") === "30" && !url.searchParams.has("contextQuery") && !url.searchParams.has("state"))); await context.close();
 });
+test("job run history keeps the table visible while sorting and puts status first", async () => {
+  const { context, page } = await setup(); let releaseSorted;
+  const sorted = new Promise(resolve => { releaseSorted = resolve; });
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Job", enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: 0, promptTemplate: "Prompt", triggers: [] } }));
+  await page.route("**/api/v1/runs?**", async route => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.has("sort")) { await sorted; return route.fulfill({ json: { items: [{ id: runId, run_name: "Sorted run", state: "failed", created_at: time, agent_kind: "codex" }], nextCursor: null } }); }
+    return route.fulfill({ json: { items: [{ id: runId, run_name: "Initial run", state: "succeeded", created_at: time, agent_kind: "codex" }], nextCursor: null } });
+  });
+  await page.goto(origin + `/jobs/${jobId}`); const table = page.getByRole("region", { name: "Runs table" });
+  await table.getByRole("link", { name: "Initial run", exact: true }).waitFor();
+  assert.equal(await table.locator("thead th").first().textContent(), "Status");
+  await table.getByRole("button", { name: /Run, not sorted/ }).click(); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=asc`);
+  assert.equal(await page.getByText("Loading run history…", { exact: true }).count(), 0);
+  assert.equal(await table.getByRole("link", { name: "Initial run", exact: true }).count(), 1);
+  releaseSorted(); await table.getByRole("link", { name: "Sorted run", exact: true }).waitFor(); await context.close();
+});
 test("prompt/provenance and diagnostics are lazy, terminal replay retries reuse a stable key and reset the visible trace", async () => {
   const { context, page } = await setup(); let revision = "old", detailReads = 0, diagnosticReads = 0; const replays = [];
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Job", run_name: "Run", state: "succeeded", finalizing: false, trace_revision: revision, artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));

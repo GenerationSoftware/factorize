@@ -10,7 +10,7 @@ export function RunHistory({ jobId }: { jobId: string }) {
   const runs = useQuery(historyQuery(jobId, search.cursor, search.sort, search.direction));
   const previous = search.previous === undefined ? [] : search.previous.split(",");
   const pageClasses = `inline-flex min-h-10 items-center rounded-lg border px-3 py-2 text-sm font-semibold ${buttonClasses.secondary}`;
-  const columns: Array<[HistorySort, string]> = [["run", "Run"], ["status", "Status"], ["created", "Created"], ["agent", "Agent"]];
+  const columns: Array<[HistorySort, string]> = [["status", "Status"], ["run", "Run"], ["created", "Created"], ["agent", "Agent"]];
   const sortColumn = (column: HistorySort) => {
     const direction = search.sort === column && search.direction === "asc" ? "desc" : "asc";
     void navigate({ to: "/jobs/$jobId", params: { jobId }, search: { sort: column, direction, cursor: undefined, previous: undefined } });
@@ -18,11 +18,11 @@ export function RunHistory({ jobId }: { jobId: string }) {
   const sortLabel = (column: HistorySort) => search.sort === column ? (search.direction === "desc" ? "sorted descending" : "sorted ascending") : "not sorted";
   return <section aria-label="Runs" className="my-6 min-w-0">
     {runs.isPending && <p role="status">Loading run history…</p>}{runs.error && <p role="alert">{runs.error.message} <Button onClick={() => void runs.refetch()}>Retry</Button></p>}
-    {runs.data && <><Table className="min-w-[36rem] table-fixed" shellProps={{ role: "region", "aria-label": "Runs table", tabIndex: 0 }}><caption className="sr-only">Job runs{search.sort ? "" : ", newest first"}</caption><colgroup><col className="w-[38%] sm:w-[42%]" /><col className="w-16 sm:w-20" /><col className="w-[30%] sm:w-[26%]" /><col className="w-[20%] sm:w-[16%]" /></colgroup>
+    {runs.data && <><Table className="min-w-[36rem] table-fixed" shellProps={{ role: "region", "aria-label": "Runs table", tabIndex: 0 }}><caption className="sr-only">Job runs{search.sort ? "" : ", newest first"}</caption><colgroup><col className="w-16 sm:w-20" /><col className="w-[38%] sm:w-[42%]" /><col className="w-[30%] sm:w-[26%]" /><col className="w-[20%] sm:w-[16%]" /></colgroup>
         <thead className={tableHeadClasses}><tr>{columns.map(([column, label]) => <SortableHeader key={column} label={label} active={search.sort === column} direction={search.direction} ariaLabel={`${label}, ${sortLabel(column)}`} onSort={() => sortColumn(column)} />)}</tr></thead>
         <tbody>{runs.data.items.map(run => <tr className={tableRowClasses} key={run.id}>
-          <td className={tableCellClasses}><Link to="/job-runs/$runId" params={{ runId: run.id }} search={{ after: 0 }} title={run.run_name || run.issue_title || "Run"} className="block truncate font-semibold hover:text-factorize-700 focus-visible:rounded-sm dark:hover:text-factorize-500">{run.run_name || run.issue_title || "Run"}</Link></td>
           <td className={`whitespace-nowrap ${tableCellClasses}`}><RunStatusDot state={run.state} /></td>
+          <td className={tableCellClasses}><Link to="/job-runs/$runId" params={{ runId: run.id }} search={{ after: 0 }} title={run.run_name || run.issue_title || "Run"} className="block truncate font-semibold hover:text-factorize-700 focus-visible:rounded-sm dark:hover:text-factorize-500">{run.run_name || run.issue_title || "Run"}</Link></td>
           <td className={`whitespace-nowrap ${tableCellClasses}`}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></td><td className={`${tableCellClasses} truncate`} title={run.agent_kind}>{run.agent_kind}</td>
         </tr>)}{runs.data.items.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center">No runs found.</td></tr>}</tbody>
       </Table></>}
