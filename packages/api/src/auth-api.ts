@@ -39,7 +39,7 @@ export function safeReturnTo(value: string | undefined): string {
   try {
     const url = new URL(value, "https://local.invalid");
     if (url.origin !== "https://local.invalid") return "/settings/integrations";
-    if (!/^\/(?:authorize|device|jobs(?:\/[^/]+(?:\/edit)?)?|job-runs\/[^/]+|settings(?:\/(?:integrations|api-keys|password))?)$/.test(url.pathname)) return "/settings/integrations";
+    if (!/^\/(?:authorize|device|jobs(?:\/[^/]+(?:\/(?:edit|settings))?)?|job-runs\/[^/]+|settings(?:\/(?:integrations|api-keys|password))?)$/.test(url.pathname)) return "/settings/integrations";
     return url.pathname + url.search + url.hash;
   } catch { return "/settings/integrations"; }
 }
