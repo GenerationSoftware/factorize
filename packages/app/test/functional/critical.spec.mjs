@@ -30,7 +30,8 @@ test("navigation, theme preference and essential accessibility remain usable", a
   await page.goto(origin + screens[3][1]);
   await expect(page.getByRole("heading", { name: "Release review", exact: true })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Trace", exact: true })).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("tab", { name: "Context", exact: true }).click();
+  await page.getByRole("tab", { name: "Info", exact: true }).click();
+  await page.getByText("Prompt, context and provenance", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Prompt", exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
@@ -47,12 +48,14 @@ test("keyboard focus and validation work on representative mobile UI", async ({ 
   await page.keyboard.press("Escape");
   await expect(profile).toBeFocused();
   const run = page.getByRole("button", { name: "Run job", exact: true });
-  await run.click();
+  const options = page.getByRole("button", { name: "More run options", exact: true });
+  await options.click();
+  await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
   await page.getByLabel("JSON data (optional)").fill("[]");
-  await page.getByRole("button", { name: "Invoke", exact: true }).click();
+  await page.getByRole("button", { name: "Run with prompt", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveText("JSON data must be an object.");
   await page.keyboard.press("Escape");
-  await expect(run).toBeFocused();
+  await expect(options).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -67,8 +70,8 @@ test("loading, search, error and no-result states are actionable", async ({ page
   mode = "error";
   await pending.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } });
   await expect(page.getByRole("alert")).toHaveText("This workspace is unavailable.");
-  await page.getByRole("button", { name: "Search jobs and runs", exact: true }).click();
-  const input = page.getByRole("combobox", { name: "Search jobs and runs", exact: true });
+  await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
+  const input = page.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true });
   await expect(input).toBeFocused();
   await input.fill("release");
   await expect(page.getByRole("option")).toBeVisible();
