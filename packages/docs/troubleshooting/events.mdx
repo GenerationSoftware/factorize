@@ -1,0 +1,13 @@
+---
+title: Jobs not firing
+description: Verify automation from provider event to accepted run.
+---
+
+1. Fetch `get_job`; confirm the job and intended trigger are enabled. Check schedule timezone/cron, selected provider resources, and all matching rules.
+2. Make one controlled matching provider event. Ask for `list_webhook_deliveries` filtered by `provider` and `jobId`; if nothing is found, search by provider alone since unmatched deliveries may not link the job.
+3. Use the returned delivery's identifier with `get_webhook_delivery` to inspect its safe timeline. Use `list_job_webhook_activity` for matching, rejected, duplicate and accepted activity. No raw payloads or secrets are returned.
+4. If no delivery appears, reconnect the provider in Settings, check resource access/app installation and provider delivery status. Ask the hosted operator to investigate transport/subscription failures; hosted users do not configure Factorize's webhook signing secrets.
+5. If delivery appears but no run does, check event/action selection, match rules and conditions. `test_job_webhook_conditions` previews prepared example context only; it does not authenticate or deliver an event.
+6. Check `list_runs`: automatic occurrences coalesce while a run is queued. An accepted run may be waiting for an active slot. Query the provider itself for authoritative work.
+
+For schedules, verify the next occurrence in the browser editor, timezone and enabled state, then inspect runs after that time. For lifecycle triggers, verify source IDs/state selection and same-tenant source jobs. A destination cannot subscribe to its own edits. See [trigger configuration](/integrations/triggers).

@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "mint dev",
     "validate": "node scripts/validate.mjs",
-    "deploy": "mint deploy"
+    "deploy": "mint deploy",
+    "generate": "node scripts/exports.mjs",
+    "check:exports": "node scripts/exports.mjs --check"
   }
 }

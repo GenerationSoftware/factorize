@@ -1,34 +1,56 @@
 ---
-title: Quickstart
-description: Configure authentication and create a job end to end.
+title: Your first job
+description: Run a hosted repository review through MCP.
 ---
 
-## Prerequisites
+## Set up in the browser
 
-You need a Cloudflare Worker deployment, a Postmark server with a verified sender and transactional message stream, and an exe.dev account-level HTTPS API token allowed to run `ls`, `new`, `ssh`, and `rm`. Agents are installed on each newly-created VM. For Linear-driven jobs, also configure a Linear OAuth application. Set `POSTMARK_SERVER_TOKEN`, `POSTMARK_FROM_EMAIL`, `POSTMARK_MESSAGE_STREAM`, `APP_ORIGIN`, OAuth credentials, `LINEAR_WEBHOOK_SIGNING_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, and `SESSION_SIGNING_SECRET`.
+1. Open [app.factorize.sh/auth/signup](https://app.factorize.sh/auth/signup). Sign up with **email and password** (12–200 characters), verify the email, then sign in. Use [resend verification](https://app.factorize.sh/auth/verify/request) if needed.
+2. Open [Settings → Integrations](https://app.factorize.sh/settings). Add an exe.dev account token, test credentials, select the execution agent and VM tags, then save. Saving validates the agent/models on a temporary VM. Alternatively connect an Amp project and its access token.
+3. Ensure the execution account can access your repository and the required model/integrations. For exe.dev, the account token must permit VM listing, creation, SSH and deletion (`ls`, `new`, `ssh`, `rm`). VM tags attach your execution integrations. Current exe.dev targets do **not** store a repository URL or checkout ref: put the repository URL and checkout instructions in the job prompt.
+4. [Connect your MCP client](/mcp/overview), approve the four workflow scopes, and ask “List my Factorize jobs.”
 
-Create a native Factorize account with a username, email and password. Verify your email, sign in, connect Linear if needed in Settings → Integrations, and configure an exe.dev execution target with its token, repository URL, optional checkout ref, agent, and VM tags. Tags attach the integrations required by the repository and agent. Use `list_execution_targets` or `GET /api/v1/execution-targets` before submitting `executionTargetId`.
+These account, credential and consent steps happen in the browser. MCP can discover saved targets, manage jobs and invoke/inspect runs; it cannot sign you up, verify email, connect execution credentials or select provider resources.
 
-## First API call
+## Ask your agent
 
-```bash
-curl -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" "$APP_ORIGIN/api/v1/jobs"
+Copy this request and replace the repository URL:
+
+> Show me my available execution targets. Create a manual job called ‘Review recent changes’ using my repository’s target. Have it clone https://github.com/YOUR_ORG/YOUR_REPO.git, review the latest commit and summarize any problems. Run it once and report the result.
+
+If several targets are available, choose one by its agent/account metadata. Target discovery does not imply a repository binding.
+
+Expected tools:
+
+1. `list_execution_targets({})`: choose a returned `id`; never invent one. Empty results mean browser execution setup is incomplete.
+2. `list_jobs({})`: check whether this job already exists before creating it.
+3. `create_job` with the input below. Save its returned `id` as `JOB_ID`.
+4. `invoke_job` with `JOB_ID` and a stable key. Save `runId`.
+5. `get_run({runId: RUN_ID})`: check periodically until terminal; inspect prompt, context and activity. Current MCP does not expose execution output: open the returned run in the browser trace view to read the review, or use authorized REST trace pagination. The agent should report the observed state and result link rather than invent findings.
+
+```json
+{
+  "name": "Review recent changes",
+  "slug": "review-recent-changes",
+  "executionTargetId": "TARGET_ID",
+  "promptTemplate": "Clone https://github.com/YOUR_ORG/YOUR_REPO.git into the workspace. Review the latest commit on the default branch, run relevant checks, and summarize any problems. {{trigger-1.prompt}}",
+  "concurrencyLimit": 1,
+  "triggers": [{"kind": "manual", "config": {}}]
+}
 ```
 
-Create a manual job:
+Invoke input:
 
-```bash
-curl -X POST "$APP_ORIGIN/api/v1/jobs" \
-  -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" -H 'content-type: application/json' \
-  -d '{"name":"Review changes","slug":"review-changes","promptTemplate":"Review: {{trigger-1.prompt}}","executionTargetId":"TARGET_ID","triggers":[{"kind":"manual","config":{}}]}'
+```json
+{"jobId":"JOB_ID","prompt":"Review now","idempotencyKey":"review-recent-changes-first-run"}
 ```
 
-Invoke it with a reusable idempotency key:
+Example invocation result (identifiers are illustrative):
 
-```bash
-curl -X POST "$APP_ORIGIN/api/v1/jobs/JOB_ID/invocations" \
-  -H "Authorization: Bearer $FACTORIZE_ACCESS_TOKEN" -H 'content-type: application/json' \
-  -d '{"prompt":"Review the latest commit","idempotencyKey":"review-2026-09-17"}'
+```json
+{"invocationId":"INVOCATION_ID","runId":"RUN_ID","state":"queued","duplicate":false}
 ```
 
-The response is `202`. Query `/runs` and then `/runs/RUN_ID`; stop an active run with `/runs/RUN_ID/stop`, or force any non-terminal run to release its slot with `/runs/RUN_ID/kill`.
+Success means target discovery returned a usable target, the created job returned an `id` and manual trigger with a stable slug, invocation returned `runId`, and `get_run` reports `succeeded` with the rendered repository prompt. Open its browser trace and confirm the review output; state alone does not prove the review findings. Submission alone is not completion. You can also open `https://app.factorize.sh/job-runs/RUN_ID` to inspect it.
+
+If the request times out, repeat **the invocation with the same key**, not job creation; it returns the original run with `duplicate: true`. A failed run is still the original run for that key. Follow [failed-run troubleshooting](/troubleshooting/runs) before requesting a new run with a new key. After a successful manual review, add a [schedule](/recipes/scheduled-review).

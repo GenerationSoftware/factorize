@@ -1,13 +1,15 @@
 ---
-title: Factorize documentation
-description: Automate coding-agent jobs from Linear, GitHub, ClickUp, schedules, and MCP.
+title: Factorize with your agent
+description: Connect your agent, create a job, run it, inspect the result, and automate it.
 ---
 
-Factorize turns authenticated provider events into jobs on your own exe.dev VM. Jobs have explicit triggers, concurrency limits, durable run history, and a scoped REST/MCP API.
+Factorize hosts your job configuration, trigger routing, queue, run history, and MCP endpoint. Your conversational agent controls Factorize through MCP; the execution agent runs each job using an execution account you connect.
+
+Start at [app.factorize.sh](https://app.factorize.sh). Connect your agent to `https://app.factorize.sh/mcp`, create a manual job, inspect its result, then add a schedule or provider trigger.
 
 <CardGroup cols={2}>
-  <Card title="Get started" icon="rocket" href="/quickstart">Create and invoke your first job</Card>
-  <Card title="API reference" icon="brackets-curly" href="/api/reference">Every public REST operation</Card>
+  <Card title="Connect your agent" icon="plug" href="/mcp/overview">Authorize a remote MCP client</Card>
+  <Card title="First job" icon="rocket" href="/quickstart">Review a repository and inspect the result</Card>
 </CardGroup>
 
-The public documentation origin is `https://docs.factorize.sh`; replace `https://app.factorize.sh` in examples with your deployment origin when self-hosting.
+You supply an execution account (exe.dev or Amp), repository access, model access, and any Linear, GitHub or ClickUp accounts needed by the job. Factorize hosts the application; it does not grant your execution agent access to those accounts. Add execution integrations in the browser before asking your agent to create a job. [Self-hosting](/self-hosting/deployment) is optional.

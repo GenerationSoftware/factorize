@@ -1,0 +1,12 @@
+---
+title: Optional self-hosting
+description: Deploy your own Factorize instance.
+---
+
+Hosted users can start at [app.factorize.sh](https://app.factorize.sh) without deploying anything. Self-hosting is for operators who want to own the application infrastructure.
+
+The Worker lives in `packages/api`, React frontend in `packages/app`, and generated public client in `packages/api-client`. Use Node 24 and the root lockfile. Follow the [API-first deployment and rollback gates](https://github.com/GenerationSoftware/factorize/blob/main/docs/package-migration.md) before deploying static assets. Preserve Worker identity, bindings, migrations, and old hashed assets.
+
+Install dependencies with `npm ci`. Configure `packages/api/wrangler.jsonc`, PostgreSQL, OAuth KV and artifact storage, set the final HTTPS `APP_ORIGIN`, then build with `npm run build:app` and deploy with `npm run deploy:app`. See [configuration](/self-hosting/configuration) before deployment.
+
+For local development, copy `packages/api/.dev.vars.example` to `packages/api/.dev.vars`, supply local configuration, and use `npm run dev`. Development uses HTTPS at `https://localhost:5173`; use that origin for local callbacks. The migration guide covers local database setup. Never commit secrets.

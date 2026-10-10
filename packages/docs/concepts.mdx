@@ -1,27 +1,18 @@
 ---
-title: Jobs, triggers, and runs
-description: The durable execution model and prompt contract.
+title: Jobs, triggers, runs, and targets
+description: Understand the workflow before configuring automation.
 ---
 
-A Job contains a prompt template, execution target, model/effort options, concurrency limit (1–50), and up to 50 triggers. Every job has a server-generated manual trigger. A Run is a queued or executing instance. Automatic webhook, schedule, and lifecycle signals coalesce; manual invocations never coalesce. Each job admits at most one queued run in addition to its active runs. When a run is already queued, new automatic occurrences are skipped and manual requests return `409 queue_full`. Retrying an accepted idempotency key still returns its original run. Queued runs retain their original prompt and context. Any backlog accepted before this policy was deployed drains normally.
+A **job** is a saved instruction: what to do, where to execute it, and when it may run. A **trigger** is a reason to run it: a manual request, schedule, provider event, or another job's lifecycle event. A **run** is one execution of the job, with its own state, prompt, context and output. An **execution target** is a saved execution account/agent configuration discovered with `list_execution_targets`.
 
-Templates are Mustache and render only against the firing trigger's stable slug, such as `{{trigger-1.issue.title}}`. Missing paths become empty strings. Run inspection returns the complete persisted `context`, rendered `prompt`, `invocation.trigger_id`, execution metadata, output, and activity.
+The **conversational agent** you talk to uses MCP to control Factorize. The **execution agent** receives the job's rendered prompt and does the work on the execution account. Giving the conversational agent MCP permission does not give the execution agent repository, provider or model access. Your saved connection, VM tags and prompt must supply those.
 
-Trigger kinds are `manual`, `schedule`, `webhook`, and `jobLifecycle`. Webhooks support Linear, ClickUp, GitHub, and Cloudflare Tail. Optional declarative JSON conditions filter the prepared webhook context without replacing it. See [trigger conditions](/integrations/triggers).
+Every job gets a manual trigger. Additional triggers have immutable server-generated slugs such as `trigger-2`. Each run receives only the firing trigger's context; [prompt templates](/work/prompts) use that slug.
 
-See the repository's [trigger context contract](https://github.com/GenerationSoftware/factorize/blob/main/docs/job-trigger-context.md) for the reflection paths exposed with every trigger.
+## Concurrency and the queue
 
-Prompt and run-name templates render plain text: double-brace substitutions preserve URLs, quotes, Markdown, and code without HTML entity escaping. Triple-brace substitutions remain supported. Literal entity text in job context is preserved, not decoded. The web UI escapes rendered values when displaying them. This applies to new runs; existing persisted prompts are unchanged.
+With concurrency 1, a review already running occupies the only active slot. One more run may wait in the queue. A further manual request returns `queue_full`; wait for capacity instead of repeatedly changing retry keys. Automatic schedule/webhook/lifecycle signals arriving while a run is queued are skipped/coalesced, so they are not a complete event log. An accepted idempotency key still returns its original run even when the queue is full.
 
+Concurrency can be 1–50. With concurrency 2, two reviews may execute and one may wait. Queued runs keep the prompt/context they were submitted with; editing a job does not rewrite those runs. Query runs and the provider for authoritative work when automatic events coalesce.
 
-## Run traces and recovery
-
-Codex and Claude can show tool calls live from an execution stream; Pi uses its native session. The run page identifies the source and artifact state, and labels native fallback after rollback. A trace may be partial when collection fails.
-
-`GET /api/v1/runs/{runId}/diagnostics` reports the declared source and versions, actual projection source and artifact checksum, live generation and byte cursor, terminal reconciliation state, parse warnings, unknown-event rate, retained artifacts, and fallback use. `matched` verifies the projected live prefix against the terminal artifact. Missing reconciliation evidence does not establish completeness.
-
-An interactive tenant owner with `runs:write` can use `POST /api/v1/runs/{runId}/trace/replay` to reproject retained primary bytes or restore a retained native session. Supply a UUID `requestId` and `source` (`primary` or `native_session`). Preserve the request ID when retrying an interrupted operation. Replay is limited to 10 requests per tenant per minute. Results distinguish projected, already projected, skipped, and unrecoverable runs. Historical Codex tool calls can be recovered only if the native session artifact still exists. Replay preserves stored artifacts; expired or deleted bytes cannot be recovered.
-
-See the [trace rollout and debugging runbook](https://github.com/GenerationSoftware/factorize/blob/main/docs/trace-rollout-runbook.md) for canary gates, retention, resumption, and rollback.
-
-Object and array substitutions insert compact JSON, including nested values: `{{trigger-1}}` inserts the complete trigger context and `{{trigger-1.data}}` inserts the complete manual data object. Object keys are sorted recursively (integer keys follow JSON's numeric ordering); array order is preserved. Nested nulls render as JSON `null`; a directly interpolated null or missing value remains empty, as in Mustache. Primitive values remain raw text. Sections still use the original context for truthiness, object scopes, and array iteration.
+Inspect output before treating a terminal state as a useful result. Trace collection can be incomplete even when execution completed; advanced trace recovery belongs in [operations](/self-hosting/operations).
