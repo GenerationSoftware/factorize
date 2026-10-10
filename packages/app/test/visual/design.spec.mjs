@@ -142,3 +142,34 @@ for (const theme of ["light", "dark"]) test(`search loading, error and no result
   await expect(page).toHaveScreenshot(`search-no-results-${theme}-390.png`);
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
 });
+
+for (const theme of ["light", "dark"]) test(`run tabs, context and breadcrumbs on mobile ${theme}`, async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: theme });
+  await mockApi(page, { long: true });
+  await page.goto(origin + screens[3][1]);
+  const trace = page.getByRole("tab", { name: "Trace", exact: true });
+  await expect(trace).toHaveAttribute("aria-selected", "true");
+  await trace.focus(); await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "Context", exact: true })).toBeFocused();
+  await page.getByText("Prompt, context and provenance", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Prompt", exact: true })).toBeVisible();
+  await page.getByText("Diagnostics and artifacts", { exact: true }).click();
+  await expect(page.getByText(/"artifacts":/)).toBeVisible();
+  await expect(page).toHaveScreenshot(`run-context-${theme}-390.png`, { fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await page.getByRole("tab", { name: "Settings", exact: true }).click();
+  await page.getByText("Replay trace", { exact: true }).click();
+  await expect(page.getByRole("button", { name: "Replay retained trace" })).toBeVisible();
+  await expect(page).toHaveScreenshot(`run-settings-${theme}-390.png`, { fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+  await breadcrumbs.getByRole("link", { name: "Review release builds", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp("/jobs/" + jobId));
+  await expect(page.getByRole("heading", { name: /^Long release review/ })).toBeVisible();
+  await page.goto(origin + screens[3][1]);
+  await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Jobs", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
+});
