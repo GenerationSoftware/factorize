@@ -54,8 +54,12 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
     requestAnimationFrame(() => {
       if (!positioned.current || followBottom.current) scrollToBottom();
       positioned.current = true;
+      if (followBottom.current && trace.hasNextPage && !trace.isFetching && !scrollFetchPending.current) {
+        scrollFetchPending.current = true;
+        void trace.fetchNextPage();
+      }
     });
-  }, [items.length]);
+  }, [items.length, trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
   useEffect(() => {
     const changed = () => {
       const current = window.getSelection();
