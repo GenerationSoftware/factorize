@@ -3,7 +3,7 @@ import { renderTextTemplate } from "./text-template";
 
 export type TriggerKind = "manual" | "schedule" | "webhook" | "jobLifecycle";
 export type InvocationSource = "manual" | TriggerKind;
-export type JobRunState = "queued" | "running" | "succeeded" | "failed" | "stopped";
+export type JobRunState = "queued" | "reserved" | "running" | "succeeded" | "failed" | "stopped";
 
 export interface ExecutionTarget {
   connectionId: string;
@@ -79,7 +79,7 @@ export interface InvocationResult { invocation: Invocation; run: JobRun; duplica
 export interface JobRepository {
   getJob(id: string): Promise<Job | null>;
   findInvocation(jobId: string, claimKey: string): Promise<{ invocation: Invocation; run: JobRun } | null>;
-  /** Atomically enforce one queued run per job; reject overflow with queue_full. */
+  /** Atomically reserve a free slot, retaining at most one waiting run. */
   insertInvocationAndRun(invocation: Invocation, run: JobRun): Promise<boolean>;
   countActiveRuns(jobId: string): Promise<number>;
   markRunRunning(runId: string, startedAt: string): Promise<JobRun>;

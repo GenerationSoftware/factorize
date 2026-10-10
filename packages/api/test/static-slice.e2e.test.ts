@@ -44,7 +44,7 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       const runId = new URL(page.url()).pathname.split("/").at(-1)!;
       expect(calls.filter(call => call === `POST /api/v1/jobs/${f.jobIds[1]}/invocations`)).toHaveLength(1);
       const row = (await f.db.pool.query("SELECT i.context,jr.state FROM app.invocations i JOIN app.job_runs jr ON jr.tenant_id=i.tenant_id AND jr.invocation_id=i.id WHERE jr.tenant_id=$1 AND jr.id=$2", [f.tenantId, runId])).rows[0];
-      expect(row).toMatchObject({ state: "queued", context: { manual: { prompt: "Real invocation", data: {} } } });
+      expect(row).toMatchObject({ state: "reserved", context: { manual: { prompt: "Real invocation", data: {} } } });
       await page.reload(); await page.getByText("No trace events yet.", { exact: true }).waitFor();
       await f.db.transaction(async client => {
         await client.query("INSERT INTO app.run_trace_events(tenant_id,run_id,sequence,id,event_type,title,preview_text,display_data) VALUES ($1,$2,1,'canonical','assistant_message','Final output','Safe output','{}')", [f.tenantId, runId]);

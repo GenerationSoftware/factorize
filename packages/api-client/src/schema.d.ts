@@ -1462,7 +1462,7 @@ export interface components {
             workspace_name: string;
             agent_kind: string;
             /** @enum {string} */
-            state: "queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored";
+            state: "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored";
             provider: string;
             backend_kind: string;
             capabilities: string[];
@@ -1489,7 +1489,7 @@ export interface components {
                 workspace_name: string;
                 agent_kind: string;
                 /** @enum {string} */
-                state: "queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored";
+                state: "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored";
                 provider: string;
                 backend_kind: string;
                 capabilities: string[];
@@ -3862,7 +3862,7 @@ export interface operations {
                             agentKind: string;
                             concurrencyLimit: number;
                             runningCount: number;
-                            lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                            lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
                             createdAt: string;
                             updatedAt: string;
                         }[];
@@ -3959,7 +3959,7 @@ export interface operations {
                         runningCount: number;
                         currentRuns: number;
                         maxConcurrency: number;
-                        lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                        lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
                         triggers: ({
                             /** Format: uuid */
                             id: string;
@@ -4127,7 +4127,7 @@ export interface operations {
                         runningCount: number;
                         currentRuns: number;
                         maxConcurrency: number;
-                        lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                        lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
                         triggers: ({
                             /** Format: uuid */
                             id: string;
@@ -4328,7 +4328,7 @@ export interface operations {
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
-            /** @description queue_full — this job already has one queued run. Retry after it starts. Duplicate idempotency keys return the original run. */
+            /** @description queue_full — all execution slots are reserved or occupied and one waiting run already exists. Duplicate idempotency keys return the original run. */
             409: components["responses"]["Error409"];
             415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
@@ -4467,7 +4467,7 @@ export interface operations {
                         runningCount: number;
                         currentRuns: number;
                         maxConcurrency: number;
-                        lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                        lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
                         triggers: ({
                             /** Format: uuid */
                             id: string;
@@ -4736,7 +4736,7 @@ export interface operations {
                         runningCount: number;
                         currentRuns: number;
                         maxConcurrency: number;
-                        lastRunState: ("queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                        lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
                         triggers: ({
                             /** Format: uuid */
                             id: string;
@@ -4899,7 +4899,7 @@ export interface operations {
         parameters: {
             query?: {
                 jobId?: string;
-                state?: ("queued" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped") | ("queued" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped")[];
+                state?: ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped") | ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped")[];
                 contextQuery?: string;
                 sort?: "job" | "run" | "status" | "created" | "agent";
                 direction?: "asc" | "desc";
@@ -5072,7 +5072,7 @@ export interface operations {
                         id: string;
                         job_id: string;
                         /** @enum {string} */
-                        state: "queued" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped";
+                        state: "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped";
                         run_name: string;
                         job_name: string;
                         destination_url: string | null;

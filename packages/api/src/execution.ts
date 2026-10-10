@@ -1,5 +1,5 @@
 import type { TraceSource, TraceSources } from "./trace-source";
-export type ExecutionState = "queued" | "starting" | "running" | "blocked" | "stopping" | "stopped" | "succeeded" | "failed";
+export type ExecutionState = "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "stopped" | "succeeded" | "failed";
 export type ExecutionCapability = "output" | "prompt-delivery" | "recovery" | "stop";
 export type PromptDeliveryState = "pending" | "submitting" | "accepted" | "ambiguous" | "failed";
 
@@ -60,7 +60,7 @@ export interface ExecutionBackend {
 /** Maps persisted execution states onto the public contract. */
 export function normalizeExecutionState(state: unknown): ExecutionState {
   switch (String(state)) {
-    case "queued": case "starting": case "running": case "blocked": case "stopping": case "stopped": case "succeeded": case "failed": return String(state) as ExecutionState;
+    case "queued": case "reserved": case "starting": case "running": case "blocked": case "stopping": case "stopped": case "succeeded": case "failed": return String(state) as ExecutionState;
     case "done": return "succeeded";
     case "cancelled": return "stopped";
     default: return "failed";

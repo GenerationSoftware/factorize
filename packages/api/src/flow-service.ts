@@ -87,7 +87,7 @@ export class ApiService {
       WITH selected_runs AS (
         SELECT job_id,state,created_at,id FROM app.job_runs WHERE tenant_id=$1 AND job_id=ANY($2::uuid[])
       ), counts AS (
-        SELECT job_id,count(*) FILTER (WHERE state IN ('starting','running','blocked','stopping'))::text running_count
+        SELECT job_id,count(*) FILTER (WHERE state IN ('reserved','starting','running','blocked','stopping'))::text running_count
         FROM selected_runs GROUP BY job_id
       ), latest AS (
         SELECT DISTINCT ON (job_id) job_id,state FROM selected_runs ORDER BY job_id,created_at DESC,id DESC

@@ -17,15 +17,15 @@ describe.skipIf(!url)("PostgreSQL queue admission", () => {
     await database.close();
   });
 
-  async function fixture(jobId = crypto.randomUUID()) {
+  async function fixture(jobId = crypto.randomUUID(), concurrency = 1) {
     const tenantId = crypto.randomUUID(), triggerId = crypto.randomUUID();
     tenants.push(tenantId);
     await database.pool.query("INSERT INTO app.tenants(id) VALUES ($1)", [tenantId]);
-    await database.pool.query("INSERT INTO app.jobs(tenant_id,id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,'Queue test','queue-test','{{manual.prompt}}',$3,1)", [tenantId, jobId, { agentKind: "codex" }]);
+    await database.pool.query("INSERT INTO app.jobs(tenant_id,id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,'Queue test','queue-test','{{manual.prompt}}',$3,$4)", [tenantId, jobId, { agentKind: "codex" }, concurrency]);
     await database.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES ($1,$2,$3,'manual','manual')", [tenantId, triggerId, jobId]);
     const service = new InvocationService(new PostgresJobRepository(database, tenantId, identity, identity), identity);
     const invoke = (claimKey: string, source: InvocationSource = "manual") => service.invoke(jobId, { source, triggerId, claimKey, context: { manual: { prompt: claimKey } } });
-    const counts = async () => (await database.pool.query("SELECT (SELECT count(*)::int FROM app.invocations WHERE tenant_id=$1) invocations,(SELECT count(*)::int FROM app.job_runs WHERE tenant_id=$1 AND state='queued') queued,(SELECT count(*)::int FROM app.runs WHERE tenant_id=$1) runs", [tenantId])).rows[0];
+    const counts = async () => (await database.pool.query("SELECT (SELECT count(*)::int FROM app.invocations WHERE tenant_id=$1) invocations,(SELECT count(*)::int FROM app.job_runs WHERE tenant_id=$1 AND state='queued') queued,(SELECT count(*)::int FROM app.job_runs WHERE tenant_id=$1 AND state='reserved') reserved,(SELECT count(*)::int FROM app.runs WHERE tenant_id=$1) runs", [tenantId])).rows[0];
     return { tenantId, jobId, invoke, counts };
   }
 
@@ -33,9 +33,9 @@ describe.skipIf(!url)("PostgreSQL queue admission", () => {
     const f = await fixture();
     const sources: InvocationSource[] = ["manual", "webhook", "schedule", "jobLifecycle"];
     const results = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => f.invoke(`event:${i}`, sources[i % 4])));
-    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(2);
     for (const result of results) if (result.status === "rejected") expect(result.reason.code).toBe("queue_full");
-    expect(await f.counts()).toEqual({ invocations: 1, queued: 1, runs: 1 });
+    expect(await f.counts()).toEqual({ invocations: 2, queued: 1, reserved: 1, runs: 2 });
     const otherTenant = await fixture(f.jobId);
     await expect(otherTenant.invoke("other")).resolves.toMatchObject({ duplicate: false });
   });
@@ -45,7 +45,7 @@ describe.skipIf(!url)("PostgreSQL queue admission", () => {
     const results = await Promise.all(Array.from({ length: 12 }, () => f.invoke("same")));
     expect(new Set(results.map(result => result.run.id)).size).toBe(1);
     expect(results.filter(result => !result.duplicate)).toHaveLength(1);
-    expect(await f.counts()).toEqual({ invocations: 1, queued: 1, runs: 1 });
+    expect(await f.counts()).toEqual({ invocations: 1, queued: 0, reserved: 1, runs: 1 });
   });
 
   it("allows one waiting run beside an active run and recovers expired launches without requeuing", async () => {
@@ -66,5 +66,15 @@ describe.skipIf(!url)("PostgreSQL queue admission", () => {
     expect((await runs.claimNext())?.id).toBe(waiting.run.id);
     await expect(f.invoke("next")).resolves.toMatchObject({ duplicate: false });
     expect((await f.counts()).queued).toBe(1);
+  });
+
+  it("reserves every free slot before allowing one waiting run", async () => {
+    const f = await fixture(crypto.randomUUID(), 10);
+    const accepted = await Promise.all(Array.from({ length: 11 }, (_, i) => f.invoke(`burst:${i}`)));
+    expect(accepted).toHaveLength(11);
+    expect((await f.counts()).reserved).toBe(10);
+    expect((await f.counts()).queued).toBe(1);
+    await expect(f.invoke("burst:overflow")).rejects.toMatchObject({ code: "queue_full" });
+    expect((await f.counts()).invocations).toBe(11);
   });
 });

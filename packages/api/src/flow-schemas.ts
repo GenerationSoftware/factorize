@@ -2,7 +2,7 @@ import { z } from "zod";
 import { conditionsSchema, preparedWebhookSchema } from "./webhook-conditions";
 
 export const scopeSchema = z.enum(["flows:read", "flows:write", "runs:read", "runs:write"]);
-export const runStateSchema = z.enum(["queued", "starting", "running", "done", "blocked", "failed", "ignored", "succeeded", "stopping", "stopped"]);
+export const runStateSchema = z.enum(["queued", "reserved", "starting", "running", "done", "blocked", "failed", "ignored", "succeeded", "stopping", "stopped"]);
 export const matchRuleSchema = z.object({
   type: z.enum(["owner", "creator", "status", "label", "assignee"]),
   targetId: z.string().min(1),
