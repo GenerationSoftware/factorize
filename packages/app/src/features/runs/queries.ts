@@ -23,4 +23,4 @@ export const runPageQuery = ({ jobId, cursor, limit }: { jobId?: string; cursor?
   queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs", { signal, params: { query: { jobId, cursor, limit } } }); if (!data || error) throw new Error(messageOf(error)); return data; },
   staleTime: 0, refetchInterval: 2_000, refetchIntervalInBackground: false,
 });
-export const historyQuery = (jobId: string, cursor?: string) => runPageQuery({ jobId, cursor, limit: 30 });
+export const historyQuery = (jobId: string, cursor?: string, sort?: "run" | "status" | "created" | "agent", direction?: "asc" | "desc") => queryOptions({ queryKey: ["runs", "history", jobId, cursor, sort, direction], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs", { signal, params: { query: { jobId, cursor, sort, direction: direction ?? (sort ? "asc" : undefined), limit: 30 } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, staleTime: 10_000 });
