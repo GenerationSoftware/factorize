@@ -52,7 +52,8 @@ jobs:
         run: npm run test:static-slice --workspace=factorize
       - name: Record backend timing
         if: always()
-        run: echo "### Backend checks timing\n- Wall time: $(( $(date +%s) - CI_START_SECONDS ))s" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "### Backend checks timing\n- Wall time: $(( $(date +%s) - CI_START_SECONDS ))s" >> "$GITHUB_STEP_SUMMARY"
 
   browser:
     name: Required browser checks
@@ -77,7 +78,8 @@ jobs:
         run: npm test --workspace=factorize-app
       - name: Record browser timing
         if: always()
-        run: echo "### Required browser checks timing\n- Wall time: $(( $(date +%s) - CI_START_SECONDS ))s" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "### Required browser checks timing\n- Wall time: $(( $(date +%s) - CI_START_SECONDS ))s" >> "$GITHUB_STEP_SUMMARY"
 
   required:
     name: Test and validate Workers
