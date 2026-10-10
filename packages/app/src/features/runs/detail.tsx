@@ -5,17 +5,18 @@ import { ContinuousTrace } from "./continuous-trace";
 import { ExpandedRunDetail } from "./expanded-detail";
 import { ReplayTrace } from "./replay";
 import { useEffect, useState, useRef } from "react";
-import { Link, useParams, useSearch, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useParams, useSearch, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { runStatusQuery, runTraceQuery } from "./queries";
 import { messageOf } from "../auth/session";
 export function RunDetail() {
   const { runId } = useParams({ strict: false }), search = useSearch({ strict: false }) as { after: number };
-  const navigate = useNavigate(), cache = useQueryClient();
+  const location = useLocation(), navigate = useNavigate(), cache = useQueryClient();
+  const tab: "trace" | "info" | "settings" = location.pathname.endsWith("/info") ? "info" : location.pathname.endsWith("/settings") ? "settings" : "trace";
+  const tabPath = (name: "trace" | "info" | "settings"): "/job-runs/$runId" | "/job-runs/$runId/info" | "/job-runs/$runId/settings" => name === "trace" ? "/job-runs/$runId" : name === "info" ? "/job-runs/$runId/info" : "/job-runs/$runId/settings";
   const status = useQuery(runStatusQuery(runId!));
   const [revision, setRevision] = useState("");
-  const [tab, setTab] = useState<"trace" | "context" | "settings">("trace");
   const [continuous, setContinuous] = useState(false);
   const active = !status.data || !["succeeded", "failed", "stopped"].includes(status.data.state) || status.data.finalizing;
   const finalizedSnapshot = useRef("");
@@ -43,7 +44,7 @@ export function RunDetail() {
       cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] });
       void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-tail"] });
       cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] });
-      if (revision || trace.data?.reset) void navigate({ to: "/job-runs/$runId", params: { runId: runId! }, search: { after: 0 }, replace: true });
+      if (revision || trace.data?.reset) void navigate({ to: tabPath(tab), params: { runId: runId! }, search: { after: 0 }, replace: true });
     }
   }, [status.data?.trace_revision, trace.data?.revision, trace.data?.reset, revision, cache, runId, navigate]);
   const stop = useMutation({ retry: false, mutationFn: async () => {
@@ -62,16 +63,16 @@ export function RunDetail() {
       {["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}
     </>}
     {stop.error && <p role="alert">{stop.error.message}</p>}
-    <div role="tablist" aria-label="Run details" className="mt-6 flex gap-1 overflow-x-auto border-b border-stone-200 dark:border-slate-700">
-      {(["trace", "context", "settings"] as const).map((name, index, tabs) => <button key={name} type="button" role="tab" id={`run-tab-${name}`} aria-controls={`run-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1}
+    <nav role="tablist" aria-label="Run details" className="mt-6 flex gap-1 overflow-x-auto border-b border-stone-200 dark:border-slate-700">
+      {(["trace", "info", "settings"] as const).map((name, index, tabs) => <Link key={name} to={tabPath(name)} params={{ runId: runId! }} search={{ after: 0 }} role="tab" id={`run-tab-${name}`} aria-controls={`run-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1}
         className={`min-h-11 shrink-0 border-b-2 px-4 py-3 text-sm capitalize ${tab === name ? "border-factorize-500 font-semibold" : "border-transparent text-slate-600 hover:border-stone-300 dark:text-slate-400"}`}
-        onClick={() => setTab(name)} onKeyDown={event => {
+        onKeyDown={event => {
           const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
           if (next === null) return;
-          event.preventDefault(); setTab(tabs[next]); document.getElementById(`run-tab-${tabs[next]}`)?.focus();
-        }}>{name[0].toUpperCase() + name.slice(1)}</button>)}
-    </div>
-    <section role="tabpanel" id="run-panel-context" aria-labelledby="run-tab-context" hidden={tab !== "context"} tabIndex={0}>
+          event.preventDefault(); void navigate({ to: tabPath(tabs[next]), params: { runId: runId! }, search: { after: 0 } }).then(() => document.getElementById(`run-tab-${tabs[next]}`)?.focus());
+        }}>{name === "info" ? "Info" : name[0].toUpperCase() + name.slice(1)}</Link>)}
+    </nav>
+    <section role="tabpanel" id="run-panel-info" aria-labelledby="run-tab-info" hidden={tab !== "info"} tabIndex={0}>
       <ExpandedRunDetail runId={runId!} />
     </section>
     <section role="tabpanel" id="run-panel-settings" aria-labelledby="run-tab-settings" hidden={tab !== "settings"} tabIndex={0}>
@@ -89,8 +90,8 @@ export function RunDetail() {
         <Summary>{event.title} · {event.type}</Summary><EventBody event={event} />
       </Disclosure></li>)}</ol>
       <nav aria-label="Trace pages" className="my-4 flex gap-4">
-        {!!search.after && <Link to="/job-runs/$runId" params={{ runId: runId! }} search={{ after: 0 }}>First trace page</Link>}
-        {trace.data.nextCursor !== null && <Link to="/job-runs/$runId" params={{ runId: runId! }} search={{ after: trace.data.nextCursor }}>Next trace page</Link>}
+        {!!search.after && <Link to={tabPath("trace")} params={{ runId: runId! }} search={{ after: 0 }}>First trace page</Link>}
+        {trace.data.nextCursor !== null && <Link to={tabPath("trace")} params={{ runId: runId! }} search={{ after: trace.data.nextCursor }}>Next trace page</Link>}
       </nav>
     </>}
     </section>
