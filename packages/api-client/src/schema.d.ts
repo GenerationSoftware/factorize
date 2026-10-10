@@ -4949,6 +4949,7 @@ export interface operations {
                             subtitle: string;
                             url: string;
                             source: {
+                                /** @enum {string} */
                                 kind: "job" | "run" | "trace";
                                 label: string;
                                 id: string;
