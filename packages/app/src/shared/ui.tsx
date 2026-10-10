@@ -17,6 +17,15 @@ export function SortableHeader({ label, active = false, direction = "asc", onSor
   const next = active && direction === "asc" ? "descending" : "ascending";
   return <th scope="col" aria-sort={order} className={`${tableCellClasses} ${className}`}><button type="button" className="font-semibold underline decoration-transparent underline-offset-4 hover:decoration-current focus-visible:rounded-sm focus-visible:decoration-current focus-visible:outline-none" onClick={onSort} aria-label={`${ariaLabel}, ${active ? `sorted ${order}` : "not sorted"}. Activate to sort ${next}`}>{label}{active && <span aria-hidden="true"> {direction === "desc" ? "↓" : "↑"}</span>}</button></th>;
 }
+const runStatusStyles: Record<string, { label: string; color: string; pulse?: boolean }> = {
+  queued: { label: "Queued", color: "bg-amber-500" }, starting: { label: "Starting", color: "bg-blue-500" }, running: { label: "Running", color: "bg-blue-500", pulse: true },
+  blocked: { label: "Blocked", color: "bg-amber-500" }, stopping: { label: "Stopping", color: "bg-amber-500" }, succeeded: { label: "Succeeded", color: "bg-emerald-500" }, done: { label: "Done", color: "bg-emerald-500" },
+  failed: { label: "Failed", color: "bg-red-500" }, stopped: { label: "Stopped", color: "bg-slate-500" }, ignored: { label: "Ignored", color: "bg-slate-400" },
+};
+export function RunStatusDot({ state }: { state: string }) {
+  const status = runStatusStyles[state] ?? { label: state || "Unknown", color: "bg-slate-400" };
+  return <span role="img" aria-label={`Status: ${status.label}`} title={status.label} className={`inline-block size-2.5 rounded-full ${status.color} ${status.pulse ? "motion-safe:animate-pulse" : ""}`} />;
+}
 export function Button({ variant = "secondary", className = "", ...props }: ComponentProps<"button"> & { variant?: keyof typeof buttonClasses }) {
   return <button {...props} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${buttonClasses[variant]} ${className}`} />;
 }
