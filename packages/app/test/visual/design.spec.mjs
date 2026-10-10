@@ -66,7 +66,7 @@ test("mobile profile, search and run dialog keyboard/focus behavior; long conten
   await profile.click(); await expect(page.getByRole("link", { name: "Settings", exact: true }).last()).toBeVisible();
   await page.keyboard.press("Escape"); await expect(profile).toBeFocused();
   await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
-  await expect(page.getByRole("combobox", { name: "Search jobs, runs, and messages", exact: true })).toBeFocused();
+  await expect(page.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true })).toBeFocused();
   await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0);
   const run = page.getByRole("button", { name: "Run job", exact: true }); await run.click();
   await page.getByLabel("JSON data (optional)").fill("[]"); await page.getByRole("button", { name: "Invoke", exact: true }).click();
@@ -131,7 +131,7 @@ for (const theme of ["light", "dark"]) test(`search loading, error and no result
   await page.route("**/api/v1/search?**", route => mode === "pending" ? (pending = route) : mode === "error" ? route.fulfill(failure) : route.fulfill({ json: { items: [] } }));
   await page.goto(origin + "/jobs"); await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
   await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
-  const dialog = page.getByRole("dialog"), input = dialog.getByRole("combobox", { name: "Search jobs, runs, and messages", exact: true });
+  const dialog = page.getByRole("dialog"), input = dialog.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true });
   await input.fill("release"); await expect(dialog.getByRole("status")).toHaveText("Searching…");
   await expect(page).toHaveScreenshot(`search-loading-${theme}-390.png`);
   mode = "error"; await pending.fulfill(failure);
