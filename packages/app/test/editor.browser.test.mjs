@@ -73,7 +73,7 @@ test("search dialog keeps keyboard focus, escapes results and leaves a draft int
   await page.goto(origin + "/jobs/" + id + "/edit");
   await page.getByLabel("Name", { exact: true }).fill("Unsaved draft");
   await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
-  await page.getByRole("combobox", { name: "Search jobs, runs, and messages", exact: true }).fill("build");
+  await page.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true }).fill("build");
   await page.getByRole("listbox", { name: "Search results" }).getByRole("option").waitFor();
   assert.match(await page.getByRole("listbox", { name: "Search results" }).getByRole("option").innerText(), /<script>unsafe<\/script>/);
   assert.equal(await page.getByRole("listbox", { name: "Search results" }).getByRole("option").locator("strong").innerText(), "Build");

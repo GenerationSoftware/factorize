@@ -1198,8 +1198,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search jobs, runs, and trace messages
-         * @description Requires the runs:read scope.
+         * Search jobs and runs by approximate metadata matches
+         * @description Search uses PostgreSQL pg_trgm approximate matching over job names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.
+         *
+         *     Requires the runs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
