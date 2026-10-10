@@ -10,7 +10,7 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   const cache = useQueryClient();
   const [focused, setFocused] = useState<number | null>(null), [selection, setSelection] = useState<number[]>([]);
   const container = useRef<HTMLDivElement>(null), [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const followBottom = useRef(true), positioned = useRef(false), hasRenderedItems = useRef(false), initialPageShown = useRef(false), suppressScrollFetch = useRef(false), scrollFetchPending = useRef(false);
+  const paginationStarted = useRef(false);
   const trace = useInfiniteQuery({ queryKey: ["runs", runId, "continuous-trace", revision], initialPageParam: 0,
     queryFn: async ({ signal, pageParam }) => { const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: pageParam, revision, limit: 200 } } }); if (!data || error) throw new Error(messageOf(error)); return data; },
     enabled: !!revision, getNextPageParam: page => page.reset ? undefined : page.nextCursor ?? undefined,
@@ -26,40 +26,19 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   useEffect(() => { if (live.data && !live.data.reset && live.data.revision === revision) cache.setQueryData(trace.data ? ["runs", runId, "continuous-trace", revision] : [], (previous: typeof trace.data) => previous ? { ...previous, pages: previous.pages.map((page, index) => index === previous.pages.length - 1 ? live.data! : page) } : previous); }, [live.data, cache, runId, revision]);
   const items = trace.data?.pages.filter(page => page.revision === revision && !page.reset).flatMap(page => page.items) ?? [];
   const latestAssistant = [...items].reverse().find(event => event.type === "assistant_message");
-  const scrollToBottom = () => {
-    const element = container.current;
-    if (element && element.scrollTop !== element.scrollHeight) {
-      suppressScrollFetch.current = true;
-      element.scrollTop = element.scrollHeight;
-    }
-  };
   useEffect(() => {
     const element = container.current;
     if (!element) return;
-    const changed = () => {
-      followBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
-      if (suppressScrollFetch.current) { suppressScrollFetch.current = false; return; }
-      if (followBottom.current && trace.hasNextPage && !trace.isFetching && !scrollFetchPending.current) {
-        scrollFetchPending.current = true;
-        void trace.fetchNextPage();
-      }
-    };
+    const changed = () => { paginationStarted.current = true; };
     element.addEventListener("scroll", changed, { passive: true });
     return () => element.removeEventListener("scroll", changed);
-  }, [trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
+  }, []);
   useEffect(() => {
-    if (!items.length) return;
-    if (!hasRenderedItems.current) { hasRenderedItems.current = true; return; }
-    scrollFetchPending.current = false;
-    requestAnimationFrame(() => {
-      if (!positioned.current || followBottom.current) scrollToBottom();
-      positioned.current = true;
-      if (followBottom.current && trace.hasNextPage && !trace.isFetching && !scrollFetchPending.current) {
-        scrollFetchPending.current = true;
-        void trace.fetchNextPage();
-      }
-    });
-  }, [items.length, trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
+    const timer = window.setInterval(() => {
+      if (paginationStarted.current && trace.hasNextPage && !trace.isFetching) void trace.fetchNextPage();
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
   useEffect(() => {
     const changed = () => {
       const current = window.getSelection();
@@ -75,10 +54,12 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   const virtualizer = useVirtualizer({ count: items.length, getScrollElement: () => container.current, estimateSize: () => 70, overscan: 8, rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...selection, ...(focused === null ? [] : [focused])])].filter(index => index >= 0 && index < items.length).sort((a, b) => a - b), getItemKey: index => `${revision}:${items[index].sequence}:${items[index].id}` });
   const virtualItems = virtualizer.getVirtualItems();
   useEffect(() => {
-    if (initialPageShown.current || !trace.hasNextPage || trace.isFetching) return;
-    const delay = initialPageShown.current ? 0 : 100;
-    initialPageShown.current = true;
-    const timer = window.setTimeout(() => void trace.fetchNextPage(), delay);
+    if ((virtualItems.at(-1)?.index ?? -1) < items.length - 8 || !trace.hasNextPage || trace.isFetching) return;
+    void trace.fetchNextPage();
+  }, [virtualItems, items.length, trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
+  useEffect(() => {
+    if (!trace.hasNextPage || trace.isFetching) return;
+    const timer = window.setTimeout(() => void trace.fetchNextPage(), 100);
     return () => window.clearTimeout(timer);
   }, [trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
   return <Card>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading trace…</p>}
