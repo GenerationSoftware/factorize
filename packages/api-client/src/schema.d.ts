@@ -1451,6 +1451,7 @@ export interface components {
         Run: {
             id: string;
             job_id: string;
+            job_name: string;
             issue_id: string;
             issue_url: string | null;
             issue_title: string;
@@ -1477,6 +1478,7 @@ export interface components {
             items: {
                 id: string;
                 job_id: string;
+                job_name: string;
                 issue_id: string;
                 issue_url: string | null;
                 issue_title: string;
@@ -4897,7 +4899,7 @@ export interface operations {
                 jobId?: string;
                 state?: "queued" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped";
                 contextQuery?: string;
-                sort?: "run" | "status" | "created" | "agent";
+                sort?: "job" | "run" | "status" | "created" | "agent";
                 direction?: "asc" | "desc";
                 limit?: number;
                 cursor?: string;

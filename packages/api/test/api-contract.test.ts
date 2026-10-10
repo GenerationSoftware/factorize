@@ -26,6 +26,7 @@ const methods = new Set([
 
 describe("versioned API contract", () => {
   it("validates run sorting fields and directions", () => {
+    expect(listRunsSchema.safeParse({ sort: "job", direction: "asc" }).success).toBe(true);
     expect(listRunsSchema.safeParse({ sort: "agent", direction: "desc" }).success).toBe(true);
     expect(listRunsSchema.safeParse({ sort: "not-a-column" }).success).toBe(false);
     expect(listRunsSchema.safeParse({ direction: "asc" }).success).toBe(false);
