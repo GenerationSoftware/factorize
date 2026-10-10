@@ -39,10 +39,10 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
   await page.goto(origin + "/jobs?q=Review");
   const table = page.getByRole("table", { name: "Jobs", exact: true });
   await table.getByRole("link", { name: "Alpha running", exact: true }).waitFor();
-  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Running", "Title"]);
-  assert.deepEqual(await table.locator("tbody td:last-child").allTextContents(), ["Alpha running", longTitle, ...fixtures.slice(1, 29).map(job => job.name)]);
-  assert.deepEqual(await table.locator("tbody tr").first().locator("td").allTextContents(), ["Disabled", "2/10", "Alpha running"]);
-  assert.deepEqual(await table.locator("tbody tr").nth(2).locator("td").allTextContents(), ["Disabled", "0/2", "Idle 01"]);
+  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Running", "Title"]);
+  assert.deepEqual(await table.locator("tbody td:last-child a").allTextContents(), ["Alpha running", longTitle, ...fixtures.slice(1, 29).map(job => job.name)]);
+  assert.deepEqual(await table.locator("tbody tr").first().locator("td").allTextContents(), ["2/10", "Alpha runningDisabled"]);
+  assert.deepEqual(await table.locator("tbody tr").nth(2).locator("td").allTextContents(), ["0/2", "Idle 01Disabled"]);
   assert.equal(await page.getByLabel("Search jobs", { exact: true }).count(), 0);
   assert.equal(await page.getByText("Your software factory. Configure prompts, connect triggers, and follow every run.").count(), 0);
   const heading = await page.getByRole("heading", { name: "Jobs", exact: true }).boundingBox(), create = await page.getByRole("link", { name: "Create job", exact: true }).boundingBox();
@@ -63,6 +63,41 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
   await table.getByRole("link", { name: "Alpha running", exact: true }).focus(); await page.keyboard.press("Enter");
   await page.waitForURL(`**/jobs/${fixtures[30].id}`);
   await page.getByRole("heading", { name: "Alpha running", exact: true }).waitFor();
+  await context.close();
+});
+test("jobs can sort running and title in both directions with accessible state", async () => {
+  const { page, context } = await contextFor();
+  const fixtures = [
+    { ...summary, id: "job-z", name: "Zulu", runningCount: 1 },
+    { ...summary, id: "job-a", name: "Alpha", runningCount: 3, enabled: false },
+    { ...summary, id: "job-b", name: "Beta", runningCount: 3 },
+    { ...summary, id: "job-i", name: "Idle", runningCount: 0 },
+  ];
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: fixtures, nextCursor: null } }));
+  await page.goto(origin + "/jobs");
+  const table = page.getByRole("table", { name: "Jobs", exact: true });
+  await table.getByRole("link", { name: "Zulu", exact: true }).waitFor();
+  assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Alpha", "Beta", "Zulu", "Idle"]);
+  const running = table.getByRole("button", { name: /Running sort/ });
+  await running.click();
+  await page.waitForFunction(() => document.querySelector("thead th")?.getAttribute("aria-sort") === "ascending");
+  assert.equal(await table.locator("th").nth(0).getAttribute("aria-sort"), "ascending");
+  assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Idle", "Zulu", "Alpha", "Beta"]);
+  await running.click();
+  await page.waitForFunction(() => document.querySelector("thead th")?.getAttribute("aria-sort") === "descending");
+  assert.equal(await table.locator("th").nth(0).getAttribute("aria-sort"), "descending");
+  assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Alpha", "Beta", "Zulu", "Idle"]);
+  const title = table.getByRole("button", { name: /Title sort/ });
+  await title.click();
+  await page.waitForFunction(() => document.querySelectorAll("thead th")[1]?.getAttribute("aria-sort") === "ascending");
+  assert.equal(await table.locator("th").nth(1).getAttribute("aria-sort"), "ascending");
+  assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Alpha", "Beta", "Idle", "Zulu"]);
+  await page.reload(); await table.getByRole("link", { name: "Alpha", exact: true }).waitFor();
+  assert.equal(await table.locator("th").nth(1).getAttribute("aria-sort"), "ascending");
+  await title.click();
+  await page.waitForFunction(() => document.querySelectorAll("thead th")[1]?.getAttribute("aria-sort") === "descending");
+  assert.equal(await table.locator("th").nth(1).getAttribute("aria-sort"), "descending");
+  assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Zulu", "Idle", "Beta", "Alpha"]);
   await context.close();
 });
 test("invocation validates JSON, preserves retry idempotency and navigates to lightweight run/trace", async () => {
