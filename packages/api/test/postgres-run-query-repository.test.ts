@@ -15,6 +15,8 @@ describe("run timing queries", () => {
   });
 
   it.each([
+    ["job", "asc", "j.name ASC"],
+    ["job", "desc", "j.name DESC"],
     ["run", "asc", "COALESCE(NULLIF(r.run_name, ''), NULLIF(r.issue_title, ''), 'Run') ASC"],
     ["run", "desc", "COALESCE(NULLIF(r.run_name, ''), NULLIF(r.issue_title, ''), 'Run') DESC"],
     ["status", "asc", "r.state ASC"],

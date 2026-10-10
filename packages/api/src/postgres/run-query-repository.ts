@@ -5,6 +5,7 @@ const encodeCursor = (value: unknown[]) => btoa(JSON.stringify(value)).replaceAl
 const decodeCursor = (value?: string | null): unknown[] | null => { if (!value) return null; try { const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "===".slice((value.length + 3) % 4), parsed = JSON.parse(atob(padded)); return Array.isArray(parsed) ? parsed : null; } catch { return null; } };
 
 const sortExpressions = {
+  job: "j.name",
   run: "COALESCE(NULLIF(r.run_name, ''), NULLIF(r.issue_title, ''), 'Run')",
   status: "r.state",
   created: "r.created_at",
@@ -29,12 +30,12 @@ export class RunQueryRepository {
     }
     values.push(limit + 1);
     const order = sort ? `CASE WHEN ${sortExpressions[sort]} IS NULL THEN 1 ELSE 0 END ASC, ${sortExpressions[sort]} ${direction} NULLS LAST, r.id ${direction}` : "r.created_at DESC,r.id DESC";
-    const result = await this.database.pool.query<any>(`SELECT r.id,r.job_id,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at
-      FROM app.runs r JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT $${values.length}`, values);
+    const result = await this.database.pool.query<any>(`SELECT r.id,r.job_id,j.name job_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at
+      FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT $${values.length}`, values);
     const rows = result.rows.slice(0, limit), hasMore = result.rows.length > limit;
     const last = rows.at(-1);
     const nextCursor = hasMore && last ? sort ? (() => {
-      const value = sort === "run" ? (last.run_name || last.issue_title || "Run") : last[sort === "status" ? "state" : sort === "created" ? "created_at" : "agent_kind"];
+      const value = sort === "run" ? (last.run_name || last.issue_title || "Run") : last[sort === "job" ? "job_name" : sort === "status" ? "state" : sort === "created" ? "created_at" : "agent_kind"];
       return encodeCursor([sort, direction.toLowerCase(), sort === "run" || value != null ? 0 : 1, value, last.id]);
     })() : encodeCursor([last.created_at, last.id]) : null;
     return { items: rows, nextCursor };
