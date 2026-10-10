@@ -68,10 +68,10 @@ test("mobile profile, search and run dialog keyboard/focus behavior; long conten
   await page.getByRole("button", { name: "Search jobs and runs", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Search jobs and runs", exact: true })).toBeFocused();
   await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0);
-  const run = page.getByRole("button", { name: "Run job", exact: true }); await run.click();
-  await page.getByLabel("JSON data (optional)").fill("[]"); await page.getByRole("button", { name: "Invoke", exact: true }).click();
-  await expect(page.getByRole("alert")).toHaveText("JSON data must be an object.");
-  await expect(page).toHaveScreenshot("run-dialog-validation-mobile.png");
+  const run = page.getByRole("button", { name: "More run options", exact: true }); await run.click();
+  await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
+  await page.getByLabel("Prompt", { exact: true }).fill("Review");
+  await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape"); await expect(run).toBeFocused();
   await expect(page.getByText("Prompt template", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
