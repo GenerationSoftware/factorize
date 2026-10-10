@@ -23,7 +23,7 @@ export class OperationsRepository {
         CASE WHEN word_similarity($2,j.name) >= word_similarity($2,j.slug) THEN j.name ELSE j.slug END match_text,
         GREATEST(word_similarity($2,j.name),word_similarity($2,j.slug)) score,
         CASE WHEN lower(j.name)=$2 OR lower(j.slug)=$2 THEN 1 ELSE 2 END category,j.id::text stable_key
-      FROM app.jobs j WHERE j.tenant_id=$1 AND (j.name <% $2 OR j.slug <% $2)
+      FROM app.jobs j WHERE j.tenant_id=$1 AND ($2 <% j.name OR $2 <% j.slug)
       UNION ALL
       SELECT 'run',r.id::text,coalesce(nullif(r.run_name,''),nullif(r.issue_title,''),'Run '||left(r.id::text,8)),r.state,'/job-runs/'||r.id,r.id::text,
         coalesce(nullif(r.run_name,''),nullif(r.issue_title,''),'Run '||left(r.id::text,8)),
@@ -32,7 +32,7 @@ export class OperationsRepository {
           ELSE coalesce(nullif(r.issue_title,''),r.issue_id) END match_text,
         GREATEST(similarity(r.issue_id,$2),word_similarity($2,r.run_name),word_similarity($2,r.issue_title)) score,
         CASE WHEN lower(r.issue_id)=$2 THEN 0 WHEN lower(r.run_name)=$2 OR lower(r.issue_title)=$2 THEN 1 ELSE 2 END category,r.id::text stable_key
-      FROM app.runs r WHERE r.tenant_id=$1 AND (r.issue_id % $2 OR r.run_name <% $2 OR r.issue_title <% $2)
+      FROM app.runs r WHERE r.tenant_id=$1 AND (r.issue_id % $2 OR $2 <% r.run_name OR $2 <% r.issue_title)
     ) found ORDER BY category,score DESC,kind,stable_key LIMIT 100`, [this.tenantId, needle.toLowerCase()]);
     return { items: rows.rows.map(row => ({
       kind: row.kind, id: row.id, title: row.title, subtitle: row.subtitle, url: row.url,
