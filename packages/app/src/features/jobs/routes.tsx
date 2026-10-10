@@ -2,9 +2,10 @@ import { createRoute, lazyRouteComponent, redirect, type AnyRootRoute } from "@t
 import { sessionQuery } from "../auth/session";
 import { queryClient } from "../../shared/query-client";
 import { jobsQuery, jobQuery, type JobsSearch } from "./queries";
-const runStates = ["queued", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "ignored", "done"];
+import { runStatuses } from "../../shared/ui";
+const runStates = runStatuses;
 const parseRunStates = (value: unknown) => {
-  const states = (Array.isArray(value) ? value : typeof value === "string" ? [value] : []).filter(state => runStates.includes(String(state)));
+  const states = (Array.isArray(value) ? value : typeof value === "string" ? [value] : []).filter(state => runStates.includes(String(state) as typeof runStates[number]));
   return states.length ? states : undefined;
 };
 export function jobsRoutes(root: AnyRootRoute) {
