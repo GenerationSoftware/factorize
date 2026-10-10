@@ -43,6 +43,7 @@ test("all-runs columns keep their widths when sorting changes content", async ()
   for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport); await page.goto(origin + "/job-runs");
     const table = page.getByRole("table");
+    await table.getByRole("columnheader", { name: /Run/ }).waitFor();
     const widths = await table.locator("thead th").evaluateAll(cells => cells.map(cell => Math.round(cell.getBoundingClientRect().width)));
     await table.getByRole("button", { name: /Run, not sorted/ }).click(); await page.waitForURL("**/job-runs?sort=run&direction=asc");
     const sortedWidths = await table.locator("thead th").evaluateAll(cells => cells.map(cell => Math.round(cell.getBoundingClientRect().width)));
