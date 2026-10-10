@@ -173,3 +173,59 @@ for (const theme of ["light", "dark"]) test(`run tabs, context and breadcrumbs o
   await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Jobs", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Jobs", exact: true })).toBeVisible();
 });
+
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }, { width: 390, height: 400 }]) test(`search geometry stays stable through asynchronous query changes ${viewport.width}x${viewport.height}`, async ({ page }) => {
+  await page.setViewportSize(viewport); await mockApi(page);
+  let pending;
+  await page.route("**/api/v1/search?**", route => { pending = route; });
+  await page.goto(origin + "/jobs");
+  const opener = page.getByRole("button", { name: "Search jobs and runs", exact: true });
+  await opener.click();
+  const dialog = page.getByRole("dialog"), input = dialog.getByRole("combobox");
+  await expect(input).toBeFocused();
+  const geometry = async () => ({ panel: await dialog.boundingBox(), input: await input.boundingBox() });
+  const initial = await geometry();
+  expect(initial.panel.y).toBeGreaterThanOrEqual(0);
+  expect(initial.panel.y + initial.panel.height).toBeLessThanOrEqual(viewport.height);
+  const items = count => Array.from({ length: count }, (_, index) => ({ kind: "job", id: jobId, title: `Result ${index + 1}`, subtitle: "Matching job " + "long text ".repeat(8) }));
+  for (const [query, count] of [["missing", 0], ["few", 2], ["many", 30], ["changed", 1], ["empty again", 0]]) {
+    pending = undefined;
+    await input.fill(query);
+    await expect(dialog.getByRole("status")).toHaveText("Searching…");
+    expect(await geometry()).toEqual(initial);
+    await expect.poll(() => pending && new URL(pending.request().url()).searchParams.get("q")).toBe(query);
+    await pending.fulfill({ json: { items: items(count) } });
+    await expect(dialog.getByRole("option")).toHaveCount(count);
+    await expect(dialog.getByRole("status")).toHaveCount(0);
+    if (!count) await expect(dialog.getByText("No results found.", { exact: true })).toBeVisible();
+    expect(await geometry()).toEqual(initial);
+    await expect(input).toBeFocused();
+    if (count === 30) {
+      await input.press("ArrowUp");
+      await expect(input).toHaveAttribute("aria-activedescendant", "search-result-29");
+      await expect(dialog.getByRole("option").last()).toHaveAttribute("aria-selected", "true");
+      const last = await dialog.getByRole("option").last().boundingBox();
+      expect(last.y + last.height).toBeLessThanOrEqual(initial.panel.y + initial.panel.height);
+      expect(await dialog.locator("#search-results").evaluate(list => list.parentElement.scrollTop)).toBeGreaterThan(0);
+      expect(await geometry()).toEqual(initial);
+      await input.press("ArrowDown");
+      await expect(input).toHaveAttribute("aria-activedescendant", "search-result-0");
+    }
+  }
+  await input.fill("");
+  await expect(dialog.getByText("Find jobs and runs", { exact: false })).toBeVisible();
+  expect(await geometry()).toEqual(initial);
+  await input.fill("select");
+  await expect(dialog.getByRole("status")).toHaveText("Searching…");
+  await expect.poll(() => pending && new URL(pending.request().url()).searchParams.get("q")).toBe("select");
+  await pending.fulfill({ json: { items: items(2) } });
+  await expect(dialog.getByRole("option")).toHaveCount(2);
+  await input.press("ArrowDown"); await input.press("Enter");
+  await expect(dialog).toHaveCount(0); await expect(page).toHaveURL(origin + "/jobs/" + jobId);
+  await opener.click(); await input.fill("click");
+  await expect(dialog.getByRole("status")).toHaveText("Searching…");
+  await expect.poll(() => pending && new URL(pending.request().url()).searchParams.get("q")).toBe("click");
+  await pending.fulfill({ json: { items: items(1) } });
+  await dialog.getByRole("option").click(); await expect(dialog).toHaveCount(0);
+  await opener.click(); await page.keyboard.press("Escape"); await expect(opener).toBeFocused();
+});
