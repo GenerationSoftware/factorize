@@ -49,7 +49,7 @@ export class WebhookService {
         await this.event(deliveryPk, candidate.job.id, provider, deliveryId, result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Webhook occurrence was already claimed." : "Webhook occurrence queued through canonical job invocation.");
       } catch (error) {
         if (!(error instanceof InvocationError) || error.code !== "queue_full") throw error;
-        await this.event(deliveryPk, candidate.job.id, provider, deliveryId, "queue_full", "Job already has a queued run; occurrence skipped.");
+        await this.event(deliveryPk, candidate.job.id, provider, deliveryId, "queue_full", "Job has no free execution slot and already has a waiting run; occurrence skipped.");
       }
     }
     await this.database.pool.query("UPDATE app.webhook_deliveries SET outcome='ignored',detail='Delivery was received but did not match an enabled trigger.' WHERE tenant_id=$1 AND id=$2 AND outcome='received'", [this.tenantId, deliveryPk]);

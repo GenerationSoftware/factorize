@@ -1,5 +1,5 @@
 import { z } from "zod";
-export const executionState = z.enum(["queued", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped"]);
+export const executionState = z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped"]);
 export const runStatusResponse = z.object({
   id: z.string(), job_id: z.string(), state: executionState,
   run_name: z.string(), job_name: z.string(), destination_url: z.string().nullable(),
