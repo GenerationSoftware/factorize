@@ -15,7 +15,7 @@ import {
 } from "./flow-schemas";
 import { traceReplaySchema } from "./trace-replay-schemas";
 import document from "./api-document.json";
-import { authInputs, authSuccess, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
+import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
 
 type JsonSchema = Record<string, any>;
 export interface RouteContract {
@@ -165,18 +165,20 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 }
 
 export const API_ROUTES: RouteContract[] = [
+  authRoute("POST", "/api/v1/auth/connections", "connection-start", "Persist an individual validated MCP connection; sets a per-attempt browser cookie", connectionStartSuccess, connectionStartInput),
+  authRoute("POST", "/api/v1/auth/connections/resume", "connection-resume", "Resume verified onboarding in the initiating browser; never grants OAuth access", continuationSuccess, connectionResumeInput),
   authRoute("GET", "/api/v1/session", "session", "Get current browser session", sessionResponse),
   authRoute("POST", "/api/v1/auth/login", "login", "Sign in", loginSuccess, authInputs.login),
   authRoute("POST", "/api/v1/auth/signup", "signup", "Request signup; existing accounts return the same accepted response", authSuccess, authInputs.signup, 202),
   authRoute("POST", "/api/v1/auth/email-verification/request", "verification-request", "Request email verification", authSuccess, authInputs.request),
-  authRoute("POST", "/api/v1/auth/email-verification/complete", "verification", "Complete email verification", authSuccess, authInputs.verify),
+  authRoute("POST", "/api/v1/auth/email-verification/complete", "verification", "Verify email, establish an owner session, and resume explicit consent; callbacks stay in the initiating browser", continuationSuccess, authInputs.verify),
   authRoute("POST", "/api/v1/auth/password-reset/request", "reset-request", "Request password reset", authSuccess, authInputs.request),
-  authRoute("POST", "/api/v1/auth/password-reset/complete", "reset", "Complete password reset", authSuccess, authInputs.reset),
+  authRoute("POST", "/api/v1/auth/password-reset/complete", "reset", "Complete password reset and resume onboarding", continuationSuccess, authInputs.reset),
   authRoute("POST", "/api/v1/auth/password", "password", "Change password and invalidate sessions", authSuccess, authInputs.change),
   authRoute("POST", "/api/v1/auth/logout", "logout", "Revoke current session and clear browser cookie", authSuccess),
 
-  route("POST", "/api/v1/oauth/device/preview", "flows:read", { summary: "Inspect a device authorization code", responses: { "200": { description: "Pending device request", content: { "application/json": { schema: jsonSchema(z.object({ userCode: z.string(), clientName: z.string(), scopes: z.array(z.string()), expiresAt: z.string() }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32) }).strict(), authOperation: "device-preview", ownerSession: true }),
-  route("POST", "/api/v1/oauth/device/decision", "flows:write", { summary: "Approve or deny a device authorization code", responses: { "200": { description: "Device decision", content: { "application/json": { schema: jsonSchema(z.object({ status: z.enum(["approved", "denied"]) }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32), decision: z.enum(["allow", "deny"]) }).strict(), authOperation: "device-decision", ownerSession: true }),
+  route("POST", "/api/v1/oauth/device/preview", "flows:read", { summary: "Inspect a device authorization code", responses: { "200": { description: "Pending device request", content: { "application/json": { schema: jsonSchema(z.object({ userCode: z.string(), clientName: z.string(), scopes: z.array(z.string()), expiresAt: z.string(), signature: z.string() }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32) }).strict(), authOperation: "device-preview", ownerSession: true }),
+  route("POST", "/api/v1/oauth/device/decision", "flows:write", { summary: "Approve or deny a device authorization code", responses: { "200": { description: "Device decision", content: { "application/json": { schema: jsonSchema(z.object({ status: z.enum(["approved", "denied"]) }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32), signature: z.string().min(1).max(256), decision: z.enum(["allow", "deny"]) }).strict(), authOperation: "device-decision", ownerSession: true }),
   route("POST", "/api/v1/oauth/consent/preview", "flows:read", { summary: "Inspect an OAuth consent request", responses: { "200": { description: "Owner-bound expiring consent", content: { "application/json": { schema: jsonSchema(consentPreviewResponse, "output") } } } } }, async () => undefined, { body: consentPreviewInput, authOperation: "consent-preview", ownerSession: true }),
   route("POST", "/api/v1/oauth/consent/decision", "flows:write", { summary: "Decide an OAuth consent request", responses: { "200": { description: "Validated protocol destination", content: { "application/json": { schema: jsonSchema(consentDecisionResponse, "output") } } } } }, async () => undefined, { body: consentDecisionInput, authOperation: "consent-decision", ownerSession: true }),
   route("GET", "/api/v1/trigger-contexts", "flows:read", {

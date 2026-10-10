@@ -16,10 +16,23 @@ test("consent refresh preserves OAuth query, scope selection and server-owned re
 });
 test("device deep link loads metadata and approval sends no protocol tokens", async () => {
   const { context, page } = await setup(); let decision;
-  await page.route("**/api/v1/oauth/device/preview", route => route.fulfill({ json: { userCode: "ABCD-EFGH", clientName: "My CLI", scopes: ["flows:read"], expiresAt: "2026-10-09T12:00:00Z" } }));
+  await page.route("**/api/v1/oauth/device/preview", route => route.fulfill({ json: { userCode: "ABCD-EFGH", clientName: "My CLI", signature: "device-signature", scopes: ["flows:read"], expiresAt: "2026-10-09T12:00:00Z" } }));
   await page.route("**/api/v1/oauth/device/decision", route => { decision = route.request().postDataJSON(); return route.fulfill({ json: { status: "approved" } }); });
-  await page.goto(origin + "/device?user_code=ABCD-EFGH"); await page.getByRole("heading", { name: "Authorize My CLI" }).waitFor(); await page.reload(); await page.getByRole("button", { name: "Allow device" }).click(); await page.getByRole("status").filter({ hasText: "Device connected" }).waitFor(); assert.deepEqual(decision, { userCode: "ABCD-EFGH", decision: "allow" }); await context.close();
+  await page.goto(origin + "/device?user_code=ABCD-EFGH"); await page.getByRole("heading", { name: "Authorize My CLI" }).waitFor(); await page.reload(); await page.getByRole("button", { name: "Allow device" }).click(); await page.getByRole("status").filter({ hasText: "Device connected" }).waitFor(); assert.deepEqual(decision, { userCode: "ABCD-EFGH", signature: "device-signature", decision: "allow" }); await context.close();
 });
 test("expired device authorization is a safe visible error", async () => {
   const { context, page } = await setup(); await page.route("**/api/v1/oauth/device/preview", route => route.fulfill({ status: 400, json: { error: { code: "invalid_request", message: "Invalid or expired device code." } } })); await page.goto(origin + "/device?user_code=EXPIRED"); await page.getByRole("alert").filter({ hasText: "Invalid or expired device code." }).waitFor(); assert.equal(await page.getByRole("button", { name: "Allow device" }).count(), 0); await context.close();
+});
+
+test("device code entry recovers from an expired attempt with a new client code and supports explicit denial", async () => {
+  const { context, page } = await setup(); let decision;
+  await page.route("**/api/v1/oauth/device/preview", route => route.request().postDataJSON().userCode === "EXPIRED"
+    ? route.fulfill({ status: 400, json: { error: { code: "invalid_request", message: "Expired code. Request a new code in your client." } } })
+    : route.fulfill({ json: { userCode: "ABCD-2345", clientName: "New CLI", signature: "new-signature", scopes: [], expiresAt: new Date(Date.now() + 600000).toISOString() } }));
+  await page.route("**/api/v1/oauth/device/decision", route => { decision = route.request().postDataJSON(); return route.fulfill({ json: { status: "denied" } }); });
+  await page.goto(origin + "/device?user_code=EXPIRED&connection=old-attempt"); await page.getByRole("alert").waitFor();
+  await page.getByLabel("Device code").fill("abcd-2345"); await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("heading", { name: "Authorize New CLI" }).waitFor(); assert.equal(new URL(page.url()).searchParams.get("connection"), null);
+  await page.getByRole("button", { name: "Deny device" }).click(); await page.getByRole("status").filter({ hasText: "Authorization denied" }).waitFor();
+  assert.deepEqual(decision, { userCode: "ABCD-2345", signature: "new-signature", decision: "deny" }); await context.close();
 });

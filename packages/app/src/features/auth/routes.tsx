@@ -4,7 +4,9 @@ import { sessionQuery } from "./session";
 import { queryClient } from "../../shared/query-client";
 
 const Screen = lazyRouteComponent(() => import("./auth-screen"), "AuthScreen");
-const validateSearch = (input: Record<string, unknown>) => ({
+const validateSearch = (input: Record<string, unknown>): { token?: string; returnTo?: string; connection?: string; expired?: boolean } => ({
+  connection: typeof input.connection === "string" ? input.connection : undefined,
+  expired: input.expired === "1",
   token: typeof input.token === "string" ? input.token : undefined,
   returnTo: typeof input.returnTo === "string" ? input.returnTo : undefined,
 });

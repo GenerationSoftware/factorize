@@ -1,3 +1,4 @@
+import { executeAuth } from "./auth-api";
 import { STATIC_CSP, staticApp } from "./static-app";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
@@ -43,18 +44,6 @@ app.onError((error, c) => {
   return c.text("Internal Server Error", 500);
 });
 
-async function authIdentity(c: any, path: string, input: Record<string, unknown>) {
-  const auth = new AuthRepository(databaseFor(c.env), c.env);
-  const result = path === "/signup" ? await auth.signup(input) : path === "/login" ? await auth.login(input) : path === "/reset/request" ? await auth.requestReset(input) : await auth.completeReset(input);
-  return { response: new Response(JSON.stringify(result.body), { status: result.status, headers: { "Content-Type": "application/json" } }), body: result.body as any };
-}
-async function establishSession(c: any, identity: { userId: string; email: string; tenantId: string; sessionVersion: number }) {
-  const data = await new IdentityRepository(databaseFor(c.env), identity.tenantId).member(identity.userId);
-  if (data?.role !== "owner" || data.sessionVersion !== identity.sessionVersion) return false;
-  const lifetime = 60 * 60 * 24 * 7;
-  setCookie(c, "factorize_session", await signSession({ tenantId: identity.tenantId, userId: identity.userId, email: identity.email, exp: Math.floor(Date.now() / 1000) + lifetime, sessionVersion: data.sessionVersion }, c.env.SESSION_SIGNING_SECRET), { httpOnly: true, secure: new URL(c.env.APP_ORIGIN).protocol === "https:", sameSite: "Lax", path: "/", maxAge: lifetime });
-  return true;
-}
 async function authed(c: any): Promise<Session | null> { return readSession(getCookie(c, "factorize_session"), c.env.SESSION_SIGNING_SECRET); }
 async function owner(c: any): Promise<Session | null> {
   const started = performance.now();
@@ -105,22 +94,22 @@ app.post("/auth/logout", async (c) => {
   return c.redirect("/");
 });
 
-app.post("/auth/signup", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/signup", input as Record<string, unknown>); return c.text(result.response.ok ? "Check your email for the next step." : "The request could not be completed. Try again.", result.response.status as any); });
-app.post("/auth/login", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/login", input as Record<string, unknown>); if (!result.response.ok) return c.text("The request could not be completed. Return to the sign-in page and try again.", result.response.status as any); if (!await establishSession(c, result.body)) return c.text("This account cannot access the tenant", 403); const oauthReturn = getCookie(c, "factorize_oauth_return");
-  if (oauthReturn?.startsWith("/authorize?") || oauthReturn?.startsWith("/device")) { deleteCookie(c, "factorize_oauth_return", { path: "/" }); return c.redirect(oauthReturn, 303); }
-  return c.redirect("/settings/integrations", 303); });
-app.post("/auth/password-reset", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/reset/request", input as Record<string, unknown>); return c.text(result.response.ok ? "Check your email for the next step." : "The request could not be completed. Try again.", result.response.status as any); });
-app.post("/auth/password-reset/complete", async (c) => { const input = await c.req.parseBody(); const result = await authIdentity(c, "/reset/complete", input as Record<string, unknown>); return result.response.ok ? c.redirect("/auth/login", 303) : c.text("The request could not be completed. Return to the sign-in page and try again.", result.response.status as any); });
-
-app.post("/auth/verify", async (c) => {
-  const input = await c.req.parseBody();
-  const result = await new AuthRepository(databaseFor(c.env), c.env).completeVerification(String(input.token ?? ""));
-  return result.status === 200 ? c.redirect("/auth/login", 303) : c.text("The request could not be completed. Return to the sign-in page and try again.", 400);
-});
-app.post("/auth/verify/request", async (c) => {
-  const result = await new AuthRepository(databaseFor(c.env), c.env).requestEmail(await c.req.parseBody(), "verify");
-  return c.text(result.status === 202 ? "Check your email for the next step." : "The request could not be completed. Try again.", result.status as any);
-});
+// Form compatibility uses the same continuation and session rules as the JSON API.
+async function authForm(c: any, action: "signup" | "login" | "reset-request" | "reset" | "verification" | "verification-request") {
+  const response = await executeAuth(action, c.req.raw, c.env, await c.req.parseBody());
+  const body = await response.json() as any;
+  if (!response.ok) return c.text(body.error?.message ?? "The request could not be completed.", response.status);
+  const headers = new Headers(response.headers);
+  headers.set("Content-Type", "text/plain; charset=utf-8");
+  if (body.returnTo) { headers.set("Location", body.returnTo); return new Response(null, { status: 303, headers }); }
+  return new Response(body.crossBrowser ? "Email verified. Return to the original browser to finish connecting your MCP client." : "Check your email for the next step.", { status: action === "signup" ? 201 : 200, headers });
+}
+app.post("/auth/signup", c => authForm(c, "signup"));
+app.post("/auth/login", c => authForm(c, "login"));
+app.post("/auth/password-reset", c => authForm(c, "reset-request"));
+app.post("/auth/password-reset/complete", c => authForm(c, "reset"));
+app.post("/auth/verify", c => authForm(c, "verification"));
+app.post("/auth/verify/request", c => authForm(c, "verification-request"));
 app.post("/auth/password-change", async (c) => {
   const session = await owner(c); if (!session) return c.text("Unauthorized", 401);
   const result = await new AuthRepository(databaseFor(c.env), c.env).changePassword(session.userId, await c.req.parseBody());

@@ -3,6 +3,7 @@ import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { hmac } from "./crypto";
 import type { Env, OAuthProps } from "./types";
 import { and, eq, gt } from "drizzle-orm";
+import type { DatabaseClient } from "./postgres/database";
 import { databaseFor } from "./postgres/database";
 import { oauthDeviceAuthorizations } from "./postgres/schema";
 
@@ -36,16 +37,6 @@ type DeviceRecord = {
 const noStoreHeaders = { "Content-Type": "application/json", "Cache-Control": "no-store", Pragma: "no-cache" };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: noStoreHeaders });
 const oauthError = (error: string, description: string, status = 400) => json({ error, error_description: description }, status);
-export function deviceLoginRedirect(appOrigin: string, returnTo: string): Response {
-  return new Response(null, {
-    status: 302,
-    headers: {
-      "Cache-Control": "no-store",
-      Location: `${appOrigin}/auth/login`,
-      "Set-Cookie": `factorize_oauth_return=${encodeURIComponent(returnTo)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
-    },
-  });
-}
 const random = (bytes = 32) => {
   const value = crypto.getRandomValues(new Uint8Array(bytes));
   return btoa(String.fromCharCode(...value)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
@@ -62,7 +53,7 @@ async function challenge(value: string): Promise<string> {
 async function sha256Hex(value: string): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))), byte => byte.toString(16).padStart(2, "0")).join("");
 }
-function safeEqual(left: string, right: string): boolean {
+export function safeEqual(left: string, right: string): boolean {
   if (left.length !== right.length) return false;
   let difference = 0;
   for (let index = 0; index < left.length; index++) difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
@@ -161,30 +152,46 @@ export async function deviceToken(request: Request, env: Env, oauthProvider: { f
   const basic = basicCredentials(request);
   const clientId = basic?.clientId ?? String(form.get("client_id") ?? "");
   if (!deviceCode || !clientId) return oauthError("invalid_request", "device_code and client_id are required.");
-  const record = await readDevice(env, deviceCode);
-  const now = Math.floor(Date.now() / 1000);
-  if (!record || record.expiresAt <= now) return oauthError("expired_token", "The device code has expired.");
-  if (record.clientId !== clientId) return oauthError("invalid_grant", "The device code was not issued to this client.");
-  if (!await authenticateDeviceClient(request, env, form, { clientId: record.clientId, redirectUris: [record.redirectUri], tokenEndpointAuthMethod: record.tokenEndpointAuthMethod })) return oauthError("invalid_client", "Client authentication failed.", 401);
-  if (record.status === "denied") return oauthError("access_denied", "The resource owner denied the request.");
-  if (record.status === "pending") {
-    return oauthError("authorization_pending", "The resource owner has not completed authorization.");
-  }
-  if (!record.authorizationCode) return oauthError("server_error", "The approved device grant is incomplete.", 500);
+  const process = async (transaction?: DatabaseClient): Promise<Response> => {
+    const record = transaction ? (await transaction.query("SELECT record FROM app.oauth_device_authorizations WHERE device_code=$1 FOR UPDATE", [deviceCode])).rows[0]?.record as DeviceRecord | undefined : await readDevice(env, deviceCode);
 
-  const exchange = new URLSearchParams();
-  form.forEach((value, key) => { if (key === "client_id" || key === "client_secret") exchange.append(key, String(value)); });
-  exchange.set("grant_type", "authorization_code");
-  exchange.set("code", record.authorizationCode);
-  exchange.set("redirect_uri", record.redirectUri);
-  exchange.set("code_verifier", await verifier(deviceCode, env.SESSION_SIGNING_SECRET));
-  exchange.set("resource", record.resource);
-  const headers = new Headers({ "Content-Type": "application/x-www-form-urlencoded" });
-  const authorization = request.headers.get("Authorization");
-  if (authorization) headers.set("Authorization", authorization);
-  const response = await oauthProvider.fetch(new Request(`${env.APP_ORIGIN}/oauth/token`, { method: "POST", headers, body: exchange }), env, ctx);
-  if (response.ok) await deleteDevice(env, deviceCode);
-  return response;
+    const now = Math.floor(Date.now() / 1000);
+    if (!record || record.expiresAt <= now) return oauthError("expired_token", "The device code has expired.");
+    if (record.clientId !== clientId) return oauthError("invalid_grant", "The device code was not issued to this client.");
+    if (!await authenticateDeviceClient(request, env, form, { clientId: record.clientId, redirectUris: [record.redirectUri], tokenEndpointAuthMethod: record.tokenEndpointAuthMethod })) return oauthError("invalid_client", "Client authentication failed.", 401);
+    if (record.status === "denied") return oauthError("access_denied", "The resource owner denied the request.");
+    if (record.lastPolledAt !== undefined && now - record.lastPolledAt < record.interval) {
+      record.interval += 5; record.lastPolledAt = now;
+      if (transaction) await transaction.query("UPDATE app.oauth_device_authorizations SET record=$2,updated_at=now() WHERE device_code=$1", [deviceCode, JSON.stringify(record)]);
+      else await env.OAUTH_KV!.put(deviceKey(deviceCode), JSON.stringify(record), { expirationTtl: Math.max(1, record.expiresAt - now) });
+      return oauthError("slow_down", `Poll no more often than every ${record.interval} seconds.`);
+    }
+    record.lastPolledAt = now;
+    if (transaction) await transaction.query("UPDATE app.oauth_device_authorizations SET record=$2,updated_at=now() WHERE device_code=$1", [deviceCode, JSON.stringify(record)]);
+    else await env.OAUTH_KV!.put(deviceKey(deviceCode), JSON.stringify(record), { expirationTtl: Math.max(1, record.expiresAt - now) });
+    if (record.status === "pending") {
+      return oauthError("authorization_pending", "The resource owner has not completed authorization.");
+    }
+    if (!record.authorizationCode) return oauthError("server_error", "The approved device grant is incomplete.", 500);
+
+    const exchange = new URLSearchParams();
+    form.forEach((value, key) => { if (key === "client_id" || key === "client_secret") exchange.append(key, String(value)); });
+    exchange.set("grant_type", "authorization_code");
+    exchange.set("code", record.authorizationCode);
+    exchange.set("redirect_uri", record.redirectUri);
+    exchange.set("code_verifier", await verifier(deviceCode, env.SESSION_SIGNING_SECRET));
+    exchange.set("resource", record.resource);
+    const headers = new Headers({ "Content-Type": "application/x-www-form-urlencoded" });
+    const authorization = request.headers.get("Authorization");
+    if (authorization) headers.set("Authorization", authorization);
+    const response = await oauthProvider.fetch(new Request(`${env.APP_ORIGIN}/oauth/token`, { method: "POST", headers, body: exchange }), env, ctx);
+    if (response.ok) {
+      if (transaction) await transaction.query("DELETE FROM app.oauth_device_authorizations WHERE device_code=$1", [deviceCode]);
+      else await deleteDevice(env, deviceCode);
+    }
+    return response;
+  };
+  return env.DATABASE || env.HYPERDRIVE ? databaseFor(env).transaction(process) : process();
 }
 
 export async function deviceVerification(request: Request, env: Env, oauth: OAuthHelpers, session: { tenantId: string; userId: string; email: string; sessionVersion: number }): Promise<Response> {
@@ -197,8 +204,10 @@ export async function deviceVerification(request: Request, env: Env, oauth: OAut
   if (request.headers.get("Origin") !== env.APP_ORIGIN || request.headers.get("Sec-Fetch-Site") === "cross-site") return new Response("Invalid request origin", { status: 403 });
   const decision = form?.get("decision");
   if (decision !== "allow" && decision !== "deny") return Response.redirect(`${env.APP_ORIGIN}/device?user_code=${encodeURIComponent(suppliedCode)}`, 303);
+  const preview = await inspectDevice(env, suppliedCode);
+  if (!preview || !safeEqual(String(form?.get("signature") ?? ""), await deviceConsentSignature(env, session, preview))) return new Response("Invalid device consent. Review this request before approving it.", { status: 403 });
   const result = await decideDevice(env, oauth, session, suppliedCode, decision);
-  return new Response(result ? result.status === "approved" ? "Device connected. You can close this window." : "Authorization denied. You can close this window." : "Invalid or expired device code", { status: result ? 200 : 400, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+  return new Response(result ? result.status === "approved" ? "Device connected. You can close this window." : "Authorization denied. You can close this window." : "Invalid or expired device code. Request a new code in your MCP client.", { status: result ? 200 : 400, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
 export async function inspectDevice(env: Env, userCode: string) {
@@ -225,7 +234,9 @@ export async function decideDevice(env: Env, oauth: OAuthHelpers, session: { ten
   if (!env.DATABASE && !env.HYPERDRIVE) return authorize(await readDevice(env, code), record => writeDevice(env, code, normalized, record));
   return databaseFor(env).transaction(async client => {
     const row = (await client.query("SELECT record FROM app.oauth_device_authorizations WHERE device_code=$1 AND expires_at>now() FOR UPDATE", [code])).rows[0];
-    return authorize(row?.record ?? null, async record => { await client.query("UPDATE app.oauth_device_authorizations SET record=$2,updated_at=now() WHERE device_code=$1", [code, JSON.stringify(record)]); });
+    const result = await authorize(row?.record ?? null, async record => { await client.query("UPDATE app.oauth_device_authorizations SET record=$2,updated_at=now() WHERE device_code=$1", [code, JSON.stringify(record)]); });
+    if (result) await client.query("UPDATE app.oauth_connections SET used_at=now(),ready=false WHERE kind='device' AND device_user_code=$1 AND used_at IS NULL", [normalized]);
+    return result;
   });
 }
 
@@ -263,4 +274,8 @@ export async function deviceClientRegistration(request: Request, env: Env, oauth
   if (!originallyHadAuthorizationCode) result.response_types = [];
   result.redirect_uris = originalRedirectUris;
   return json(result, response.status);
+}
+
+export function deviceConsentSignature(env: Env, session: { tenantId: string; userId: string; sessionVersion: number }, preview: { userCode: string; expiresAt: string }) {
+  return hmac(`device:${preview.userCode}:${preview.expiresAt}:${session.tenantId}:${session.userId}:${session.sessionVersion}`, env.SESSION_SIGNING_SECRET);
 }

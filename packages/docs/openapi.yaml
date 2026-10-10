@@ -1157,6 +1157,161 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
 paths:
+  /api/v1/auth/connections:
+    post:
+      summary: Persist an individual validated MCP connection; sets a per-attempt browser cookie
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  clientName:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                required:
+                  - connection
+                  - clientName
+                  - expiresAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_auth_connections
+      tags:
+        - auth
+      security: []
+      x-browser-auth-operation: connection-start
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                returnTo:
+                  type: string
+                  minLength: 1
+                  maxLength: 8192
+              required:
+                - returnTo
+              additionalProperties: false
+  /api/v1/auth/connections/resume:
+    post:
+      summary: Resume verified onboarding in the initiating browser; never grants OAuth access
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  returnTo:
+                    type: string
+                  crossBrowser:
+                    type: boolean
+                  pending:
+                    type: boolean
+                  clientName:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_auth_connections_resume
+      tags:
+        - auth
+      security: []
+      x-browser-auth-operation: connection-resume
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                connection:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+              required:
+                - connection
+              additionalProperties: false
   /api/v1/session:
     get:
       summary: Get current browser session
@@ -1339,7 +1494,11 @@ paths:
                   writeOnly: true
                 returnTo:
                   type: string
-                  maxLength: 4096
+                  maxLength: 8192
+                connection:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
               required:
                 - email
                 - password
@@ -1414,6 +1573,10 @@ paths:
                   minLength: 12
                   maxLength: 200
                   writeOnly: true
+                connection:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
               required:
                 - email
                 - password
@@ -1483,12 +1646,16 @@ paths:
                   maxLength: 320
                   format: email
                   pattern: ^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+                connection:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
               required:
                 - email
               additionalProperties: false
   /api/v1/auth/email-verification/complete:
     post:
-      summary: Complete email verification
+      summary: Verify email, establish an owner session, and resume explicit consent; callbacks stay in the initiating browser
       description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
       responses:
         "200":
@@ -1512,6 +1679,18 @@ paths:
                   ok:
                     type: boolean
                     const: true
+                  returnTo:
+                    type: string
+                  crossBrowser:
+                    type: boolean
+                  pending:
+                    type: boolean
+                  clientName:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
                 required:
                   - ok
                 additionalProperties: false
@@ -1619,12 +1798,16 @@ paths:
                   maxLength: 320
                   format: email
                   pattern: ^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+                connection:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
               required:
                 - email
               additionalProperties: false
   /api/v1/auth/password-reset/complete:
     post:
-      summary: Complete password reset
+      summary: Complete password reset and resume onboarding
       description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
       responses:
         "200":
@@ -1648,6 +1831,18 @@ paths:
                   ok:
                     type: boolean
                     const: true
+                  returnTo:
+                    type: string
+                  crossBrowser:
+                    type: boolean
+                  pending:
+                    type: boolean
+                  clientName:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+                    pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
                 required:
                   - ok
                 additionalProperties: false
@@ -1843,11 +2038,14 @@ paths:
                       type: string
                   expiresAt:
                     type: string
+                  signature:
+                    type: string
                 required:
                   - userCode
                   - clientName
                   - scopes
                   - expiresAt
+                  - signature
                 additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -1945,6 +2143,10 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 32
+                signature:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
                 decision:
                   type: string
                   enum:
@@ -1952,6 +2154,7 @@ paths:
                     - deny
               required:
                 - userCode
+                - signature
                 - decision
               additionalProperties: false
   /api/v1/oauth/consent/preview:

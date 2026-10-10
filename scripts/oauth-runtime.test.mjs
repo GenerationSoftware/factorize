@@ -48,7 +48,9 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     assert.equal(registration.status, 201, registration.text); const clientId = registration.json.client_id;
     const verifier = randomBytes(32).toString('base64url'), challenge = createHash('sha256').update(verifier).digest('base64url');
     const authorizationQuery = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: 'http://127.0.0.1/callback', scope: 'flows:read', state: 'fixture-state', code_challenge: challenge, code_challenge_method: 'S256', resource: origin+'/mcp' }).toString();
-    const screen = await send('/authorize?'+authorizationQuery, 'GET', undefined, owner); assert.equal(screen.status, 200); assert.match(screen.text, /\/assets\//);
+    const screen = await send('/authorize?'+authorizationQuery, 'GET', undefined, owner); assert.equal(screen.status, 302);
+    const connectionCookie = screen.headers['set-cookie'][0].split(';')[0];
+    const connectedScreen = await send(new URL(screen.headers.location).pathname + new URL(screen.headers.location).search, 'GET', undefined, { ...owner, Cookie: cookie + '; ' + connectionCookie }); assert.equal(connectedScreen.status, 200); assert.match(connectedScreen.text, /\/assets\//);
     const preview = await json('/api/v1/oauth/consent/preview', { authorizationQuery }, owner); assert.equal(preview.status, 200, preview.text);
     const decision = { request: preview.json.request, signature: preview.json.signature, decision: 'allow', scopes: ['flows:read'] };
     assert.equal((await json('/api/v1/oauth/consent/decision', decision, { ...owner, Origin: 'https://evil.test' })).status, 403);
@@ -76,8 +78,10 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     const device = await form('/oauth/device_authorization', { client_id: deviceClient.json.client_id, scope: 'flows:read', resource: origin+'/mcp' }); assert.equal(device.status, 200, device.text);
     const poll = { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', client_id: deviceClient.json.client_id, device_code: device.json.device_code };
     assert.equal((await form('/oauth/token', poll)).json.error, 'authorization_pending');
-    assert.equal((await json('/api/v1/oauth/device/preview', { userCode: device.json.user_code }, owner)).status, 200);
-    const approval = await json('/api/v1/oauth/device/decision', { userCode: device.json.user_code, decision: 'allow' }, owner); assert.equal(approval.status, 200, approval.text);
+    const devicePreview = await json('/api/v1/oauth/device/preview', { userCode: device.json.user_code }, owner); assert.equal(devicePreview.status, 200);
+    const approval = await json('/api/v1/oauth/device/decision', { userCode: device.json.user_code, signature: devicePreview.json.signature, decision: 'allow' }, owner); assert.equal(approval.status, 200, approval.text);
+    assert.equal((await form('/oauth/token', poll)).json.error, 'slow_down');
+    await db.query("UPDATE app.oauth_device_authorizations SET record=jsonb_set(record,'{lastPolledAt}',to_jsonb(extract(epoch from now())::bigint-20)) WHERE device_code=$1", [device.json.device_code]);
     const deviceToken = await form('/oauth/token', poll); assert.equal(deviceToken.status, 200, deviceToken.text);
     assert.deepEqual((await rpc('tools/call', { name: 'list_jobs', arguments: {} }, 6, { Authorization: 'Bearer '+deviceToken.json.access_token })).result.structuredContent.items, []);
     assert.equal((await form('/oauth/token', poll)).json.error, 'expired_token');

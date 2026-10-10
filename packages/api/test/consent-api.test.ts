@@ -6,8 +6,13 @@ const session = { tenantId: "tenant", userId: "owner", email: "owner@example.tes
 const parsed = { responseType: "code", clientId: "client", redirectUri: "https://client.test/callback", scope: ["flows:read", "runs:write"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: "https://factorize.test/mcp", issuer: "https://factorize.test" };
 function fixture() {
   const values = new Map<string, string>();
+  const used = new Set<string>();
+  const query = vi.fn(async (_sql: string, args: unknown[]) => {
+    if (_sql.startsWith("INSERT") || _sql.startsWith("DELETE")) return { rows: [] };
+    const id = String(args[0]); if (used.has(id)) return { rows: [] }; used.add(id); return { rows: [{ id }] };
+  });
   const oauth = { parseAuthRequest: vi.fn(async () => parsed), lookupClient: vi.fn(async () => ({ clientId: "client", clientName: "External client", redirectUris: [parsed.redirectUri], tokenEndpointAuthMethod: "none" })), completeAuthorization: vi.fn(async (_options: unknown) => ({ redirectTo: parsed.redirectUri + "?code=authorized&state=state" })) };
-  const env = { APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "test-signing", OAUTH_PROVIDER: oauth, OAUTH_KV: { get: async (key: string, type?: string) => { const value = values.get(key); return value ? type === "json" ? JSON.parse(value) : value : null; }, put: async (key: string, value: string) => { values.set(key, value); }, delete: async (key: string) => { values.delete(key); } } } as unknown as Env;
+  const env = { DATABASE: { pool: { query }, transaction: async (work: any) => work({ query }) }, APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "test-signing", OAUTH_PROVIDER: oauth, OAUTH_KV: { get: async (key: string, type?: string) => { const value = values.get(key); return value ? type === "json" ? JSON.parse(value) : value : null; }, put: async (key: string, value: string) => { values.set(key, value); }, delete: async (key: string) => { values.delete(key); } } } as unknown as Env;
   return { env, oauth };
 }
 describe("static consent support", () => {
@@ -34,7 +39,7 @@ describe("static consent support", () => {
     } finally { vi.useRealTimers(); }
   });
   it("inspects only public device metadata and keeps grant/code state server-owned", async () => {
-    const { env, oauth } = fixture(), form = new FormData(); form.set("client_id", "client"); form.set("scope", "flows:read");
+    const { env, oauth } = fixture(); delete env.DATABASE; const form = new FormData(); form.set("client_id", "client"); form.set("scope", "flows:read");
     const issued = await (await deviceAuthorization(new Request(env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: form }), env, oauth as any, ["flows:read"])).json() as any;
     const info = await inspectDevice(env, issued.user_code); expect(info).toMatchObject({ clientName: "External client", scopes: ["flows:read"] }); expect(info).not.toHaveProperty("device_code");
     expect(await decideDevice(env, oauth as any, session, issued.user_code, "allow")).toEqual({ status: "approved" }); expect(await inspectDevice(env, issued.user_code)).toBeNull(); expect(await decideDevice(env, oauth as any, session, issued.user_code, "allow")).toBeNull(); expect(oauth.completeAuthorization).toHaveBeenCalledTimes(1);

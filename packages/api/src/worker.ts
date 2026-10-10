@@ -4,8 +4,9 @@ import app from "./index";
 import { readSession, requestCookie } from "./session";
 import { isBrowserAuthOperation } from "./api-contract";
 import { ProtectedApiHandler, protectedApiFetch } from "./protected-api";
-import { hmac } from "./crypto";
-import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceLoginRedirect, deviceToken, deviceVerification } from "./device-oauth";
+import { startConnection, connectionFor } from "./oauth-continuation";
+import { consentDecision } from "./consent-api";
+import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
 import { authenticateAccessToken } from "./access-tokens";
 import { artifactUpload } from "./artifact-upload";
@@ -38,9 +39,19 @@ const defaultHandler: ExportedHandler<Env> = {
     try {
       if (request.method === "POST" && (request.headers.get("Origin") !== env.APP_ORIGIN || request.headers.get("Sec-Fetch-Site") === "cross-site")) return new Response("Invalid request origin", { status: 403 });
       const session = await currentOwner(request, env);
-      if (!session) {
-        return deviceLoginRedirect(env.APP_ORIGIN, url.pathname + url.search);
+      if (request.method === "GET" || request.method === "HEAD") {
+        let connection = url.searchParams.get("connection");
+        if (!connection && (!session || url.pathname === "/authorize")) {
+          const started = await startConnection(request, env, url.pathname + url.search);
+          if (!started) return new Response("Invalid or expired MCP request. Start a new connection from your client.", { status: 400 });
+          connection = started.connection;
+          url.searchParams.set("connection", connection);
+          return new Response(null, { status: 302, headers: { Location: session ? url.toString() : `${env.APP_ORIGIN}/auth/login?connection=${connection}`, "Set-Cookie": started.cookie, "Cache-Control": "no-store" } });
+        }
+        if (connection && !await connectionFor(env, connection)) return new Response("This MCP connection expired or already completed. Start a new connection from your client.", { status: 400 });
+        if (!session) return Response.redirect(`${env.APP_ORIGIN}/auth/login${connection ? `?connection=${connection}` : ""}`, 302);
       }
+      if (!session) return new Response("Sign in before approving this request.", { status: 401 });
       if (url.pathname === "/device") return request.method === "GET" || request.method === "HEAD" ? (await staticApp(request, env))! : deviceVerification(request, env, env.OAUTH_PROVIDER!, session);
       if (request.method === "GET" || request.method === "HEAD") {
         const parsed = await env.OAUTH_PROVIDER!.parseAuthRequest(request);
@@ -49,19 +60,11 @@ const defaultHandler: ExportedHandler<Env> = {
         return (await staticApp(request, env))!;
       }
       if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
-      const form = await request.formData(), payload = String(form.get("request") ?? ""), signature = String(form.get("signature") ?? "");
-      if (!payload || signature !== await hmac(`${payload}.${session.tenantId}.${session.userId}`, env.SESSION_SIGNING_SECRET)) return new Response("Invalid consent request", { status: 400 });
-      const parsed = JSON.parse(atob(payload)) as AuthRequest;
-      const client = await env.OAUTH_PROVIDER!.lookupClient(parsed.clientId);
-      if (!client || !client.redirectUris.includes(parsed.redirectUri)) return new Response("Invalid consent request", { status: 400 });
-      if (form.get("decision") !== "allow") {
-        const redirect = new URL(parsed.redirectUri); redirect.searchParams.set("error", "access_denied"); redirect.searchParams.set("state", parsed.state); if (parsed.issuer) redirect.searchParams.set("iss", parsed.issuer);
-        return Response.redirect(redirect, 302);
-      }
-      const granted = form.getAll("scope").map(String).filter(scope => parsed.scope.includes(scope) && scopes.includes(scope));
-      const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: granted, authMethod: "oauth" };
-      const { redirectTo } = await env.OAUTH_PROVIDER!.completeAuthorization({ request: parsed, userId: session.userId, metadata: { tenantId: session.tenantId }, scope: granted, props });
-      return Response.redirect(redirectTo, 302);
+      const form = await request.formData();
+      const decision = form.get("decision");
+      if (decision !== "allow" && decision !== "deny") return new Response("Invalid decision", { status: 400 });
+      const result = await consentDecision(env, session, { request: String(form.get("request") ?? ""), signature: String(form.get("signature") ?? ""), decision, scopes: form.getAll("scope").map(String) as any });
+      return result ? Response.redirect(result.redirectTo, 302) : new Response("Invalid, expired, or already completed consent request. Restart from your client.", { status: 400 });
     } catch (error) { if (error instanceof AuthorizationError) return oauthError(error); throw error; }
   },
 };

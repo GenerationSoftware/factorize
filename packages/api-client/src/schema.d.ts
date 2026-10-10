@@ -1,5 +1,45 @@
 // Generated from packages/docs/openapi.yaml. Do not edit.
 export interface paths {
+    "/api/v1/auth/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Persist an individual validated MCP connection; sets a per-attempt browser cookie
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        post: operations["post_api_v1_auth_connections"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/connections/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume verified onboarding in the initiating browser; never grants OAuth access
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        post: operations["post_api_v1_auth_connections_resume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/session": {
         parameters: {
             query?: never;
@@ -90,7 +130,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Complete email verification
+         * Verify email, establish an owner session, and resume explicit consent; callbacks stay in the initiating browser
          * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
          */
         post: operations["post_api_v1_auth_email_verification_complete"];
@@ -130,7 +170,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Complete password reset
+         * Complete password reset and resume onboarding
          * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
          */
         post: operations["post_api_v1_auth_password_reset_complete"];
@@ -1883,6 +1923,100 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    post_api_v1_auth_connections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    returnTo: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        connection: string;
+                        clientName: string;
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_auth_connections_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    connection: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        ok: true;
+                        returnTo?: string;
+                        crossBrowser?: boolean;
+                        pending?: boolean;
+                        clientName?: string;
+                        /** Format: date-time */
+                        expiresAt?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_session: {
         parameters: {
             query?: never;
@@ -1949,6 +2083,8 @@ export interface operations {
                     email: string;
                     password: string;
                     returnTo?: string;
+                    /** Format: uuid */
+                    connection?: string;
                 };
             };
         };
@@ -1994,6 +2130,8 @@ export interface operations {
                     /** Format: email */
                     email: string;
                     password: string;
+                    /** Format: uuid */
+                    connection?: string;
                 };
             };
         };
@@ -2037,6 +2175,8 @@ export interface operations {
                 "application/json": {
                     /** Format: email */
                     email: string;
+                    /** Format: uuid */
+                    connection?: string;
                 };
             };
         };
@@ -2096,6 +2236,12 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         ok: true;
+                        returnTo?: string;
+                        crossBrowser?: boolean;
+                        pending?: boolean;
+                        clientName?: string;
+                        /** Format: date-time */
+                        expiresAt?: string;
                     };
                 };
             };
@@ -2122,6 +2268,8 @@ export interface operations {
                 "application/json": {
                     /** Format: email */
                     email: string;
+                    /** Format: uuid */
+                    connection?: string;
                 };
             };
         };
@@ -2182,6 +2330,12 @@ export interface operations {
                     "application/json": {
                         /** @constant */
                         ok: true;
+                        returnTo?: string;
+                        crossBrowser?: boolean;
+                        pending?: boolean;
+                        clientName?: string;
+                        /** Format: date-time */
+                        expiresAt?: string;
                     };
                 };
             };
@@ -2300,6 +2454,7 @@ export interface operations {
                         clientName: string;
                         scopes: string[];
                         expiresAt: string;
+                        signature: string;
                     };
                 };
             };
@@ -2325,6 +2480,7 @@ export interface operations {
             content: {
                 "application/json": {
                     userCode: string;
+                    signature: string;
                     /** @enum {string} */
                     decision: "allow" | "deny";
                 };
