@@ -33,7 +33,7 @@ export function AccountBar() {
     <nav aria-label="Main navigation" className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
       <Link to="/" className="flex items-center gap-2 text-lg font-bold tracking-tight"><img src={beeMark} alt="" className="size-8 object-contain dark:invert" />Factorize</Link>
       <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-        {authenticated && <><Link to="/jobs" search={{ q: "" }} activeProps={{ className: "text-factorize-700 dark:text-factorize-500" }} className="rounded-lg px-2 py-2 text-sm font-semibold">Jobs</Link><SearchLauncher /></>}
+        {authenticated && <><Link to="/jobs" search={{ q: "" }} activeProps={{ className: "text-factorize-700 dark:text-factorize-500" }} className="rounded-lg px-2 py-2 text-sm font-semibold">Jobs</Link><Link to="/job-runs" activeProps={{ className: "text-factorize-700 dark:text-factorize-500" }} className="rounded-lg px-2 py-2 text-sm font-semibold">Runs</Link><SearchLauncher /></>}
         <ThemeToggle />
         {authenticated ? <div ref={menu} className="relative">
           <Button ref={trigger} aria-expanded={open} aria-controls="profile-menu" onClick={() => setOpen(!open)} aria-label="Your account"><span className="flex size-6 items-center justify-center rounded-full bg-factorize-100 text-xs text-slate-950">{(session.data?.user.email ?? "").slice(0, 1).toUpperCase()}</span><span className="hidden sm:inline">Account</span><span aria-hidden="true">⌄</span></Button>
