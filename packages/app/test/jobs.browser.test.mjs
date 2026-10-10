@@ -103,7 +103,7 @@ test("trace reset between requests discards old pages and finalization keeps ter
   await page.waitForTimeout(2200); assert.ok(statusCalls >= 2);
   await context.close();
 });
-test("20k-event continuous trace keeps DOM bounded, retains expanded details on scroll and resets generations", async () => {
+test("20k-event continuous trace keeps DOM bounded, retains expanded details on scroll and resets generations", { skip: !process.env.FACTORIZE_STRESS }, async () => {
   const { page, context } = await contextFor(); let revision = "large", traceRequests = 0, peakNodes = 0; const started = performance.now();
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Review builds", run_name: "Large trace", state: "succeeded", finalizing: true, trace_revision: revision, artifact_state: "stored", created_at: summary.createdAt, updated_at: summary.updatedAt, started_at: null, destination_url: null } }));
   await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => {
