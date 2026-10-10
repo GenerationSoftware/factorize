@@ -31,6 +31,7 @@ test("navigation, theme preference and essential accessibility remain usable", a
   await expect(page.getByRole("heading", { name: "Release review", exact: true })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Trace", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("tab", { name: "Context", exact: true }).click();
+  await page.getByText("Prompt, context and provenance", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Prompt", exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
