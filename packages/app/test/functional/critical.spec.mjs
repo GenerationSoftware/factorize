@@ -47,7 +47,6 @@ test("keyboard focus and validation work on representative mobile UI", async ({ 
   await expect(page.getByRole("link", { name: "Settings", exact: true }).last()).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(profile).toBeFocused();
-  const run = page.getByRole("button", { name: "Run job", exact: true });
   const options = page.getByRole("button", { name: "More run options", exact: true });
   await options.click();
   await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
