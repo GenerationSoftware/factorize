@@ -9,7 +9,7 @@ export async function requireApiReady(origin, fetcher = fetch) {
 }
 export async function verifyPublicRouting(origin) {
   await requireApiReady(origin);
-  for (const path of ["/jobs", "/jobs/route-probe/edit", "/job-runs/route-probe", "/settings/api-keys", "/auth/password-reset?token=route-probe"]) {
+  for (const path of ["/jobs", "/jobs/route-probe/edit", "/job-runs", "/job-runs/route-probe", "/settings/api-keys", "/auth/password-reset?token=route-probe"]) {
     const response = await fetch(origin + path, { redirect: "manual", signal: AbortSignal.timeout(15_000) });
     assert.equal(response.status, 200, path); assert.match(response.headers.get("Content-Type"), /text\/html/);
     assert.equal(response.headers.get("Cache-Control"), "no-cache, must-revalidate");
