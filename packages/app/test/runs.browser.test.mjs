@@ -19,20 +19,29 @@ test("all-jobs runs index uses a tenant-scoped page, navigation, refresh, and cr
   await page.getByRole("link", { name: "Next page" }).click(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); await page.reload(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); assert.ok(refreshes >= 2);
   await context.close();
 });
+test("all-runs table sorts its data columns with accessible headers", async () => {
+  const { context, page } = await setup(); const requests = [];
+  const runs = [{ id: runId, run_name: "Run", state: "succeeded", created_at: time, updated_at: time, started_at: null, agent_kind: "codex" }];
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: runs, nextCursor: null } }); });
+  await page.goto(origin + "/job-runs"); const table = page.getByRole("region", { name: "Runs table" });
+  const created = table.getByRole("button", { name: /Created/ }); await created.focus(); await page.keyboard.press("Enter"); await page.waitForURL("**/job-runs?sort=created&direction=asc");
+  await page.waitForFunction(() => document.querySelector('th[aria-sort="ascending"]')?.textContent?.includes("Created"));
+  assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "ascending"); assert.equal(requests.at(-1).searchParams.get("sort"), "created");
+  await table.getByRole("button", { name: /Created/ }).click(); await page.waitForURL("**/job-runs?sort=created&direction=desc");
+  await page.waitForFunction(() => document.querySelector('th[aria-sort="descending"]')?.textContent?.includes("Created"));
+  assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "descending");
+  await context.close();
+});
 test("shared run status dots show running transitions in both tables", async () => {
   const { context, page } = await setup(); let state = "running";
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Job", enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: state === "running" ? 1 : 0, promptTemplate: "Prompt", triggers: [] } }));
   await page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [{ id: runId, run_name: "Transition run", state, created_at: time, agent_kind: "codex" }], nextCursor: null } }));
-  await page.goto(origin + "/job-runs");
-  await page.getByRole("img", { name: "Status: Running" }).waitFor();
+  await page.goto(origin + "/job-runs"); await page.getByRole("img", { name: "Status: Running" }).waitFor();
   assert.match(await page.getByRole("img", { name: "Status: Running" }).getAttribute("class"), /animate-pulse/);
-  state = "succeeded"; await page.reload();
-  await page.getByRole("img", { name: "Status: Succeeded" }).waitFor();
+  state = "succeeded"; await page.reload(); await page.getByRole("img", { name: "Status: Succeeded" }).waitFor();
   assert.doesNotMatch(await page.getByRole("img", { name: "Status: Succeeded" }).getAttribute("class"), /animate-pulse/);
-  state = "failed"; await page.goto(origin + `/jobs/${jobId}`);
-  await page.getByRole("img", { name: "Status: Failed" }).waitFor();
-  assert.doesNotMatch(await page.getByRole("img", { name: "Status: Failed" }).getAttribute("class"), /animate-pulse/);
-  await context.close();
+  state = "failed"; await page.goto(origin + `/jobs/${jobId}`); await page.getByRole("img", { name: "Status: Failed" }).waitFor();
+  assert.doesNotMatch(await page.getByRole("img", { name: "Status: Failed" }).getAttribute("class"), /animate-pulse/); await context.close();
 });
 test("job run history restores its cursor on direct refresh and ignores legacy filters", async () => {
   const { context, page } = await setup(); const requests = [];
