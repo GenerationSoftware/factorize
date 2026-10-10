@@ -25,8 +25,11 @@ test("all-runs table sorts its data columns with accessible headers", async () =
   await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: runs, nextCursor: null } }); });
   await page.goto(origin + "/job-runs"); const table = page.getByRole("region", { name: "Runs table" });
   const created = table.getByRole("button", { name: /Created/ }); await created.focus(); await page.keyboard.press("Enter"); await page.waitForURL("**/job-runs?sort=created&direction=asc");
+  await page.waitForFunction(() => document.querySelector('th[aria-sort="ascending"]')?.textContent?.includes("Created"));
   assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "ascending"); assert.equal(requests.at(-1).searchParams.get("sort"), "created");
-  await table.getByRole("button", { name: /Created/ }).click(); await page.waitForURL("**/job-runs?sort=created&direction=desc"); assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "descending");
+  await table.getByRole("button", { name: /Created/ }).click(); await page.waitForURL("**/job-runs?sort=created&direction=desc");
+  await page.waitForFunction(() => document.querySelector('th[aria-sort="descending"]')?.textContent?.includes("Created"));
+  assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "descending");
   await context.close();
 });
 test("job run history restores its cursor on direct refresh and ignores legacy filters", async () => {

@@ -9,12 +9,16 @@ const activeStates = new Set(["queued", "starting", "running", "blocked", "stopp
 const elapsed = (startedAt: string | null, createdAt: string) => { const start = Date.parse(startedAt ?? createdAt), seconds = Math.max(0, Math.floor((Date.now() - start) / 1000)); if (seconds < 60) return `${seconds}s`; const minutes = Math.floor(seconds / 60); return minutes < 60 ? `${minutes}m ${seconds % 60}s` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`; };
 
 export function RunList({ jobId, limit = 30 }: { jobId?: string; limit?: number }) {
-  const search = useSearch({ strict: false }) as RunListSearch, navigate = useNavigate(), runs = useQuery(runPageQuery({ jobId, cursor: search.cursor, limit, sort: search.sort, direction: search.direction }));
+  const search = useSearch({ strict: false }) as RunListSearch, navigateRuns = useNavigate({ from: "/job-runs" }), navigateJob = useNavigate({ from: "/jobs/$jobId" }), runs = useQuery(runPageQuery({ jobId, cursor: search.cursor, limit, sort: search.sort, direction: search.direction }));
   const [now, setNow] = useState(Date.now());
   useEffect(() => { if (!runs.data?.items.some(run => activeStates.has(run.state))) return; const timer = window.setInterval(() => setNow(Date.now()), 1_000); return () => window.clearInterval(timer); }, [runs.data?.items]);
   const previous = search.previous?.split(",") ?? [], pageClasses = `inline-flex min-h-10 items-center rounded-lg border px-3 py-2 text-sm font-semibold ${buttonClasses.secondary}`;
   const columns: Array<[RunPageSort, string]> = [["run", "Run"], ["status", "Status"], ["created", "Created"], ...(jobId ? [["agent", "Agent"] as [RunPageSort, string]] : [])];
-  const sortColumn = (column: RunPageSort) => void navigate({ search: { ...search, sort: column, direction: search.sort === column && search.direction === "asc" ? "desc" : "asc", cursor: undefined, previous: undefined } });
+  const sortColumn = (column: RunPageSort) => {
+    const nextSearch = { ...search, sort: column, direction: search.sort === column && search.direction === "asc" ? "desc" : "asc", cursor: undefined, previous: undefined };
+    if (jobId) void navigateJob({ search: nextSearch });
+    else void navigateRuns({ search: nextSearch });
+  };
   const pagination = jobId ? <nav aria-label="Run pages" className="mt-4 flex flex-wrap items-center gap-2">
     {search.cursor && <Link className={pageClasses} to="/jobs/$jobId" params={{ jobId }} search={{}}>First page</Link>}
     {search.cursor && previous.length > 0 ? <Link className={pageClasses} to="/jobs/$jobId" params={{ jobId }} search={{ cursor: previous.at(-1) || undefined, previous: previous.length > 1 ? previous.slice(0, -1).join(",") : undefined }}>Previous page</Link> : <Button disabled>Previous page</Button>}
