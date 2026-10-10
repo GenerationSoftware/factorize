@@ -45,7 +45,7 @@ export async function mockApi(page, { legacy = false, authenticated = true, empt
     else if (path === "/api/v1/trigger-contexts") json = { manual: [{ path: "prompt", type: "string", description: "Manual prompt" }] };
     else if (path === "/api/v1/job-trigger-availability") json = { manual: true, schedule: true, jobLifecycle: true, linear: false, github: false, clickup: false, cloudflareTail: false };
     else if (path === "/api/v1/integrations") json = integrations;
-    else if (path === "/api/v1/search") json = { items: [{ kind: "job", id: jobId, title: job.name, subtitle: "Manual · codex" }] };
+    else if (path === "/api/v1/search") json = { items: [{ kind: "job", id: jobId, title: job.name, subtitle: "Manual · codex", url: "/jobs/" + jobId, source: { kind: "job", label: job.name, id: jobId }, match: { text: job.name, ranges: [{ start: 7, end: 14 }] } }] };
     else if (path.endsWith("/consent/preview")) json = { clientName: "Release CLI", scopes: ["flows:read", "runs:read"], request: "fixture", signature: "fixture", expiresAt: time };
     else if (path.endsWith("/device/preview")) json = { clientName: "Release CLI", scopes: ["flows:read"], userCode: "ABCD-EFGH" };
     else json = [];

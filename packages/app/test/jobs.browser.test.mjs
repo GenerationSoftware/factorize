@@ -115,7 +115,7 @@ test("split invocation runs defaults immediately and supports prompt-only modal"
   await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
   assert.equal(inputs.length, 1); assert.equal(inputs[0].prompt, ""); assert.equal(await page.getByRole("dialog").count(), 0);
   await page.getByRole("button", { name: "More run options", exact: true }).click(); await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
-  assert.equal(await page.getByLabel("Run name (optional)").count(), 0); assert.equal(await page.getByLabel("JSON data (optional)").count(), 0);
+  assert.equal(await page.getByLabel("Run name (optional)").count(), 1); assert.equal(await page.getByLabel("JSON data (optional)").count(), 1);
   await page.mouse.click(1, 1); await page.waitForTimeout(50); assert.equal(await page.getByRole("dialog").count(), 0); assert.equal(inputs.length, 1);
   await page.getByRole("button", { name: "More run options", exact: true }).click(); await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
   await page.getByLabel("Prompt", { exact: true }).fill("Review");
@@ -158,6 +158,28 @@ test("prompt modal Escape restores focus and does not run", async () => {
   await page.getByLabel("Prompt", { exact: true }).fill("Do not run"); await page.keyboard.press("Escape");
   assert.equal(inputs.length, 0); assert.equal(await page.getByRole("dialog").count(), 0);
   await page.getByRole("button", { name: "More run options", exact: true }).focus(); assert.equal(await page.getByRole("button", { name: "More run options", exact: true }).evaluate(el => el === document.activeElement), true);
+  await context.close();
+});
+for (const width of [1280, 390]) test(`job header actions and status remain usable at ${width}px`, async () => {
+  const { page, context } = await contextFor({ viewport: { width, height: 844 } });
+  let enabled = true;
+  const longTitle = "Production deployment " + "with a deliberately long title ".repeat(12);
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, name: longTitle, enabled, runningCount: 1, concurrencyLimit: 3, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  await page.goto(origin + "/jobs/" + jobId);
+  const heading = page.getByRole("heading", { name: longTitle, exact: true });
+  await heading.waitFor();
+  assert.equal(await page.getByText("codex · Default model · 1/3 running", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("Enabled", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).isEnabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 1);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  enabled = false;
+  await page.reload();
+  await page.getByRole("heading", { name: longTitle, exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Enable job", exact: true }).count(), 1);
+  assert.equal(await heading.evaluate(element => getComputedStyle(element).color !== "rgb(15, 23, 42)"), true);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await context.close();
 });
 test("trace reset between requests discards old pages and finalization keeps terminal polling alive", async () => {

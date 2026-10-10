@@ -54,7 +54,7 @@ function EditorForm({ initial }: { initial?: Job }) {
     if (conflicts.length === 1) setRemote(undefined);
   };
   const [localConflictDraft, setLocalConflictDraft] = useState(draft);
-  return <Page className="max-w-6xl"><Link to="/jobs" search={{ q: "" }}>Jobs</Link><h1 className="mt-5 break-words text-3xl font-semibold">{initial ? initial.name : "Create job"}</h1>{initial && <JobTabs jobId={initial.id} />}
+  return <Page className="max-w-6xl"><nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2"><Link to="/jobs" search={{ q: "" }}>Jobs</Link>{initial && <><span aria-hidden="true">→</span><Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: initial.id }} search={{}}> {initial.name}</Link></>}</nav><h1 className="mt-5 break-words text-3xl font-semibold">{initial ? initial.name : "Create job"}</h1>{initial && <JobTabs jobId={initial.id} />}
     {(remote || reconciling || refreshConflict.error) && <Card role="alert" className="my-4 border p-4"><h2>This job changed while you were editing</h2><p>Your unsaved draft is retained. Review the latest configuration before retrying.</p>
       {refreshConflict.isPending && <p>Loading latest configuration…</p>}{refreshConflict.error && <><p>{refreshConflict.error.message}</p><Button onClick={() => refreshConflict.mutate()}>Retry loading latest</Button></>}
       {remote && !conflicts.length && <><pre className="max-h-64 overflow-auto whitespace-pre-wrap">{JSON.stringify(editableJob(remote), null, 2)}</pre><Button onClick={acceptRemote}>Reload latest and discard my changes</Button><Button onClick={() => { setLocalConflictDraft(draft); merge(); }}>Reconcile my changes</Button></>}

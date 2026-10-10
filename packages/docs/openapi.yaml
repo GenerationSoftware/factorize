@@ -7443,7 +7443,7 @@ paths:
             minLength: 1
   /api/v1/search:
     get:
-      summary: Search jobs and runs
+      summary: Search jobs, runs, and trace messages
       responses:
         "200":
           description: Search results
@@ -7462,6 +7462,7 @@ paths:
                           enum:
                             - job
                             - run
+                            - trace
                         id:
                           type: string
                         title:
@@ -7470,12 +7471,58 @@ paths:
                           type: string
                         url:
                           type: string
+                        source:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                              enum:
+                                - job
+                                - run
+                                - trace
+                            label:
+                              type: string
+                            id:
+                              type: string
+                          required:
+                            - kind
+                            - label
+                            - id
+                          additionalProperties: false
+                        match:
+                          type: object
+                          properties:
+                            text:
+                              type: string
+                            ranges:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  start:
+                                    type: integer
+                                    minimum: 0
+                                    maximum: 9007199254740991
+                                  end:
+                                    type: integer
+                                    minimum: 0
+                                    maximum: 9007199254740991
+                                required:
+                                  - start
+                                  - end
+                                additionalProperties: false
+                          required:
+                            - text
+                            - ranges
+                          additionalProperties: false
                       required:
                         - kind
                         - id
                         - title
                         - subtitle
                         - url
+                        - source
+                        - match
                       additionalProperties: false
                 required:
                   - items
