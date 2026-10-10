@@ -3,7 +3,7 @@ import { JobHeader } from "./header";
 import { DeleteJob } from "./delete";
 import { validationMessage } from "./validation-message";
 import { useEffect, useState, useRef } from "react";
-import { Link, useNavigate, useParams, useBlocker } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate, useParams, useBlocker } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { jobQuery } from "./queries";
@@ -20,7 +20,7 @@ export function JobEditor() {
   return <EditorForm key={jobId ?? "new"} initial={job.data} />;
 }
 function EditorForm({ initial }: { initial?: Job }) {
-  const navigate = useNavigate(), cache = useQueryClient();
+  const location = useLocation(), navigate = useNavigate(), cache = useQueryClient();
   const [base, setBase] = useState(initial ? editableJob(initial) : emptyJob);
   const [draft, setDraft] = useState(base), [revision, setRevision] = useState(initial?.updatedAt);
   const [remote, setRemote] = useState<Job>(), [conflicts, setConflicts] = useState<(keyof JobInput)[]>([]);
@@ -54,7 +54,8 @@ function EditorForm({ initial }: { initial?: Job }) {
     if (conflicts.length === 1) setRemote(undefined);
   };
   const [localConflictDraft, setLocalConflictDraft] = useState(draft);
-  return <Page className="max-w-6xl"><nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2"><Link to="/jobs" search={{ q: "" }}>Jobs</Link>{initial && <><span aria-hidden="true">→</span><Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: initial.id }} search={{}}> {initial.name}</Link></>}</nav>{initial && <JobHeader job={initial} />}
+  const showJobBreadcrumb = Boolean(initial && !location.pathname.endsWith("/settings"));
+  return <Page className="max-w-6xl"><nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2"><Link to="/jobs" search={{ q: "" }}>Jobs</Link>{showJobBreadcrumb && initial && <><span aria-hidden="true">→</span><Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: initial.id }} search={{}}> {initial.name}</Link></>}</nav>{initial && <JobHeader job={initial} />}
     {(remote || reconciling || refreshConflict.error) && <Card role="alert" className="my-4 border p-4"><h2>This job changed while you were editing</h2><p>Your unsaved draft is retained. Review the latest configuration before retrying.</p>
       {refreshConflict.isPending && <p>Loading latest configuration…</p>}{refreshConflict.error && <><p>{refreshConflict.error.message}</p><Button onClick={() => refreshConflict.mutate()}>Retry loading latest</Button></>}
       {remote && !conflicts.length && <><pre className="max-h-64 overflow-auto whitespace-pre-wrap">{JSON.stringify(editableJob(remote), null, 2)}</pre><Button onClick={acceptRemote}>Reload latest and discard my changes</Button><Button onClick={() => { setLocalConflictDraft(draft); merge(); }}>Reconcile my changes</Button></>}
