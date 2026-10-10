@@ -69,13 +69,14 @@ test("provider editor fetches only the selected provider and submits project/mat
 test("search dialog keeps keyboard focus, escapes results and leaves a draft intact after chunk failure", async () => {
   const { context, page } = await setup();
   await page.route("**/api/v1/jobs/" + id, route => route.fulfill({ json: initial }));
-  await page.route("**/api/v1/search?**", route => route.fulfill({ json: { items: [{ kind: "job", id, title: "<script>unsafe</script> Build", subtitle: "Matching job", url: "/jobs/" + id }] } }));
+  await page.route("**/api/v1/search?**", route => route.fulfill({ json: { items: [{ kind: "job", id, title: "<script>unsafe</script> Build", subtitle: "Matching job", url: "/jobs/" + id, source: { kind: "job", label: "<script>unsafe</script> Build", id }, match: { text: "<script>unsafe</script> Build", ranges: [{ start: 24, end: 29 }] } }] } }));
   await page.goto(origin + "/jobs/" + id + "/edit");
   await page.getByLabel("Name", { exact: true }).fill("Unsaved draft");
-  await page.getByRole("button", { name: "Search jobs and runs", exact: true }).click();
-  await page.getByRole("combobox", { name: "Search jobs and runs", exact: true }).fill("build");
+  await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
+  await page.getByRole("combobox", { name: "Search jobs, runs, and messages", exact: true }).fill("build");
   await page.getByRole("listbox", { name: "Search results" }).getByRole("option").waitFor();
   assert.match(await page.getByRole("listbox", { name: "Search results" }).getByRole("option").innerText(), /<script>unsafe<\/script>/);
+  assert.equal(await page.getByRole("listbox", { name: "Search results" }).getByRole("option").locator("strong").innerText(), "Build");
   assert.equal(await page.locator("dialog script").count(), 0);
   await page.keyboard.press("Escape");
   assert.equal(await page.getByRole("dialog").count(), 0);

@@ -122,6 +122,29 @@ test("invocation validates JSON, preserves retry idempotency and navigates to li
   assert.equal(inputs.length, 2); assert.equal(inputs[0].idempotencyKey, inputs[1].idempotencyKey); assert.deepEqual(inputs[1].data, { build: 42 });
   assert.equal(await page.locator("main script").count(), 0); await context.close();
 });
+for (const width of [1280, 390]) test(`job header actions and status remain usable at ${width}px`, async () => {
+  const { page, context } = await contextFor({ viewport: { width, height: 844 } });
+  let enabled = true;
+  const longTitle = "Production deployment " + "with a deliberately long title ".repeat(12);
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, name: longTitle, enabled, runningCount: 1, concurrencyLimit: 3, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  await page.goto(origin + "/jobs/" + jobId);
+  const heading = page.getByRole("heading", { name: longTitle, exact: true });
+  await heading.waitFor();
+  assert.equal(await page.getByText("codex · Default model · 1/3 running", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("Enabled", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).isEnabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 1);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
+  enabled = false;
+  await page.reload();
+  await page.getByRole("heading", { name: longTitle, exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Enable job", exact: true }).count(), 1);
+  assert.equal(await heading.evaluate(element => getComputedStyle(element).color !== "rgb(15, 23, 42)"), true);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await context.close();
+});
 test("trace reset between requests discards old pages and finalization keeps terminal polling alive", async () => {
   const { page, context } = await contextFor();
   let statusCalls = 0, reset = false;
