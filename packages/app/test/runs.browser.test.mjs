@@ -32,6 +32,24 @@ test("all-runs table sorts its data columns with accessible headers", async () =
   assert.equal(await table.getByRole("columnheader", { name: /Created/ }).getAttribute("aria-sort"), "descending");
   await context.close();
 });
+test("all-runs columns keep their widths when sorting changes content", async () => {
+  const { context, page } = await setup();
+  const shortRuns = [{ id: runId, run_name: "Run", state: "succeeded", created_at: time, updated_at: time, started_at: null, agent_kind: "codex" }];
+  const longRuns = [{ id: runId, run_name: "A very long run name that should stay inside its assigned column", state: "succeeded", created_at: time, updated_at: time, started_at: null, agent_kind: "codex" }];
+  await page.route("**/api/v1/runs?**", route => {
+    const url = new URL(route.request().url());
+    return route.fulfill({ json: { items: url.searchParams.get("sort") === "run" ? longRuns : shortRuns, nextCursor: null } });
+  });
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport); await page.goto(origin + "/job-runs");
+    const table = page.getByRole("table");
+    const widths = await table.locator("thead th").evaluateAll(cells => cells.map(cell => Math.round(cell.getBoundingClientRect().width)));
+    await table.getByRole("button", { name: /Run, not sorted/ }).click(); await page.waitForURL("**/job-runs?sort=run&direction=asc");
+    const sortedWidths = await table.locator("thead th").evaluateAll(cells => cells.map(cell => Math.round(cell.getBoundingClientRect().width)));
+    assert.deepEqual(sortedWidths, widths); assert.equal(await table.locator("a").first().evaluate(link => getComputedStyle(link).textOverflow), "ellipsis");
+  }
+  await context.close();
+});
 test("shared run status dots show running transitions in both tables", async () => {
   const { context, page } = await setup(); let state = "running";
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Job", enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: state === "running" ? 1 : 0, promptTemplate: "Prompt", triggers: [] } }));

@@ -10,7 +10,7 @@ export const tableHeadClasses = "bg-stone-100 text-xs font-semibold text-slate-6
 export const tableRowClasses = "group relative border-t border-stone-200 transition-colors hover:bg-factorize-50 focus-within:bg-factorize-50 focus-within:shadow-[inset_3px_0_0_var(--color-factorize-500)] dark:border-slate-800 dark:hover:bg-factorize-500/10 dark:focus-within:bg-factorize-500/10";
 export const tableCellClasses = "px-2 py-2 sm:px-3";
 export function Table({ className = "", children, shellProps, ...props }: ComponentProps<"table"> & { shellProps?: ComponentProps<"div"> }) {
-  return <div {...shellProps} className={`${tableShellClasses} overflow-hidden ${shellProps?.className ?? ""}`}><table {...props} className={`${tableClasses} ${className}`}>{children}</table></div>;
+  return <div {...shellProps} className={`${tableShellClasses} ${shellProps?.className ?? ""}`}><table {...props} className={`${tableClasses} ${className}`}>{children}</table></div>;
 }
 export function SortableHeader({ label, active = false, direction = "asc", onSort, className = "", ariaLabel = label }: { label: string; active?: boolean; direction?: "asc" | "desc"; onSort: () => void; className?: string; ariaLabel?: string }) {
   const order = active ? (direction === "desc" ? "descending" : "ascending") : "none";

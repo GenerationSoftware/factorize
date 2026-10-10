@@ -303,8 +303,10 @@ test("run table headers sort every column accessibly and persist in the URL", as
   await table.getByRole("columnheader").nth(0).getByRole("button").waitFor();
   for (const index of [0, 1, 2, 3]) assert.equal(await table.getByRole("columnheader").nth(index).getByRole("button").count(), 1);
   const runHeader = table.getByRole("button", { name: /Run, not sorted/ });
+  const widths = await table.locator("thead th").evaluateAll(cells => cells.map(cell => Math.round(cell.getBoundingClientRect().width)));
   await runHeader.focus(); await page.keyboard.press("Enter"); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=asc`);
   assert.equal(await table.getByRole("columnheader", { name: /Run/ }).getAttribute("aria-sort"), "ascending");
+  assert.deepEqual(await table.locator("thead th").evaluateAll(cells => cells.map(cell => Math.round(cell.getBoundingClientRect().width))), widths);
   await table.getByRole("button", { name: /Run, sorted ascending/ }).click(); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=desc`);
   assert.equal(requests.at(-1).searchParams.get("direction"), "desc");
   await context.close();
