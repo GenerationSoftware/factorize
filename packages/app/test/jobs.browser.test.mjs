@@ -125,6 +125,29 @@ test("invocation validates JSON, preserves retry idempotency and navigates to li
   assert.equal(inputs.length, 2); assert.equal(inputs[0].idempotencyKey, inputs[1].idempotencyKey); assert.deepEqual(inputs[1].data, { build: 42 });
   assert.equal(await page.locator("main script").count(), 0); await context.close();
 });
+for (const width of [1280, 390]) test(`job header actions and status remain usable at ${width}px`, async () => {
+  const { page, context } = await contextFor({ viewport: { width, height: 844 } });
+  let enabled = true;
+  const longTitle = "Production deployment " + "with a deliberately long title ".repeat(12);
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, name: longTitle, enabled, runningCount: 1, concurrencyLimit: 3, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  await page.goto(origin + "/jobs/" + jobId);
+  const heading = page.getByRole("heading", { name: longTitle, exact: true });
+  await heading.waitFor();
+  assert.equal(await page.getByText("codex · Default model · 1/3 running", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("Enabled", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).isEnabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 1);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
+  enabled = false;
+  await page.reload();
+  await page.getByRole("heading", { name: longTitle, exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Enable job", exact: true }).count(), 1);
+  assert.equal(await heading.evaluate(element => getComputedStyle(element).color !== "rgb(15, 23, 42)"), true);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await context.close();
+});
 test("trace reset between requests discards old pages and finalization keeps terminal polling alive", async () => {
   const { page, context } = await contextFor();
   let statusCalls = 0, reset = false;
@@ -212,6 +235,23 @@ test("job Runs tab paginates distinct records, supports refresh/back and keeps c
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   const region = page.getByRole("region", { name: "Runs table" }); await region.focus(); assert.equal(await region.evaluate(el => el === document.activeElement), true);
   assert.ok(cursors.includes("page-2") && cursors.includes("page-3"));
+  await context.close();
+});
+
+test("run table headers sort every column accessibly and persist in the URL", async () => {
+  const { page, context } = await contextFor();
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  const requests = [];
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: [{ id: runId, run_name: "Run", issue_title: "", state: "succeeded", created_at: summary.createdAt, agent_kind: "codex" }], nextCursor: null } }); });
+  await page.goto(origin + `/jobs/${jobId}`);
+  const table = page.getByRole("table");
+  await table.getByRole("columnheader").nth(0).getByRole("button").waitFor();
+  for (const index of [0, 1, 2, 3]) assert.equal(await table.getByRole("columnheader").nth(index).getByRole("button").count(), 1);
+  const runHeader = table.getByRole("button", { name: /Run, not sorted/ });
+  await runHeader.focus(); await page.keyboard.press("Enter"); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=asc`);
+  assert.equal(await table.getByRole("columnheader", { name: /Run/ }).getAttribute("aria-sort"), "ascending");
+  await table.getByRole("button", { name: /Run, sorted ascending/ }).click(); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=desc`);
+  assert.equal(requests.at(-1).searchParams.get("direction"), "desc");
   await context.close();
 });
 

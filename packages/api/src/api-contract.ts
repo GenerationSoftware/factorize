@@ -783,6 +783,7 @@ export const API_ROUTES: RouteContract[] = [
     "runs:read",
     {
       summary: "List runs",
+      description: "Returns tenant-authorized runs. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.",
       responses: {
         "200": {
           description: "Paginated runs",
@@ -802,7 +803,7 @@ export const API_ROUTES: RouteContract[] = [
     "/api/v1/search",
     "runs:read",
     {
-      summary: "Search jobs and runs",
+      summary: "Search jobs, runs, and trace messages",
       responses: { "200": { description: "Search results", content: { "application/json": { schema: jsonSchema(searchResponse, "output") } } } },
     },
     (service, { query }) => service.search(query.q),

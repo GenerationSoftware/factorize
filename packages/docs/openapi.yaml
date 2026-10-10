@@ -7342,6 +7342,12 @@ paths:
   /api/v1/runs:
     get:
       summary: List runs
+      description: |-
+        Returns tenant-authorized runs. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.
+
+        Requires the runs:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
       responses:
         "200":
           description: Paginated runs
@@ -7365,10 +7371,6 @@ paths:
           $ref: "#/components/responses/Error500"
         "503":
           $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the runs:read scope.
-
-        Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_runs
       tags:
         - runs
@@ -7407,6 +7409,24 @@ paths:
             type: string
             minLength: 1
             maxLength: 50000
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - run
+              - status
+              - created
+              - agent
+        - name: direction
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
         - name: limit
           in: query
           required: false
@@ -7423,7 +7443,7 @@ paths:
             minLength: 1
   /api/v1/search:
     get:
-      summary: Search jobs and runs
+      summary: Search jobs, runs, and trace messages
       responses:
         "200":
           description: Search results
@@ -7442,6 +7462,7 @@ paths:
                           enum:
                             - job
                             - run
+                            - trace
                         id:
                           type: string
                         title:
@@ -7450,12 +7471,58 @@ paths:
                           type: string
                         url:
                           type: string
+                        source:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                              enum:
+                                - job
+                                - run
+                                - trace
+                            label:
+                              type: string
+                            id:
+                              type: string
+                          required:
+                            - kind
+                            - label
+                            - id
+                          additionalProperties: false
+                        match:
+                          type: object
+                          properties:
+                            text:
+                              type: string
+                            ranges:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  start:
+                                    type: integer
+                                    minimum: 0
+                                    maximum: 9007199254740991
+                                  end:
+                                    type: integer
+                                    minimum: 0
+                                    maximum: 9007199254740991
+                                required:
+                                  - start
+                                  - end
+                                additionalProperties: false
+                          required:
+                            - text
+                            - ranges
+                          additionalProperties: false
                       required:
                         - kind
                         - id
                         - title
                         - subtitle
                         - url
+                        - source
+                        - match
                       additionalProperties: false
                 required:
                   - items
