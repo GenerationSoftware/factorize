@@ -212,8 +212,7 @@ test("trace reset between requests discards old pages and finalization keeps ter
     return route.fulfill({ json: { items: [{ id: reset ? "new" : "old", sequence: 1, type: "assistant_message", title: reset ? "New projection" : "Old projection", preview: "Safe text", display: {} }], nextCursor: reset ? null : 100, revision: reset ? "new" : "old", reset: reset && query.get("revision") === "old" } });
   });
   await page.goto(origin + "/job-runs/" + runId); await page.getByText("Old projection · assistant_message", { exact: true }).waitFor();
-  await page.getByRole("link", { name: "Next trace page" }).click(); await page.getByText("New projection · assistant_message", { exact: true }).waitFor();
-  await page.waitForURL("**?after=0");
+  await page.getByText("New projection · assistant_message", { exact: true }).waitFor();
   assert.equal(await page.getByText("Old projection · assistant_message", { exact: true }).count(), 0);
   await page.waitForTimeout(2200); assert.ok(statusCalls >= 2);
   await context.close();
@@ -225,12 +224,12 @@ test("20k-event continuous trace keeps DOM bounded, retains expanded details on 
     traceRequests++; const query = new URL(route.request().url()).searchParams, reset = !!query.get("revision") && query.get("revision") !== revision, after = reset ? 0 : Number(query.get("after") || 0), limit = Number(query.get("limit")), count = revision === "large" ? 20000 : 1;
     return route.fulfill({ json: { items: Array.from({ length: Math.min(limit, count - after) }, (_, index) => ({ id: `${revision}-${after + index + 1}`, sequence: after + index + 1, type: "assistant_message", title: `${revision} event ${after + index + 1}`, preview: "Safe text", display: {} })), nextCursor: after + limit < count ? after + limit : null, revision, reset } });
   });
-  await page.goto(origin + "/job-runs/" + runId); await page.getByLabel("Continuous virtualized trace").check();
-  const region = page.getByRole("region", { name: "Continuous trace", exact: true });
+  await page.goto(origin + "/job-runs/" + runId);
+  const region = page.getByRole("region", { name: "Full trace", exact: true });
   await page.getByText("large event 1 · assistant_message", { exact: true }).waitFor(); await page.getByText("large event 1 · assistant_message", { exact: true }).click();
   for (let count = 400; count <= 20000; count += 200) {
     await region.evaluate(el => { el.scrollTop = el.scrollHeight; });
-    await page.getByRole("status").filter({ hasText: `${count} events loaded` }).waitFor();
+    await page.waitForFunction(expected => Math.max(...[...document.querySelectorAll('[role="status"]')].map(element => Number(element.textContent?.match(/^(\d+) events loaded/)?.[1] ?? 0))) >= expected, count);
     peakNodes = Math.max(peakNodes, await region.locator("li").count());
   }
   assert.ok(await region.locator("li").count() < 60); assert.ok(traceRequests <= 110);
@@ -286,6 +285,11 @@ test("job Runs tab paginates distinct records, supports refresh/back and keeps c
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   const region = page.getByRole("region", { name: "Runs table" }); await region.focus(); assert.equal(await region.evaluate(el => el === document.activeElement), true);
   assert.ok(cursors.includes("page-2") && cursors.includes("page-3"));
+  await page.goto(origin + `/jobs/${jobId}/settings`);
+  await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
+  assert.equal(await page.getByText("codex · Default model · 0/2 running", { exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 1);
   await context.close();
 });
 
