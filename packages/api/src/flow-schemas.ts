@@ -10,7 +10,7 @@ export const matchRuleSchema = z.object({
 export const listRunsSchema = z.object({
   jobId: z.string().min(1).optional(), state: runStateSchema.optional(),
   contextQuery: z.string().min(1).max(50_000).optional(),
-  sort: z.enum(["run", "status", "created", "agent"]).optional(),
+  sort: z.enum(["job", "run", "status", "created", "agent"]).optional(),
   direction: z.enum(["asc", "desc"]).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().min(1).optional(),
 }).refine(value => !value.direction || value.sort, { message: "direction requires sort" });

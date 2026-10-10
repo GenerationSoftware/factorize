@@ -55,10 +55,9 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       await page.getByText("Final output · assistant_message", { exact: true }).waitFor();
       expect(calls.some(call => call === `GET /api/v1/runs/${runId}/status`)).toBe(true);
       expect(calls.some(call => call === `GET /api/v1/runs/${runId}`)).toBe(false);
-      await page.getByLabel("Continuous virtualized trace").check();
-      const continuous = page.getByRole("region", { name: "Continuous trace" });
-      await continuous.getByText("Final output · assistant_message", { exact: true }).waitFor();
-      expect(await continuous.locator("li").count()).toBe(1);
+      const trace = page.getByRole("region", { name: "Full trace" });
+      await trace.getByText("Final output · assistant_message", { exact: true }).waitFor();
+      expect(await trace.locator("li").count()).toBe(1);
       expect(failures).toEqual([]);
       await context.close();
     } finally { await browser.close(); await f.cleanup(); }
