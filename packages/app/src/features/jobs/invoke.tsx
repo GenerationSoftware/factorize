@@ -8,6 +8,7 @@ import { messageOf } from "../auth/session";
 export function InvokeJob({ jobId, enabled }: { jobId: string; enabled: boolean }) {
   const cache = useQueryClient(), navigate = useNavigate();
   const retry = useRef<{ payload: string; key: string } | null>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false), [menuOpen, setMenuOpen] = useState(false);
   const mutation = useMutation({ retry: false, mutationFn: async (input: { prompt: string; data?: Record<string, unknown>; name?: string }) => {
     const payload = JSON.stringify(input);
@@ -31,9 +32,9 @@ export function InvokeJob({ jobId, enabled }: { jobId: string; enabled: boolean 
   }
   return <div className="relative my-4 flex items-stretch">
     <Button variant="primary" disabled={!enabled || mutation.isPending} onClick={() => invoke("")}>{mutation.isPending ? "Running…" : "Run job"}</Button>
-    <Button variant="primary" disabled={!enabled || mutation.isPending} aria-label="More run options" aria-haspopup="menu" aria-expanded={menuOpen} aria-controls="run-job-menu" className="ml-px rounded-l-none px-2" onClick={() => { mutation.reset(); setMenuOpen(value => !value); }}>▾</Button>
+    <Button ref={menuButton} variant="primary" disabled={!enabled || mutation.isPending} aria-label="More run options" aria-haspopup="menu" aria-expanded={menuOpen} aria-controls="run-job-menu" className="ml-px rounded-l-none px-2" onClick={() => { mutation.reset(); setMenuOpen(value => !value); }}>▾</Button>
     {menuOpen && <div id="run-job-menu" role="menu" aria-label="Run options" className="absolute left-0 top-full z-10 mt-2 min-w-44 rounded-lg border border-stone-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-      <button role="menuitem" className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-stone-100 dark:hover:bg-slate-800" onClick={() => { setMenuOpen(false); mutation.reset(); setOpen(true); }}>Run with prompt</button>
+      <button role="menuitem" className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-stone-100 dark:hover:bg-slate-800" onClick={() => { setMenuOpen(false); mutation.reset(); menuButton.current?.focus(); setOpen(true); }}>Run with prompt</button>
     </div>}
     {mutation.error && !open && <p role="alert" className="absolute left-0 top-full mt-3 w-max max-w-[min(28rem,calc(100vw-2rem))]">{mutation.error.message}</p>}
     {open && <Dialog title="Run with prompt" close={() => setOpen(false)}>
