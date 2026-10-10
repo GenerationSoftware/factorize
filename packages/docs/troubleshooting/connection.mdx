@@ -1,0 +1,15 @@
+---
+title: Connection problems
+description: Recover authorization, scopes, and execution targets.
+---
+
+| Symptom | Action |
+| --- | --- |
+| Browser consent fails or is cancelled | Sign in to the correct verified Factorize owner account, restart authorization from the client, and approve the requested scopes. Finish signup/email verification separately before restarting. |
+| Client never connects | Confirm the exact URL `https://app.factorize.sh/mcp`, remote Streamable HTTP and OAuth support. Open the client's MCP status view and authenticate; use [client-specific instructions](/mcp/overview). |
+| `invalid_token` or access disappears | Reauthorize the client. Password resets/changes and sign-out invalidate delegated credentials. An expired access token needs client refresh or renewed login. |
+| `insufficient_scope` | Reconnect and grant `flows:read` for discovery, `flows:write` for job edits/diagnosis, `runs:read` for inspection and `runs:write` for invocation/stop. |
+| `list_execution_targets` returns no items | In browser Settings, test and save an exe.dev or Amp integration in the same workspace. MCP cannot create credential-bearing connections. |
+| Target exists but repository/model access fails | Test the saved execution integration and check execution-account repository/model access and VM tags. For exe.dev, `diagnose_exe_integration` uses the saved connection ID and creates/deletes a temporary VM. |
+
+To reconnect access, open [Settings → Authorized clients](https://app.factorize.sh/settings/authorized-clients), revoke the old client if necessary, remove/reconnect its authorization in the MCP client, then authorize again. Verify with “List my Factorize jobs” followed by “List my execution targets.” Revocation affects access, not stored jobs. Provider reconnection is separate: use [Settings → Integrations](https://app.factorize.sh/settings).

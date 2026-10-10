@@ -1,12 +1,47 @@
 ---
-title: Remote MCP
-description: Connect an MCP client to Factorize.
+title: Connect your agent
+description: Authorize Codex or Claude Code for hosted Factorize.
 ---
 
-Use the single Streamable HTTP URL `APP_ORIGIN/mcp`. The endpoint is OAuth-protected and advertises protected-resource metadata. Compatible clients discover authorization, use PKCE S256, and request only the scopes they need. The server is stateless; each request is tenant-isolated.
+Use the remote **Streamable HTTP** endpoint:
 
-```json
-{ "mcpServers": { "factorize": { "url": "https://app.factorize.sh/mcp" } } }
+```text
+https://app.factorize.sh/mcp
 ```
 
-Tool results contain MCP text plus structured JSON. Errors are reported as `code: message`. Credentials and signing secrets are never accepted or returned.
+Complete [browser account and execution setup](/quickstart) first. Factorize requires OAuth authorization, owner membership and tenant-bound scopes. A JSON configuration from one client is not a universal MCP configuration.
+
+## Codex
+
+Current Codex supports Streamable HTTP and OAuth. Add this client-specific TOML to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.factorize]
+url = "https://app.factorize.sh/mcp"
+```
+
+Run `codex mcp login factorize`, then use `/mcp` in Codex to verify the connection. See the [official Codex MCP documentation](https://developers.openai.com/codex/mcp) for configuration and OAuth support.
+
+## Claude Code
+
+Add the remote server:
+
+```bash
+claude mcp add --transport http factorize https://app.factorize.sh/mcp
+```
+
+Start Claude Code, enter `/mcp`, choose Factorize and authenticate when prompted. See the [official Claude Code MCP documentation](https://code.claude.com/docs/en/mcp) for HTTP transport, OAuth and configuration scope.
+
+## Authorize in the browser
+
+The client opens Factorize authorization in your browser. Sign in with your verified Factorize email/password and approve the requested scopes. For the full workflow, grant `flows:read`, `flows:write`, `runs:read`, and `runs:write`. Read-only access cannot create or invoke jobs. Return to your client after consent.
+
+If you need to create an account or verify your email, finish those steps and restart client authorization; do not assume the signup screen will automatically resume the original request. No Linear or execution token belongs in the MCP client.
+
+Ask **“List my Factorize jobs.”** The agent should call `list_jobs({})`. An empty `items` list is a successful connection to a workspace with no jobs. Next ask it to list execution targets and follow the [first-job walkthrough](/quickstart).
+
+Other clients must support remote Streamable HTTP and Factorize's OAuth discovery/PKCE flow. Their UI and plan availability vary; consult their own documentation rather than pasting either configuration above.
+
+## Connection problems
+
+For rejected consent, expired authorization, missing targets, scope errors and reconnection steps, see [connection troubleshooting](/troubleshooting/connection). Protocol implementers should use [authentication](/api/authentication) and [discovery](/api/discovery).

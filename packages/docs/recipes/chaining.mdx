@@ -1,0 +1,20 @@
+---
+title: Chain jobs
+description: Start a follow-up after another job finishes or is edited.
+---
+
+User request:
+
+> After my review job succeeds, run a second job to inspect its findings. Keep the follow-up manually runnable.
+
+Discover source job ID with `list_jobs`, and choose a target with `list_execution_targets`. Create the destination with required job fields and:
+
+```json
+{"kind":"jobLifecycle","enabled":true,"config":{"sourceJobIds":["SOURCE_JOB_ID"],"states":["succeeded"]}}
+```
+
+Read the destination's returned trigger slug, then preserve all writable fields/triggers while setting its prompt to `Inspect source job {{trigger-2.sourceJobId}} and run {{trigger-2.sourceRunId}}. Summarize its findings.` Use the actual slug. Context includes identifiers, `state` and `completedAt`, not the source output. The execution agent must have its own authorized way to retrieve source results (for example its own Factorize MCP access); the conversational client's authorization is not forwarded. If unavailable, have the conversational agent inspect the source output in the browser or via REST trace pages and manually invoke the destination with output in `data` instead of claiming automatic output transfer.
+
+Expected result: a successful source run produces a destination run. Invoke the source with a stable key, wait for success, then inspect destination runs and full context to verify source job/run IDs, then inspect output in the browser. Avoid cycles and make prompts safe for repeated events; automatic signals may coalesce.
+
+Available states are `succeeded`, `failed`, `stopped`, and `edited`. **Edited** fires on successful saves (including enable/disable), even unchanged saves, not creation or run-state changes. Edited context has `source_job_id`, `event: "edited"`, and `edited_at`; it has no source run ID. Only same-tenant enabled subscribers match, and a job cannot subscribe to its own edits. Pending edit events wait while disabled/unmatched; deleting the source or removing the trigger discards them. Verify an edited recipe by saving the source and inspecting the destination context.

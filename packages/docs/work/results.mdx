@@ -1,0 +1,12 @@
+---
+title: Inspect results
+description: Read run state, output, prompt, and trigger context.
+---
+
+Ask: “Show the latest runs for this job and summarize the completed review.” Use `list_runs({"jobId":"JOB_ID","limit":10})`, then `get_run({"runId":"RUN_ID"})`. Current MCP does not return an `output` field or trace messages. Open the browser run page to read the trace, or retrieve REST trace pages with an authorized client. Report the state/link through MCP and only summarize findings after actually reading them.
+
+Run pages return `items` and `nextCursor`; send that cursor for the next page. Optional `state` and `contextQuery` filter runs. Context search is a case-insensitive substring, not a query language. Current list rows contain no context excerpt; `get_run` returns full `context`, rendered `prompt`, `invocation.trigger_id`, execution metadata and activity.
+
+Check that the intended trigger fired, the repository/task appears in the rendered prompt, and the browser/REST trace supports the reported result. A queued submission is not a successful execution. Browser run pages are at `https://app.factorize.sh/job-runs/RUN_ID`. Agent output stays in Factorize and is not automatically copied into Linear.
+
+For missing output or execution failures, call `get_run_diagnostics` and follow [failed-run troubleshooting](/troubleshooting/runs).

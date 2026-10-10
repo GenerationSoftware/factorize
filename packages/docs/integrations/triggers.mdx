@@ -7,7 +7,7 @@ Schedule config is `{cron, timezone}`. Webhook config supports `linear` (`projec
 
 Lifecycle config is `{sourceJobIds, states}`, where states are `succeeded`, `failed`, `stopped`, or `edited`. Triggers have stable server-generated slugs (`trigger-1`, `trigger-2`, …); use them in Mustache templates. Disabled triggers do not fire.
 
-Linear webhooks require a fresh HMAC timestamp/signature and configured OAuth subscription. ClickUp uses its OAuth connection and signed webhook. GitHub uses the connected App installation. Cloudflare Tail sends sanitized, signed delivery data to the generated destination.
+For hosted jobs, connect the provider in [Settings](/integrations/oauth), select accessible resources in the browser editor, and verify a matching event with delivery tools. Factorize verifies provider signatures and manages OAuth subscriptions. Optional Cloudflare Tail triggers require your own source/relay integration; infrastructure setup belongs in [operations](/self-hosting/operations).
 
 Choose **Job lifecycle → Edited** and one or more source jobs to run a job when another job is saved (including enable/disable saves). Creation and run status changes do not produce edit events. Each successful save is an event, even if the submitted values are unchanged. Only enabled subscribers in the same tenant are matched; a job cannot subscribe to its own edits.
 

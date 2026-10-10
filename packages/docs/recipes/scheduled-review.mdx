@@ -1,0 +1,18 @@
+---
+title: Schedule a repository review
+description: Turn a successful manual review into daily automation.
+---
+
+User request:
+
+> Review the latest commit in https://github.com/YOUR_ORG/YOUR_REPO.git every weekday at 09:00 UTC. Keep a manual trigger and report findings in Factorize.
+
+First complete a [manual run](/quickstart). Fetch the job, preserve its writable configuration and manual trigger identity, and append:
+
+```json
+{"kind":"schedule","enabled":true,"config":{"cron":"0 9 * * 1-5","timezone":"UTC"}}
+```
+
+Save with `update_job` and `expectedUpdatedAt`. Fetch again to discover the schedule's stable slug. Use a repository review prompt that works without manual context; optionally add `Scheduled at {{trigger-2.occurredAt}}` using the actual slug. Preserve the entire trigger list when saving this prompt.
+
+Expected result: an enabled weekday schedule and one queued/executing run at the next matching occurrence (subject to queue coalescing). Verify cron/timezone and next occurrence in the browser editor, then `list_runs({"jobId":"JOB_ID"})` and `get_run`: the invocation's trigger ID and context must match the schedule, and the browser trace output must contain the review. Do not claim automation verified until a scheduled occurrence has actually run.

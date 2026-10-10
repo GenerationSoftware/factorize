@@ -1,0 +1,12 @@
+---
+title: Operations and advanced trace recovery
+description: Operator checks, retained artifacts, and rollout evidence.
+---
+
+Use the [deployment runbook](https://github.com/GenerationSoftware/factorize/blob/main/docs/package-migration.md) and [trace rollout runbook](https://github.com/GenerationSoftware/factorize/blob/main/docs/trace-rollout-runbook.md) for retention, canary gates and rollback. `npm run check` checks package boundaries, generated contracts, runtime tests and builds. The PostgreSQL auth suite uses an isolated database; see configuration for migration verification.
+
+`get_run_diagnostics` exposes declared trace sources, projection evidence, artifacts and fallback use. A trace may be partial when collection fails. A `matched` reconciliation result verifies the live prefix against the terminal artifact; missing evidence does not prove completeness.
+
+Trace replay is REST-only and requires an interactive owner session with `runs:write`: `POST /api/v1/runs/{runId}/trace/replay` with a UUID `requestId` and `source` (`primary` or `native_session`). Reuse the request ID after interruption. Limit: ten requests per tenant per minute. Results distinguish projected, already projected, skipped and unrecoverable. Replay preserves artifacts; expired/deleted bytes cannot be recovered. Historical Codex tool calls require retained native session bytes.
+
+Cloudflare Tail infrastructure is optional: use the [Tail relay deployment guide](https://github.com/GenerationSoftware/factorize/blob/main/docs/cloudflare-tail.md). Hosted users still supply their own source Worker/relay integration.
