@@ -314,6 +314,13 @@ test("run table headers sort every column accessibly and persist in the URL", as
   assert.equal(requests.at(-1).searchParams.get("direction"), "desc");
   await context.close();
 });
+test("job run history shares status filtering and keeps it across pagination", async () => {
+  const { page, context } = await contextFor(); const requests = [];
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: [{ id: runId, run_name: "Failed run", state: "failed", created_at: summary.createdAt, agent_kind: "codex" }], nextCursor: "next" } }); });
+  await page.goto(origin + `/jobs/${jobId}`); await page.getByRole("button", { name: /Status, all statuses/ }).click(); const dialog = page.getByRole("dialog", { name: "Status filter and sort" }); await dialog.getByLabel("Failed").click({ noWaitAfter: true }); await page.waitForFunction(() => location.search.includes("state") || location.search.includes("states")); await page.waitForTimeout(250); assert.equal(requests.find(url => url.searchParams.get("state") === "failed")?.searchParams.get("state"), "failed");
+  await page.getByRole("link", { name: "Next page" }).click(); await page.waitForURL(/cursor=next/); assert.equal(requests.at(-1).searchParams.get("state"), "failed"); await page.getByRole("button", { name: /Status, 1 status selected/ }).click(); await page.getByRole("dialog", { name: "Status filter and sort" }).getByRole("button", { name: "Clear filters and reset sort" }).click(); await page.waitForFunction(() => { const params = new URLSearchParams(location.search); return location.pathname.endsWith("/" + "00000000-0000-4000-8000-000000000001") && !params.has("state") && !params.has("states"); }); assert.equal(requests.at(-1).searchParams.has("state"), false); await context.close();
+});
 
 test("job with no runs has an empty table and disabled pagination", async () => {
   const { page, context } = await contextFor();

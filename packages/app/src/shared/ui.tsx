@@ -1,4 +1,4 @@
-import { Children, type ComponentProps, type ReactNode } from "react";
+import { Children, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 export const buttonClasses = {
   primary: "bg-factorize-500 text-slate-950 border-factorize-500 hover:bg-factorize-100",
   secondary: "bg-white text-slate-700 border-stone-200 hover:bg-stone-100 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-800",
@@ -16,6 +16,24 @@ export function SortableHeader({ label, active = false, direction = "asc", onSor
   const order = active ? (direction === "desc" ? "descending" : "ascending") : "none";
   const next = active && direction === "asc" ? "descending" : "ascending";
   return <th scope="col" aria-sort={order} className={`${tableCellClasses} ${className}`}><button type="button" className="font-semibold underline decoration-transparent underline-offset-4 hover:decoration-current focus-visible:rounded-sm focus-visible:decoration-current focus-visible:outline-none" onClick={onSort} aria-label={`${ariaLabel}, ${active ? `sorted ${order}` : "not sorted"}. Activate to sort ${next}`}>{label}{active && <span aria-hidden="true"> {direction === "desc" ? "↓" : "↑"}</span>}</button></th>;
+}
+export const runStatuses = ["queued", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "ignored", "done"] as const;
+export type RunStatus = typeof runStatuses[number];
+const runStatusLabels: Record<RunStatus, string> = { queued: "Queued", starting: "Starting", running: "Running", blocked: "Blocked", stopping: "Stopping", succeeded: "Succeeded", failed: "Failed", stopped: "Stopped", ignored: "Ignored", done: "Done" };
+export function StatusHeader({ selected, sortDirection, onFilterChange, onSortChange, onClear }: { selected: RunStatus[]; sortDirection?: "asc" | "desc"; onFilterChange: (status: RunStatus, checked: boolean) => void; onSortChange: (direction?: "asc" | "desc") => void; onClear: () => void }) {
+  const [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null), buttonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") { setOpen(false); buttonRef.current?.focus(); } };
+    const onClick = (event: MouseEvent) => { if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("keydown", onKey); document.addEventListener("mousedown", onClick);
+    return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onClick); };
+  }, [open]);
+  const filterSummary = selected.length ? `${selected.length} status${selected.length === 1 ? "" : "es"} selected` : "all statuses";
+  return <th scope="col" aria-sort={sortDirection ? sortDirection === "asc" ? "ascending" : "descending" : "none"} className={tableCellClasses}>
+    <div ref={ref} className="relative"><button ref={buttonRef} type="button" aria-haspopup="dialog" aria-expanded={open} aria-label={`Status, ${filterSummary}${sortDirection ? `, sorted ${sortDirection}` : ", not sorted"}`} className="font-semibold underline decoration-transparent underline-offset-4 hover:decoration-current focus-visible:rounded-sm focus-visible:decoration-current focus-visible:outline-none" onClick={() => setOpen(value => !value)}>Status{selected.length > 0 && <span aria-hidden="true"> ({selected.length})</span>}{sortDirection && <span aria-hidden="true"> {sortDirection === "asc" ? "↑" : "↓"}</span>}</button>
+      {open && <div role="dialog" aria-label="Status filter and sort" className="absolute left-0 z-20 mt-2 w-64 rounded-lg border border-stone-300 bg-white p-3 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900"><fieldset><legend className="font-semibold">Filter statuses</legend>{runStatuses.map(status => <label key={status} className="flex min-h-10 items-center gap-2 py-1"><input type="checkbox" checked={selected.includes(status)} onChange={event => onFilterChange(status, event.target.checked)} />{runStatusLabels[status]}</label>)}</fieldset><div className="mt-2 border-t border-stone-200 pt-2 dark:border-slate-700"><span className="font-semibold">Sort status</span><div className="mt-1 flex gap-2"><button type="button" className="min-h-10 rounded border px-2 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2" aria-pressed={sortDirection === "asc"} onClick={() => onSortChange("asc")}>Ascending</button><button type="button" className="min-h-10 rounded border px-2 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2" aria-pressed={sortDirection === "desc"} onClick={() => onSortChange("desc")}>Descending</button></div></div><button type="button" className="mt-2 min-h-10 text-left font-semibold underline underline-offset-4" onClick={onClear}>Clear filters and reset sort</button></div>}
+    </div></th>;
 }
 const runStatusStyles: Record<string, { label: string; color: string; pulse?: boolean }> = {
   queued: { label: "Queued", color: "bg-amber-500" }, starting: { label: "Starting", color: "bg-blue-500" }, running: { label: "Running", color: "bg-blue-500", pulse: true },

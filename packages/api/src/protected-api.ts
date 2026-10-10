@@ -28,9 +28,12 @@ function queryOf(value: Record<string, unknown>): URLSearchParams {
   return query;
 }
 
-function queryInput(url: URL): Record<string, string> {
-  const value: Record<string, string> = {};
-  url.searchParams.forEach((item, key) => { value[key] = item; });
+function queryInput(url: URL): Record<string, string | string[]> {
+  const value: Record<string, string | string[]> = {};
+  url.searchParams.forEach((item, key) => {
+    const previous = value[key];
+    value[key] = previous === undefined ? item : Array.isArray(previous) ? [...previous, item] : [previous, item];
+  });
   return value;
 }
 
