@@ -174,6 +174,22 @@ test("job Runs tab paginates distinct records, supports refresh/back and keeps c
   await context.close();
 });
 
+test("run table headers sort every column accessibly and persist in the URL", async () => {
+  const { page, context } = await contextFor();
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  const requests = [];
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: [{ id: runId, run_name: "Run", issue_title: "", state: "succeeded", created_at: summary.createdAt, agent_kind: "codex" }], nextCursor: null } }); });
+  await page.goto(origin + `/jobs/${jobId}`);
+  const table = page.getByRole("table");
+  for (const label of ["Run", "Status", "Created", "Agent"]) assert.equal(await table.getByRole("columnheader", { name: new RegExp(`^${label}` }).getByRole("button").count(), 1);
+  const runHeader = table.getByRole("button", { name: /Run, not sorted/ });
+  await runHeader.focus(); await page.keyboard.press("Enter"); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=asc`);
+  assert.equal(await table.getByRole("columnheader", { name: /Run/ }).getAttribute("aria-sort"), "ascending");
+  await table.getByRole("button", { name: /Run, sorted ascending/ }).click(); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=desc`);
+  assert.equal(requests.at(-1).searchParams.get("direction"), "desc");
+  await context.close();
+});
+
 test("job with no runs has an empty table and disabled pagination", async () => {
   const { page, context } = await contextFor();
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));

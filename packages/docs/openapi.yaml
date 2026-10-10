@@ -7366,6 +7366,8 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
+        Returns tenant-authorized runs. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.
+
         Requires the runs:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
@@ -7407,6 +7409,24 @@ paths:
             type: string
             minLength: 1
             maxLength: 50000
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - run
+              - status
+              - created
+              - agent
+        - name: direction
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
         - name: limit
           in: query
           required: false

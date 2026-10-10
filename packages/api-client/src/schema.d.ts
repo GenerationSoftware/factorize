@@ -1175,7 +1175,9 @@ export interface paths {
         };
         /**
          * List runs
-         * @description Requires the runs:read scope.
+         * @description Returns tenant-authorized runs. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.
+         *
+         *     Requires the runs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -4895,6 +4897,8 @@ export interface operations {
                 jobId?: string;
                 state?: "queued" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped";
                 contextQuery?: string;
+                sort?: "run" | "status" | "created" | "agent";
+                direction?: "asc" | "desc";
                 limit?: number;
                 cursor?: string;
             };
