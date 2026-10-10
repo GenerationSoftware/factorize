@@ -6,6 +6,20 @@ required-check name while ensuring a browser failure cannot prevent backend
 validation. Pull-request runs cancel only an older run for the same PR; merge
 queue runs use a separate, non-cancelable concurrency group.
 
+Both jobs call the repository's shared lanes: `npm run test:backend` and
+`npm run test:browser`. The root `npm test` runs both lanes and `npm run check`
+is an alias. This keeps generated-contract drift, builds, package checks,
+database integration, functional browser coverage, and application tests in one
+auditable implementation. Backend CI provisions an isolated PostgreSQL service;
+the browser job installs Chromium. A lane reports passed, failed, and unexecuted
+steps and exits nonzero on any missing prerequisite or failed step.
+
+For a fresh exe.dev VM, use Node 24.12.0 and npm 11.19.0, run `npm ci`, install PostgreSQL and
+Chromium, and run `npm run bootstrap:test`. Export its three local database
+variables before `npm test`. The bootstrap recreates only the named local
+database and applies migrations; it refuses remote database URLs. Optional
+visual screenshots and stress tests remain outside required validation.
+
 Screenshot regressions and the 20,000-event trace stress case are intentionally
 outside required CI. Run **Optional visual regressions** from the Actions tab.
 Set `Update checked-in Playwright visual baselines` when reviewing a baseline

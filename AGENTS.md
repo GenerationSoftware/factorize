@@ -2,6 +2,20 @@
 
 This project in Linear is "Factorize"
 
+## Validation
+
+Use Node 24.12.0 and npm 11.19.0 (`.node-version` and `package.json`) and run `npm ci` after a clean checkout.
+Run `npm test` after the final code change; it is the complete required local
+validation and runs the shared backend and browser lanes used by CI. `npm run
+check` is an alias for the same suite. Targeted workspace commands remain
+available for iteration, but do not replace the root suite before handoff.
+
+For a fresh local VM, install PostgreSQL and Chromium as needed, then run
+`npm run bootstrap:test`. It creates an isolated local database, applies
+migrations, and prints the variables to export before `npm test`. Never point
+validation at production or a shared database. A missing database, Node
+version, or Chromium prerequisite is a hard failure with a recovery command.
+
 ## API architecture
 
 - Every JSON application endpoint must live under `/api/v1` and be documented in `packages/docs/openapi.yaml`.

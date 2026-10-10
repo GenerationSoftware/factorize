@@ -32,8 +32,9 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: npm
+      - run: npm install --global npm@11.19.0
       - name: Start isolated migrated PostgreSQL database
         run: |
           sudo systemctl start postgresql
@@ -42,18 +43,10 @@ jobs:
           pg_isready -h localhost -p 5432
           npm ci
           npm run db:migrate --workspace=factorize
-      - name: Verify generated API contract once
-        run: |
-          npm run generate
-          git diff --exit-code -- packages/docs/openapi.yaml packages/api-client/src/schema.d.ts
-      - name: Build static application for Worker dry-run
-        run: npm run build --workspace=factorize-app
-      - name: Run docs, API, authorization, integration and Worker checks
-        run: npm run check:backend
       - name: Install Chromium for compiled static-slice checks
         run: npm exec --workspace=factorize -- playwright install --with-deps chromium
-      - name: Exercise compiled jobs/invocation/run slice against PostgreSQL
-        run: npm run test:static-slice --workspace=factorize
+      - name: Run the shared backend validation lane
+        run: npm run test:backend
       - name: Record backend timing
         if: always()
         run: |
@@ -69,17 +62,14 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: npm
+      - run: npm install --global npm@11.19.0
       - run: npm ci
-      - name: Build static application
-        run: npm run build --workspace=factorize-app
       - name: Install Chromium for functional checks
         run: npm exec --workspace=factorize-app -- playwright install --with-deps chromium
-      - name: Run required functional browser coverage
-        run: npm run test:functional --workspace=factorize-app
-      - name: Run non-browser app unit tests
-        run: npm test --workspace=factorize-app
+      - name: Run the shared browser validation lane
+        run: npm run test:browser
       - name: Record browser timing
         if: always()
         run: |
