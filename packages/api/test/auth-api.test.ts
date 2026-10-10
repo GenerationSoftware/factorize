@@ -212,7 +212,7 @@ describe("cookie-only consent and device API boundaries", () => {
     ["/api/v1/oauth/consent/preview", { authorizationQuery: "client_id=client" }],
     ["/api/v1/oauth/consent/decision", { request: "request", signature: "signature", decision: "allow", scopes: [] }],
     ["/api/v1/oauth/device/preview", { userCode: "ABCD-EFGH" }],
-    ["/api/v1/oauth/device/decision", { userCode: "ABCD-EFGH", decision: "allow" }],
+    ["/api/v1/oauth/device/decision", { userCode: "ABCD-EFGH", signature: "signature", decision: "allow" }],
   ] as const;
   it("requires an authoritative owner session and never accepts bearer credentials", async () => {
     for (const [path, body] of requests) {
@@ -225,4 +225,21 @@ describe("cookie-only consent and device API boundaries", () => {
       const response = await call(path, body, headers); expect(response.status).toBe(403); expect(await contract(response, path, "POST")).toMatchObject({ error: { code: "invalid_origin" } });
     }
   });
+});
+
+it("protects public onboarding start/resume operations against CSRF, bearer identity and malformed input", async () => {
+  const operations = [
+    ["/api/v1/auth/connections", { returnTo: "/device" }],
+    ["/api/v1/auth/connections/resume", { connection: "11111111-1111-4111-8111-111111111111" }],
+  ] as const;
+  for (const [path, body] of operations) {
+    for (const headers of [{ Origin: "https://evil.test" }, { "Sec-Fetch-Site": "cross-site" }, { Authorization: "Bearer unrelated" }] as Record<string, string>[]) {
+      const response = await call(path, body, headers);
+      expect(response.status).toBe(403);
+      expect(response.headers.get("Set-Cookie")).toBeNull();
+      await contract(response, path, "POST");
+    }
+    expect((await call(path, { ...body, userId: "forged" })).status).toBe(400);
+  }
+  expect((await call("/api/v1/auth/connections/resume", { connection: "invalid" })).status).toBe(400);
 });

@@ -3,6 +3,7 @@ import { sendAuthEmail, validateAuthEmailConfig } from "../auth-email";
 import type { Env } from "../types";
 import type { Database, DatabaseClient } from "./database";
 
+type AuthResult = { status: number; body: { ok?: boolean; error?: string; userId?: string; email?: string; tenantId?: string; sessionVersion?: number; connection?: string } };
 const ok = () => ({ status: 200, body: { ok: true } });
 const invalidLink = () => ({ status: 400, body: { error: "The link is invalid or expired." } });
 
@@ -23,7 +24,7 @@ export class AuthRepository {
       if (error?.code === "23505") return { status: 409, body: { error: "That email is already registered. Sign in, resend verification, or reset your password." } };
       throw error;
     }
-    await this.issueEmail(userId, email, "verify");
+    await this.issueEmail(userId, email, "verify", input.connection as string | undefined);
     return { status: 201, body: { ok: true } };
   }
 
@@ -41,10 +42,14 @@ export class AuthRepository {
     });
   }
 
-  private async issueEmail(userId: string, email: string, purpose: "verify" | "reset") {
+  private async issueEmail(userId: string, email: string, purpose: "verify" | "reset", connection?: string) {
+    if (connection) {
+      const bound = await this.database.pool.query("UPDATE app.oauth_connections SET user_id=$2 WHERE id=$1 AND expires_at>now() AND used_at IS NULL AND (user_id IS NULL OR user_id=$2) RETURNING id", [connection, userId]);
+      if (!bound.rows.length) throw new Error("Invalid or expired connection. Restart from your MCP client.");
+    }
     const token = crypto.randomUUID() + crypto.randomUUID(), digest = await tokenDigest(token, this.env.SESSION_SIGNING_SECRET);
-    await this.database.pool.query("INSERT INTO app.auth_reset_tokens(digest,user_id,expires_at,purpose) VALUES ($1,$2,now()+interval '1 hour',$3)", [digest, userId, purpose]);
-    try { await sendAuthEmail(this.env, email, token, purpose); }
+    await this.database.pool.query("INSERT INTO app.auth_reset_tokens(digest,user_id,expires_at,purpose,connection_id) VALUES ($1,$2,now()+interval '1 hour',$3,$4)", [digest, userId, purpose, connection ?? null]);
+    try { await sendAuthEmail(this.env, email, token, purpose, connection); }
     catch (error) { await this.database.pool.query("DELETE FROM app.auth_reset_tokens WHERE digest=$1", [digest]); throw error; }
   }
 
@@ -52,7 +57,7 @@ export class AuthRepository {
     validateAuthEmailConfig(this.env);
     const email = normalizeEmail(String(input.email ?? ""));
     const user = (await this.database.pool.query<{ id: string; email_verified: boolean }>("SELECT id,email_verified FROM app.auth_users WHERE lower(email)=$1", [email])).rows[0];
-    if (user && (purpose === "reset" || !user.email_verified)) await this.issueEmail(user.id, email, purpose);
+    if (user && (purpose === "reset" || !user.email_verified)) await this.issueEmail(user.id, email, purpose, input.connection as string | undefined);
     return ok();
   }
   async requestReset(input: Record<string, unknown>) { return this.requestEmail(input, "reset"); }
@@ -71,7 +76,7 @@ export class AuthRepository {
     if (!validPassword(password)) return { status: 400, body: { error: "Use a password of 12–200 characters." } };
     return this.consumeToken(String(input.token ?? ""), "reset", await hashPassword(password));
   }
-  private async consumeToken(token: string, purpose: "verify" | "reset", passwordHash?: string) {
+  private async consumeToken(token: string, purpose: "verify" | "reset", passwordHash?: string): Promise<AuthResult> {
     if (!token) return invalidLink();
     const digest = await tokenDigest(token, this.env.SESSION_SIGNING_SECRET);
     try {
@@ -81,7 +86,7 @@ export class AuthRepository {
         const row = (await client.query<{ user_id: string; email: string }>(`SELECT u.id user_id,u.email FROM app.auth_users u WHERE u.id=(
           SELECT user_id FROM app.auth_reset_tokens WHERE digest=$1 AND purpose=$2 AND used_at IS NULL AND expires_at>now()) FOR UPDATE`, [digest, purpose])).rows[0];
         if (!row) return false;
-        const active = await client.query("SELECT digest FROM app.auth_reset_tokens WHERE digest=$1 AND purpose=$2 AND used_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE", [digest, purpose]);
+        const active = await client.query("SELECT digest,connection_id FROM app.auth_reset_tokens WHERE digest=$1 AND purpose=$2 AND used_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE", [digest, purpose]);
         if (!active.rows.length) return false;
         if (purpose === "reset") {
           // Email possession lets legacy Linear-only users establish native credentials.
@@ -92,10 +97,13 @@ export class AuthRepository {
         }
         await client.query("UPDATE app.auth_users SET email_verified=true WHERE id=$1", [row.user_id]);
         await this.ensureWorkspace(client, row.user_id, row.email);
-        await client.query("UPDATE app.auth_reset_tokens SET used_at=now() WHERE user_id=$1 AND purpose=$2 AND used_at IS NULL", [row.user_id, purpose]);
-        return true;
+        await client.query("UPDATE app.auth_reset_tokens SET used_at=now() WHERE used_at IS NULL AND (digest=$1 OR (user_id=$2 AND purpose='reset' AND $3='reset'))", [digest, row.user_id, purpose]);
+        const connection = active.rows[0].connection_id as string | null;
+        if (connection) await client.query("UPDATE app.oauth_connections SET ready=true,ready_version=(SELECT session_version FROM app.members WHERE user_id=$2 AND role='owner' ORDER BY created_at,tenant_id LIMIT 1) WHERE id=$1 AND user_id=$2 AND expires_at>now() AND used_at IS NULL", [connection, row.user_id]);
+        const member = (await client.query<{ tenant_id: string; session_version: number }>("SELECT tenant_id,session_version FROM app.members WHERE user_id=$1 AND role='owner' ORDER BY created_at,tenant_id LIMIT 1", [row.user_id])).rows[0];
+        return { userId: row.user_id, email: row.email, tenantId: member?.tenant_id, sessionVersion: member?.session_version, connection: connection ?? undefined };
       });
-      return completed ? ok() : invalidLink();
+      return completed ? { status: 200, body: { ok: true, ...completed } } : invalidLink();
     } catch (error) { throw error; }
   }
 

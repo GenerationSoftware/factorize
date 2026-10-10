@@ -8,10 +8,11 @@ export function validateAuthEmailConfig(env: Env): void {
   }
 }
 
-export async function sendAuthEmail(env: Env, email: string, token: string, purpose: "verify" | "reset"): Promise<void> {
+export async function sendAuthEmail(env: Env, email: string, token: string, purpose: "verify" | "reset", connection?: string): Promise<void> {
   validateAuthEmailConfig(env);
   const url = new URL(purpose === "verify" ? "/auth/verify" : "/auth/password-reset", env.APP_ORIGIN);
   url.searchParams.set("token", token);
+  if (connection) url.searchParams.set("connection", connection);
   const response = await fetch("https://api.postmarkapp.com/email", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Postmark-Server-Token": env.POSTMARK_SERVER_TOKEN! },

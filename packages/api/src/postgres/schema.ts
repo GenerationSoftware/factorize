@@ -21,7 +21,13 @@ export const authUsers = app.table("auth_users", { id: uuid("id").primaryKey(), 
 export const authAccounts = app.table("auth_accounts", {
   id: uuid("id").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), provider: text("provider").notNull(), providerAccountId: text("provider_account_id").notNull(), passwordHash: text("password_hash"),
 }, t => [unique().on(t.provider, t.providerAccountId)]);
-export const authResetTokens = app.table("auth_reset_tokens", { purpose: text("purpose").$type<"verify" | "reset">().notNull().default("reset"), digest: text("digest").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), usedAt: timestamp("used_at", { withTimezone: true }) }, t => [check("auth_reset_tokens_purpose_check", sql`${t.purpose} IN ('verify','reset')`)]);
+export const oauthConnections = app.table("oauth_connections", {
+  id: uuid("id").primaryKey(), browserDigest: text("browser_digest").notNull(), deviceUserCode: text("device_user_code"), destination: text("destination").notNull(), clientName: text("client_name").notNull(),
+  kind: text("kind").$type<"callback" | "device">().notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  userId: uuid("user_id").references(() => authUsers.id, { onDelete: "cascade" }), readyVersion: integer("ready_version"), ready: boolean("ready").notNull().default(false), usedAt: timestamp("used_at", { withTimezone: true }),
+}, t => [index("oauth_connections_expires").on(t.expiresAt), check("oauth_connections_kind_check", sql`${t.kind} IN ('callback','device')`)]);
+export const oauthConsentPreviews = app.table("oauth_consent_previews", { id: uuid("id").primaryKey(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), usedAt: timestamp("used_at", { withTimezone: true }) }, t => [index("oauth_consent_previews_expires").on(t.expiresAt)]);
+export const authResetTokens = app.table("auth_reset_tokens", { connectionId: uuid("connection_id").references(() => oauthConnections.id, { onDelete: "set null" }), purpose: text("purpose").$type<"verify" | "reset">().notNull().default("reset"), digest: text("digest").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), usedAt: timestamp("used_at", { withTimezone: true }) }, t => [check("auth_reset_tokens_purpose_check", sql`${t.purpose} IN ('verify','reset')`)]);
 export const authSessions = app.table("auth_sessions", { id: uuid("id").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }) });
 export const oauthDeviceAuthorizations = app.table("oauth_device_authorizations", {
   deviceCode: text("device_code").primaryKey(), userCode: text("user_code").notNull().unique(), record: jsonb("record").$type<Record<string, unknown>>().notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), createdAt: createdAt(), updatedAt: updatedAt(),
@@ -117,7 +123,7 @@ export const runRelations = relations(runs, ({ one, many }) => ({
 }));
 
 export const databaseSchema = {
-  schemaMigrations, tenants, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
+  schemaMigrations, tenants, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
   connections, linearWorkspaces, githubInstallations, githubSetupStates, jobs, triggers, webhookConditionsCutover, invocations, jobRuns, runs, runArtifacts,
   runTraceEvents, runActivity, activeClaims, scheduleState, automaticWakes, lifecycleDeliveries, jobEditDeliveries, jobEvents,
   webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints, runTraceCursors, runTraceChunks,
