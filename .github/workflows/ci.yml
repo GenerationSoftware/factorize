@@ -2,57 +2,98 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
-  # Run required checks again against GitHub's speculative merge-queue commit.
+    branches: [main]
   merge_group:
-    types:
-      - checks_requested
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  check:
-    name: Test and validate Workers
+  backend:
+    name: Backend checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      AUTH_TEST_DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/postgres
+      AUTH_TEST_DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
+      QUEUE_TEST_DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
+      DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
     steps:
-      # ubuntu-latest includes PostgreSQL; no rate-limited container pull is needed.
-      - name: Start disposable runner PostgreSQL
+      - name: Start backend timing
+        run: echo "CI_START_SECONDS=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Start isolated migrated PostgreSQL database
         run: |
           sudo systemctl start postgresql
           sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'local-ci-only'"
+          sudo -u postgres createdb factorize_ci
           pg_isready -h localhost -p 5432
+          npm ci
+          npm run db:migrate --workspace=factorize
+      - name: Verify generated API contract once
+        run: |
+          npm run generate
+          git diff --exit-code -- packages/docs/openapi.yaml packages/api-client/src/schema.d.ts
+      - name: Build static application for Worker dry-run
+        run: npm run build --workspace=factorize-app
+      - name: Run docs, API, authorization, integration and Worker checks
+        run: npm run check:backend
+      - name: Install Chromium for compiled static-slice checks
+        run: npm exec --workspace=factorize -- playwright install --with-deps chromium
+      - name: Exercise compiled jobs/invocation/run slice against PostgreSQL
+        run: npm run test:static-slice --workspace=factorize
+      - name: Record backend timing
+        if: always()
+        run: |
+          echo "### Backend checks timing\n- Wall time: $(( $(date +%s) - CI_START_SECONDS ))s" >> "$GITHUB_STEP_SUMMARY"
+
+  browser:
+    name: Required browser checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Start browser timing
+        run: echo "CI_START_SECONDS=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Verify generated API contract
+      - name: Build static application
+        run: npm run build --workspace=factorize-app
+      - name: Install Chromium for functional checks
+        run: npm exec --workspace=factorize-app -- playwright install --with-deps chromium
+      - name: Run required functional browser coverage
+        run: npm run test:functional --workspace=factorize-app
+      - name: Run non-browser app unit tests
+        run: npm test --workspace=factorize-app
+      - name: Record browser timing
+        if: always()
         run: |
-          npm run generate
-          git diff --exit-code -- packages/docs/openapi.yaml packages/api-client/src/schema.d.ts
-      - name: Validate hosted docs, MCP inventory and generated exports
-        run: npm run validate --workspace=factorize-docs
-      - name: Install browser for static application checks
-        run: npx playwright install --with-deps chromium
-      - run: npm run check
-      - name: Upload visual comparison failures
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: factorize-visual-failures
-          path: packages/app/test-results
-          if-no-files-found: ignore
-      - name: Exercise compiled jobs/invocation/run slice against PostgreSQL
-        run: npm run test:static-slice --workspace=factorize
+          echo "### Required browser checks timing\n- Wall time: $(( $(date +%s) - CI_START_SECONDS ))s" >> "$GITHUB_STEP_SUMMARY"
+
+  required:
+    name: Test and validate Workers
+    if: ${{ always() }}
+    needs: [backend, browser]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Required CI passed
+        if: ${{ needs.backend.result == 'success' && needs.browser.result == 'success' }}
+        run: echo 'Backend and required browser checks passed.'
+      - name: Required CI failed
+        if: ${{ needs.backend.result != 'success' || needs.browser.result != 'success' }}
+        run: exit 1

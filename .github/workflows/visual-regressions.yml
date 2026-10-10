@@ -1,0 +1,43 @@
+name: Optional visual regressions
+
+on:
+  workflow_dispatch:
+    inputs:
+      update_snapshots:
+        description: Update checked-in Playwright visual baselines
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  visual:
+    name: Visual and stress coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=factorize-app
+      - run: npx playwright install --with-deps chromium
+      - name: Run screenshot regression suite
+        run: npm run test:visual --workspace=factorize-app ${{ inputs.update_snapshots && '--update-snapshots' || '' }}
+      - name: Run optional 20,000-event trace stress test
+        run: npm test --workspace=factorize-app
+        env:
+          FACTORIZE_STRESS: '1'
+      - name: Preserve visual and stress artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: factorize-visual-and-stress-failures
+          path: |
+            packages/app/test-results
+            packages/app/playwright-report
+          if-no-files-found: ignore
