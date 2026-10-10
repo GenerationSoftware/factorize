@@ -1,26 +1,157 @@
 ---
-title: MCP tools
-description: Every tool exposed at /mcp.
+title: MCP tool reference
+description: Complete hosted MCP inventory, inputs, results, and common errors.
 ---
 
-| Tool | Scope | Input |
+Connect to `https://app.factorize.sh/mcp` using [client authorization](/mcp/overview). Tools return text containing JSON and the same JSON in `structuredContent`. Array service results are wrapped as `{"items":[...]}`; object results retain their fields. Examples below show structured content, sometimes with selected fields only. Identifiers such as `JOB_ID` are placeholders: use returned identifiers, never invented values.
+
+## Inventory
+
+| Tool | Required scope | Input contract |
 | --- | --- | --- |
 | `list_exe_connections` | flows:read | `{}` |
 | `list_github_installations` | flows:read | `{}` |
 | `list_execution_targets` | flows:read | `{}` |
 | `list_cloudflare_tail_integrations` | flows:read | `{}` |
 | `list_jobs` | flows:read | `{}` |
-| `get_job` | flows:read | `{jobId}` |
-| `list_runs` | runs:read | `jobId?`, `state?`, `contextQuery?`, `limit?`, `cursor?` |
-| `get_run` | runs:read | `{runId}` |
-| `list_job_webhook_activity` | runs:read | `{jobId, limit?}` |
-| `create_job` | flows:write | Job create object |
-| `update_job` | flows:write | Job object plus `jobId` |
-| `delete_job` | flows:write | `{jobId}` |
-| `enable_job` / `disable_job` | flows:write | `{jobId}` |
-| `test_job_webhook_conditions` | flows:write | `{conditions?,webhook}` |
-| `invoke_job` | runs:write | `{jobId,name?,prompt?,data?,idempotencyKey?}` |
-| `stop_run` | runs:write | `{runId}` |
-| `kill_run` | runs:write | `{runId}` |
+| `get_job` | flows:read | Required string `jobId` |
+| `create_job` | flows:write | Required `name`, `slug`, `promptTemplate`, `executionTargetId`; job fields below |
+| `update_job` | flows:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` |
+| `delete_job` | flows:write | Required string `jobId` |
+| `enable_job` | flows:write | Required string `jobId` |
+| `disable_job` | flows:write | Required string `jobId` |
+| `list_runs` | runs:read | Optional `jobId`, `state`, `contextQuery`, `limit`, `cursor` |
+| `get_run` | runs:read | Required string `runId` |
+| `get_run_diagnostics` | runs:read | Required string `runId` |
+| `invoke_job` | runs:write | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
+| `stop_run` | runs:write | Required string `runId` |
+| `kill_run` | runs:write | Required string `runId`; currently the same stop operation |
+| `list_job_webhook_activity` | runs:read | Required `jobId`; optional integer `limit` (1–100, default 50) |
+| `list_webhook_deliveries` | runs:read | Optional strings `provider`, `deliveryId`, `event`, `action`, `outcome`, `jobId`, `q`, `from`, `to`, `cursor`; integer `limit` (1–100, default 50) |
+| `get_webhook_delivery` | runs:read | Required string `deliveryId` |
+| `test_job_webhook_conditions` | flows:write | Required prepared JSON object `webhook`; optional `conditions` tree |
+| `diagnose_exe_integration` | flows:write | Required string `connectionId` |
 
-`list_runs` uses case-insensitive literal substring matching for `contextQuery`; matching rows contain only a bounded excerpt. `get_run` contains the complete context and the reusable `invocation.idempotency_key`, while its internal `claim_key` must not be reused.
+The inventory is validated against every registered implementation tool. All required IDs are non-empty strings except numeric GitHub installation/repository IDs in trigger configuration.
+
+## Discovery inputs and outputs
+
+- `list_execution_targets({})` → `{"items":[{"id":"TARGET_ID","kind":"exe-vm","name":"Ephemeral exe.dev VMs","workspace":"ephemeral","cwd":"/home/exedev/workspace","agentKind":"codex","models":[],"efforts":["minimal","low","medium","high","xhigh"],"capabilities":["recovery","stop"]}]}`. Copy `id` into `executionTargetId`. Amp IDs have an `amp:` prefix and kind `amp`. Empty results require browser integration setup. Targets do not contain repository URLs.
+- `list_exe_connections({})` → `{"items":[{"connectionId":"CONNECTION_ID","agentKind":"codex","tags":[]}]}` (selected fields). Use `connectionId` for integration diagnosis.
+- `list_github_installations({})` → `{"items":[{"installationId":12345,"accountLogin":"YOUR_ORG","state":"active"}]}` (selected fields). Use numeric `installationId` in GitHub triggers; choose repository IDs in the browser.
+- `list_cloudflare_tail_integrations({})` → `{"items":[{"integrationId":"INTEGRATION_ID","name":"Worker errors","referencedJobCount":0}]}` (selected fields). Use `integrationId` in Tail trigger configuration.
+- `diagnose_exe_integration({"connectionId":"CONNECTION_ID"})` probes permissions and a disposable tagged VM's agent/model access, deleting that VM before returning. Example selected result: `{"ok":true,"connectionId":"CONNECTION_ID","agentKind":"codex","permissions":{"ok":true,"missing":[],"tags":[]},"agent":{"ok":true}}`. Inspect both permissions and agent results rather than assuming a successful tool response means all checks passed. Missing connections return `not_found`.
+
+## Job fields and creation
+
+| Field | Contract |
+| --- | --- |
+| `name` | Required trimmed string, 1–120 characters |
+| `slug` | Required string matching `^[a-z][a-z0-9_-]{0,29}$`; unique within workspace |
+| `promptTemplate` | Required string, 1–50,000 characters |
+| `executionTargetId` | Required non-empty ID from target discovery |
+| `runNameTemplate` | Optional string, max 500; defaults to empty |
+| `concurrencyLimit` | Optional integer 1–50; defaults to 1 |
+| `model` | Optional trimmed string, max 120; defaults to empty/provider default |
+| `effort` | Optional trimmed string, max 40; choose target-supported values |
+| `triggers` | Optional array, max 50; defaults to empty and server supplies a manual trigger |
+
+Do not submit credentials, unknown top-level fields, parameters or parameter overrides. Trigger objects contain `kind`, `config`, optional `enabled` (default true), and optional `id`/`slug` for preservation during edits. Kinds/configuration:
+
+- `manual`: `{}`.
+- `schedule`: `{"cron":"0 9 * * 1-5","timezone":"UTC"}`.
+- `webhook`: provider-specific configuration below, optional `conditions`.
+- `jobLifecycle`: `{"sourceJobIds":["SOURCE_JOB_ID"],"states":["succeeded"]}`. States: `succeeded`, `failed`, `stopped`, `edited`.
+
+Webhook configurations:
+
+```json
+[
+  {"provider":"linear","projectId":"PROJECT_ID","matchRules":[{"type":"status","targetId":"STATUS_ID"}]},
+  {"provider":"clickup","listId":"LIST_ID","matchRules":[{"type":"assignee","targetId":"USER_ID"}]},
+  {"provider":"github","installationId":12345,"repositoryId":67890,"event":"pull_request","action":"opened"},
+  {"provider":"cloudflareTail","integrationId":"INTEGRATION_ID"}
+]
+```
+
+Match rule types: `owner`, `creator`, `status`, `label`, `assignee`, with non-empty string `targetId`. Linear/ClickUp require at least one rule; GitHub requires at least one rule or both event/action. Select actual resource IDs in the browser editor. This array illustrates alternative configurations, not a tool input.
+
+`create_job` input:
+
+```json
+{"name":"Review recent changes","slug":"review-recent-changes","promptTemplate":"Clone REPOSITORY_URL and review the latest commit. {{trigger-1.prompt}}","executionTargetId":"TARGET_ID","concurrencyLimit":1,"triggers":[{"kind":"manual","config":{}}]}
+```
+
+Result includes (selected fields):
+
+```json
+{"id":"JOB_ID","name":"Review recent changes","slug":"review-recent-changes","enabled":true,"executionTargetId":"TARGET_ID","concurrencyLimit":1,"currentRuns":0,"maxConcurrency":1,"updatedAt":"2026-10-10T09:00:00.000Z","triggers":[{"id":"TRIGGER_ID","slug":"trigger-1","kind":"manual","enabled":true,"config":{}}]}
+```
+
+Save `id`, trigger IDs/slugs and `updatedAt`. Full job results include prompt/configuration, timestamps, agent metadata and trigger reflection. `list_jobs({})` returns `{"items":[...jobs]}`; `get_job({"jobId":"JOB_ID"})` returns a single job. Creation errors include `conflict` for duplicate slug and `invalid_request` for invalid/unknown target or invalid fields. If creation's response is lost, list/find the job before recreating it.
+
+## Safe replacement and enable/delete
+
+`update_job` replaces configuration. Fetch first; preserve all intended fields and triggers; strip read-only fields. Example for a manual-only job:
+
+```json
+{"jobId":"JOB_ID","expectedUpdatedAt":"2026-10-10T09:00:00.000Z","name":"Review recent changes","slug":"review-recent-changes","promptTemplate":"Clone REPOSITORY_URL and review the latest commit. Run relevant checks. {{trigger-1.prompt}}","executionTargetId":"TARGET_ID","runNameTemplate":"","concurrencyLimit":1,"model":"","triggers":[{"id":"TRIGGER_ID","slug":"trigger-1","kind":"manual","enabled":true,"config":{}}]}
+```
+
+Result is the saved job with new `updatedAt`. Preserve any automatic triggers too. Omission can reset optional settings or remove automatic triggers. On `stale_job`, fetch/reapply; omitting `expectedUpdatedAt` is last-writer-wins. Stable slugs survive edits when trigger identity/kind is retained; changing kind creates a new trigger identity. Inspect returned slugs rather than assuming numbering.
+
+`enable_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","enabled":true}`; `disable_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","enabled":false}`. `delete_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","deleted":true}`; deletion also removes execution history/artifacts. Missing jobs return `not_found`. Saves can emit `edited` events; see [chaining](/recipes/chaining).
+
+## Invocation, run inspection, and retries
+
+`invoke_job` input:
+
+```json
+{"jobId":"JOB_ID","name":"First review","prompt":"Focus on regressions","data":{"branch":"main"},"idempotencyKey":"review-first-1"}
+```
+
+Result:
+
+```json
+{"invocationId":"INVOCATION_ID","runId":"RUN_ID","state":"queued","duplicate":false}
+```
+
+Optional `name`: trimmed 1–120 characters; `prompt`: max 50,000, default empty; `data`: JSON object; `idempotencyKey`: trimmed 1–200 characters and must not begin `manual:`. Retrying the same key for the same job returns the original IDs with `duplicate:true`, even if that run failed. Without a key, each call is a new invocation. Intentional reruns require a new key. Manual requests never coalesce; `queue_full` means capacity is exhausted. Disabled manual triggers return `operation_failed`.
+
+`list_runs({"jobId":"JOB_ID","state":"failed","contextQuery":"regression","limit":10})` → `{"items":[{"id":"RUN_ID","job_id":"JOB_ID","state":"failed"}],"nextCursor":null}` (selected fields). Pass a returned cursor for later pages. `limit` is 1–100, default 50; `contextQuery` is 1–50,000 characters and case-insensitive substring matching. The current repository uses SQL ILIKE: percent and underscore behave as wildcards; use get_run for full context. Current results do not include excerpts.
+
+Allowed state filters: `queued`, `starting`, `running`, `done`, `blocked`, `failed`, `ignored`, `succeeded`, `stopping`, `stopped`.
+
+`get_run({"runId":"RUN_ID"})` → a full run including `id`, `job_id`, `state`, rendered `prompt`, full `context`, `activity`, execution metadata and `invocation`. Example selected fields:
+
+```json
+{"id":"RUN_ID","job_id":"JOB_ID","state":"succeeded","prompt":"Clone REPOSITORY_URL and review the latest commit. Focus on regressions","context":{"trigger-1":{"prompt":"Focus on regressions","data":{"branch":"main"}}},"invocation":{"trigger_id":"TRIGGER_ID"}}
+```
+
+Retain the submitted key for retries. Current `get_run` returns only internal `invocation.claim_key`, not `invocation.idempotency_key`; never pass that internal field back. `get_run_diagnostics({"runId":"RUN_ID"})` returns a diagnostic object with `runId`, `jobId`, `state`, `execution`, `trace`, `artifact`, `harnessLog`, `activity` and timestamps. These cover launch/prompt/output/cleanup and trace evidence, not credentials. Missing runs return `not_found`.
+
+`stop_run({"runId":"RUN_ID"})` → `{"id":"RUN_ID","state":"stopping"}`. Current `kill_run({"runId":"RUN_ID"})` returns the same result and uses the same operation. Both accept starting/running/blocked runs; queued or terminal runs return `operation_failed`. Neither guarantees immediate termination/slot release. Poll `get_run` and inspect cleanup. See [stop/retry](/work/stop-retry).
+
+## Webhook investigation and conditions
+
+`list_job_webhook_activity({"jobId":"JOB_ID","limit":10})` → `{"items":[{"id":"ACTIVITY_ID","provider":"linear","deliveryId":"PROVIDER_DELIVERY_ID","outcome":"accepted","detail":"...","receivedAt":"2026-10-10T09:00:00.000Z"}]}`. Use it for matching/rejected/duplicate/accepted evidence; it is not a full provider event history.
+
+`list_webhook_deliveries({"provider":"linear","jobId":"JOB_ID","limit":10})` → `{"items":[{"id":"DELIVERY_RECORD_ID","provider":"linear","deliveryId":"PROVIDER_DELIVERY_ID","event":"Issue","outcome":"accepted"}],"nextCursor":null}` (selected fields). Results are newest-first and cursor paginated. Provider/delivery/event/action/outcome filters are exact matches; `q` searches safe diagnostic text. **Current limitation:** `from` and `to` are accepted by the tool schema but the repository does not apply time-range filters; do not rely on them to bound results.
+
+`get_webhook_delivery({"deliveryId":"DELIVERY_RECORD_ID"})` accepts the internal record ID or provider delivery ID and returns delivery metadata plus `timeline` entries with `jobId`, `outcome`, `detail`, `createdAt`. Prefer the record ID to disambiguate deliveries. Secrets/raw payloads are never returned. Missing records return `not_found`.
+
+`test_job_webhook_conditions` input:
+
+```json
+{"conditions":{"all":[{"fact":"webhook","path":"$.issue.title","operator":"startsWith","value":"Review"}]},"webhook":{"provider":"linear","issue":{"title":"Review latest changes"}}}
+```
+
+Result contains `decision: "match" | "no-match" | "error"` and plain JSON evaluation details. An invalid request/configuration yields `invalid_request`; evaluation failure yields an error decision. This preview does not authenticate the example, route an event, verify live GitHub state or invoke a job. See [condition operators and limits](/integrations/triggers).
+
+Current `get_run` does not include `output`, trace message contents or a client-facing retry key. To inspect findings, open `https://app.factorize.sh/job-runs/RUN_ID` or use REST trace pagination. `harness_log` is artifact metadata, not log bytes. Retain your submitted idempotency key.
+
+## Common errors and capability boundaries
+
+Tool errors are `code: message`. `invalid_token` needs reauthorization; `insufficient_scope` needs the listed scope; `invalid_request` needs corrected input; `not_found` means the ID is absent from the authorized workspace; `stale_job` needs refetch/reapply; `conflict` needs an unused job slug; `queue_full` needs capacity; `operation_failed` needs state/diagnostic inspection. Do not repeatedly retry a write with new identifiers after a lost response.
+
+MCP is a selected tool surface, **not full REST parity**. Signup, verification, integration credential management, authorized-client management, provider resource selection, schedule preview, specialized run status/trace pagination and retained-artifact replay have no corresponding tools in this inventory. Some REST operations require an interactive owner session rather than delegated tokens. Use the browser for setup/resource selection and [REST reference](/api/reference) for exact routes, restrictions and schemas. MCP cannot pass your conversational client's credentials to the execution agent.

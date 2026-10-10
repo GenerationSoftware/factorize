@@ -1,0 +1,19 @@
+---
+title: Write job prompts
+description: Use stable trigger context and explicit execution instructions.
+---
+
+Write the repository URL, checkout branch/ref, task, validation and reporting requirements explicitly. Execution targets select an account/agent, not a repository. Example:
+
+```text
+Clone https://github.com/YOUR_ORG/YOUR_REPO.git. Review the latest commit,
+run relevant tests, and report problems with file paths and evidence.
+Additional request: {{trigger-1.prompt}}
+Manual data: {{trigger-1.data}}
+```
+
+Use `get_job` to discover each trigger's stable `slug` and `reflection.paths`. Never assume an automatic trigger is `trigger-1`. Mustache renders only the firing trigger's context: manual has `prompt` and `data`; schedule currently has `occurredAt`, `externalId` and `metadata.timezone`; provider context contains prepared delivery fields (Linear `issue`, ClickUp `task`); terminal lifecycle currently has `sourceJobId`, `sourceRunId`, `state`, `completedAt`; edited has `source_job_id`, `event`, `edited_at`. Current reflection still describes older snake_case terminal fields: use the persisted run context as the authority.
+
+Missing/null scalar paths become empty text. Objects and arrays interpolate as compact JSON; array order is preserved and object keys sorted. Double braces preserve plain-text URLs, quotes, Markdown and code; triple braces are also supported. Sections use original context truthiness and array iteration. There are no global parameter defaults/overrides.
+
+After creating an automatic trigger, read its returned slug, then safely replace the full configuration to reference that slug. For example `{{trigger-2.issue.title}}` only works if that is the actual Linear trigger. Verify the rendered `prompt` and complete `context` with `get_run`. See the [full context contract](https://github.com/GenerationSoftware/factorize/blob/main/docs/job-trigger-context.md).

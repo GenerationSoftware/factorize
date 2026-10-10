@@ -1,0 +1,16 @@
+---
+title: Automate from ClickUp
+description: Connect a workspace and select matching tasks.
+---
+
+[Connect ClickUp](/integrations/oauth) in Settings and approve access to the intended team/list. Factorize registers the task webhook on connection. Use the browser job editor to select a list and rule target IDs; MCP does not discover ClickUp lists/statuses.
+
+Add this trigger to the complete job configuration:
+
+```json
+{"kind":"webhook","config":{"provider":"clickup","listId":"LIST_ID","matchRules":[{"type":"status","targetId":"STATUS_ID"}]}}
+```
+
+Replace IDs with browser-selected values. All configured rules must match. Read the returned stable slug/reflection before using `{{trigger-2.task}}` in the prompt. Ensure the execution agent separately has any ClickUp access required to work on the task.
+
+Change one test task to the selected status. Verify delivery with `list_webhook_deliveries({"provider":"clickup"})`, inspect its timeline, job activity and resulting run. Reconnect in Settings if provider authorization expires; use [event troubleshooting](/troubleshooting/events) for rejected or absent deliveries.

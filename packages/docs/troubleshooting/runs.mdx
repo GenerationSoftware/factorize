@@ -1,0 +1,21 @@
+---
+title: Failed or stuck runs
+description: Investigate evidence, fix the cause, and verify recovery.
+---
+
+Ask:
+
+> Investigate run RUN_ID. Show its prompt and lifecycle diagnostics, and link to its browser trace for output. Identify the failure and whether it changed anything externally. Do not create a duplicate run; recommend a safe recovery.
+
+Call `get_run({"runId":"RUN_ID"})` then `get_run_diagnostics({"runId":"RUN_ID"})`. Expected evidence includes `state`, `execution`, `trace`, `artifact`, `harnessLog` and `activity`. Check launch, prompt delivery, output capture, claim release and cleanup rather than treating a missing trace as proof the agent never ran.
+
+| Evidence | Recovery |
+| --- | --- |
+| Queued | Inspect active runs/concurrency with `get_job`; wait for a slot. |
+| Launch or permission failure | Browser-test the execution connection; check repository/model access and tags. Use `list_exe_connections` then `diagnose_exe_integration({"connectionId":"CONNECTION_ID"})` if appropriate. This probe uses a disposable VM. |
+| Wrong/empty prompt values | Read actual trigger slug/reflection and persisted context; safely replace the full job configuration. |
+| Failed with useful output | Fix the reported cause, inspect the browser trace and check external changes, then request a new manual run with a new idempotency key. |
+| Starting/running/blocked but stuck | Request `stop_run`, poll, and inspect cleanup. `kill_run` currently has identical semantics. Escalate persistently stuck runs to the hosted operator with run ID and safe diagnostics. |
+| Missing/partial trace | Inspect output and artifact state; ask the owner/operator about REST-only retained-artifact replay. See [advanced operations](/self-hosting/operations). |
+
+Worked recovery configuration: use the original job ID and `invoke_job({"jobId":"JOB_ID","prompt":"Retry after correcting repository access","idempotencyKey":"investigation-RUN_ID-retry-1"})` only after fixing the cause and confirming the old run is terminal. Expected result is a **new** run ID. Verify its rendered prompt/state with `get_run` and successful output in the browser trace; a diagnostic probe passing does not itself prove the job succeeds.

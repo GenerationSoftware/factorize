@@ -1,0 +1,12 @@
+---
+title: Create and edit jobs
+description: Discover a target and replace configuration safely.
+---
+
+Ask: “List execution targets and jobs, then create a review job for this repository.” Use [the first-job input](/quickstart) and [MCP tool contract](/mcp/tools). Reuse an existing job when its slug/purpose matches; job creation has no idempotency key.
+
+`update_job` **replaces configuration**, rather than patching one field. Always call `get_job` first. Build a write object containing `jobId`, `name`, `slug`, `promptTemplate`, `executionTargetId`, `runNameTemplate`, `concurrencyLimit`, `model`, optional `effort`, and the full intended `triggers` array. Preserve each existing trigger's `id`, `slug`, `kind`, `enabled`, and writable `config`. Strip read-only response fields (`jobId` inside triggers, timestamps, reflection, secretConfigured and destination). Do not pass the entire read response unchanged.
+
+Supply `expectedUpdatedAt` from the fetched job's `updatedAt` to protect against concurrent edits. On `stale_job`, fetch again and reapply the desired changes. Omitting it retains last-writer-wins behavior. Omitted optional configuration resets to defaults; omitted triggers remove the configured automatic triggers. Preserve all triggers you want to keep.
+
+After saving, call `get_job` and compare prompt, target and triggers. `enable_job` and `disable_job` change enabled state without rebuilding configuration. Disabling automation does not stop an existing run. Job saves can trigger `edited` lifecycle subscribers. Deleting a job removes its execution history/artifacts; inspect and retain anything needed first.

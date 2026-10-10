@@ -1,11 +1,60 @@
 # Factorize
 
-> Automate coding-agent jobs from provider events on your own exe.dev VM.
+Hosted workflow: connect your agent → create a job → run it → inspect the result → automate it.
 
-- [Quickstart](/quickstart): Configure Factorize and create a first job.
-- [Concepts](/concepts): Jobs, triggers, runs, and the Mustache prompt contract.
-- [REST authentication](/api/authentication): OAuth, scopes, and device authorization.
-- [REST reference](/api/reference): Using the generated API reference.
-- [OpenAPI contract](/openapi.yaml): Verified operation inventory, validation, scopes, and response schemas.
-- [MCP](/mcp/overview): Connect a remote MCP client.
-- [MCP tools](/mcp/tools): Complete tool catalog.
+Application: https://app.factorize.sh
+MCP (Streamable HTTP + OAuth): https://app.factorize.sh/mcp
+
+Browser: email/password signup, verification, execution/provider connections and consent.
+MCP: discover targets, manage jobs, invoke with retained idempotency keys, inspect state/context/diagnostics.
+Current MCP does not return execution output; inspect browser traces or REST trace pages. REST is not full MCP parity.
+
+## Get started
+
+- [Factorize with your agent](https://docs.factorize.sh/): Connect your agent, create a job, run it, inspect the result, and automate it.
+- [Connect your agent](https://docs.factorize.sh/mcp/overview): Authorize Codex or Claude Code for hosted Factorize.
+- [Your first job](https://docs.factorize.sh/quickstart): Run a hosted repository review through MCP.
+
+## Work with your agent
+
+- [Create and edit jobs](https://docs.factorize.sh/work/jobs): Discover a target and replace configuration safely.
+- [Write job prompts](https://docs.factorize.sh/work/prompts): Use stable trigger context and explicit execution instructions.
+- [Inspect results](https://docs.factorize.sh/work/results): Read run state, output, prompt, and trigger context.
+- [Stop and retry runs](https://docs.factorize.sh/work/stop-retry): Avoid duplicate work and understand current stop behavior.
+
+## Automate jobs
+
+- [Schedule a repository review](https://docs.factorize.sh/recipes/scheduled-review): Turn a successful manual review into daily automation.
+- [Run a job from Linear](https://docs.factorize.sh/recipes/linear-job): Connect a workspace, select a project and match issues.
+- [Automate from GitHub](https://docs.factorize.sh/integrations/github): Select an installation, repository, and event.
+- [Automate from ClickUp](https://docs.factorize.sh/integrations/clickup): Connect a workspace and select matching tasks.
+- [Chain jobs](https://docs.factorize.sh/recipes/chaining): Start a follow-up after another job finishes or is edited.
+- [Connect your accounts](https://docs.factorize.sh/integrations/oauth): Browser setup, resource access, and delivery verification.
+- [Trigger configuration](https://docs.factorize.sh/integrations/triggers): Configure schedules, provider webhooks, and lifecycle triggers.
+
+## Troubleshooting
+
+- [Connection problems](https://docs.factorize.sh/troubleshooting/connection): Recover authorization, scopes, and execution targets.
+- [Jobs not firing](https://docs.factorize.sh/troubleshooting/events): Verify automation from provider event to accepted run.
+- [Failed or stuck runs](https://docs.factorize.sh/troubleshooting/runs): Investigate evidence, fix the cause, and verify recovery.
+
+## Reference
+
+- [MCP tool reference](https://docs.factorize.sh/mcp/tools): Complete hosted MCP inventory, inputs, results, and common errors.
+- [Jobs, triggers, runs, and targets](https://docs.factorize.sh/concepts): Understand the workflow before configuring automation.
+- [REST API reference](https://docs.factorize.sh/api/reference): How to use the generated API reference.
+- [Authentication and scopes](https://docs.factorize.sh/api/authentication): OAuth 2.1, device authorization, and access-token rules.
+- [OAuth discovery](https://docs.factorize.sh/api/discovery): Endpoints and metadata for OAuth-aware clients.
+- [OpenAPI definition](https://docs.factorize.sh/api/openapi): Download the verified Factorize REST contract.
+- [REST operations](https://docs.factorize.sh/openapi.yaml): Complete generated REST schemas and operations
+
+## Self-hosting
+
+- [Optional self-hosting](https://docs.factorize.sh/self-hosting/deployment): Deploy your own Factorize instance.
+- [Operator configuration](https://docs.factorize.sh/self-hosting/configuration): Email, OAuth applications, webhooks, and Worker secrets.
+- [Operations and advanced trace recovery](https://docs.factorize.sh/self-hosting/operations): Operator checks, retained artifacts, and rollout evidence.
+
+## Machine-readable REST reference
+
+- https://docs.factorize.sh/openapi.yaml
+- https://docs.factorize.sh/llms-full.txt

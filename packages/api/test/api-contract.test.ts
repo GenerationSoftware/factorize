@@ -105,14 +105,15 @@ describe("versioned API contract", () => {
     }
   });
 
-  it("configures Mintlify to render the exact committed artifact", () => {
+  it("keeps the exact committed REST artifact available in the Reference group", () => {
     const docs = JSON.parse(
       readFileSync(new URL("../../docs/docs.json", import.meta.url), "utf8"),
     );
-    expect(
-      docs.navigation.tabs.find((tab: any) => tab.tab === "API Reference")
-        .openapi,
-    ).toBe("/openapi.yaml");
+    const pages = docs.navigation.groups.find((group: any) => group.group === "Reference").pages;
+    expect(pages).toContain("api/reference");
+    expect(pages.find((page: any) => page.openapi)?.openapi).toBe("/openapi.yaml");
+    expect(readFileSync(new URL("../../docs/api/reference.mdx", import.meta.url), "utf8")).toContain("](/openapi.yaml)");
+
     const reference = readFileSync(
       new URL("../../docs/api/reference.mdx", import.meta.url),
       "utf8",

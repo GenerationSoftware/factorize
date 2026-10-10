@@ -7,52 +7,72 @@
     "light": "#fff8e1",
     "dark": "#17130a"
   },
-  "favicon": "/favicon.ico",
+  "favicon": "/logo-light.svg",
   "logo": {
     "light": "/logo-light.svg",
     "dark": "/logo-dark.svg"
   },
   "navigation": {
-    "tabs": [
+    "groups": [
       {
-        "tab": "Guides",
-        "groups": [
+        "group": "Get started",
+        "pages": [
+          "index",
+          "mcp/overview",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Work with your agent",
+        "pages": [
+          "work/jobs",
+          "work/prompts",
+          "work/results",
+          "work/stop-retry"
+        ]
+      },
+      {
+        "group": "Automate jobs",
+        "pages": [
+          "recipes/scheduled-review",
+          "recipes/linear-job",
+          "integrations/github",
+          "integrations/clickup",
+          "recipes/chaining",
+          "integrations/oauth",
+          "integrations/triggers"
+        ]
+      },
+      {
+        "group": "Troubleshooting",
+        "pages": [
+          "troubleshooting/connection",
+          "troubleshooting/events",
+          "troubleshooting/runs"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "mcp/tools",
+          "concepts",
+          "api/reference",
+          "api/authentication",
+          "api/discovery",
+          "api/openapi",
           {
-            "group": "Start",
-            "pages": [
-              "index",
-              "quickstart",
-              "concepts"
-            ]
-          },
-          {
-            "group": "REST API",
-            "pages": [
-              "api/authentication",
-              "api/discovery",
-              "api/openapi",
-              "api/reference"
-            ]
-          },
-          {
-            "group": "MCP",
-            "pages": [
-              "mcp/overview",
-              "mcp/tools"
-            ]
-          },
-          {
-            "group": "Integrations",
-            "pages": [
-              "integrations/triggers",
-              "integrations/oauth"
-            ]
+            "group": "REST operations",
+            "openapi": "/openapi.yaml"
           }
         ]
       },
       {
-        "tab": "API Reference",
-        "openapi": "/openapi.yaml"
+        "group": "Self-hosting",
+        "pages": [
+          "self-hosting/deployment",
+          "self-hosting/configuration",
+          "self-hosting/operations"
+        ]
       }
     ]
   }
