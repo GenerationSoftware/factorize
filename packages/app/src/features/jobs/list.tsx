@@ -1,4 +1,4 @@
-import { Card, Badge, buttonClasses, Page, PageHeader, SortableHeader, Table, tableCellClasses, tableHeadClasses, tableRowClasses } from "../../shared/ui";
+import { Card, buttonClasses, Page, PageHeader, SortableHeader, Table, tableCellClasses, tableHeadClasses, tableRowClasses } from "../../shared/ui";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { jobsQuery, type JobsOrder, type JobsSearch, type JobsSort } from "./queries";
@@ -19,14 +19,12 @@ export function JobsList() {
       {!query.data.items.length && <Card className="py-12 text-center"><h2>No jobs found</h2><p className="text-sm text-slate-600 dark:text-slate-400">Create your first job or adjust your search.</p></Card>}
       {!!query.data.items.length && <Table className="table-fixed" aria-label="Jobs">
           <thead className={tableHeadClasses}><tr>
-            <th scope="col" className={`w-24 ${tableCellClasses}`}>Status</th>
             <SortableHeader label="Running" ariaLabel={`${sortLabel("running")} sort`} active={search.sort === "running"} direction={search.order} className="w-20" onSort={() => chooseSort("running")} />
             <SortableHeader label="Title" ariaLabel={`${sortLabel("title")} sort`} active={search.sort === "title"} direction={search.order} onSort={() => chooseSort("title")} />
           </tr></thead>
-          <tbody>{query.data.items.map(job => <tr key={job.id} className={tableRowClasses}>
-            <td className={`whitespace-nowrap ${tableCellClasses}`}><Badge active={job.enabled}>{job.enabled ? "Enabled" : "Disabled"}</Badge></td>
-            <td className={`whitespace-nowrap ${tableCellClasses} font-mono tabular-nums ${job.runningCount > 0 ? "font-semibold text-factorize-700 dark:text-factorize-500" : "text-slate-600 dark:text-slate-400"}`}>{job.runningCount}/{job.concurrencyLimit}</td>
-            <td className={tableCellClasses}><Link to="/jobs/$jobId" params={{ jobId: job.id }} title={job.name} className="relative block truncate font-semibold outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-factorize-500">{job.name}</Link></td>
+          <tbody>{query.data.items.map(job => <tr key={job.id} className={`${tableRowClasses} ${job.enabled ? "" : "text-slate-500 dark:text-slate-500"}`}>
+            <td className={`whitespace-nowrap ${tableCellClasses} font-mono tabular-nums ${job.enabled && job.runningCount > 0 ? "font-semibold text-factorize-700 dark:text-factorize-500" : job.enabled ? "text-slate-600 dark:text-slate-400" : ""}`}>{job.runningCount}/{job.concurrencyLimit}</td>
+            <td className={tableCellClasses}><div className="relative flex min-w-0 items-center gap-2"><Link to="/jobs/$jobId" params={{ jobId: job.id }} title={job.name} className="relative min-w-0 flex-1 truncate font-semibold outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-factorize-500">{job.name}</Link>{!job.enabled && <span className="shrink-0 text-xs font-medium lowercase tracking-wide">disabled</span>}</div></td>
           </tr>)}</tbody>
       </Table>}
       <nav aria-label="Job pages" className="mt-6 flex gap-4 text-sm font-semibold">
