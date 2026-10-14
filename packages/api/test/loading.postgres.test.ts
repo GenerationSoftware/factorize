@@ -61,10 +61,15 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
 
   it("creates a job with a deterministic migrated execution target UUID", async () => {
     const target = (await db.pool.query(`INSERT INTO app.execution_targets(tenant_id,id,name,integration_kind,integration_id,agent_kind)
-      VALUES ($1,md5($1::text || ':target:local')::uuid,'Migrated local target','exe','local','codex') RETURNING id`, [tenantId])).rows[0].id;
-    const job = await new ApiService(env, auth).createJob({ name: "Migrated target job", slug: "migrated-target-job", promptTemplate: "Do work", executionTargetId: target, concurrencyLimit: 1, triggers: [{ kind: "manual", enabled: true, config: {} }] });
-    expect(job.executionTargetId).toBe(target);
-    expect(job.executionTarget).toMatchObject({ connectionId: "local", agentKind: "codex" });
+      VALUES ($1::uuid,md5($1::text || ':target:local')::uuid,'Migrated local target','exe','local','codex') RETURNING id`, [tenantId])).rows[0].id;
+    try {
+      const job = await new ApiService(env, auth).createJob({ name: "Migrated target job", slug: "migrated-target-job", promptTemplate: "Do work", executionTargetId: target, concurrencyLimit: 1, triggers: [{ kind: "manual", enabled: true, config: {} }] });
+      expect(job.executionTargetId).toBe(target);
+      expect(job.executionTarget).toMatchObject({ connectionId: "local", agentKind: "codex" });
+    } finally {
+      await db.pool.query("DELETE FROM app.jobs WHERE execution_target->>'targetId'=$1", [target]);
+      await db.pool.query("DELETE FROM app.execution_targets WHERE id=$1", [target]);
+    }
   });
   it("enforces tenant and scope boundaries, email verification, cookie expiry and session revocation", async () => {
     await expect(new ApiService(env, { ...auth, tenantId: otherTenant }).listJobs()).rejects.toMatchObject({ status: 401 });
