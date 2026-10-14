@@ -1,7 +1,7 @@
 import { z } from "zod";
 export const executionState = z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped"]);
 export const runStatusResponse = z.object({
-  id: z.string(), job_id: z.string(), state: executionState,
+  id: z.string(), job_id: z.string(), project_id: z.string().optional(), project_name: z.string().optional(), state: executionState,
   run_name: z.string(), job_name: z.string(), destination_url: z.string().nullable(),
   created_at: z.string(), updated_at: z.string(), started_at: z.string().nullable(),
   artifact_state: z.enum(["pending", "collecting", "stored", "partial", "failed"]),

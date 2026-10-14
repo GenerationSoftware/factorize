@@ -5794,6 +5794,8 @@ export interface operations {
                     "application/json": {
                         id: string;
                         job_id: string;
+                        project_id?: string;
+                        project_name?: string;
                         /** @enum {string} */
                         state: "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped";
                         run_name: string;

@@ -12,6 +12,7 @@ import { editableJob, emptyJob, reconcile, writeInput, type Job, type JobInput }
 import { TemplateField } from "./template-field";
 import { TriggerEditor } from "./trigger-editor";
 import { messageOf } from "../auth/session";
+import { projectQuery } from "../projects/queries";
 export function JobEditor() {
   const { jobId } = useParams({ strict: false });
   const job = useQuery({ ...jobQuery(jobId ?? ""), enabled: !!jobId });
@@ -30,6 +31,7 @@ function EditorForm({ initial }: { initial?: Job }) {
   useBlocker({ shouldBlockFn: () => dirty && !savingNavigation.current && !window.confirm("Discard unsaved job changes?"), enableBeforeUnload: dirty });
   useEffect(() => { const handler = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } }; window.addEventListener("beforeunload", handler); return () => window.removeEventListener("beforeunload", handler); }, [dirty]);
   const targets = useQuery(targetsQuery), metadata = useQuery(metadataQuery);
+  const project = useQuery({ ...projectQuery(initial?.projectId ?? ""), enabled: !!initial?.projectId });
   const target = targets.data?.find(t => t.id === draft.executionTargetId);
   const projectId = new URLSearchParams(location.searchStr).get("projectId") ?? undefined;
   const update = <K extends keyof JobInput>(key: K, value: JobInput[K]) => { setSaved(false); setDraft(previous => ({ ...previous, [key]: value })); };
@@ -57,7 +59,7 @@ function EditorForm({ initial }: { initial?: Job }) {
   };
   const [localConflictDraft, setLocalConflictDraft] = useState(draft);
   const showJobBreadcrumb = Boolean(initial && !location.pathname.endsWith("/settings"));
-  return <Page className="max-w-6xl"><nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2"><Link to="/jobs" search={{ q: "" }}>Jobs</Link>{showJobBreadcrumb && initial && <><span aria-hidden="true">→</span><Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: initial.id }} search={{}}> {initial.name}</Link></>}</nav>{initial && <JobHeader job={initial} />}
+  return <Page className="max-w-6xl"><nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2">{project.data && initial?.projectId ? <Link to="/projects/$projectId" params={{ projectId: initial.projectId }}>{project.data.name}</Link> : <Link to="/jobs" search={{ q: "" }}>Jobs</Link>}{showJobBreadcrumb && initial && <><span aria-hidden="true">→</span><Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: initial.id }} search={{}}> {initial.name}</Link></>}</nav>{initial && <JobHeader job={initial} />}
     {(remote || reconciling || refreshConflict.error) && <Card role="alert" className="my-4 border p-4"><h2>This job changed while you were editing</h2><p>Your unsaved draft is retained. Review the latest configuration before retrying.</p>
       {refreshConflict.isPending && <p>Loading latest configuration…</p>}{refreshConflict.error && <><p>{refreshConflict.error.message}</p><Button onClick={() => refreshConflict.mutate()}>Retry loading latest</Button></>}
       {remote && !conflicts.length && <><pre className="max-h-64 overflow-auto whitespace-pre-wrap">{JSON.stringify(editableJob(remote), null, 2)}</pre><Button onClick={acceptRemote}>Reload latest and discard my changes</Button><Button onClick={() => { setLocalConflictDraft(draft); merge(); }}>Reconcile my changes</Button></>}
