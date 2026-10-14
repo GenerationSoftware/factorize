@@ -32,6 +32,7 @@ import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tok
 import { TraceProjectionRepository } from "./postgres/trace-projection-repository";
 import { replayTrace, traceReplaySchema, traceReplayRunIdSchema, TraceReplayError } from "./trace-replay";
 import { ProjectRepository } from "./postgres/project-repository";
+import { ExecutionTargetRepository } from "./postgres/execution-target-repository";
 
 export class ServiceError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -56,16 +57,23 @@ export class ApiService {
   private jobs() { return new PostgresJobRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
   private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private projects() { return new ProjectRepository(databaseFor(this.env), this.auth.tenantId); }
+  private targetRecords() { return new ExecutionTargetRepository(databaseFor(this.env), this.auth.tenantId); }
 
   private async executionTarget(id: string) {
+    const record = await this.targetRecords().get(id);
+    if (record) {
+      const value = await this.connections().get<any>(`${record.integrationKind}:${record.integrationId}`);
+      if (!value) throw new ServiceError(400, "invalid_request", "Execution target integration not found");
+      return { targetId: record.id, connectionId: record.integrationId, workspace: record.integrationKind === "amp" ? value.project : "ephemeral", cwd: record.integrationKind === "amp" ? "Cloud orb" : "/home/exedev/workspace", agentKind: record.agentKind, tags: record.tags };
+    }
     if (id.startsWith("amp:")) {
       const connectionId = id.slice(4), value = await this.connections().get<{ project: string }>(`amp:${connectionId}`);
       if (!value) throw new ServiceError(400, "invalid_request", "Execution target not found");
-      return { connectionId, workspace: value.project, cwd: "", agentKind: "Amp" };
+      return { targetId: id, connectionId, workspace: value.project, cwd: "", agentKind: "Amp", tags: [] };
     }
-    const value = await this.connections().get<{ agentKind: string }>(`exe:${id}`);
+    const value = await this.connections().get<{ agentKind: string; tags?: string[] }>(`exe:${id}`);
     if (!value) throw new ServiceError(400, "invalid_request", "Execution target not found");
-    return { connectionId: id, workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: value.agentKind };
+    return { targetId: id, connectionId: id, workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: value.agentKind, tags: value.tags ?? [] };
   }
 
   private normalizedTriggers(input: JobInput["triggers"], existing: Trigger[] = []): Trigger[] {
@@ -101,7 +109,7 @@ export class ApiService {
   private async presentJob(job: Job, loadedStats?: { running_count: string; last_run_state: string | null }) {
     const stats = loadedStats ?? (await this.jobStatistics([job.id])).get(job.id);
     const runningCount = Number(stats?.running_count ?? 0);
-    return publicValue(jobResponse, { ...job, triggers: job.triggers.map(trigger => ({ ...trigger, config: trigger.kind === "webhook" ? { ...trigger.config, ...(trigger.config.signingSecret || trigger.config.secret ? { secretConfigured: true } : {}), ...(trigger.config.provider === "cloudflareTail" ? { destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(job.id)}` } : {}) } : trigger.config })), runNameTemplate: job.runNameTemplate ?? "", executionTargetId: `${job.executionTarget.agentKind === "Amp" ? "amp:" : ""}${job.executionTarget.connectionId}`, agentKind: job.executionTarget.agentKind, runningCount, currentRuns: runningCount, maxConcurrency: job.concurrencyLimit, lastRunState: stats?.last_run_state ?? null });
+    return publicValue(jobResponse, { ...job, triggers: job.triggers.map(trigger => ({ ...trigger, config: trigger.kind === "webhook" ? { ...trigger.config, ...(trigger.config.signingSecret || trigger.config.secret ? { secretConfigured: true } : {}), ...(trigger.config.provider === "cloudflareTail" ? { destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(job.id)}` } : {}) } : trigger.config })), runNameTemplate: job.runNameTemplate ?? "", executionTargetId: job.executionTarget.targetId ?? `${job.executionTarget.agentKind === "Amp" ? "amp:" : ""}${job.executionTarget.connectionId}`, agentKind: job.executionTarget.agentKind, runningCount, currentRuns: runningCount, maxConcurrency: job.concurrencyLimit, lastRunState: stats?.last_run_state ?? null });
   }
 
   private async authorize(scope: Scope): Promise<void> {
@@ -207,6 +215,7 @@ export class ApiService {
     await this.wakeScheduler();
     return this.presentJob(updated);
   }
+  async moveJob(jobId: string, projectId: string, expectedUpdatedAt?: string) { await this.authorize("flows:write"); try { return this.presentJob(await this.jobs().move(jobId, projectId, expectedUpdatedAt)); } catch (error) { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload it before moving it."); if (error instanceof Error && error.message === "Project not found") throw new ServiceError(404, "not_found", "Project not found"); if (error instanceof Error && error.message === "Job not found") throw new ServiceError(404, "not_found", "Job not found"); throw error; } }
   async deleteJob(jobId: string) {
     await this.authorize("flows:write");
     const database = databaseFor(this.env), repository = this.jobs();
@@ -233,11 +242,14 @@ export class ApiService {
     return { invocationId: result.invocation.id, runId: result.run.id, state: result.run.state, duplicate: result.duplicate };
   }
   async listExecutionTargets() {
-    await this.authorize("flows:read"); const connections = await this.connections().all(["exe:", "amp:"]); const targets: any[] = [];
-    for (const [kind, value] of connections) if (kind.startsWith("exe:")) { const id = kind.slice(4); targets.push({ id, kind: "exe-vm", name: "Ephemeral exe.dev VMs", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: value.agentKind, models: value.models ?? [], modelsRefreshedAt: value.modelsRefreshedAt ?? null, efforts: value.agentKind === "codex" ? ["minimal", "low", "medium", "high", "xhigh"] : [], capabilities: ["recovery", "stop"] }); }
-    else if (kind.startsWith("amp:")) { const id = kind.slice(4); targets.push({ id: `amp:${id}`, kind: "amp", name: `Amp · ${value.project}`, workspace: value.project, cwd: "Cloud orb", agentKind: "Amp", capabilities: ["stop"] }); }
+    await this.authorize("flows:read"); const records = await this.targetRecords().list(); const targets: any[] = [];
+    for (const target of records) { const value = await this.connections().get<any>(`${target.integrationKind}:${target.integrationId}`); if (!value) continue; targets.push({ id: target.id, kind: target.integrationKind === "amp" ? "amp" : "exe-vm", name: target.name, integrationId: target.integrationId, tags: target.tags, workspace: target.integrationKind === "amp" ? value.project : "ephemeral", cwd: target.integrationKind === "amp" ? "Cloud orb" : "/home/exedev/workspace", agentKind: target.agentKind, models: value.models ?? [], modelsRefreshedAt: value.modelsRefreshedAt ?? null, efforts: target.agentKind === "codex" ? ["minimal", "low", "medium", "high", "xhigh"] : [], capabilities: target.integrationKind === "amp" ? ["stop"] : ["recovery", "stop"] }); }
     return publicValue(z.array(executionTargetResponse), targets);
   }
+  async listExecutionTargetResources() { await this.authorize("flows:read"); return publicValue(z.array((await import("./editor-contracts")).executionTargetResource), await this.targetRecords().list()); }
+  async createExecutionTarget(input: { name: string; integrationKind: "exe" | "amp"; integrationId: string; tags?: string[]; agentKind: string }) { await this.authorize("flows:write"); const value = await this.connections().get<any>(`${input.integrationKind}:${input.integrationId}`); if (!value) throw new ServiceError(404, "not_found", "Integration not found"); if (input.integrationKind === "exe" && !["codex", "claude", "pi"].includes(input.agentKind)) throw new ServiceError(400, "invalid_request", "Unsupported agent kind"); try { return await this.targetRecords().create({ ...input, tags: input.tags ?? [] }); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "A target with this name already exists"); throw error; } }
+  async updateExecutionTarget(id: string, input: { name: string; tags?: string[]; agentKind: string }) { await this.authorize("flows:write"); const result = await this.targetRecords().update(id, { ...input, tags: input.tags ?? [] }); if (!result) throw new ServiceError(404, "not_found", "Execution target not found"); return result; }
+  async deleteExecutionTarget(id: string) { await this.authorize("flows:write"); const result = await this.targetRecords().remove(id); if (result === "missing") throw new ServiceError(404, "not_found", "Execution target not found"); if (result === "referenced") throw new ServiceError(409, "conflict", "This target is used by a job"); return { id, deleted: true }; }
   async diagnoseExeIntegration(connectionId: string) { await this.authorize("flows:write"); const value = await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).diagnoseExe(connectionId); if (!value) throw new ServiceError(404,"not_found","Integration not found"); return value; }
   async listJobTriggerAvailability() { await this.authorize("flows:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedTriggerAvailability(kinds.includes("linear"),kinds.includes("clickup"),states,kinds.filter(x=>x.startsWith("cloudflare-tail:")).length); }
   async previewSchedule(input: unknown) {

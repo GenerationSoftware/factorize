@@ -74,6 +74,8 @@ const tailBody = z.object({
     .meta({ writeOnly: true }),
   generateSecret: z.boolean().optional(),
 });
+const executionTargetBody = z.object({ name: z.string().trim().min(1).max(120), integrationKind: z.enum(["exe", "amp"]), integrationId: z.string().min(1), tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).default([]), agentKind: z.string().min(1).max(40) });
+const executionTargetUpdateBody = executionTargetBody.pick({ name: true, tags: true, agentKind: true });
 const deliveryQuery = z.object({
   provider: z.string().optional(),
   deliveryId: z.string().optional(),
@@ -237,6 +239,9 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service) => service.listExecutionTargets(),
   ),
+  route("POST", "/api/v1/execution-targets", "flows:write", { summary: "Create execution target", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(executionTargetResponse, "output") } } } } }, (service, { body }) => service.createExecutionTarget(body), { body: executionTargetBody }),
+  route("PUT", "/api/v1/execution-targets/{targetId}", "flows:write", { summary: "Update execution target", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(executionTargetResponse, "output") } } } } }, (service, { params, body }) => service.updateExecutionTarget(params.targetId, body), { body: executionTargetUpdateBody }),
+  route("DELETE", "/api/v1/execution-targets/{targetId}", "flows:write", { summary: "Delete execution target", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteExecutionTarget(params.targetId)),
   route(
     "GET",
     "/api/v1/job-trigger-availability",
@@ -647,6 +652,7 @@ export const API_ROUTES: RouteContract[] = [
   route("GET", "/api/v1/projects/{projectId}", "flows:read", { summary: "Get project", responses: { "200": { description: "Project", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params }) => service.getProject(params.projectId)),
   route("PUT", "/api/v1/projects/{projectId}", "flows:write", { summary: "Update project", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params, body }) => service.updateProject(params.projectId, body), { body: projectInput }),
   route("DELETE", "/api/v1/projects/{projectId}", "flows:write", { summary: "Delete empty project", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteProject(params.projectId)),
+  route("POST", "/api/v1/jobs/{jobId}/project", "flows:write", { summary: "Move a job to a project", responses: { "200": { description: "Moved", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } } } }, (service, { params, body }) => service.moveJob(params.jobId, body.projectId, body.expectedUpdatedAt), { body: z.object({ projectId: z.guid(), expectedUpdatedAt: z.iso.datetime().optional() }) }),
   route(
     "GET",
     "/api/v1/jobs",

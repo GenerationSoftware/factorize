@@ -23,6 +23,7 @@ export class IntegrationService {
     const validation = await backend.validateAgentAndModels(value.agentKind), connectionId = value.connectionId || crypto.randomUUID();
     const saved = { ...candidate, models: validation.models, modelsRefreshedAt: timestamp() };
     await this.connections.put(`exe:${connectionId}`, saved);
+    await this.database.pool.query("INSERT INTO app.execution_targets(tenant_id,id,name,integration_kind,integration_id,tags,agent_kind) VALUES ($1,gen_random_uuid(),$2,'exe',$3,$4,$5) ON CONFLICT (tenant_id,integration_kind,integration_id,name) DO NOTHING", [this.tenantId, `exe.dev · ${connectionId.slice(0, 8)}`, connectionId, JSON.stringify(tags), value.agentKind]);
     return { ok: true, connectionId, models: validation.models };
   }
   async testExe(input: Partial<ExeConnectionInput>) {
@@ -38,7 +39,7 @@ export class IntegrationService {
     try { const validation = await backend.validateAgentAndModels(connection.agentKind); return { ok: true, connectionId, agentKind: connection.agentKind, permissions: { ok: true, missing: [], tags: permissions.tags }, agent: { ok: true, models: validation.models } }; }
     catch (error) { return { ok: false, connectionId, agentKind: connection.agentKind, permissions: { ok: true, missing: [], tags: permissions.tags }, agent: { ok: false, error: error instanceof Error ? error.message.slice(0, 500) : "Agent validation failed" } }; }
   }
-  async saveAmp(value: AmpConnectionInput) { if (!value.accessToken || !value.project) throw new Error("Amp access token and project are required"); if (!await new AmpBackend(value).test()) throw new Error("Amp connection verification failed"); const connectionId = value.connectionId || crypto.randomUUID(); await this.connections.put(`amp:${connectionId}`, value); return { ok: true, connectionId }; }
+  async saveAmp(value: AmpConnectionInput) { if (!value.accessToken || !value.project) throw new Error("Amp access token and project are required"); if (!await new AmpBackend(value).test()) throw new Error("Amp connection verification failed"); const connectionId = value.connectionId || crypto.randomUUID(); await this.connections.put(`amp:${connectionId}`, value); await this.database.pool.query("INSERT INTO app.execution_targets(tenant_id,id,name,integration_kind,integration_id,tags,agent_kind) VALUES ($1,gen_random_uuid(),$2,'amp',$3,'[]','Amp') ON CONFLICT (tenant_id,integration_kind,integration_id,name) DO NOTHING", [this.tenantId, `Amp · ${value.project}`, connectionId]); return { ok: true, connectionId }; }
   async testAmp(input: Partial<AmpConnectionInput>) { const saved = input.connectionId ? await this.connections.get<AmpConnection>(`amp:${input.connectionId}`) : null, connection = input.accessToken ? input as AmpConnection : saved; if (!connection?.accessToken || !connection.project) throw new Error("Amp connection is required"); return { ok: await new AmpBackend(connection).test() }; }
 
   async remove(kind: "exe" | "amp", id: string) {

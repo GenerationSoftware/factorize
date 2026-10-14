@@ -62,6 +62,18 @@ export class PostgresJobRepository implements JobRepository {
     });
   }
 
+  async move(id: string, projectId: string, expectedUpdatedAt?: string): Promise<Job> {
+    return this.database.orm.transaction(async tx => {
+      const [current] = await tx.select().from(jobs).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).for("update").limit(1);
+      if (!current) throw new Error("Job not found");
+      if (expectedUpdatedAt && current.updatedAt.toISOString() !== expectedUpdatedAt) throw new StaleJobEdit("Job changed since it was loaded");
+      const project = await tx.execute(sql`SELECT 1 FROM app.projects WHERE tenant_id=${this.tenantId}::uuid AND id=${projectId}::uuid`);
+      if (!project.rows.length) throw new Error("Project not found");
+      const [row] = await tx.update(jobs).set({ projectId, updatedAt: sql`greatest(now(), date_trunc('milliseconds', ${jobs.updatedAt}) + interval '1 millisecond')` }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).returning();
+      return this.mapped(row!, tx);
+    });
+  }
+
   async setEnabled(id: string, enabled: boolean, changedAt: string): Promise<boolean> {
     return this.database.orm.transaction(async tx => {
       const [job] = await tx.update(jobs).set({ enabled, updatedAt: sql`greatest(${new Date(changedAt)}::timestamptz, date_trunc('milliseconds', ${jobs.updatedAt}) + interval '1 millisecond')` }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).returning();
@@ -122,10 +134,10 @@ export class PostgresJobRepository implements JobRepository {
       if (!inserted.rowCount) return false;
       await reserveExecutionSlot(client, this.tenantId, invocation.jobId, run, concurrencyLimit);
       await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,run_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.runName ?? "", run.createdAt, run.updatedAt]);
-      await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_capabilities,created_at,updated_at)
+      await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_target,execution_capabilities,created_at,updated_at)
         SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_target->>'agentKind',$7,
           CASE WHEN j.execution_target->>'agentKind'='Amp' THEN 'amp' ELSE 'exe-vm' END,
-          CASE WHEN j.execution_target->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,$9,$10
+          j.execution_target || jsonb_build_object('model',j.model,'effort',j.effort), CASE WHEN j.execution_target->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,$9,$10
         FROM app.jobs j WHERE j.tenant_id=$1 AND j.id=$3`, [this.tenantId, run.id, run.jobId, run.invocationId, invocation.source, invocation.claimKey, run.state, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");
       return true;

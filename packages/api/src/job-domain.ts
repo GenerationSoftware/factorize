@@ -6,10 +6,12 @@ export type InvocationSource = "manual" | TriggerKind;
 export type JobRunState = "queued" | "reserved" | "running" | "succeeded" | "failed" | "stopped";
 
 export interface ExecutionTarget {
+  targetId?: string;
   connectionId: string;
   workspace: string;
   cwd: string;
   agentKind: string;
+  tags?: string[];
 }
 
 export interface Trigger {
