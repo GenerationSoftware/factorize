@@ -23,7 +23,7 @@ export function jobsRoutes(root: AnyRootRoute) {
     loader: ({ params }) => queryClient.ensureQueryData(jobQuery(params.jobId)),
     component: lazyRouteComponent(() => import("./detail"), "JobDetail"),
   });
-  const create = createRoute({ getParentRoute: () => root, path: "/jobs/new", beforeLoad: guard, component: lazyRouteComponent(() => import("./editor"), "JobEditor") });
+  const create = createRoute({ getParentRoute: () => root, path: "/jobs/new", beforeLoad: guard, validateSearch: (s: Record<string, unknown>) => ({ projectId: typeof s.projectId === "string" ? s.projectId : undefined }), component: lazyRouteComponent(() => import("./editor"), "JobEditor") });
   const edit = createRoute({ getParentRoute: () => root, path: "/jobs/$jobId/edit",
     beforeLoad: ({ params }) => { throw redirect({ to: "/jobs/$jobId/settings", params }); } });
   const settings = createRoute({ getParentRoute: () => root, path: "/jobs/$jobId/settings", beforeLoad: guard,

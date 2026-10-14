@@ -31,6 +31,7 @@ function EditorForm({ initial }: { initial?: Job }) {
   useEffect(() => { const handler = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } }; window.addEventListener("beforeunload", handler); return () => window.removeEventListener("beforeunload", handler); }, [dirty]);
   const targets = useQuery(targetsQuery), metadata = useQuery(metadataQuery);
   const target = targets.data?.find(t => t.id === draft.executionTargetId);
+  const projectId = new URLSearchParams(location.searchStr).get("projectId") ?? undefined;
   const update = <K extends keyof JobInput>(key: K, value: JobInput[K]) => { setSaved(false); setDraft(previous => ({ ...previous, [key]: value })); };
   const refreshConflict = useMutation({ retry: false, mutationFn: async () => {
     if (!initial) throw new Error("No job selected");
@@ -39,7 +40,8 @@ function EditorForm({ initial }: { initial?: Job }) {
   }, onSuccess: value => { setRemote(value); setReconciling(false); } });
   const save = useMutation({ retry: false, mutationFn: async () => {
     if (remote || conflicts.length) throw new Error("Resolve the stale edit before saving.");
-    const result = initial ? await api.PUT("/api/v1/jobs/{jobId}", { params: { path: { jobId: initial.id } }, body: { ...writeInput(draft), expectedUpdatedAt: revision } }) : await api.POST("/api/v1/jobs", { body: writeInput(draft) });
+    const input = { ...writeInput(draft), ...(projectId ? { projectId } : {}) };
+    const result = initial ? await api.PUT("/api/v1/jobs/{jobId}", { params: { path: { jobId: initial.id } }, body: { ...input, expectedUpdatedAt: revision } }) : await api.POST("/api/v1/jobs", { body: input });
     if (result.error || !result.data) {
       if (result.error?.error.code === "stale_job") { setReconciling(true); refreshConflict.mutate(); }
       throw new Error(validationMessage(result.error));
