@@ -60,7 +60,11 @@ export class ApiService {
   private targetRecords() { return new ExecutionTargetRepository(databaseFor(this.env), this.auth.tenantId); }
 
   private async executionTarget(id: string) {
-    const record = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) ? await this.targetRecords().get(id) : null;
+    // Target IDs created by the migration are deterministic md5-derived UUIDs,
+    // so they do not necessarily have RFC 4122 version/variant bits. Any
+    // UUID-shaped value is still safe to use in the UUID query; non-UUID values
+    // are the legacy connection IDs.
+    const record = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? await this.targetRecords().get(id) : null;
     if (record) {
       const value = await this.connections().get<any>(`${record.integrationKind}:${record.integrationId}`);
       if (!value) throw new ServiceError(400, "invalid_request", "Execution target integration not found");
