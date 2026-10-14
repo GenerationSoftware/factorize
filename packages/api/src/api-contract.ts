@@ -5,6 +5,7 @@ import { exeConnection, integrationStatus, authorizedClient, accessToken, create
 import { executionTargetResponse, triggerAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { runSummaryResponse, runPageResponse, runStatusResponse, revisionTracePage, revisionTraceQuery } from "./run-read-contracts";
 import { jobPageQuery, jobSummaryPage, jobSelectorPage, jobResponse, jobUpdateInput } from "./job-contracts";
+import { projectInput, projectResponse } from "./project-contracts";
 import { z } from "zod";
 import type { ApiService } from "./flow-service";
 import {
@@ -635,6 +636,17 @@ export const API_ROUTES: RouteContract[] = [
     summary: "Search bounded lifecycle job options",
     responses: { "200": { description: "Selector page; same ordering/filter semantics as job-summaries", content: { "application/json": { schema: jsonSchema(jobSelectorPage, "output") } } } },
   }, (service, { query }) => service.listJobSummaries(query, true), { query: jobPageQuery }),
+  route(
+    "GET",
+    "/api/v1/projects",
+    "flows:read",
+    { summary: "List projects", responses: { "200": { description: "Projects", content: { "application/json": { schema: jsonSchema(z.array(projectResponse), "output") } } } } },
+    (service) => service.listProjects(),
+  ),
+  route("POST", "/api/v1/projects", "flows:write", { summary: "Create project", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { body }) => service.createProject(body), { body: projectInput }),
+  route("GET", "/api/v1/projects/{projectId}", "flows:read", { summary: "Get project", responses: { "200": { description: "Project", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params }) => service.getProject(params.projectId)),
+  route("PUT", "/api/v1/projects/{projectId}", "flows:write", { summary: "Update project", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params, body }) => service.updateProject(params.projectId, body), { body: projectInput }),
+  route("DELETE", "/api/v1/projects/{projectId}", "flows:write", { summary: "Delete empty project", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteProject(params.projectId)),
   route(
     "GET",
     "/api/v1/jobs",

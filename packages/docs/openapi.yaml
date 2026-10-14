@@ -757,6 +757,10 @@ components:
     JobInput:
       type: object
       properties:
+        projectId:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
         name:
           type: string
           minLength: 1
@@ -4631,6 +4635,10 @@ paths:
                           type: string
                         enabled:
                           type: boolean
+                        projectId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                         model:
                           type: string
                         effort:
@@ -4670,6 +4678,7 @@ paths:
                         - name
                         - slug
                         - enabled
+                        - projectId
                         - model
                         - effort
                         - agentKind
@@ -4714,6 +4723,13 @@ paths:
       x-required-scope: flows:read
       x-owner-session-required: false
       parameters:
+        - name: projectId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
         - name: limit
           in: query
           required: false
@@ -4815,6 +4831,13 @@ paths:
       x-required-scope: flows:read
       x-owner-session-required: false
       parameters:
+        - name: projectId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
         - name: limit
           in: query
           required: false
@@ -4845,6 +4868,350 @@ paths:
             enum:
               - "true"
               - "false"
+  /api/v1/projects:
+    get:
+      summary: List projects
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    createdAt:
+                      type: string
+                    updatedAt:
+                      type: string
+                    jobCount:
+                      type: integer
+                      minimum: -9007199254740991
+                      maximum: 9007199254740991
+                  required:
+                    - id
+                    - name
+                    - createdAt
+                    - updatedAt
+                    - jobCount
+                  additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_projects
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:read
+      x-owner-session-required: false
+    post:
+      summary: Create project
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                  jobCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - name
+                  - createdAt
+                  - updatedAt
+                  - jobCount
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: post_api_v1_projects
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                description:
+                  type: string
+                  maxLength: 2000
+              required:
+                - name
+              additionalProperties: false
+  /api/v1/projects/{projectId}:
+    get:
+      summary: Get project
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                  jobCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - name
+                  - createdAt
+                  - updatedAt
+                  - jobCount
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_projects_projectId
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:read
+      x-owner-session-required: false
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+    put:
+      summary: Update project
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                  jobCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - name
+                  - createdAt
+                  - updatedAt
+                  - jobCount
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: put_api_v1_projects_projectId
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                description:
+                  type: string
+                  maxLength: 2000
+              required:
+                - name
+              additionalProperties: false
+    delete:
+      summary: Delete empty project
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: delete_api_v1_projects_projectId
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /api/v1/jobs:
     get:
       summary: List jobs
@@ -4859,6 +5226,10 @@ paths:
                   type: object
                   properties:
                     id:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    projectId:
                       type: string
                       format: uuid
                       pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
@@ -5320,6 +5691,10 @@ paths:
                 type: object
                 properties:
                   id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  projectId:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
@@ -6074,6 +6449,10 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  projectId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   name:
                     type: string
                   slug:
@@ -6548,6 +6927,10 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  projectId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   name:
                     type: string
                   slug:
@@ -7008,6 +7391,10 @@ paths:
             schema:
               type: object
               properties:
+                projectId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                 name:
                   type: string
                   minLength: 1

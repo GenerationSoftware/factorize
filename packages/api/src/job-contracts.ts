@@ -2,6 +2,7 @@ import { z } from "zod";
 import { jobInputSchema, triggerSchema, webhookTriggerConfigSchema } from "./flow-schemas";
 
 export const jobPageQuery = z.object({
+  projectId: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   cursor: z.guid().optional(),
   q: z.string().trim().max(120).default(""),
@@ -10,6 +11,7 @@ export const jobPageQuery = z.object({
 export type JobPageQuery = z.infer<typeof jobPageQuery>;
 export const jobSelectorItem = z.object({ id: z.guid(), name: z.string(), slug: z.string(), enabled: z.boolean() });
 export const jobSummary = jobSelectorItem.extend({
+  projectId: z.guid(),
   model: z.string(), effort: z.string(), agentKind: z.string(),
   concurrencyLimit: z.number().int(), runningCount: z.number().int(),
   lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(), createdAt: z.string(), updatedAt: z.string(),
@@ -30,7 +32,7 @@ export const triggerResponse = z.discriminatedUnion("kind", [
   triggerSchema.options[3].extend(triggerIdentity),
 ]);
 export const jobResponse = z.object({
-  id: z.guid(), name: z.string(), slug: z.string(), enabled: z.boolean(),
+  id: z.guid(), projectId: z.guid().optional(), name: z.string(), slug: z.string(), enabled: z.boolean(),
   promptTemplate: z.string(), runNameTemplate: z.string(), model: z.string(), effort: z.string().optional(),
   executionTarget: z.object({ connectionId: z.string(), workspace: z.string().optional(), cwd: z.string().optional(), agentKind: z.string() }),
   executionTargetId: z.string(), agentKind: z.string(), concurrencyLimit: z.number().int(),

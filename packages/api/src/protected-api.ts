@@ -103,6 +103,11 @@ function createMcpServer(service: ApiService): McpServer {
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
     tool("kill_run", "Force a run in any non-terminal state to stop immediately, release its concurrency slot, and clean up its backend asynchronously.", runIdSchema, ({ runId }: any) => service.killRun(runId));
     tool("list_jobs", "List jobs with their current run count and maximum concurrency", z.object({}), () => service.listJobs());
+    tool("list_projects", "List tenant projects with job counts", z.object({}), () => service.listProjects());
+    tool("get_project", "Get a tenant project", z.object({ projectId: z.string().min(1) }), ({ projectId }: any) => service.getProject(projectId));
+    tool("create_project", "Create a tenant project", z.object({ name: z.string().trim().min(1).max(120), description: z.string().max(2000).optional() }), (input: any) => service.createProject(input));
+    tool("update_project", "Rename or describe a tenant project", z.object({ projectId: z.string().min(1), name: z.string().trim().min(1).max(120), description: z.string().max(2000).optional() }), ({ projectId, ...input }: any) => service.updateProject(projectId, input));
+    tool("delete_project", "Delete an empty tenant project", z.object({ projectId: z.string().min(1) }), ({ projectId }: any) => service.deleteProject(projectId));
     tool("get_job", "Get a job with its current run count and maximum concurrency", jobIdSchema, ({ jobId }: any) => service.getJob(jobId));
     tool("create_job", "Create a job using an executionTargetId returned by list_execution_targets. Credentials are never accepted or returned.", jobInputSchema, (input: any) => service.createJob(input));
     tool("update_job", "Replace a job configuration. Credentials are never accepted or returned.", jobUpdateInput.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.updateJob(jobId, input));

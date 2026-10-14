@@ -25,6 +25,7 @@ export interface Trigger {
 
 export interface Job {
   id: string;
+  projectId?: string;
   name: string;
   slug: string;
   promptTemplate: string;

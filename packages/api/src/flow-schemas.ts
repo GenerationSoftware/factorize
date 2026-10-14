@@ -34,6 +34,7 @@ export const triggerSchema = z.discriminatedUnion("kind", [
   }).strict() }).strict(),
 ]);
 export const jobInputSchema = z.object({
+  projectId: z.guid().optional(),
   name: z.string().trim().min(1).max(120),
   slug: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/),
   promptTemplate: z.string().min(1).max(50_000),

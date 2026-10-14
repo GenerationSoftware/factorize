@@ -31,6 +31,7 @@ import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken } from "./access-tok
 
 import { TraceProjectionRepository } from "./postgres/trace-projection-repository";
 import { replayTrace, traceReplaySchema, traceReplayRunIdSchema, TraceReplayError } from "./trace-replay";
+import { ProjectRepository } from "./postgres/project-repository";
 
 export class ServiceError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -54,6 +55,7 @@ export class ApiService {
 
   private jobs() { return new PostgresJobRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
   private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+  private projects() { return new ProjectRepository(databaseFor(this.env), this.auth.tenantId); }
 
   private async executionTarget(id: string) {
     if (id.startsWith("amp:")) {
@@ -182,6 +184,11 @@ export class ApiService {
   async listJobSummaries(input: JobPageQuery, selector = false) { await this.authorize("flows:read"); return new JobSummaryRepository(databaseFor(this.env), this.auth.tenantId).page(input, selector); }
   async listJobs() { await this.authorize("flows:read"); const jobs = await this.jobs().list(), stats = await this.jobStatistics(jobs.map(job => job.id)); return Promise.all(jobs.map(job => this.presentJob(job, stats.get(job.id) ?? { running_count: "0", last_run_state: null }))); }
   async getJob(jobId: string) { await this.authorize("flows:read"); const job = await this.jobs().getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found"); return this.presentJob(job); }
+  async listProjects() { await this.authorize("flows:read"); return this.projects().list(); }
+  async getProject(projectId: string) { await this.authorize("flows:read"); const project = await this.projects().get(projectId); if (!project) throw new ServiceError(404, "not_found", "Project not found"); return project; }
+  async createProject(input: { name: string; description?: string }) { await this.authorize("flows:write"); try { return await this.projects().create(input.name, input.description); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "A project with this name already exists"); throw error; } }
+  async updateProject(projectId: string, input: { name: string; description?: string }) { await this.authorize("flows:write"); const result = await this.projects().update(projectId, input.name, input.description); if (!result) throw new ServiceError(404, "not_found", "Project not found"); return result; }
+  async deleteProject(projectId: string) { await this.authorize("flows:write"); const result = await this.projects().remove(projectId); if (result === "missing") throw new ServiceError(404, "not_found", "Project not found"); if (result === "nonempty") throw new ServiceError(409, "conflict", "Move or delete the project's jobs before deleting it"); return { id: projectId, deleted: true }; }
   async listJobEvents(jobId: string, limit = 50) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).jobEvents(jobId, limit); }
   async listWebhookDeliveries(query: URLSearchParams) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).deliveries(query); }
   async getWebhookDelivery(deliveryId: string) { await this.authorize("runs:read"); const value = await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).delivery(deliveryId); if (!value) throw new ServiceError(404,"not_found","Webhook delivery not found"); return value; }
@@ -189,13 +196,14 @@ export class ApiService {
   async createJob(input: JobInput) {
     await this.authorize("flows:write"); const timestamp = new Date().toISOString(), id = crypto.randomUUID();
     const triggers = this.normalizedTriggers(input.triggers).map(trigger => ({ ...trigger, jobId: id }));
-    const job: Job = { id, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", ...(input.effort ? { effort: input.effort } : {}), executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, createdAt: timestamp, updatedAt: timestamp };
+    const projectId = input.projectId ?? await this.projects().defaultProjectId();
+    const job: Job = { id, projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", ...(input.effort ? { effort: input.effort } : {}), executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, createdAt: timestamp, updatedAt: timestamp };
     try { return this.presentJob(await this.jobs().create(job)); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "Job slug is already in use"); throw error; }
   }
   async updateJob(jobId: string, input: JobInput & { expectedUpdatedAt?: string }) {
     await this.authorize("flows:write"); const repository = this.jobs(), current = await repository.getJob(jobId); if (!current) throw new ServiceError(404, "not_found", "Job not found");
     const triggers = this.normalizedTriggers(input.triggers, current.triggers).map(trigger => ({ ...trigger, jobId }));
-    const updated = await repository.update({ ...current, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", effort: input.effort, executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, triggers, updatedAt: new Date().toISOString() }, input.expectedUpdatedAt).catch(error => { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload its configuration before saving."); throw error; });
+    const updated = await repository.update({ ...current, projectId: input.projectId ?? current.projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", model: input.model ?? "", effort: input.effort, executionTarget: await this.executionTarget(input.executionTargetId), concurrencyLimit: input.concurrencyLimit, triggers, updatedAt: new Date().toISOString() }, input.expectedUpdatedAt).catch(error => { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload its configuration before saving."); throw error; });
     await this.wakeScheduler();
     return this.presentJob(updated);
   }
