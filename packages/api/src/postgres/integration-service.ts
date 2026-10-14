@@ -53,7 +53,8 @@ export class IntegrationService {
   async remove(kind: "exe" | "amp", id: string) {
     const targetKind = kind === "exe" ? "exe-vm" : "Amp";
     const used = await this.database.pool.query("SELECT 1 FROM app.jobs WHERE tenant_id=$1 AND execution_target->>'connectionId'=$2 AND execution_target->>'agentKind' " + (kind === "exe" ? "<> 'Amp'" : "= 'Amp'") + " LIMIT 1", [this.tenantId, id]);
-    if (used.rowCount) return { conflict: true, deleted: false };
+    const targetUsed = await this.database.pool.query("SELECT 1 FROM app.execution_targets WHERE tenant_id=$1 AND integration_kind=$2 AND integration_id=$3 LIMIT 1", [this.tenantId, kind, id]);
+    if (used.rowCount || targetUsed.rowCount) return { conflict: true, deleted: false };
     return { conflict: false, deleted: await this.connections.delete(`${kind}:${id}`), targetKind };
   }
 

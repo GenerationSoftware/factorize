@@ -2962,6 +2962,9 @@ export interface operations {
             content: {
                 "application/json": {
                     name: string;
+                    /** @enum {string} */
+                    integrationKind: "exe" | "amp";
+                    integrationId: string;
                     /** @default [] */
                     tags?: string[];
                     agentKind: string;

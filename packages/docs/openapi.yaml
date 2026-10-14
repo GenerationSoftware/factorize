@@ -2833,6 +2833,14 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 120
+                integrationKind:
+                  type: string
+                  enum:
+                    - exe
+                    - amp
+                integrationId:
+                  type: string
+                  minLength: 1
                 tags:
                   default: []
                   maxItems: 20
@@ -2846,6 +2854,8 @@ paths:
                   maxLength: 40
               required:
                 - name
+                - integrationKind
+                - integrationId
                 - agentKind
     delete:
       summary: Delete execution target
