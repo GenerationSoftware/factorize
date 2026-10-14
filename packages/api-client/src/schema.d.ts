@@ -410,6 +410,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/execution-targets/{targetId}/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Diagnose an execution target
+         * @description Requires the flows:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_execution_targets_targetId_diagnostics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/job-trigger-availability": {
         parameters: {
             query?: never;
@@ -2999,6 +3021,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_execution_targets_targetId_diagnostics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Target-scoped credential-safe diagnostic result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                        targetId: string;
+                        integrationId: string;
+                        agentKind: string;
+                        tags: string[];
+                        permissions: {
+                            ok: boolean;
+                            missing: string[];
+                            tags: string[];
+                        };
+                        agent: {
+                            ok: boolean;
+                            models?: string[];
+                            error?: string;
+                        } | null;
+                    };
                 };
             };
             400: components["responses"]["Error400"];

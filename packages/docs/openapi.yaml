@@ -2891,6 +2891,107 @@ paths:
           schema:
             type: string
             minLength: 1
+  /api/v1/execution-targets/{targetId}/diagnostics:
+    post:
+      summary: Diagnose an execution target
+      responses:
+        "200":
+          description: Target-scoped credential-safe diagnostic result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  targetId:
+                    type: string
+                  integrationId:
+                    type: string
+                  agentKind:
+                    type: string
+                  tags:
+                    type: array
+                    items:
+                      type: string
+                  permissions:
+                    type: object
+                    properties:
+                      ok:
+                        type: boolean
+                      missing:
+                        type: array
+                        items:
+                          type: string
+                      tags:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - ok
+                      - missing
+                      - tags
+                    additionalProperties: false
+                  agent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          ok:
+                            type: boolean
+                          models:
+                            type: array
+                            items:
+                              type: string
+                          error:
+                            type: string
+                        required:
+                          - ok
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - ok
+                  - targetId
+                  - integrationId
+                  - agentKind
+                  - tags
+                  - permissions
+                  - agent
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: post_api_v1_execution_targets_targetId_diagnostics
+      tags:
+        - execution-targets
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      parameters:
+        - name: targetId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /api/v1/job-trigger-availability:
     get:
       summary: List available trigger kinds
