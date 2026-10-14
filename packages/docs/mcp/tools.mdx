@@ -14,6 +14,11 @@ Connect to `https://app.factorize.sh/mcp` using [client authorization](/mcp/over
 | `list_execution_targets` | flows:read | `{}` |
 | `list_cloudflare_tail_integrations` | flows:read | `{}` |
 | `list_jobs` | flows:read | `{}` |
+| `list_projects` | flows:read | `{}` |
+| `get_project` | flows:read | Required string `projectId` |
+| `create_project` | flows:write | Required `name`; optional `description` |
+| `update_project` | flows:write | Required `projectId`, `name`; optional `description` |
+| `delete_project` | flows:write | Required string `projectId` |
 | `get_job` | flows:read | Required string `jobId` |
 | `create_job` | flows:write | Required `name`, `slug`, `promptTemplate`, `executionTargetId`; job fields below |
 | `update_job` | flows:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` |
