@@ -1,0 +1,14 @@
+import type { Database } from "./database";
+
+export type ExecutionTargetRecord = { id: string; name: string; integrationKind: "exe" | "amp"; integrationId: string; tags: string[]; agentKind: string; createdAt: string; updatedAt: string };
+
+const map = (row: any): ExecutionTargetRecord => ({ id: row.id, name: row.name, integrationKind: row.integration_kind, integrationId: row.integration_id, tags: row.tags ?? [], agentKind: row.agent_kind, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() });
+
+export class ExecutionTargetRepository {
+  constructor(private database: Database, private tenantId: string) {}
+  async list() { const result = await this.database.pool.query("SELECT * FROM app.execution_targets WHERE tenant_id=$1 ORDER BY name,id", [this.tenantId]); return result.rows.map(map); }
+  async get(id: string) { const result = await this.database.pool.query("SELECT * FROM app.execution_targets WHERE tenant_id=$1 AND id=$2", [this.tenantId, id]); return result.rows[0] ? map(result.rows[0]) : null; }
+  async create(input: Omit<ExecutionTargetRecord, "id" | "createdAt" | "updatedAt">) { const result = await this.database.pool.query("INSERT INTO app.execution_targets(tenant_id,id,name,integration_kind,integration_id,tags,agent_kind) VALUES ($1,gen_random_uuid(),$2,$3,$4,$5,$6) RETURNING *", [this.tenantId, input.name.trim(), input.integrationKind, input.integrationId, JSON.stringify(input.tags), input.agentKind]); return map(result.rows[0]); }
+  async update(id: string, input: Pick<ExecutionTargetRecord, "name" | "tags" | "agentKind" | "integrationKind" | "integrationId">) { const result = await this.database.pool.query("UPDATE app.execution_targets SET name=$3,integration_kind=$4,integration_id=$5,tags=$6,agent_kind=$7,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *", [this.tenantId, id, input.name.trim(), input.integrationKind, input.integrationId, JSON.stringify(input.tags), input.agentKind]); return result.rows[0] ? map(result.rows[0]) : null; }
+  async remove(id: string) { return this.database.transaction(async client => { const target = await client.query("SELECT 1 FROM app.execution_targets WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, id]); if (!target.rowCount) return "missing" as const; const jobs = await client.query("SELECT 1 FROM app.jobs WHERE tenant_id=$1 AND execution_target->>'targetId'=$2 LIMIT 1", [this.tenantId, id]); if (jobs.rowCount) return "referenced" as const; const runs = await client.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND execution_target->>'targetId'=$2 AND state NOT IN ('succeeded','failed','stopped') LIMIT 1", [this.tenantId, id]); if (runs.rowCount) return "active" as const; await client.query("DELETE FROM app.execution_targets WHERE tenant_id=$1 AND id=$2", [this.tenantId, id]); return "deleted" as const; }); }
+}

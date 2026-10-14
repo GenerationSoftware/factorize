@@ -5,6 +5,7 @@ import { exeConnection, integrationStatus, authorizedClient, accessToken, create
 import { executionTargetResponse, triggerAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { runSummaryResponse, runPageResponse, runStatusResponse, revisionTracePage, revisionTraceQuery } from "./run-read-contracts";
 import { jobPageQuery, jobSummaryPage, jobSelectorPage, jobResponse, jobUpdateInput } from "./job-contracts";
+import { projectInput, projectResponse } from "./project-contracts";
 import { z } from "zod";
 import type { ApiService } from "./flow-service";
 import {
@@ -73,6 +74,8 @@ const tailBody = z.object({
     .meta({ writeOnly: true }),
   generateSecret: z.boolean().optional(),
 });
+const executionTargetBody = z.object({ name: z.string().trim().min(1).max(120), integrationKind: z.enum(["exe", "amp"]), integrationId: z.string().min(1), tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).default([]), agentKind: z.string().min(1).max(40) });
+const executionTargetUpdateBody = executionTargetBody;
 const deliveryQuery = z.object({
   provider: z.string().optional(),
   deliveryId: z.string().optional(),
@@ -236,6 +239,10 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service) => service.listExecutionTargets(),
   ),
+  route("POST", "/api/v1/execution-targets", "flows:write", { summary: "Create execution target", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(executionTargetResponse, "output") } } } } }, (service, { body }) => service.createExecutionTarget(body), { body: executionTargetBody }),
+  route("PUT", "/api/v1/execution-targets/{targetId}", "flows:write", { summary: "Update execution target", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(executionTargetResponse, "output") } } } } }, (service, { params, body }) => service.updateExecutionTarget(params.targetId, body), { body: executionTargetUpdateBody }),
+  route("DELETE", "/api/v1/execution-targets/{targetId}", "flows:write", { summary: "Delete execution target", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteExecutionTarget(params.targetId)),
+  route("POST", "/api/v1/execution-targets/{targetId}/diagnostics", "flows:write", { summary: "Diagnose an execution target", responses: { "200": { description: "Target-scoped credential-safe diagnostic result", content: { "application/json": { schema: jsonSchema(z.object({ ok: z.boolean(), targetId: z.string(), integrationId: z.string(), agentKind: z.string(), tags: z.array(z.string()), permissions: z.object({ ok: z.boolean(), missing: z.array(z.string()), tags: z.array(z.string()) }), agent: z.object({ ok: z.boolean(), models: z.array(z.string()).optional(), error: z.string().optional() }).nullable() }), "output") } } } } }, (service, { params }) => service.diagnoseExecutionTarget(params.targetId)),
   route(
     "GET",
     "/api/v1/job-trigger-availability",
@@ -635,6 +642,18 @@ export const API_ROUTES: RouteContract[] = [
     summary: "Search bounded lifecycle job options",
     responses: { "200": { description: "Selector page; same ordering/filter semantics as job-summaries", content: { "application/json": { schema: jsonSchema(jobSelectorPage, "output") } } } },
   }, (service, { query }) => service.listJobSummaries(query, true), { query: jobPageQuery }),
+  route(
+    "GET",
+    "/api/v1/projects",
+    "flows:read",
+    { summary: "List projects", responses: { "200": { description: "Projects", content: { "application/json": { schema: jsonSchema(z.array(projectResponse), "output") } } } } },
+    (service) => service.listProjects(),
+  ),
+  route("POST", "/api/v1/projects", "flows:write", { summary: "Create project", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { body }) => service.createProject(body), { body: projectInput }),
+  route("GET", "/api/v1/projects/{projectId}", "flows:read", { summary: "Get project", responses: { "200": { description: "Project", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params }) => service.getProject(params.projectId)),
+  route("PUT", "/api/v1/projects/{projectId}", "flows:write", { summary: "Update project", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params, body }) => service.updateProject(params.projectId, body), { body: projectInput }),
+  route("DELETE", "/api/v1/projects/{projectId}", "flows:write", { summary: "Delete empty project", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteProject(params.projectId)),
+  route("POST", "/api/v1/jobs/{jobId}/project", "flows:write", { summary: "Move a job to a project", responses: { "200": { description: "Moved", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } } } }, (service, { params, body }) => service.moveJob(params.jobId, body.projectId, body.expectedUpdatedAt), { body: z.object({ projectId: z.guid(), expectedUpdatedAt: z.iso.datetime().optional() }) }),
   route(
     "GET",
     "/api/v1/jobs",

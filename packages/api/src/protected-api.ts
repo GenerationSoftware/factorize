@@ -103,9 +103,15 @@ function createMcpServer(service: ApiService): McpServer {
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
     tool("kill_run", "Force a run in any non-terminal state to stop immediately, release its concurrency slot, and clean up its backend asynchronously.", runIdSchema, ({ runId }: any) => service.killRun(runId));
     tool("list_jobs", "List jobs with their current run count and maximum concurrency", z.object({}), () => service.listJobs());
+    tool("list_projects", "List tenant projects with job counts", z.object({}), () => service.listProjects());
+    tool("get_project", "Get a tenant project", z.object({ projectId: z.string().min(1) }), ({ projectId }: any) => service.getProject(projectId));
+    tool("create_project", "Create a tenant project", z.object({ name: z.string().trim().min(1).max(120), description: z.string().max(2000).optional() }), (input: any) => service.createProject(input));
+    tool("update_project", "Rename or describe a tenant project", z.object({ projectId: z.string().min(1), name: z.string().trim().min(1).max(120), description: z.string().max(2000).optional() }), ({ projectId, ...input }: any) => service.updateProject(projectId, input));
+    tool("delete_project", "Delete an empty tenant project", z.object({ projectId: z.string().min(1) }), ({ projectId }: any) => service.deleteProject(projectId));
     tool("get_job", "Get a job with its current run count and maximum concurrency", jobIdSchema, ({ jobId }: any) => service.getJob(jobId));
     tool("create_job", "Create a job using an executionTargetId returned by list_execution_targets. Credentials are never accepted or returned.", jobInputSchema, (input: any) => service.createJob(input));
     tool("update_job", "Replace a job configuration. Credentials are never accepted or returned.", jobUpdateInput.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.updateJob(jobId, input));
+    tool("move_job", "Move a job between tenant projects without changing its execution configuration", z.object({ jobId: z.string().min(1), projectId: z.string().min(1), expectedUpdatedAt: z.string().optional() }), ({ jobId, projectId, expectedUpdatedAt }: any) => service.moveJob(jobId, projectId, expectedUpdatedAt));
     tool("delete_job", "Delete a job and its queued invocation history", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));
     tool("enable_job", "Enable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, true));
     tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
@@ -115,6 +121,11 @@ function createMcpServer(service: ApiService): McpServer {
     tool("get_webhook_delivery", "Get a webhook delivery and its safe processing timeline. Secrets and payloads are never returned.", z.object({ deliveryId: z.string().min(1) }), ({ deliveryId }: any) => service.getWebhookDelivery(deliveryId));
     tool("test_job_webhook_conditions", "Evaluate conditions on supplied prepared webhook context. No authentication of the example, routing, live GitHub verification, or invocation.", jobConditionsTestSchema, (input: any) => service.testJobConditions(input));
     tool("list_execution_targets", "List non-secret execution target metadata and capabilities", z.object({}), () => service.listExecutionTargets());
+    tool("list_execution_target_resources", "List tenant execution targets without credentials", z.object({}), () => service.listExecutionTargetResources());
+    tool("create_execution_target", "Create a target backed by an existing integration; credentials are never accepted", z.object({ name: z.string().trim().min(1).max(120), integrationKind: z.enum(["exe", "amp"]), integrationId: z.string().min(1), tags: z.array(z.string()).max(20).default([]), agentKind: z.string().min(1).max(40) }), (input: any) => service.createExecutionTarget(input));
+    tool("update_execution_target", "Update target display and execution settings", z.object({ targetId: z.string().min(1), name: z.string().trim().min(1).max(120), tags: z.array(z.string()).max(20).default([]), agentKind: z.string().min(1).max(40) }), ({ targetId, ...input }: any) => service.updateExecutionTarget(targetId, input));
+    tool("delete_execution_target", "Delete an unreferenced execution target", z.object({ targetId: z.string().min(1) }), ({ targetId }: any) => service.deleteExecutionTarget(targetId));
+    tool("diagnose_execution_target", "Probe an execution target using its saved integration credential, exact VM tags, and agent kind", z.object({ targetId: z.string().min(1) }), ({ targetId }: any) => service.diagnoseExecutionTarget(targetId));
     tool("diagnose_exe_integration", "Probe a saved exe.dev connection's permissions and a disposable tagged VM's agent/model integration. The disposable VM is deleted before the tool returns.", z.object({ connectionId: z.string().min(1) }), ({ connectionId }: any) => service.diagnoseExeIntegration(connectionId));
     tool("list_cloudflare_tail_integrations", "List installed Cloudflare Tail integrations and reference counts. Signing secrets are never returned.", z.object({}), () => service.listTailIntegrations());
     return server;

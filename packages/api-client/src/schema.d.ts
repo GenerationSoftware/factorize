@@ -369,7 +369,63 @@ export interface paths {
          */
         get: operations["get_api_v1_execution_targets"];
         put?: never;
+        /**
+         * Create execution target
+         * @description Requires the flows:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_execution_targets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/execution-targets/{targetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update execution target
+         * @description Requires the flows:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        put: operations["put_api_v1_execution_targets_targetId"];
         post?: never;
+        /**
+         * Delete execution target
+         * @description Requires the flows:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        delete: operations["delete_api_v1_execution_targets_targetId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/execution-targets/{targetId}/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Diagnose an execution target
+         * @description Requires the flows:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_execution_targets_targetId_diagnostics"];
         delete?: never;
         options?: never;
         head?: never;
@@ -990,6 +1046,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List projects
+         * @description Requires the flows:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_projects"];
+        put?: never;
+        /**
+         * Create project
+         * @description Requires the flows:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_projects"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{projectId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get project
+         * @description Requires the flows:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_projects_projectId"];
+        /**
+         * Update project
+         * @description Requires the flows:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        put: operations["put_api_v1_projects_projectId"];
+        post?: never;
+        /**
+         * Delete empty project
+         * @description Requires the flows:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        delete: operations["delete_api_v1_projects_projectId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{jobId}/project": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a job to a project
+         * @description Requires the flows:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_jobs_jobId_project"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs": {
         parameters: {
             query?: never;
@@ -1453,6 +1593,8 @@ export interface components {
         Run: {
             id: string;
             job_id: string;
+            project_id?: string;
+            project_name?: string;
             job_name: string;
             issue_id: string;
             issue_url: string | null;
@@ -1480,6 +1622,8 @@ export interface components {
             items: {
                 id: string;
                 job_id: string;
+                project_id?: string;
+                project_name?: string;
                 job_name: string;
                 issue_id: string;
                 issue_url: string | null;
@@ -1711,6 +1855,8 @@ export interface components {
             updatedAt?: string;
         };
         JobInput: {
+            /** Format: uuid */
+            projectId?: string;
             name: string;
             slug: string;
             promptTemplate: string;
@@ -2729,11 +2875,201 @@ export interface operations {
                         workspace: string;
                         cwd: string;
                         agentKind: string;
+                        integrationId?: string;
+                        tags?: string[];
                         models?: string[];
                         modelsRefreshedAt?: string | null;
                         efforts?: string[];
                         capabilities: string[];
                     }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_execution_targets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    /** @enum {string} */
+                    integrationKind: "exe" | "amp";
+                    integrationId: string;
+                    /** @default [] */
+                    tags?: string[];
+                    agentKind: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        kind: "exe-vm" | "amp";
+                        name: string;
+                        workspace: string;
+                        cwd: string;
+                        agentKind: string;
+                        integrationId?: string;
+                        tags?: string[];
+                        models?: string[];
+                        modelsRefreshedAt?: string | null;
+                        efforts?: string[];
+                        capabilities: string[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_execution_targets_targetId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    /** @enum {string} */
+                    integrationKind: "exe" | "amp";
+                    integrationId: string;
+                    /** @default [] */
+                    tags?: string[];
+                    agentKind: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        kind: "exe-vm" | "amp";
+                        name: string;
+                        workspace: string;
+                        cwd: string;
+                        agentKind: string;
+                        integrationId?: string;
+                        tags?: string[];
+                        models?: string[];
+                        modelsRefreshedAt?: string | null;
+                        efforts?: string[];
+                        capabilities: string[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_execution_targets_targetId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_execution_targets_targetId_diagnostics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Target-scoped credential-safe diagnostic result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                        targetId: string;
+                        integrationId: string;
+                        agentKind: string;
+                        tags: string[];
+                        permissions: {
+                            ok: boolean;
+                            missing: string[];
+                            tags: string[];
+                        };
+                        agent: {
+                            ok: boolean;
+                            models?: string[];
+                            error?: string;
+                        } | null;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -3833,6 +4169,7 @@ export interface operations {
     get_api_v1_job_summaries: {
         parameters: {
             query?: {
+                projectId?: string;
                 limit?: number;
                 cursor?: string;
                 q?: string;
@@ -3857,6 +4194,8 @@ export interface operations {
                             name: string;
                             slug: string;
                             enabled: boolean;
+                            /** Format: uuid */
+                            projectId: string;
                             model: string;
                             effort: string;
                             agentKind: string;
@@ -3883,6 +4222,7 @@ export interface operations {
     get_api_v1_job_selector: {
         parameters: {
             query?: {
+                projectId?: string;
                 limit?: number;
                 cursor?: string;
                 q?: string;
@@ -3922,6 +4262,378 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_projects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Projects */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        description?: string;
+                        createdAt: string;
+                        updatedAt: string;
+                        jobCount: number;
+                    }[];
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_projects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    description?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        description?: string;
+                        createdAt: string;
+                        updatedAt: string;
+                        jobCount: number;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_projects_projectId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        description?: string;
+                        createdAt: string;
+                        updatedAt: string;
+                        jobCount: number;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_projects_projectId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    description?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        description?: string;
+                        createdAt: string;
+                        updatedAt: string;
+                        jobCount: number;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_projects_projectId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_jobs_jobId_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    projectId: string;
+                    /** Format: date-time */
+                    expectedUpdatedAt?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Moved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** Format: uuid */
+                        projectId?: string;
+                        name: string;
+                        slug: string;
+                        enabled: boolean;
+                        promptTemplate: string;
+                        runNameTemplate: string;
+                        model: string;
+                        effort?: string;
+                        executionTarget: {
+                            connectionId: string;
+                            workspace?: string;
+                            cwd?: string;
+                            agentKind: string;
+                        };
+                        executionTargetId: string;
+                        agentKind: string;
+                        concurrencyLimit: number;
+                        runningCount: number;
+                        currentRuns: number;
+                        maxConcurrency: number;
+                        lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                        triggers: ({
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "manual";
+                            /** @default true */
+                            enabled: boolean;
+                            /** @default {} */
+                            config: Record<string, never>;
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "schedule";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                cron: string;
+                                timezone: string;
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "webhook";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "linear";
+                                projectId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "clickup";
+                                listId: string;
+                                matchRules: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "github";
+                                installationId: number;
+                                repositoryId: number;
+                                event?: string;
+                                action?: string;
+                                matchRules?: {
+                                    /** @enum {string} */
+                                    type: "owner" | "creator" | "status" | "label" | "assignee";
+                                    targetId: string;
+                                }[];
+                                secretConfigured?: boolean;
+                            } | {
+                                conditions?: {
+                                    [key: string]: unknown;
+                                };
+                                /** @constant */
+                                provider: "cloudflareTail";
+                                integrationId: string;
+                                destination?: string;
+                                secretConfigured?: boolean;
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "jobLifecycle";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                sourceJobIds: string[];
+                                states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        })[];
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_jobs: {
         parameters: {
             query?: never;
@@ -3940,6 +4652,8 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         id: string;
+                        /** Format: uuid */
+                        projectId?: string;
                         name: string;
                         slug: string;
                         enabled: boolean;
@@ -4108,6 +4822,8 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         id: string;
+                        /** Format: uuid */
+                        projectId?: string;
                         name: string;
                         slug: string;
                         enabled: boolean;
@@ -4448,6 +5164,8 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         id: string;
+                        /** Format: uuid */
+                        projectId?: string;
                         name: string;
                         slug: string;
                         enabled: boolean;
@@ -4606,6 +5324,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** Format: uuid */
+                    projectId?: string;
                     name: string;
                     slug: string;
                     promptTemplate: string;
@@ -4717,6 +5437,8 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         id: string;
+                        /** Format: uuid */
+                        projectId?: string;
                         name: string;
                         slug: string;
                         enabled: boolean;
@@ -4898,6 +5620,7 @@ export interface operations {
     get_api_v1_runs: {
         parameters: {
             query?: {
+                projectId?: string;
                 jobId?: string;
                 state?: ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped") | ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped")[];
                 contextQuery?: string;

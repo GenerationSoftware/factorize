@@ -15,8 +15,8 @@ describe.skipIf(!url)("migration API measurements", () => {
         if (size > 10) {
           const cipher = await encrypt("p".repeat(50000), f.env.CREDENTIAL_ENCRYPTION_KEY);
           await f.db.pool.query("UPDATE app.jobs SET encrypted_prompt_template=$2 WHERE tenant_id=$1", [f.tenantId, cipher]);
-          await f.db.pool.query(`INSERT INTO app.jobs(tenant_id,id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit)
-            SELECT $1,gen_random_uuid(),'Large Job '||i,'large-job-'||i,$2,'{"connectionId":"local","agentKind":"codex"}',1 FROM generate_series(1,195) i`, [f.tenantId, cipher]);
+          await f.db.pool.query(`INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit)
+            SELECT $1,gen_random_uuid(),md5($1::text || ':default')::uuid,'Large Job '||i,'large-job-'||i,$2,'{"connectionId":"local","agentKind":"codex"}',1 FROM generate_series(1,195) i`, [f.tenantId, cipher]);
           await f.db.pool.query("UPDATE app.job_runs SET encrypted_prompt=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, cipher]);
           await f.db.pool.query(`UPDATE app.invocations SET context=jsonb_build_object('data',repeat('c',50000)) WHERE tenant_id=$1`, [f.tenantId]);
           await f.db.pool.query(`INSERT INTO app.run_trace_events(tenant_id,run_id,sequence,id,event_type,title,preview_text,display_data)

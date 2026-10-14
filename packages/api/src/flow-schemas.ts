@@ -8,7 +8,7 @@ export const matchRuleSchema = z.object({
   targetId: z.string().min(1),
 });
 export const listRunsSchema = z.object({
-  jobId: z.string().min(1).optional(), state: z.union([runStateSchema, z.array(runStateSchema).min(1).max(10)]).optional(),
+  projectId: z.string().min(1).optional(), jobId: z.string().min(1).optional(), state: z.union([runStateSchema, z.array(runStateSchema).min(1).max(10)]).optional(),
   contextQuery: z.string().min(1).max(50_000).optional(),
   sort: z.enum(["job", "run", "status", "created", "agent"]).optional(),
   direction: z.enum(["asc", "desc"]).optional(),
@@ -34,6 +34,7 @@ export const triggerSchema = z.discriminatedUnion("kind", [
   }).strict() }).strict(),
 ]);
 export const jobInputSchema = z.object({
+  projectId: z.guid().optional(),
   name: z.string().trim().min(1).max(120),
   slug: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/),
   promptTemplate: z.string().min(1).max(50_000),

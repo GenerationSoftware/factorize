@@ -42,6 +42,10 @@ components:
           type: string
         job_id:
           type: string
+        project_id:
+          type: string
+        project_name:
+          type: string
         job_name:
           type: string
         issue_id:
@@ -139,6 +143,10 @@ components:
               id:
                 type: string
               job_id:
+                type: string
+              project_id:
+                type: string
+              project_name:
                 type: string
               job_name:
                 type: string
@@ -757,6 +765,10 @@ components:
     JobInput:
       type: object
       properties:
+        projectId:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
         name:
           type: string
           minLength: 1
@@ -2536,6 +2548,12 @@ paths:
                       type: string
                     agentKind:
                       type: string
+                    integrationId:
+                      type: string
+                    tags:
+                      type: array
+                      items:
+                        type: string
                     models:
                       type: array
                       items:
@@ -2589,6 +2607,401 @@ paths:
         - cookieAuth: []
       x-required-scope: flows:read
       x-owner-session-required: false
+    post:
+      summary: Create execution target
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  kind:
+                    type: string
+                    enum:
+                      - exe-vm
+                      - amp
+                  name:
+                    type: string
+                  workspace:
+                    type: string
+                  cwd:
+                    type: string
+                  agentKind:
+                    type: string
+                  integrationId:
+                    type: string
+                  tags:
+                    type: array
+                    items:
+                      type: string
+                  models:
+                    type: array
+                    items:
+                      type: string
+                  modelsRefreshedAt:
+                    type:
+                      - string
+                      - "null"
+                  efforts:
+                    type: array
+                    items:
+                      type: string
+                  capabilities:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - id
+                  - kind
+                  - name
+                  - workspace
+                  - cwd
+                  - agentKind
+                  - capabilities
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: post_api_v1_execution_targets
+      tags:
+        - execution-targets
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                integrationKind:
+                  type: string
+                  enum:
+                    - exe
+                    - amp
+                integrationId:
+                  type: string
+                  minLength: 1
+                tags:
+                  default: []
+                  maxItems: 20
+                  type: array
+                  items:
+                    type: string
+                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                agentKind:
+                  type: string
+                  minLength: 1
+                  maxLength: 40
+              required:
+                - name
+                - integrationKind
+                - integrationId
+                - agentKind
+  /api/v1/execution-targets/{targetId}:
+    put:
+      summary: Update execution target
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  kind:
+                    type: string
+                    enum:
+                      - exe-vm
+                      - amp
+                  name:
+                    type: string
+                  workspace:
+                    type: string
+                  cwd:
+                    type: string
+                  agentKind:
+                    type: string
+                  integrationId:
+                    type: string
+                  tags:
+                    type: array
+                    items:
+                      type: string
+                  models:
+                    type: array
+                    items:
+                      type: string
+                  modelsRefreshedAt:
+                    type:
+                      - string
+                      - "null"
+                  efforts:
+                    type: array
+                    items:
+                      type: string
+                  capabilities:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - id
+                  - kind
+                  - name
+                  - workspace
+                  - cwd
+                  - agentKind
+                  - capabilities
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: put_api_v1_execution_targets_targetId
+      tags:
+        - execution-targets
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      parameters:
+        - name: targetId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                integrationKind:
+                  type: string
+                  enum:
+                    - exe
+                    - amp
+                integrationId:
+                  type: string
+                  minLength: 1
+                tags:
+                  default: []
+                  maxItems: 20
+                  type: array
+                  items:
+                    type: string
+                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                agentKind:
+                  type: string
+                  minLength: 1
+                  maxLength: 40
+              required:
+                - name
+                - integrationKind
+                - integrationId
+                - agentKind
+    delete:
+      summary: Delete execution target
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: delete_api_v1_execution_targets_targetId
+      tags:
+        - execution-targets
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      parameters:
+        - name: targetId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /api/v1/execution-targets/{targetId}/diagnostics:
+    post:
+      summary: Diagnose an execution target
+      responses:
+        "200":
+          description: Target-scoped credential-safe diagnostic result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  targetId:
+                    type: string
+                  integrationId:
+                    type: string
+                  agentKind:
+                    type: string
+                  tags:
+                    type: array
+                    items:
+                      type: string
+                  permissions:
+                    type: object
+                    properties:
+                      ok:
+                        type: boolean
+                      missing:
+                        type: array
+                        items:
+                          type: string
+                      tags:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - ok
+                      - missing
+                      - tags
+                    additionalProperties: false
+                  agent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          ok:
+                            type: boolean
+                          models:
+                            type: array
+                            items:
+                              type: string
+                          error:
+                            type: string
+                        required:
+                          - ok
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - ok
+                  - targetId
+                  - integrationId
+                  - agentKind
+                  - tags
+                  - permissions
+                  - agent
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: post_api_v1_execution_targets_targetId_diagnostics
+      tags:
+        - execution-targets
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      parameters:
+        - name: targetId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /api/v1/job-trigger-availability:
     get:
       summary: List available trigger kinds
@@ -4631,6 +5044,10 @@ paths:
                           type: string
                         enabled:
                           type: boolean
+                        projectId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                         model:
                           type: string
                         effort:
@@ -4670,6 +5087,7 @@ paths:
                         - name
                         - slug
                         - enabled
+                        - projectId
                         - model
                         - effort
                         - agentKind
@@ -4714,6 +5132,13 @@ paths:
       x-required-scope: flows:read
       x-owner-session-required: false
       parameters:
+        - name: projectId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
         - name: limit
           in: query
           required: false
@@ -4815,6 +5240,13 @@ paths:
       x-required-scope: flows:read
       x-owner-session-required: false
       parameters:
+        - name: projectId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
         - name: limit
           in: query
           required: false
@@ -4845,6 +5277,842 @@ paths:
             enum:
               - "true"
               - "false"
+  /api/v1/projects:
+    get:
+      summary: List projects
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    createdAt:
+                      type: string
+                    updatedAt:
+                      type: string
+                    jobCount:
+                      type: integer
+                      minimum: -9007199254740991
+                      maximum: 9007199254740991
+                  required:
+                    - id
+                    - name
+                    - createdAt
+                    - updatedAt
+                    - jobCount
+                  additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_projects
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:read
+      x-owner-session-required: false
+    post:
+      summary: Create project
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                  jobCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - name
+                  - createdAt
+                  - updatedAt
+                  - jobCount
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: post_api_v1_projects
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                description:
+                  type: string
+                  maxLength: 2000
+              required:
+                - name
+              additionalProperties: false
+  /api/v1/projects/{projectId}:
+    get:
+      summary: Get project
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                  jobCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - name
+                  - createdAt
+                  - updatedAt
+                  - jobCount
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_projects_projectId
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:read
+      x-owner-session-required: false
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+    put:
+      summary: Update project
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                  jobCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - id
+                  - name
+                  - createdAt
+                  - updatedAt
+                  - jobCount
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: put_api_v1_projects_projectId
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                description:
+                  type: string
+                  maxLength: 2000
+              required:
+                - name
+              additionalProperties: false
+    delete:
+      summary: Delete empty project
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: delete_api_v1_projects_projectId
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /api/v1/jobs/{jobId}/project:
+    post:
+      summary: Move a job to a project
+      responses:
+        "200":
+          description: Moved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  projectId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  name:
+                    type: string
+                  slug:
+                    type: string
+                  enabled:
+                    type: boolean
+                  promptTemplate:
+                    type: string
+                  runNameTemplate:
+                    type: string
+                  model:
+                    type: string
+                  effort:
+                    type: string
+                  executionTarget:
+                    type: object
+                    properties:
+                      connectionId:
+                        type: string
+                      workspace:
+                        type: string
+                      cwd:
+                        type: string
+                      agentKind:
+                        type: string
+                    required:
+                      - connectionId
+                      - agentKind
+                    additionalProperties: false
+                  executionTargetId:
+                    type: string
+                  agentKind:
+                    type: string
+                  concurrencyLimit:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  runningCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  currentRuns:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  maxConcurrency:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  lastRunState:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - queued
+                          - reserved
+                          - starting
+                          - running
+                          - blocked
+                          - stopping
+                          - succeeded
+                          - failed
+                          - stopped
+                          - done
+                          - ignored
+                      - type: "null"
+                  triggers:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: manual
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              default: {}
+                              type: object
+                              properties: {}
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: schedule
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                cron:
+                                  type: string
+                                  minLength: 1
+                                timezone:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - cron
+                                - timezone
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: webhook
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              oneOf:
+                                - type: object
+                                  properties:
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
+                                    provider:
+                                      type: string
+                                      const: linear
+                                    projectId:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - projectId
+                                    - matchRules
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
+                                    provider:
+                                      type: string
+                                      const: clickup
+                                    listId:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - listId
+                                    - matchRules
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
+                                    provider:
+                                      type: string
+                                      const: github
+                                    installationId:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    repositoryId:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    event:
+                                      type: string
+                                      minLength: 1
+                                    action:
+                                      type: string
+                                      minLength: 1
+                                    matchRules:
+                                      minItems: 1
+                                      type: array
+                                      items:
+                                        type: object
+                                        properties:
+                                          type:
+                                            type: string
+                                            enum:
+                                              - owner
+                                              - creator
+                                              - status
+                                              - label
+                                              - assignee
+                                          targetId:
+                                            type: string
+                                            minLength: 1
+                                        required:
+                                          - type
+                                          - targetId
+                                        additionalProperties: false
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - installationId
+                                    - repositoryId
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    conditions:
+                                      type: object
+                                      propertyNames:
+                                        type: string
+                                      additionalProperties: {}
+                                    provider:
+                                      type: string
+                                      const: cloudflareTail
+                                    integrationId:
+                                      type: string
+                                      minLength: 1
+                                    destination:
+                                      type: string
+                                    secretConfigured:
+                                      type: boolean
+                                  required:
+                                    - provider
+                                    - integrationId
+                                  additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: jobLifecycle
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                sourceJobIds:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                                states:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    enum:
+                                      - succeeded
+                                      - failed
+                                      - stopped
+                                      - edited
+                              required:
+                                - sourceJobIds
+                                - states
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - name
+                  - slug
+                  - enabled
+                  - promptTemplate
+                  - runNameTemplate
+                  - model
+                  - executionTarget
+                  - executionTargetId
+                  - agentKind
+                  - concurrencyLimit
+                  - runningCount
+                  - currentRuns
+                  - maxConcurrency
+                  - lastRunState
+                  - triggers
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the flows:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: post_api_v1_jobs_jobId_project
+      tags:
+        - jobs
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: flows:write
+      x-owner-session-required: false
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                projectId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                expectedUpdatedAt:
+                  type: string
+                  format: date-time
+                  pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+              required:
+                - projectId
   /api/v1/jobs:
     get:
       summary: List jobs
@@ -4859,6 +6127,10 @@ paths:
                   type: object
                   properties:
                     id:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    projectId:
                       type: string
                       format: uuid
                       pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
@@ -5320,6 +6592,10 @@ paths:
                 type: object
                 properties:
                   id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  projectId:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
@@ -6074,6 +7350,10 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  projectId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   name:
                     type: string
                   slug:
@@ -6548,6 +7828,10 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  projectId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   name:
                     type: string
                   slug:
@@ -7008,6 +8292,10 @@ paths:
             schema:
               type: object
               properties:
+                projectId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                 name:
                   type: string
                   minLength: 1
@@ -7393,6 +8681,12 @@ paths:
       x-required-scope: runs:read
       x-owner-session-required: false
       parameters:
+        - name: projectId
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
         - name: jobId
           in: query
           required: false

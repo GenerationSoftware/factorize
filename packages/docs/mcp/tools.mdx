@@ -12,8 +12,19 @@ Connect to `https://app.factorize.sh/mcp` using [client authorization](/mcp/over
 | `list_exe_connections` | flows:read | `{}` |
 | `list_github_installations` | flows:read | `{}` |
 | `list_execution_targets` | flows:read | `{}` |
+| `list_execution_target_resources` | flows:read | `{}`; returns non-secret target records for management |
+| `create_execution_target` | flows:write | Required `name`, `integrationKind`, `integrationId`, `agentKind`; optional `tags` |
+| `update_execution_target` | flows:write | Required `targetId`, `name`, `integrationKind`, `integrationId`, `agentKind`; optional `tags` |
+| `delete_execution_target` | flows:write | Required string `targetId`; rejects referenced or active targets |
+| `diagnose_execution_target` | flows:write | Required string `targetId`; probes the target's exact tags and agent |
 | `list_cloudflare_tail_integrations` | flows:read | `{}` |
 | `list_jobs` | flows:read | `{}` |
+| `list_projects` | flows:read | `{}` |
+| `get_project` | flows:read | Required string `projectId` |
+| `create_project` | flows:write | Required `name`; optional `description` |
+| `update_project` | flows:write | Required `projectId` and `name`; optional `description` |
+| `delete_project` | flows:write | Required string `projectId` |
+| `move_job` | flows:write | Required `jobId` and destination `projectId`; optional `expectedUpdatedAt` |
 | `get_job` | flows:read | Required string `jobId` |
 | `create_job` | flows:write | Required `name`, `slug`, `promptTemplate`, `executionTargetId`; job fields below |
 | `update_job` | flows:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` |
@@ -37,6 +48,7 @@ The inventory is validated against every registered implementation tool. All req
 ## Discovery inputs and outputs
 
 - `list_execution_targets({})` → `{"items":[{"id":"TARGET_ID","kind":"exe-vm","name":"Ephemeral exe.dev VMs","workspace":"ephemeral","cwd":"/home/exedev/workspace","agentKind":"codex","models":[],"efforts":["minimal","low","medium","high","xhigh"],"capabilities":["recovery","stop"]}]}`. Copy `id` into `executionTargetId`. Amp IDs have an `amp:` prefix and kind `amp`. Empty results require browser integration setup. Targets do not contain repository URLs.
+- Execution target management uses existing saved credentials without accepting or returning secrets: `create_execution_target` and `update_execution_target` take an integration reference plus display name, agent kind, and VM tags. `diagnose_execution_target` uses those exact target tags and agent, while `delete_execution_target` is rejected when a job or queued/active run still references it.
 - `list_exe_connections({})` → `{"items":[{"connectionId":"CONNECTION_ID","agentKind":"codex","tags":[]}]}` (selected fields). Use `connectionId` for integration diagnosis.
 - `list_github_installations({})` → `{"items":[{"installationId":12345,"accountLogin":"YOUR_ORG","state":"active"}]}` (selected fields). Use numeric `installationId` in GitHub triggers; choose repository IDs in the browser.
 - `list_cloudflare_tail_integrations({})` → `{"items":[{"integrationId":"INTEGRATION_ID","name":"Worker errors","referencedJobCount":0}]}` (selected fields). Use `integrationId` in Tail trigger configuration.
