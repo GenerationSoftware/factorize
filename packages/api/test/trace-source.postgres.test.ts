@@ -34,10 +34,11 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
   async function fixture(provider: "codex" | "claude" = "codex") {
     const tenantId = crypto.randomUUID(), jobId = crypto.randomUUID(), triggerId = crypto.randomUUID(), invocationId = crypto.randomUUID(), runId = crypto.randomUUID();
     await database.pool.query("INSERT INTO app.tenants(id) VALUES ($1)", [tenantId]);
-    await database.pool.query("INSERT INTO app.jobs(tenant_id,id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,'Trace test','trace-test','test','{}',1)", [tenantId, jobId]);
+    await database.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES ($1,md5(($1::uuid)::text || ':default')::uuid,'Default')", [tenantId]);
+    await database.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Trace test','trace-test','test','{}',1)", [tenantId, jobId]);
     await database.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES ($1,$2,$3,'manual','manual')", [tenantId, triggerId, jobId]);
     await database.pool.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context) VALUES ($1,$2,$3,'manual','test',$4,'{}')", [tenantId, invocationId, jobId, triggerId]);
-    await database.pool.query("INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,agent_name,state,trace_sources) VALUES ($1,$2,$3,$4,'manual','test','test','running',$5)", [tenantId, runId, jobId, invocationId, { primary: { kind: "execution_stream" } }]);
+    await database.pool.query("INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,agent_name,state,trace_sources,execution_target) VALUES ($1,$2,$3,$4,'manual','test','test','running',$5,$6)", [tenantId, runId, jobId, invocationId, { primary: { kind: "execution_stream" } }, { agentKind: provider, connectionId: "local" }]);
     const blobs = new Map<string, Uint8Array>();
     const env = { DATABASE: database, SESSION_SIGNING_SECRET: secret, RUN_ARTIFACTS: {
       put: async (key: string, stream: ReadableStream, options: any) => { const bytes = new Uint8Array(await new Response(stream).arrayBuffer()); expect(await hash(bytes)).toBe(options.sha256); blobs.set(key, bytes); return { httpEtag: "test" }; },
