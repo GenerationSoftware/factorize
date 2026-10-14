@@ -17,6 +17,10 @@ export class PostgresJobRepository implements JobRepository {
   }
 
   private trigger(row: TriggerRow): Trigger { return { id: row.id, jobId: row.jobId, kind: row.kind, slug: row.slug, enabled: row.enabled, config: row.config, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() }; }
+  private async defaultProjectId(db: any = this.database.orm): Promise<string> {
+    const result = await db.execute(sql`INSERT INTO app.projects(tenant_id,id,name,description) VALUES (${this.tenantId}::uuid,md5(${this.tenantId}::text || ':default')::uuid,'Default','Jobs created by legacy clients') ON CONFLICT (tenant_id,name) DO UPDATE SET updated_at=app.projects.updated_at RETURNING id`);
+    return result.rows[0].id as string;
+  }
   private async mapped(row: JobRow, db: any = this.database.orm, loadedTriggers?: TriggerRow[]): Promise<Job> {
     const triggerRows: TriggerRow[] = loadedTriggers ?? await db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
     return { id: row.id, projectId: row.projectId, name: row.name, slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionTarget: row.executionTarget, concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
@@ -42,7 +46,7 @@ export class PostgresJobRepository implements JobRepository {
 
   async create(job: Job): Promise<Job> {
     return this.database.orm.transaction(async tx => {
-      const [row] = await tx.insert(jobs).values({ tenantId: this.tenantId, id: job.id, projectId: job.projectId ?? crypto.randomUUID(), name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionTarget: job.executionTarget, model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, createdAt: new Date(job.createdAt), updatedAt: new Date(job.updatedAt) }).returning();
+      const [row] = await tx.insert(jobs).values({ tenantId: this.tenantId, id: job.id, projectId: job.projectId ?? await this.defaultProjectId(tx), name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionTarget: job.executionTarget, model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, createdAt: new Date(job.createdAt), updatedAt: new Date(job.updatedAt) }).returning();
       await this.reconcileTriggers(tx, job, []);
       return this.mapped(row!, tx);
     });
