@@ -69,14 +69,18 @@ jobs:
             const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, { ...context.repo, per_page: 100 });
             for (const artifact of artifacts) {
               if (artifact.name !== 'factorize-app-assets' || artifact.expired || !artifact.workflow_run) continue;
-              const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: artifact.workflow_run.id });
-              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { ...context.repo, run_id: run.id, per_page: 100 });
-              if (!isTrustedAppRelease(artifact, run, jobs, `${context.repo.owner}/${context.repo.repo}`)) continue;
-              const { data } = await github.rest.actions.downloadArtifact({ ...context.repo, artifact_id: artifact.id, archive_format: 'zip' });
-              const archive = `${process.env.RUNNER_TEMP}/factorize-assets-${artifact.id}.zip`;
-              fs.writeFileSync(archive, Buffer.from(data));
-              execFileSync('python3', ['scripts/retain-app-assets.py', archive, 'packages/app/dist'], { stdio: 'inherit' });
-              fs.unlinkSync(archive);
+              try {
+                const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: artifact.workflow_run.id });
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { ...context.repo, run_id: run.id, per_page: 100 });
+                if (!isTrustedAppRelease(artifact, run, jobs, `${context.repo.owner}/${context.repo.repo}`)) continue;
+                const { data } = await github.rest.actions.downloadArtifact({ ...context.repo, artifact_id: artifact.id, archive_format: 'zip' });
+                const archive = `${process.env.RUNNER_TEMP}/factorize-assets-${artifact.id}.zip`;
+                fs.writeFileSync(archive, Buffer.from(data));
+                execFileSync('python3', ['scripts/retain-app-assets.py', archive, 'packages/app/dist'], { stdio: 'inherit' });
+                fs.unlinkSync(archive);
+              } catch (error) {
+                core.warning(`Skipping unavailable production asset artifact ${artifact.id}: ${error.message}`);
+              }
             }
       - name: Apply database migrations
         run: npm run db:migrate --workspace=factorize
