@@ -9044,6 +9044,10 @@ paths:
                     type: string
                   job_id:
                     type: string
+                  project_id:
+                    type: string
+                  project_name:
+                    type: string
                   state:
                     type: string
                     enum:

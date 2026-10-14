@@ -47,11 +47,12 @@ export class RunQueryRepository {
       FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id WHERE r.tenant_id=$1 AND r.id=$2`, [this.tenantId, runId])).rows[0] ?? null;
   }
   async status(runId: string) {
-    const row = (await this.database.pool.query(`SELECT r.id,r.job_id,jr.state,r.run_name,j.name job_name,r.destination_url,
+    const row = (await this.database.pool.query(`SELECT r.id,r.job_id,j.project_id,pr.name project_name,jr.state,r.run_name,j.name job_name,r.destination_url,
       r.created_at,greatest(r.updated_at,jr.updated_at) updated_at,jr.started_at,r.artifact_state,
       (jr.state IN ('succeeded','failed','stopped') AND (r.artifact_state IN ('pending','collecting') OR NOT r.vm_cleanup_complete)) finalizing,
       ${traceRevisionSql} trace_revision
       FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id
+      JOIN app.projects pr ON pr.tenant_id=j.tenant_id AND pr.id=j.project_id
       JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id
       LEFT JOIN app.run_trace_cursors c ON c.tenant_id=r.tenant_id AND c.run_id=r.id
       LEFT JOIN app.run_trace_projections p ON p.tenant_id=r.tenant_id AND p.run_id=r.id
