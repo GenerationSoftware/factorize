@@ -1,6 +1,6 @@
 import { Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Card, Page } from "../../shared/ui";
+import { Button, Page, PageHeader } from "../../shared/ui";
 import { projectQuery } from "./queries";
-import { jobsQuery } from "../jobs/queries";
-export function ProjectDetail() { const { projectId } = useParams({ from: "/projects/$projectId" }); const project=useQuery(projectQuery(projectId)); const jobs=useQuery(jobsQuery({q:"",projectId})); return <Page className="max-w-6xl"><Link to="/projects" className="text-sm font-semibold">Projects</Link>{project.data&&<><div className="mb-6 mt-3 flex items-center justify-between gap-4"><div><h1>{project.data.name}</h1><p className="text-sm text-slate-600 dark:text-slate-400">{project.data.description}</p></div><Link to="/jobs/new" search={{ projectId }}><Button>Create job</Button></Link></div><Card>{jobs.isPending&&<p role="status">Loading jobs…</p>}{jobs.error&&<p role="alert">{jobs.error.message}</p>}{jobs.data?.items.map(job=><div key={job.id} className="border-b border-stone-200 py-3 last:border-0 dark:border-slate-800"><Link to="/jobs/$jobId" params={{jobId:job.id}} className="font-semibold">{job.name}</Link><span className="ml-3 text-sm text-slate-500">{job.enabled?"Enabled":"Disabled"}</span></div>)}{jobs.data?.items.length===0&&<p>No jobs in this project yet.</p>}</Card></>}</Page>; }
+import { JobsTable } from "../jobs/list";
+export function ProjectDetail() { const { projectId } = useParams({ from: "/projects/$projectId" }); const project=useQuery(projectQuery(projectId)); return <Page className="max-w-6xl"><Link to="/projects" className="text-sm font-semibold">Projects</Link>{project.data&&<><PageHeader title={project.data.name} description={project.data.description}><Link to="/jobs/new" search={{ projectId }}><Button>Create job</Button></Link></PageHeader><JobsTable projectId={projectId} /></>}</Page>; }
