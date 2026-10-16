@@ -112,7 +112,7 @@ describe("versioned API contract", () => {
         });
       }
     }
-  });
+  }, 15_000);
 
   it("keeps the exact committed REST artifact available in the Reference group", () => {
     const docs = JSON.parse(

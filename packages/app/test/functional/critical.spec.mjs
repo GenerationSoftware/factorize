@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { mockApi, screens, jobId } from "../visual/fixtures.mjs";
+import { mockApi, screens, jobId, projectId } from "../visual/fixtures.mjs";
 
 let server;
 let origin;
@@ -64,8 +64,8 @@ test("loading, search, error and no-result states are actionable", async ({ page
   let pending;
   let mode = "pending";
   await page.route("**/api/v1/job-summaries?**", route => mode === "pending" ? (pending = route) : route.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } }));
-  await page.goto(origin + "/jobs");
-  await expect(page.getByRole("status").filter({ hasText: "Loading…" })).toBeVisible();
+  await page.goto(origin + "/projects/" + projectId);
+  await expect(page.getByRole("status").filter({ hasText: "Loading jobs…" })).toBeVisible();
   mode = "error";
   await pending.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } });
   await expect(page.getByRole("alert")).toHaveText("This workspace is unavailable.");

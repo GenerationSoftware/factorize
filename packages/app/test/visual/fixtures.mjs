@@ -1,8 +1,9 @@
 export const jobId = "00000000-0000-4000-8000-000000000001";
+export const projectId = "00000000-0000-4000-8000-000000000010";
 export const runId = "00000000-0000-4000-8000-000000000002";
 export const time = "2026-10-09T12:00:00.000Z";
 export const job = {
-  id: jobId, name: "Review release builds", slug: "review-builds", enabled: true,
+  id: jobId, projectId, name: "Review release builds", slug: "review-builds", enabled: true,
   promptTemplate: "Review {{trigger-1.prompt}}.\nCheck the release notes and report any regressions.",
   runNameTemplate: "Release review", executionTargetId: "vm",
   executionTarget: { connectionId: "vm", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex" },
@@ -26,6 +27,7 @@ export const events = [
   { id: "four", sequence: 4, type: "assistant_message", title: "Assistant", preview: "### Release ready\n\nThe interfaces remain compatible.\n\n- Contract checks passed\n- No regressions found\n\n```typescript\nconst release = { ready: true };\n```", display: {} },
 ];
 export const integrations = { linear: { organizationName: "Release workspace" }, clickup: null, github: { installations: [] }, exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] } };
+export const project = { id: projectId, name: "Release projects", description: "Projects for release automation.", jobCount: 2 };
 export const targets = [{ id: "vm", kind: "exe-vm", name: "Release VM", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex", models: ["gpt-6"], efforts: ["high"], capabilities: ["stop"] }];
 export async function mockApi(page, { legacy = false, authenticated = true, empty = false, state = "succeeded", long = false } = {}) {
   const configuredJob = { ...job, ...(long ? { name: "Long release review " + "abcdefghij".repeat(14), promptTemplate: "A long prompt " + "word ".repeat(500) } : {}) };
@@ -33,6 +35,8 @@ export async function mockApi(page, { legacy = false, authenticated = true, empt
     const url = new URL(route.request().url()), path = url.pathname;
     let json;
     if (path === "/api/v1/session") json = authenticated ? { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Release" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } : { authenticated: false };
+    else if (path === "/api/v1/projects") json = [project];
+    else if (path === "/api/v1/projects/" + projectId) json = project;
     else if (path === "/api/v1/job-summaries") json = { items: empty ? [] : [configuredJob, { ...configuredJob, id: "disabled", name: "Archive release artifacts", enabled: false, runningCount: 0, lastRunState: "failed" }], nextCursor: null };
     else if (path === "/api/v1/jobs") json = empty ? [] : [configuredJob, { ...configuredJob, id: "disabled", name: "Archive release artifacts", enabled: false, runningCount: 0, lastRunState: "failed" }];
     else if (path === "/api/v1/jobs/" + jobId) json = configuredJob;
