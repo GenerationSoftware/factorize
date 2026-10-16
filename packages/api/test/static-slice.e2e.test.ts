@@ -9,7 +9,7 @@ vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 const url = process.env.AUTH_TEST_DATABASE_URL;
 describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
-  it("authenticates, navigates jobs, invokes once, refreshes the run and resets a projected trace", async () => {
+  it("authenticates, navigates a project's jobs, invokes once, refreshes the run and resets a projected trace", async () => {
     const f = await loadingFixture(url!), browser = await chromium.launch({ headless: true });
     const failures: string[] = [], calls: string[] = [];
     try {
@@ -62,7 +62,7 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
         await page.getByRole("img", { name: "Status: Running", exact: true }).waitFor();
         await page.getByRole("img", { name: "Status: Succeeded", exact: true }).waitFor();
       }
-      await page.goto("https://factorize.test/jobs");
+      await page.goto(`https://factorize.test/projects/${f.projectId}`);
       await page.locator("header img").waitFor();
       expect(await page.locator("header img").evaluate(async (image: any) => { await image.decode(); return image.complete && image.naturalWidth > 0; })).toBe(true);
       expect(await page.locator("html").getAttribute("data-theme")).toBe("light");

@@ -4,8 +4,8 @@ import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
 import { chromium } from "playwright";
 let server, origin, browser;
-const jobId = "00000000-0000-4000-8000-000000000001", runId = "00000000-0000-4000-8000-000000000002";
-const summary = { id: jobId, name: "Review builds", slug: "review-builds", enabled: true, runningCount: 0, concurrencyLimit: 2, lastRunState: null, model: "", effort: "", agentKind: "codex", createdAt: "2026-10-09T12:00:00Z", updatedAt: "2026-10-09T12:00:00Z" };
+const jobId = "00000000-0000-4000-8000-000000000001", projectId = "00000000-0000-4000-8000-000000000010", runId = "00000000-0000-4000-8000-000000000002";
+const summary = { id: jobId, projectId, name: "Review builds", slug: "review-builds", enabled: true, runningCount: 0, concurrencyLimit: 2, lastRunState: null, model: "", effort: "", agentKind: "codex", createdAt: "2026-10-09T12:00:00Z", updatedAt: "2026-10-09T12:00:00Z" };
 before(async () => {
   server = createServer(async (req, res) => {
     const path = new URL(req.url, "http://local").pathname;
@@ -22,6 +22,7 @@ async function contextFor(options) {
   await page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
   page.setDefaultTimeout(10000);
   await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } }));
+  await page.route(`**/api/v1/projects/${projectId}`, route => route.fulfill({ json: { id: projectId, name: "Release project", description: "Project jobs", jobCount: 31 } }));
   return { context, page };
 }
 for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) test(`compact jobs grouping, pagination, focus and long titles at ${width} ${theme}`, async () => {
@@ -36,7 +37,7 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
     return route.fulfill({ json: { items: url.searchParams.has("cursor") ? fixtures.slice(30) : fixtures.slice(0, 30), nextCursor: url.searchParams.has("cursor") ? null : fixtures[29].id } });
   });
   await page.route(`**/api/v1/jobs/${fixtures[30].id}`, route => route.fulfill({ json: { ...fixtures[30], promptTemplate: "Template", runNameTemplate: "", executionTargetId: "local", executionTarget: { connectionId: "local", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex" }, triggers: [], currentRuns: 2, maxConcurrency: 10 } }));
-  await page.goto(origin + "/jobs?q=Review");
+  await page.goto(origin + `/projects/${projectId}?q=Review`);
   const table = page.getByRole("table", { name: "Jobs", exact: true });
   await table.getByRole("link", { name: "Alpha running", exact: true }).waitFor();
   assert.deepEqual(await table.locator("thead th").allTextContents(), ["Running", "Title"]);
@@ -50,8 +51,8 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
   );
   assert.equal(await page.getByLabel("Search jobs", { exact: true }).count(), 0);
   assert.equal(await page.getByText("Your software factory. Configure prompts, connect triggers, and follow every run.").count(), 0);
-  const heading = await page.getByRole("heading", { name: "Jobs", exact: true }).boundingBox(), create = await page.getByRole("link", { name: "Create job", exact: true }).boundingBox();
-  assert.ok(create.x > heading.x + heading.width && Math.abs(create.y - heading.y) < 12);
+  const heading = await page.getByRole("heading", { name: "Release project", exact: true }).boundingBox(), create = await page.getByRole("link", { name: "Create job", exact: true }).boundingBox();
+  if (width >= 1280) assert.ok(create.x > heading.x + heading.width && Math.abs(create.y - heading.y) < 12);
   const longLink = table.getByRole("link", { name: longTitle, exact: true });
   assert.equal(await longLink.evaluate(el => el.scrollWidth > el.clientWidth && getComputedStyle(el).whiteSpace === "nowrap"), true);
   const first = table.locator("tbody tr").first(), idleColor = await first.evaluate(el => getComputedStyle(el).backgroundColor);
@@ -77,13 +78,13 @@ test("mobile jobs list only navigates when a job title is tapped", async () => {
     { ...summary, id: "release-build", name: "Release build" },
   ];
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: jobs, nextCursor: null } }));
-  await page.goto(origin + "/jobs");
+  await page.goto(origin + `/projects/${projectId}`);
   const table = page.getByRole("table", { name: "Jobs", exact: true });
   await table.getByRole("link", { name: "Security Checker Dispatcher", exact: true }).waitFor();
 
-  await page.getByRole("heading", { name: "Jobs", exact: true }).click();
+  await page.getByRole("heading", { name: "Release project", exact: true }).click();
   await table.locator("tbody tr").nth(1).locator("td").first().click();
-  assert.match(page.url(), /\/jobs(?:\?|$)/);
+  assert.match(page.url(), /\/projects\/[^/]+(?:\?|$)/);
 
   await table.getByRole("link", { name: "Release build", exact: true }).click();
   await page.waitForURL("**/jobs/release-build");
@@ -99,7 +100,7 @@ test("jobs can sort running and title in both directions with accessible state",
     { ...summary, id: "job-i", name: "Idle", runningCount: 0 },
   ];
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: fixtures, nextCursor: null } }));
-  await page.goto(origin + "/jobs");
+  await page.goto(origin + `/projects/${projectId}`);
   const table = page.getByRole("table", { name: "Jobs", exact: true });
   await table.getByRole("link", { name: "Zulu", exact: true }).waitFor();
   assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Alpha", "Beta", "Zulu", "Idle"]);

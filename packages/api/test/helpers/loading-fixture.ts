@@ -10,7 +10,7 @@ import type { Env, OAuthProps } from "../../src/types";
 export async function loadingFixture(url: string) {
   let admin!: Database, db!: Database, env!: Env, auth!: OAuthProps, cookie!: string;
   const name = `loading_test_${crypto.randomUUID().replaceAll("-", "")}`;
-  const tenantId = crypto.randomUUID(), userId = crypto.randomUUID(), otherTenant = crypto.randomUUID();
+  const tenantId = crypto.randomUUID(), userId = crypto.randomUUID(), otherTenant = crypto.randomUUID(), projectId = crypto.randomUUID();
   const jobIds = Array.from({ length: 10 }, () => crypto.randomUUID());
   const runId = crypto.randomUUID();
   async function setup() {
@@ -28,13 +28,13 @@ export async function loadingFixture(url: string) {
     } } as unknown as Fetcher, DATABASE: db, APP_ORIGIN: "https://factorize.test", SESSION_SIGNING_SECRET: "local-test-signing", OAUTH_PROVIDER: { listUserGrants: async () => ({ items: [] }) } as any, CREDENTIAL_ENCRYPTION_KEY: btoa("a".repeat(32)) } as Env;
     await new IdentityRepository(db, tenantId).upsertOwner(userId, "owner@example.test");
     await db.pool.query("INSERT INTO app.tenants(id) VALUES ($1)", [otherTenant]);
-    await db.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES ($1,md5(($1::uuid)::text || ':default')::uuid,'Default'),($2,md5(($2::uuid)::text || ':default')::uuid,'Default')", [tenantId, otherTenant]);
+    await db.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES ($1,$2,'Default'),($1,md5(($1::uuid)::text || ':legacy')::uuid,'Legacy'),($3,md5(($3::uuid)::text || ':default')::uuid,'Default')", [tenantId, projectId, otherTenant]);
     auth = { tenantId, userId, sessionVersion: 0, scopes: ["flows:read", "flows:write", "runs:read", "runs:write"], authMethod: "session" };
     const member = await new IdentityRepository(db, tenantId).member(userId); auth.sessionVersion = member!.sessionVersion;
     cookie = `factorize_session=${await signSession({ ...auth, email: "owner@example.test", exp: Math.floor(Date.now()/1000)+3600 }, env.SESSION_SIGNING_SECRET)}`;
     const prompt = await encrypt("Prompt", env.CREDENTIAL_ENCRYPTION_KEY);
     for (const [i, id] of jobIds.entries()) {
-      await db.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1, $2, md5(($1::uuid)::text || ':default')::uuid, $3, $3, $4, $5, 2)", [tenantId, id, `Job-${i}`, prompt, { agentKind: "codex", connectionId: "local" }]);
+      await db.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1, $2, $3, $4, $4, $5, $6, 2)", [tenantId, id, projectId, `Job-${i}`, prompt, { agentKind: "codex", connectionId: "local" }]);
       for (const [position, kind] of ["manual", "schedule"].entries()) await db.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug,position,config) VALUES ($1,$2,$3,$4,$4,$5,$6)", [tenantId, crypto.randomUUID(), id, kind, position, kind === "schedule" ? { cron: "0 * * * *", timezone: "UTC" } : {}]);
     }
     // Same job ID in another tenant must never contribute triggers or statistics.
@@ -55,5 +55,5 @@ export async function loadingFixture(url: string) {
   const request = (path: string, value = cookie) => worker.fetch(new Request(`https://factorize.test${path}`, { headers: { Cookie: value } }), env, { waitUntil() {} } as any);
 
   try { await setup(); } catch (error) { await cleanup(); throw error; }
-  return { db, env, auth, cookie, jobIds, runId, tenantId, userId, otherTenant, request, cleanup };
+  return { db, env, auth, cookie, jobIds, runId, tenantId, userId, otherTenant, projectId, request, cleanup };
 }

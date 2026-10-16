@@ -53,7 +53,7 @@ test("template insertion escapes values and navigation protects unsaved work", a
   const { context, page } = await setup(); await page.route(`**/api/v1/jobs/${id}`, route => route.fulfill({ json: initial }));
   await page.goto(origin + `/jobs/${id}/edit`); await page.getByText("Insert a prompt template variable", { exact: true }).click(); await page.getByLabel("Prompt template", { exact: true }).focus(); await page.getByLabel("Prompt template", { exact: true }).press("End"); await page.getByRole("button", { name: "trigger-1.prompt", exact: true }).click();
   assert.equal(await page.getByLabel("Prompt template", { exact: true }).inputValue(), "Original prompt{{trigger-1.prompt}}");
-  page.once("dialog", dialog => dialog.dismiss()); await page.locator("main").getByRole("link", { name: "Jobs", exact: true }).click(); assert.ok(page.url().includes("/settings")); await context.close();
+  page.once("dialog", dialog => dialog.dismiss()); await page.locator("main").getByRole("link", { name: "Projects", exact: true }).click(); assert.ok(page.url().includes("/settings")); await context.close();
 });
 test("provider editor fetches only the selected provider and submits project/matching/conditions configuration explicitly", async () => {
   const { context, page } = await setup(); const reads = [], writes = []; let current = structuredClone(initial);

@@ -42,7 +42,7 @@ export function RunDetail() {
   }, onSuccess: () => cache.invalidateQueries({ queryKey: ["runs", runId] }) });
   return <Page className="max-w-6xl">
     {status.isPending && <p role="status">Loading run…</p>}{status.error && <p role="alert">{status.error.message}</p>}
-    <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2">{status.data?.project_id && status.data.project_name ? <Link to="/projects/$projectId" params={{ projectId: status.data.project_id }}>{status.data.project_name}</Link> : <Link to="/jobs" search={{ q: "" }}>Jobs</Link>}{status.data && <><span aria-hidden="true">→</span><Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: status.data.job_id }}>{status.data.job_name}</Link></>}</nav>
+    <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2">{status.data?.project_id && status.data.project_name ? <Link to="/projects/$projectId" params={{ projectId: status.data.project_id }}>{status.data.project_name}</Link> : <Link to="/projects">Projects</Link>}{status.data && <><span aria-hidden="true">→</span><Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: status.data.job_id }}>{status.data.job_name}</Link></>}</nav>
     {status.data && <>
       <div className="mt-5 flex min-w-0 flex-wrap items-start gap-3">
         <h1 className="min-w-0 flex-1 break-words text-3xl font-semibold">{status.data.run_name || "Run"}</h1>
