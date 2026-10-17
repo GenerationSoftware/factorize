@@ -1,11 +1,11 @@
 import { Button, Input, Select, Label, Card } from "../../shared/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { integrationsQuery } from "./queries";
 import { messageOf } from "../auth/session";
 export function IntegrationForm({ kind, connectionId, initialName = "", initialAgent = "codex", initialTags = [], initialApiBaseUrl }: { kind: "exe" | "amp" | "cloudflareTail"; connectionId?: string; initialName?: string; initialAgent?: "codex" | "claude" | "pi"; initialTags?: string[]; initialApiBaseUrl?: string }) {
-  const cache = useQueryClient(), [credential, setCredential] = useState(""), [name, setName] = useState(initialName), [agentKind, setAgentKind] = useState<"codex" | "claude" | "pi">(initialAgent), [tags, setTags] = useState<string[]>(initialTags), [generatedSecret, setGeneratedSecret] = useState("");
+  const cache = useQueryClient(), [credential, setCredential] = useState(""), [name, setName] = useState(initialName), [agentKind, setAgentKind] = useState<"codex" | "claude" | "pi">(initialAgent), [tags, setTags] = useState<string[]>(initialTags), [generatedSecret, setGeneratedSecret] = useState(""), initialized = useRef(false);
   const test = useMutation({ retry: false, mutationFn: async () => {
     if (kind === "exe") { const { data, error } = await api.POST("/api/v1/integrations/exe/test", { body: { apiToken: credential || undefined, connectionId } }); if (!data || error) throw new Error(messageOf(error)); return data; }
     if (kind === "amp") { const { data, error } = await api.POST("/api/v1/integrations/amp/test", { body: { accessToken: credential || undefined, project: name || undefined, apiBaseUrl: initialApiBaseUrl, connectionId } }); if (!data || error) throw new Error(messageOf(error)); return { ...data, tags: [] }; }
@@ -18,6 +18,15 @@ export function IntegrationForm({ kind, connectionId, initialName = "", initialA
     const { data, error } = connectionId ? await api.PUT("/api/v1/integrations/cloudflare-tail/{integrationId}", { params: { path: { integrationId: connectionId } }, body }) : await api.POST("/api/v1/integrations/cloudflare-tail", { body });
     if (!data || error) throw new Error(messageOf(error)); setGeneratedSecret(data.generatedSecret ?? ""); return { saved: true };
   }, onSuccess: async () => { setCredential(""); test.reset(); await cache.invalidateQueries({ queryKey: integrationsQuery.queryKey }); await cache.invalidateQueries({ queryKey: ["providers"] }); await cache.invalidateQueries({ queryKey: ["editor"] }); } });
+  const saveRef = useRef(save.mutate);
+  saveRef.current = save.mutate;
+  useEffect(() => {
+    if (!initialized.current) { initialized.current = true; return; }
+    const canSave = kind === "exe" ? Boolean(credential && test.data?.ok) : kind === "amp" ? Boolean((credential || connectionId) && name.trim()) : Boolean(name.trim());
+    if (!canSave || save.isPending) return;
+    const timer = window.setTimeout(() => saveRef.current(), 350);
+    return () => window.clearTimeout(timer);
+  }, [agentKind, connectionId, credential, kind, name, tags, test.data?.ok]);
   return <form className="my-4 grid gap-3" onSubmit={e => { e.preventDefault(); save.mutate(); }}>
     {kind !== "exe" && <Label>{kind === "amp" ? "Amp project" : "Tail name"} <Input required value={name} onChange={e => setName(e.target.value)} /></Label>}
     <Label>{kind === "exe" ? "exe.dev account token" : kind === "amp" ? "Amp access token" : "Tail signing secret (leave blank to generate or retain)"} <Input type="password" autoComplete="new-password" required={kind !== "cloudflareTail"} value={credential} onChange={e => { setCredential(e.target.value); test.reset(); }} /></Label>
@@ -25,7 +34,7 @@ export function IntegrationForm({ kind, connectionId, initialName = "", initialA
     {kind !== "cloudflareTail" && <Button type="button" disabled={test.isPending || save.isPending} onClick={() => test.mutate()}>Test credentials</Button>}
     {test.data && <p role="status">{test.data.ok ? "Credentials verified" : "Credential test failed"}</p>}
     <Button variant="primary" disabled={save.isPending || test.isPending}>{save.isPending ? "Saving…" : "Save integration"}</Button>
-    {save.isSuccess && <p role="status">Integration saved</p>}{[test.error, save.error].filter(Boolean).map((error, index) => <p key={index} role="alert">{error?.message}</p>)}
+    {save.isSuccess && <p role="status" aria-live="polite">Integration saved</p>}{[test.error, save.error].filter(Boolean).map((error, index) => <p key={index} role="alert">{error?.message}</p>)}
     {generatedSecret && <Card role="status"><p>Copy this signing secret now; it is displayed only once.</p><pre className="whitespace-pre-wrap break-all">{generatedSecret}</pre><Button type="button" onClick={() => setGeneratedSecret("")}>Dismiss secret</Button></Card>}
   </form>;
 }
