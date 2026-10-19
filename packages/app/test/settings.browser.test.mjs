@@ -17,6 +17,14 @@ test("integration setup tests credentials, submits typed fields and avoids persi
   const form = page.locator("details").filter({ has: page.getByText("Add exe.dev integration", { exact: true }) });
   const saveRequestPromise = page.waitForRequest(request => request.url().endsWith("/api/v1/integrations/exe") && request.method() === "PUT"); const saveResponsePromise = page.waitForResponse(response => response.url().endsWith("/api/v1/integrations/exe") && response.request().method() === "PUT"); await form.getByLabel("exe.dev account token").fill("private-input"); await form.getByRole("button", { name: "Test credentials" }).click(); await form.getByText("Credentials verified", { exact: true }).waitFor(); const saveRequest = await saveRequestPromise; await saveResponsePromise; body = saveRequest.postDataJSON(); assert.equal(body.apiToken, "private-input"); assert.equal(body.connectionId, undefined); assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes("private-input")), false); await context.close();
 });
+test("integration settings tolerates legacy exe connections without tags", async () => {
+  const { context, page } = await setup();
+  await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [{ connectionId: "legacy", credentialStatus: "connected" }], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
+  await page.goto(origin + "/settings/integrations");
+  await page.getByText("Account tags available", { exact: true }).waitFor();
+  await context.close();
+});
 test("API keys show a secret once, support explicit revocation and survive deep-link refresh", async () => {
   const { context, page } = await setup(); let revoked = false, created = false; const time = "2026-10-09T12:00:00Z";
   await page.route("**/api/v1/access-tokens", route => { if (route.request().method() === "POST") { created = true; return route.fulfill({ status: 201, json: { id: "key", name: "CLI", scopes: ["flows:read", "runs:read"], created_at: time, expires_at: time, token: "one-time-secret" } }); } return route.fulfill({ json: created ? [{ id: "key", name: "CLI", scopes: ["flows:read"], created_at: time, expires_at: time, last_used_at: null, revoked_at: revoked ? time : null }] : [] }); });
