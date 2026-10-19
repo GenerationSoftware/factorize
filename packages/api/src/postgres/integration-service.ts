@@ -8,6 +8,8 @@ import { ConnectionRepository } from "./connection-repository";
 
 const timestamp = () => new Date().toISOString();
 const tailSecret = () => `fztail_${Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, "0")).join("")}`;
+const text = (value: unknown) => typeof value === "string" ? value : undefined;
+const tags = (value: unknown) => Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === "string") : [];
 
 export class IntegrationService {
   readonly connections: ConnectionRepository;
@@ -76,8 +78,8 @@ export class IntegrationService {
     ]);
     const byId = new Map(counts.rows.map(row => [row.integration_id, Number(row.count)]));
     return [...connections].filter(([kind]) => kind.startsWith("cloudflare-tail:")).map(([kind, value]) => {
-      const { signingSecret: _, ...safe } = value, integrationId = kind.slice(16);
-      return { ...safe, integrationId, status: "connected", secretConfigured: true, referencedJobCount: byId.get(integrationId) ?? 0 };
+      const integrationId = kind.slice(16);
+      return { integrationId, name: text(value?.name) ?? "Unnamed Tail integration", status: "connected" as const, secretConfigured: true as const, ...(text(value?.createdAt) ? { createdAt: text(value.createdAt) } : {}), ...(text(value?.updatedAt) ? { updatedAt: text(value.updatedAt) } : {}), referencedJobCount: byId.get(integrationId) ?? 0 };
     });
   }
   async testTail(id: string) { const value = await this.connections.get<any>(`cloudflare-tail:${id}`); if (!value) return null; const now = String(Date.now()), delivery = `test-${crypto.randomUUID()}`, body = "{}", signature = await signTailDelivery(value.signingSecret, now, delivery, body); return { ok: await verifyTailDelivery(value.signingSecret, now, delivery, body, signature) === "valid" }; }
@@ -85,8 +87,8 @@ export class IntegrationService {
     const connectionsPromise = this.connections.all(["linear", "clickup", "exe:", "amp:", "cloudflare-tail:"]);
     const [connections, tails] = await Promise.all([connectionsPromise, this.tails(connectionsPromise)]);
     const linear = connections.get("linear"), clickup = connections.get("clickup");
-    const exeConnections = [...connections].filter(([kind]) => kind.startsWith("exe:")).map(([kind, value]) => { const { apiToken: _, ...safe } = value; return { ...safe, connectionId: kind.slice(4) }; });
-    const ampConnections = [...connections].filter(([kind]) => kind.startsWith("amp:")).map(([kind, value]) => { const { accessToken: _, ...safe } = value; return { ...safe, connectionId: kind.slice(4) }; });
-    return { linear: linear ? { organizationName: linear.organizationName ?? null, viewerEmail: linear.viewerEmail ?? null } : null, clickup: clickup ? { teamName: clickup.teamName ?? null } : null, exe: exeConnections[0] ?? null, exeConnections, ampConnections, cloudflareTail: { count: tails.length, installations: tails } };
+    const exeConnections = [...connections].filter(([kind]) => kind.startsWith("exe:")).map(([kind, value]) => ({ connectionId: kind.slice(4), credentialStatus: "connected" as const, accountTags: tags(value?.accountTags) }));
+    const ampConnections = [...connections].filter(([kind]) => kind.startsWith("amp:")).map(([kind, value]) => ({ connectionId: kind.slice(4), project: text(value?.project) ?? "Unnamed Amp project", ...(text(value?.apiBaseUrl) ? { apiBaseUrl: text(value.apiBaseUrl) } : {}) }));
+    return { linear: linear ? { organizationName: text(linear.organizationName) ?? null, viewerEmail: text(linear.viewerEmail) ?? null } : null, clickup: clickup ? { teamName: text(clickup.teamName) ?? null } : null, exe: exeConnections[0] ?? null, exeConnections, ampConnections, cloudflareTail: { count: tails.length, installations: tails } };
   }
 }
