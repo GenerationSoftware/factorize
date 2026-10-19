@@ -121,6 +121,23 @@ test("password route redirects an unauthenticated viewer to login with a local r
   await context.close();
 });
 
+test("authenticated password route shows settings navigation with the active password link", async () => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  await page.route("**/api/v1/session", route => route.fulfill({ json: {
+    authenticated: true, user: { id: "owner-a", email: "owner@example.test" },
+    workspace: { id: "workspace-a", name: "Workspace", role: "owner" }, capabilities: [],
+  } }));
+  await page.goto(origin + "/settings/password");
+  const settings = page.getByRole("navigation", { name: "Settings" });
+  await settings.getByRole("link", { name: "Integrations", exact: true }).waitFor();
+  const password = settings.getByRole("link", { name: "Change password", exact: true });
+  await password.waitFor();
+  assert.equal(await password.getAttribute("aria-current"), "page");
+  assert.match(await password.getAttribute("class"), /bg-factorize-50/);
+  await context.close();
+});
+
 test("logout refreshes session identity and removes the account display", async () => {
   const context = await browser.newContext();
   const page = await context.newPage();
