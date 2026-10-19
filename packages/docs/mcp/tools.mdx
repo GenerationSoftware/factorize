@@ -7,41 +7,43 @@ Connect to `https://app.factorize.sh/mcp` using [client authorization](/mcp/over
 
 ## Inventory
 
+The required scope inventory below is authoritative. Legacy `flows:*` and `runs:write` grants are accepted only during migration and are mapped to the nine scopes at authentication.
+
 | Tool | Required scope | Input contract |
 | --- | --- | --- |
-| `list_exe_connections` | flows:read | `{}` |
-| `list_github_installations` | flows:read | `{}` |
-| `list_execution_targets` | flows:read | `{}` |
-| `list_execution_target_resources` | flows:read | `{}`; returns non-secret target records for management |
-| `create_execution_target` | flows:write | Required `name`, `integrationKind`, `integrationId`, `agentKind`; optional `tags` |
-| `update_execution_target` | flows:write | Required `targetId`, `name`, `integrationKind`, `integrationId`, `agentKind`; optional `tags` |
-| `delete_execution_target` | flows:write | Required string `targetId`; rejects referenced or active targets |
-| `diagnose_execution_target` | flows:write | Required string `targetId`; probes the target's exact tags and agent |
-| `list_cloudflare_tail_integrations` | flows:read | `{}` |
-| `list_jobs` | flows:read | `{}` |
-| `list_projects` | flows:read | `{}` |
-| `get_project` | flows:read | Required string `projectId` |
-| `create_project` | flows:write | Required `name`; optional `description` |
-| `update_project` | flows:write | Required `projectId` and `name`; optional `description` |
-| `delete_project` | flows:write | Required string `projectId` |
-| `move_job` | flows:write | Required `jobId` and destination `projectId`; optional `expectedUpdatedAt` |
-| `get_job` | flows:read | Required string `jobId` |
-| `create_job` | flows:write | Required `name`, `slug`, `promptTemplate`, `executionTargetId`; job fields below |
-| `update_job` | flows:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` |
-| `delete_job` | flows:write | Required string `jobId` |
-| `enable_job` | flows:write | Required string `jobId` |
-| `disable_job` | flows:write | Required string `jobId` |
+| `list_exe_connections` | integrations:read | `{}` |
+| `list_github_installations` | integrations:read | `{}` |
+| `list_execution_targets` | integrations:read | `{}` |
+| `list_execution_target_resources` | integrations:read | `{}`; returns non-secret target records for management |
+| `create_execution_target` | integrations:write | Required `name`, `integrationKind`, `integrationId`, `agentKind`; optional `tags` |
+| `update_execution_target` | integrations:write | Required `targetId`, `name`, `integrationKind`, `integrationId`, `agentKind`; optional `tags` |
+| `delete_execution_target` | integrations:write | Required string `targetId`; rejects referenced or active targets |
+| `diagnose_execution_target` | integrations:write | Required string `targetId`; probes the target's exact tags and agent |
+| `diagnose_exe_integration` | integrations:write | Required string `connectionId`; credential-safe diagnostic |
+| `list_cloudflare_tail_integrations` | integrations:read | `{}` |
+| `list_jobs` | jobs:read | `{}` |
+| `get_job` | jobs:read | Required string `jobId` |
+| `create_job` | jobs:write | Required `name`, `slug`, `promptTemplate`, `executionTargetId`; job fields below |
+| `update_job` | jobs:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` |
+| `delete_job` | jobs:write | Required string `jobId`; deletion removes execution history/artifacts |
+| `enable_job` | jobs:write | Required string `jobId` |
+| `disable_job` | jobs:write | Required string `jobId` |
+| `list_projects` | projects:read | `{}` |
+| `get_project` | projects:read | Required string `projectId` |
+| `create_project` | projects:write | Required `name`; optional `description` |
+| `update_project` | projects:write | Required `projectId` and `name`; optional `description` |
+| `delete_project` | projects:write | Required string `projectId` |
+| `move_job` | projects:write | Required `jobId` and destination `projectId`; optional `expectedUpdatedAt` |
 | `list_runs` | runs:read | Optional `jobId`, `state`, `contextQuery`, `limit`, `cursor` |
 | `get_run` | runs:read | Required string `runId` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
-| `invoke_job` | runs:write | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
-| `stop_run` | runs:write | Required string `runId` |
-| `kill_run` | runs:write | Required string `runId`; currently the same stop operation |
+| `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
+| `stop_run` | runs:cancel | Required string `runId` |
+| `kill_run` | runs:cancel | Required string `runId`; currently the same stop operation |
 | `list_job_webhook_activity` | runs:read | Required `jobId`; optional integer `limit` (1–100, default 50) |
 | `list_webhook_deliveries` | runs:read | Optional strings `provider`, `deliveryId`, `event`, `action`, `outcome`, `jobId`, `q`, `from`, `to`, `cursor`; integer `limit` (1–100, default 50) |
 | `get_webhook_delivery` | runs:read | Required string `deliveryId` |
-| `test_job_webhook_conditions` | flows:write | Required prepared JSON object `webhook`; optional `conditions` tree |
-| `diagnose_exe_integration` | flows:write | Required string `connectionId` |
+| `test_job_webhook_conditions` | jobs:write | Required prepared JSON object `webhook`; optional `conditions` tree |
 
 The inventory is validated against every registered implementation tool. All required IDs are non-empty strings except numeric GitHub installation/repository IDs in trigger configuration.
 

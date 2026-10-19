@@ -23,7 +23,7 @@ type JsonSchema = Record<string, any>;
 export interface RouteContract {
   method: string;
   path: string;
-  scope: z.infer<typeof scopeSchema>;
+  scope: string | string[];
   ownerSession: boolean;
   authOperation?: AuthAction;
   body?: z.ZodType;
@@ -111,7 +111,7 @@ const accessTokenBody = z.object({
 function route(
   method: string,
   path: string,
-  scope: RouteContract["scope"],
+  scope: string,
   documentation: RouteContract["documentation"],
   execute: RouteContract["execute"],
   options: Partial<
@@ -132,10 +132,11 @@ function route(
   const status = Number(
     Object.keys(documentation.responses).find((code) => code.startsWith("2")),
   );
+  const requiredScope = scopeForRoute(path, scope);
   return {
     method,
     path,
-    scope,
+    scope: requiredScope,
     parameters,
     status,
     ownerSession: false,
@@ -143,6 +144,25 @@ function route(
     execute,
     ...options,
   };
+}
+
+// Keep the catalog readable while making the authorization boundary explicit.
+// Legacy route labels are translated by resource and effect; they are never
+// accepted as newly issued scopes.
+function scopeForRoute(path: string, legacy: string): string | string[] {
+  if (legacy === "runs:read" && path === "/api/v1/search") return "jobs:read+runs:read";
+  if (legacy === "flows:read") {
+    if (path.startsWith("/api/v1/projects") || path.includes("/jobs/") && path.endsWith("/project")) return "projects:read";
+    if (path.includes("/integrations") || path.includes("/providers") || path.includes("execution-target") || path.includes("exe-connections") || path.includes("github-installations")) return "integrations:read";
+    return "jobs:read";
+  }
+  if (legacy === "flows:write") {
+    if (path.startsWith("/api/v1/projects") || path.includes("/jobs/") && path.endsWith("/project")) return "projects:write";
+    if (path.includes("/integrations") || path.includes("/providers") || path.includes("execution-target") || path.includes("exe-connections") || path.includes("github-installations")) return "integrations:write";
+    return "jobs:write";
+  }
+  if (legacy === "runs:write") return path.includes("invocation") ? "runs:invoke" : "runs:cancel";
+  return legacy;
 }
 
 /** The executable API catalog: change an operation here, then run generate:openapi.
@@ -912,7 +932,7 @@ export const API_ROUTES: RouteContract[] = [
       summary:
         "Replay a retained trace artifact or restore a native-session projection",
       description:
-        "Requires runs:write and an interactive tenant owner session. One terminal run per request, limited to 10 attempts per tenant per minute including retries and failures. Projection and result commit atomically; no artifacts are deleted. Retry failed requests with the same requestId. Conflicting reuse is rejected. Missing bytes cannot be recovered. Does not change the source declaration of an active or future run.",
+        "Requires runs:cancel and an interactive tenant owner session. One terminal run per request, limited to 10 attempts per tenant per minute including retries and failures. Projection and result commit atomically; no artifacts are deleted. Retry failed requests with the same requestId. Conflicting reuse is rejected. Missing bytes cannot be recovered. Does not change the source declaration of an active or future run.",
       responses: {
         "200": {
           description: "Durable replay result",
@@ -925,7 +945,7 @@ export const API_ROUTES: RouteContract[] = [
         "400": { description: "Invalid request" },
         "401": { description: "Invalid owner session" },
         "403": {
-          description: "Missing runs:write scope or interactive owner session",
+          description: "Missing runs:cancel scope or interactive owner session",
         },
         "404": { description: "Run not found within the tenant" },
         "409": {
@@ -1120,7 +1140,7 @@ export function generateOpenApi() {
       ...route.documentation,
       description: [
         route.documentation.description,
-        route.authOperation ? undefined : `Requires the ${route.scope} scope.`,
+        route.authOperation ? undefined : `Requires the ${Array.isArray(route.scope) ? route.scope.join(" and ") : route.scope.replaceAll("+", " and ")} scope${Array.isArray(route.scope) || route.scope.includes("+") ? "s" : ""}.`,
         route.authOperation ? undefined : route.ownerSession
           ? "An interactive owner session is required; bearer tokens cannot call this operation."
           : "Accepts a scoped bearer token or interactive owner session.",

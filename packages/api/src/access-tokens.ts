@@ -2,8 +2,21 @@ import type { Env, OAuthProps } from "./types";
 import { databaseFor } from "./postgres/database";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
 
-export const ACCESS_SCOPES = ["flows:read", "flows:write", "runs:read", "runs:write"] as const;
+export const ACCESS_SCOPES = ["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write"] as const;
 export type AccessScope = typeof ACCESS_SCOPES[number];
+export type LegacyScope = "flows:read" | "flows:write" | "runs:write";
+
+/** Legacy grants are accepted only at authentication time. New issuance never emits them. */
+export function normalizeScopes(scopes: readonly string[]): string[] {
+  const result = new Set<string>();
+  for (const scope of scopes) {
+    if (scope === "flows:read") ["projects:read", "jobs:read", "integrations:read"].forEach(value => result.add(value));
+    else if (scope === "flows:write") ["projects:write", "jobs:write", "integrations:write"].forEach(value => result.add(value));
+    else if (scope === "runs:write") ["runs:read", "runs:invoke", "runs:cancel"].forEach(value => result.add(value));
+    else if (ACCESS_SCOPES.includes(scope as AccessScope)) result.add(scope);
+  }
+  return [...result];
+}
 
 const encoder = new TextEncoder();
 const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
@@ -33,5 +46,5 @@ export async function authenticateAccessToken(request: Request, env: Env): Promi
   const token = authorization.slice(7), tenantId = accessTokenTenant(token);
   if (!tenantId) return null;
   const auth = await new AccessTokenRepository(databaseFor(env), tenantId).authenticate(await accessTokenDigest(token));
-  return auth ? { ...auth, authMethod: "access_token" } : null;
+  return auth ? { ...auth, scopes: normalizeScopes(auth.scopes), authMethod: "access_token" } : null;
 }

@@ -297,7 +297,7 @@ export interface paths {
         };
         /**
          * Get template autocomplete metadata
-         * @description Requires the flows:read scope.
+         * @description Requires the jobs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -319,7 +319,7 @@ export interface paths {
         };
         /**
          * List exe connections
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -341,7 +341,7 @@ export interface paths {
         };
         /**
          * List GitHub installations
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -363,7 +363,7 @@ export interface paths {
         };
         /**
          * List execution targets
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -371,7 +371,7 @@ export interface paths {
         put?: never;
         /**
          * Create execution target
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -392,7 +392,7 @@ export interface paths {
         get?: never;
         /**
          * Update execution target
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -400,7 +400,7 @@ export interface paths {
         post?: never;
         /**
          * Delete execution target
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -421,7 +421,7 @@ export interface paths {
         put?: never;
         /**
          * Diagnose an execution target
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -441,7 +441,7 @@ export interface paths {
         };
         /**
          * List available trigger kinds
-         * @description Requires the flows:read scope.
+         * @description Requires the jobs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -465,7 +465,7 @@ export interface paths {
         put?: never;
         /**
          * Preview schedule
-         * @description Requires the flows:read scope.
+         * @description Requires the jobs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -485,7 +485,7 @@ export interface paths {
         };
         /**
          * List Tail integrations
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -493,7 +493,7 @@ export interface paths {
         put?: never;
         /**
          * Create a Tail integration
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -513,7 +513,7 @@ export interface paths {
         };
         /**
          * List installed integrations
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -536,7 +536,7 @@ export interface paths {
         get?: never;
         /**
          * Create an exe.dev integration
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -559,7 +559,7 @@ export interface paths {
         put?: never;
         /**
          * Test exe.dev credentials
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -580,7 +580,7 @@ export interface paths {
         get?: never;
         /**
          * Create an Amp integration
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -603,7 +603,7 @@ export interface paths {
         put?: never;
         /**
          * Test Amp credentials
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -623,7 +623,7 @@ export interface paths {
         };
         /**
          * List Linear projects
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -645,7 +645,7 @@ export interface paths {
         };
         /**
          * List Linear trigger options
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -667,7 +667,7 @@ export interface paths {
         };
         /**
          * List ClickUp lists
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -689,7 +689,7 @@ export interface paths {
         };
         /**
          * List ClickUp trigger options
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -711,7 +711,7 @@ export interface paths {
         };
         /**
          * List GitHub installations for provider setup
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -733,7 +733,7 @@ export interface paths {
         };
         /**
          * List authorized OAuth clients
-         * @description Requires the flows:read scope.
+         * @description Requires the jobs:read scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -755,7 +755,7 @@ export interface paths {
         };
         /**
          * List access tokens
-         * @description Requires the flows:read scope.
+         * @description Requires the jobs:read scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -763,7 +763,7 @@ export interface paths {
         put?: never;
         /**
          * Create an access token
-         * @description Requires the flows:write scope.
+         * @description Requires the jobs:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -786,7 +786,7 @@ export interface paths {
         post?: never;
         /**
          * Revoke an access token
-         * @description Requires the flows:write scope.
+         * @description Requires the jobs:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -808,7 +808,7 @@ export interface paths {
         post?: never;
         /**
          * Revoke an authorized OAuth client
-         * @description Requires the flows:write scope.
+         * @description Requires the jobs:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -830,7 +830,7 @@ export interface paths {
         post?: never;
         /**
          * Remove an exe.dev integration
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -852,7 +852,7 @@ export interface paths {
         post?: never;
         /**
          * Remove an Amp integration
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -872,7 +872,7 @@ export interface paths {
         get?: never;
         /**
          * Update a Tail integration
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -880,7 +880,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a Tail integration
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -901,7 +901,7 @@ export interface paths {
         put?: never;
         /**
          * Test a Tail integration
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -921,7 +921,7 @@ export interface paths {
         };
         /**
          * List installation repositories
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -943,7 +943,7 @@ export interface paths {
         };
         /**
          * List GitHub issue trigger options
-         * @description Requires the flows:read scope.
+         * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -968,7 +968,7 @@ export interface paths {
         post?: never;
         /**
          * Disconnect a GitHub installation
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -989,7 +989,7 @@ export interface paths {
         put?: never;
         /**
          * Probe exe.dev permissions and a disposable VM's agent/model integration
-         * @description Requires the flows:write scope.
+         * @description Requires the integrations:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1011,7 +1011,7 @@ export interface paths {
          * List bounded job summaries
          * @description Additive list representation, ordered by immutable UUID descending. Cursor is the last ID; filters must remain the same between pages. Literal case-insensitive name/slug search. No prompts or trigger configuration; statistics are batched. Existing GET /jobs remains an array.
          *
-         *     Requires the flows:read scope.
+         *     Requires the jobs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1033,7 +1033,7 @@ export interface paths {
         };
         /**
          * Search bounded lifecycle job options
-         * @description Requires the flows:read scope.
+         * @description Requires the jobs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1055,7 +1055,7 @@ export interface paths {
         };
         /**
          * List projects
-         * @description Requires the flows:read scope.
+         * @description Requires the projects:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1063,7 +1063,7 @@ export interface paths {
         put?: never;
         /**
          * Create project
-         * @description Requires the flows:write scope.
+         * @description Requires the projects:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1083,14 +1083,14 @@ export interface paths {
         };
         /**
          * Get project
-         * @description Requires the flows:read scope.
+         * @description Requires the projects:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
         get: operations["get_api_v1_projects_projectId"];
         /**
          * Update project
-         * @description Requires the flows:write scope.
+         * @description Requires the projects:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1098,7 +1098,7 @@ export interface paths {
         post?: never;
         /**
          * Delete empty project
-         * @description Requires the flows:write scope.
+         * @description Requires the projects:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1119,7 +1119,7 @@ export interface paths {
         put?: never;
         /**
          * Move a job to a project
-         * @description Requires the flows:write scope.
+         * @description Requires the projects:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1139,7 +1139,7 @@ export interface paths {
         };
         /**
          * List jobs
-         * @description Requires the flows:read scope.
+         * @description Requires the jobs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1147,7 +1147,7 @@ export interface paths {
         put?: never;
         /**
          * Create job
-         * @description Requires the flows:write scope.
+         * @description Requires the jobs:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1171,7 +1171,7 @@ export interface paths {
          * Test webhook conditions
          * @description Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke jobs.
          *
-         *     Requires the flows:write scope.
+         *     Requires the jobs:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1193,7 +1193,7 @@ export interface paths {
         put?: never;
         /**
          * Invoke job
-         * @description Requires the runs:write scope.
+         * @description Requires the runs:invoke scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1237,7 +1237,7 @@ export interface paths {
         put?: never;
         /**
          * Enable job
-         * @description Requires the flows:write scope.
+         * @description Requires the jobs:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1259,7 +1259,7 @@ export interface paths {
         put?: never;
         /**
          * Disable job
-         * @description Requires the flows:write scope.
+         * @description Requires the jobs:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1279,7 +1279,7 @@ export interface paths {
         };
         /**
          * Get job
-         * @description Requires the flows:read scope.
+         * @description Requires the jobs:read scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1288,7 +1288,7 @@ export interface paths {
          * Replace job
          * @description Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_job. Omission preserves legacy REST/MCP last-writer-wins updates. Trigger identity is preserved.
          *
-         *     Requires the flows:write scope.
+         *     Requires the jobs:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1296,7 +1296,7 @@ export interface paths {
         post?: never;
         /**
          * Delete job
-         * @description Requires the flows:write scope.
+         * @description Requires the jobs:write scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1341,7 +1341,7 @@ export interface paths {
          * Search jobs and runs by approximate metadata matches
          * @description Search uses PostgreSQL pg_trgm approximate matching over job names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.
          *
-         *     Requires the runs:read scope.
+         *     Requires the jobs:read and runs:read scopes.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1501,9 +1501,9 @@ export interface paths {
         put?: never;
         /**
          * Replay a retained trace artifact or restore a native-session projection
-         * @description Requires runs:write and an interactive tenant owner session. One terminal run per request, limited to 10 attempts per tenant per minute including retries and failures. Projection and result commit atomically; no artifacts are deleted. Retry failed requests with the same requestId. Conflicting reuse is rejected. Missing bytes cannot be recovered. Does not change the source declaration of an active or future run.
+         * @description Requires runs:cancel and an interactive tenant owner session. One terminal run per request, limited to 10 attempts per tenant per minute including retries and failures. Projection and result commit atomically; no artifacts are deleted. Retry failed requests with the same requestId. Conflicting reuse is rejected. Missing bytes cannot be recovered. Does not change the source declaration of an active or future run.
          *
-         *     Requires the runs:write scope.
+         *     Requires the runs:cancel scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -1547,7 +1547,7 @@ export interface paths {
         put?: never;
         /**
          * Stop run
-         * @description Requires the runs:write scope.
+         * @description Requires the runs:cancel scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1569,7 +1569,7 @@ export interface paths {
         put?: never;
         /**
          * Kill run and immediately release its concurrency slot
-         * @description Requires the runs:write scope.
+         * @description Requires the runs:cancel scope.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -2205,7 +2205,7 @@ export interface operations {
                             /** @constant */
                             role: "owner";
                         };
-                        capabilities: ("flows:read" | "flows:write" | "runs:read" | "runs:write")[];
+                        capabilities: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write")[];
                         /** Format: date-time */
                         expiresAt: string;
                     };
@@ -2717,7 +2717,7 @@ export interface operations {
                     signature: string;
                     /** @enum {string} */
                     decision: "allow" | "deny";
-                    scopes: ("flows:read" | "flows:write" | "runs:read" | "runs:write")[];
+                    scopes: string[];
                 };
             };
         };
@@ -3731,7 +3731,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("flows:read" | "flows:write" | "runs:read" | "runs:write")[];
+                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -3760,7 +3760,7 @@ export interface operations {
             content: {
                 "application/json": {
                     name: string;
-                    scopes: ("flows:read" | "flows:write" | "runs:read" | "runs:write")[];
+                    scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write")[];
                     expiryDays: 7 | 30 | 90;
                 };
             };
@@ -3775,7 +3775,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("flows:read" | "flows:write" | "runs:read" | "runs:write")[];
+                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -5967,7 +5967,7 @@ export interface operations {
             400: components["responses"]["Error400"];
             /** @description Invalid owner session */
             401: components["responses"]["Error401"];
-            /** @description Missing runs:write scope or interactive owner session */
+            /** @description Missing runs:cancel scope or interactive owner session */
             403: components["responses"]["Error403"];
             /** @description Run not found within the tenant */
             404: components["responses"]["Error404"];

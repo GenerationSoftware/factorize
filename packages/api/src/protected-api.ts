@@ -10,6 +10,7 @@ import { jobConditionsTestSchema, jobIdSchema, jobInputSchema, listRunsSchema, m
 import type { Env, OAuthProps } from "./types";
 import { executeAuth, validBrowserOrigin } from "./auth-api";
 import { matchApiOperation } from "./api-contract";
+import { normalizeScopes } from "./access-tokens";
 
 function errorResponse(error: unknown): Response {
   if (error instanceof URIError) return Response.json({ error: { code: "invalid_request", message: "Invalid path encoding" } }, { status: 400 });
@@ -38,6 +39,7 @@ function structured(value: unknown) {
 }
 
 export async function protectedApiFetch(request: Request, env: Env, auth: OAuthProps | null, ctx: ExecutionContext): Promise<Response> {
+    auth = auth ? { ...auth, scopes: normalizeScopes(auth.scopes) } : null;
     const started = performance.now();
     let service: ApiService | undefined;
     const timed = (response: Response) => {
@@ -57,7 +59,8 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       const { route, params } = matched;
       if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && (route.authOperation || auth?.authMethod === "session") && !validBrowserOrigin(request, env)) throw new ServiceError(403, "invalid_origin", "Invalid request origin.");
       if (!route.authOperation && !auth) throw new ServiceError(401, "invalid_token", "Unauthorized");
-      if (!route.authOperation && !auth!.scopes.includes(route.scope)) throw new ServiceError(403, "insufficient_scope", `The ${route.scope} scope is required.`);
+      const requiredScopes = Array.isArray(route.scope) ? route.scope : route.scope.split("+");
+      if (!route.authOperation && !requiredScopes.every(scope => auth!.scopes.includes(scope))) throw new ServiceError(403, "insufficient_scope", `The ${requiredScopes.join(" and ")} scope is required.`);
       if (!route.authOperation && route.ownerSession && auth!.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required.");
       let body: unknown;
       if (route.body) {

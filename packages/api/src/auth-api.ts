@@ -9,7 +9,7 @@ import { databaseFor } from "./postgres/database";
 import { readSession, requestCookie, signSession, type Session } from "./session";
 import type { Env } from "./types";
 
-export const SESSION_SCOPES = ["flows:read", "flows:write", "runs:read", "runs:write"] as const;
+export const SESSION_SCOPES = ["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write"] as const;
 const email = z.string().trim().toLowerCase().email().max(320);
 const password = z.string().min(12).max(200).meta({ writeOnly: true });
 const connection = z.uuid().optional();
