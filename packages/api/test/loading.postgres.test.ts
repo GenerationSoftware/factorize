@@ -3,6 +3,7 @@ import { loadingFixture } from "./helpers/loading-fixture";
 import { Database } from "../src/postgres/database";
 import { IdentityRepository } from "../src/postgres/identity-repository";
 import { PostgresJobRepository } from "../src/postgres/job-repository";
+import { ConnectionRepository } from "../src/postgres/connection-repository";
 import { ApiService } from "../src/flow-service";
 import worker from "../src/worker";
 import { signSession } from "../src/index";
@@ -57,6 +58,23 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
       expect(JSON.stringify(status)).not.toContain("private-");
       expect(query).toHaveBeenCalledTimes(3); // membership + connections + reference counts
     } finally { query.mockRestore(); }
+  });
+  it("keeps the integration status available when legacy connection metadata is malformed", async () => {
+    const connections = new ConnectionRepository(db, tenantId, env.CREDENTIAL_ENCRYPTION_KEY), originalLinear = await connections.get("linear");
+    try {
+      await connections.put("linear", { organizationName: 42, viewerEmail: false });
+      await connections.put("exe:legacy", { apiToken: "private-token", accountTags: "not-an-array" });
+      await connections.put("amp:legacy", { accessToken: "private-token", project: 42, apiBaseUrl: false });
+      await connections.put("cloudflare-tail:legacy", { signingSecret: "private-secret" });
+      const status = await new ApiService(env, auth).integrationStatus();
+      expect(status.linear).toEqual({ organizationName: null, viewerEmail: null });
+      expect(status.exeConnections).toContainEqual({ connectionId: "legacy", credentialStatus: "connected", accountTags: [] });
+      expect(status.ampConnections).toContainEqual({ connectionId: "legacy", project: "Unnamed Amp project" });
+      expect(status.cloudflareTail.installations).toContainEqual({ integrationId: "legacy", name: "Unnamed Tail integration", status: "connected", secretConfigured: true, referencedJobCount: 0 });
+      expect(JSON.stringify(status)).not.toContain("private-");
+    } finally {
+      await Promise.all([originalLinear ? connections.put("linear", originalLinear) : connections.delete("linear"), connections.delete("exe:legacy"), connections.delete("amp:legacy"), connections.delete("cloudflare-tail:legacy")]);
+    }
   });
 
   it("creates a job with a deterministic migrated execution target UUID", async () => {
