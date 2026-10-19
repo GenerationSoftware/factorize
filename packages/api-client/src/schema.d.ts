@@ -2911,12 +2911,6 @@ export interface operations {
                     /** @default [] */
                     tags?: string[];
                     agentKind: string;
-                    /** @default  */
-                    model?: string;
-                    /** @default  */
-                    effort?: string;
-                    /** Format: date-time */
-                    expectedUpdatedAt?: string;
                 };
             };
         };
@@ -2978,12 +2972,6 @@ export interface operations {
                     /** @default [] */
                     tags?: string[];
                     agentKind: string;
-                    /** @default  */
-                    model?: string;
-                    /** @default  */
-                    effort?: string;
-                    /** Format: date-time */
-                    expectedUpdatedAt?: string;
                 };
             };
         };
@@ -3344,7 +3332,7 @@ export interface operations {
             content: {
                 "application/json": {
                     connectionId?: string;
-                    apiToken: string;
+                    apiToken?: string;
                     /** @enum {string} */
                     agentKind?: "codex" | "claude" | "pi";
                     tags?: string[];
@@ -3437,8 +3425,8 @@ export interface operations {
             content: {
                 "application/json": {
                     connectionId?: string;
-                    accessToken: string;
-                    project: string;
+                    accessToken?: string;
+                    project?: string;
                     /** Format: uri */
                     apiBaseUrl?: string;
                 };

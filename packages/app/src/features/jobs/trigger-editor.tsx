@@ -23,7 +23,7 @@ function ScheduleFields({ trigger, onChange }: { trigger: Extract<Trigger, { kin
     <Button type="button" disabled={preview.isPending} onClick={() => preview.mutate()}>Preview schedule</Button>
     {preview.data && <p role="status">Next run: {preview.data.nextRunAt}</p>}{preview.error && <p role="alert">{preview.error.message}</p>}</>;
 }
-export function TriggerEditor({ triggers, onChange }: { triggers: Trigger[]; onChange: (value: Trigger[]) => void }) {
+export function TriggerEditor({ triggers, onChange, onValidityChange }: { triggers: Trigger[]; onChange: (value: Trigger[]) => void; onValidityChange?: (invalid: boolean) => void }) {
   const availability = useQuery(availabilityQuery), [kind, setKind] = useState<Trigger["kind"]>("schedule");
   const replace = (index: number, value: Trigger) => onChange(triggers.map((item, i) => i === index ? value : item));
   return <Card>
@@ -31,7 +31,7 @@ export function TriggerEditor({ triggers, onChange }: { triggers: Trigger[]; onC
     {triggers.map((trigger, index) => <fieldset key={trigger.id ?? `new-${index}`} className="my-4 grid gap-3 border p-3"><legend>{trigger.slug ?? `New ${trigger.kind} trigger`}</legend>
       <Label><Input type="checkbox" checked={trigger.enabled} onChange={e => replace(index, { ...trigger, enabled: e.target.checked })} /> Enabled</Label>
       {trigger.kind === "schedule" && <ScheduleFields trigger={trigger} onChange={value => replace(index, value)} />}
-      {trigger.kind === "webhook" && <ProviderFields config={trigger.config} onChange={config => replace(index, { ...trigger, config })} />}
+      {trigger.kind === "webhook" && <ProviderFields config={trigger.config} onChange={config => replace(index, { ...trigger, config })} onValidityChange={onValidityChange} />}
       {trigger.kind === "jobLifecycle" && <><LifecycleSelector selected={trigger.config.sourceJobIds} onChange={sourceJobIds => replace(index, { ...trigger, config: { ...trigger.config, sourceJobIds } })} />
         <fieldset><legend>Lifecycle states</legend>{(["succeeded", "failed", "stopped", "edited"] as const).map(state => <Label key={state}><Input type="checkbox" checked={trigger.config.states.includes(state)} onChange={e => replace(index, { ...trigger, config: { ...trigger.config, states: e.target.checked ? [...trigger.config.states, state] : trigger.config.states.filter(s => s !== state) } })} />{state} </Label>)}</fieldset></>}
       {trigger.kind !== "manual" && <Button type="button" onClick={() => onChange(triggers.filter((_, i) => i !== index))}>Remove trigger</Button>}

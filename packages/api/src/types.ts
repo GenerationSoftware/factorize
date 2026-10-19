@@ -57,10 +57,10 @@ export interface WorkItem {
 
 export interface ExeConnectionInput {
   connectionId?: string;
-  apiToken: string;
+  apiToken?: string;
   tags?: string[];
   agentKind?: "codex" | "claude" | "pi";
 }
 
-export interface AmpConnectionInput { connectionId?: string; accessToken: string; project: string; apiBaseUrl?: string; }
+export interface AmpConnectionInput { connectionId?: string; accessToken?: string; project?: string; apiBaseUrl?: string; }
 export interface TailIntegrationInput { integrationId?: string; name: string; signingSecret?: string; generateSecret?: boolean; }

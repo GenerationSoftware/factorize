@@ -118,10 +118,9 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       await page.waitForURL(`**/jobs/${job.id}/settings`);
       await page.getByLabel("Prompt template", { exact: true }).fill("My edited prompt");
       await service.updateJob(job.id, { name: "Concurrent name", slug: job.slug, promptTemplate: job.promptTemplate, executionTargetId: job.executionTargetId, concurrencyLimit: 1, triggers: [{ id: job.triggers[0].id, slug: job.triggers[0].slug, kind: "manual", enabled: true, config: {} }], expectedUpdatedAt: job.updatedAt });
-      await page.getByRole("button", { name: "Save job", exact: true }).click();
+      await page.getByRole("button", { name: "Reconcile my changes" }).waitFor();
       await page.getByRole("button", { name: "Reconcile my changes" }).click();
       expect(await page.getByLabel("Name", { exact: true }).inputValue()).toBe("Concurrent name");
-      await page.getByRole("button", { name: "Save job", exact: true }).click();
       await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
       expect(new URL(page.url()).pathname).toBe(`/jobs/${job.id}/settings`);
       const saved = await service.getJob(job.id); expect(saved.name).toBe("Concurrent name"); expect(saved.promptTemplate).toBe("My edited prompt"); expect(saved.triggers[0].id).toBe(job.triggers[0].id);

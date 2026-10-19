@@ -8,11 +8,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { jobQuery } from "./queries";
 import { metadataQuery, targetsQuery } from "./editor-queries";
-import { editableJob, emptyJob, reconcile, writeInput, type Job, type JobInput } from "./editor-state";
+import { editableJob, emptyJob, reconcile, validateJobInput, writeInput, type Job, type JobInput } from "./editor-state";
 import { TemplateField } from "./template-field";
 import { TriggerEditor } from "./trigger-editor";
 import { messageOf } from "../auth/session";
 import { projectQuery } from "../projects/queries";
+import { AutosaveStatus, useDebouncedAutosave } from "../../shared/use-debounced-autosave";
 export function JobEditor() {
   const { jobId } = useParams({ strict: false });
   const job = useQuery({ ...jobQuery(jobId ?? ""), enabled: !!jobId });
@@ -25,7 +26,7 @@ function EditorForm({ initial }: { initial?: Job }) {
   const [base, setBase] = useState(initial ? editableJob(initial) : emptyJob);
   const [draft, setDraft] = useState(base), [revision, setRevision] = useState(initial?.updatedAt);
   const [remote, setRemote] = useState<Job>(), [conflicts, setConflicts] = useState<(keyof JobInput)[]>([]);
-  const [reconciling, setReconciling] = useState(false), [saved, setSaved] = useState(false);
+  const [reconciling, setReconciling] = useState(false), [saved, setSaved] = useState(false), [invalidForm, setInvalidForm] = useState(false);
   const savingNavigation = useRef(false);
   const dirty = JSON.stringify(base) !== JSON.stringify(draft);
   useBlocker({ shouldBlockFn: () => dirty && !savingNavigation.current && !window.confirm("Discard unsaved job changes?"), enableBeforeUnload: dirty });
@@ -50,6 +51,7 @@ function EditorForm({ initial }: { initial?: Job }) {
     }
     return result.data;
   }, onSuccess: async value => { savingNavigation.current = true; setSaved(true); setBase(editableJob(value)); setDraft(editableJob(value)); setRevision(value.updatedAt); cache.setQueryData(jobQuery(value.id).queryKey, value); await cache.invalidateQueries({ queryKey: ["jobs"] }); if (!initial) void navigate({ to: "/jobs/$jobId", params: { jobId: value.id } }); else savingNavigation.current = false; } });
+  const autosave = useDebouncedAutosave({ value: draft, enabled: Boolean(initial) && dirty && !invalidForm && !remote && !reconciling && !conflicts.length, validate: validateJobInput, save: async () => { await save.mutateAsync(); } });
   const acceptRemote = () => { if (!remote) return; const value = editableJob(remote); setDraft(value); setBase(value); setRevision(remote.updatedAt); setRemote(undefined); setConflicts([]); save.reset(); };
   const merge = () => { if (!remote) return; const value = editableJob(remote), result = reconcile(base, draft, value); setDraft(result.merged); setConflicts(result.conflicts); setBase(value); setRevision(remote.updatedAt); if (!result.conflicts.length) setRemote(undefined); save.reset(); };
   const resolve = (field: keyof JobInput, local: boolean) => {
@@ -76,10 +78,11 @@ function EditorForm({ initial }: { initial?: Job }) {
       </div></Card><Card className="space-y-5"><h2>Prompt and context</h2><p className="text-sm text-slate-600 dark:text-slate-400">Write instructions using context supplied by your triggers.</p><TemplateField label="Prompt template" multiline value={draft.promptTemplate} onChange={value => update("promptTemplate", value)} triggers={draft.triggers} />
       <TemplateField label="Run name template" value={draft.runNameTemplate ?? ""} onChange={value => update("runNameTemplate", value)} triggers={draft.triggers} />
       <Disclosure><Summary>Template variables</Summary>{metadata.error && <p role="alert">{metadata.error.message}</p>}{Object.entries(metadata.data ?? {}).map(([kind, fields]) => <Card key={kind}><h3>{kind}</h3><ul>{fields.map(field => <li key={field.path}><code>{field.path}</code> — {field.description}</li>)}</ul></Card>)}</Disclosure>
-      </Card><Card><h2>Triggers</h2><p className="mb-5 text-sm text-slate-600 dark:text-slate-400">Choose the events that start this job.</p><TriggerEditor triggers={draft.triggers} onChange={value => update("triggers", value)} />
+      </Card><Card><h2>Triggers</h2><p className="mb-5 text-sm text-slate-600 dark:text-slate-400">Choose the events that start this job.</p><TriggerEditor triggers={draft.triggers} onChange={value => update("triggers", value)} onValidityChange={setInvalidForm} />
       {initial?.triggers.map(trigger => trigger.kind === "webhook" && trigger.config.provider === "cloudflareTail" && trigger.config.destination ? <div key={trigger.id} className="mt-4 text-sm"><p>{trigger.slug} · Tail webhook destination</p><code className="break-all">{trigger.config.destination}</code></div> : null)}
       </Card>{save.error && <p role="alert">{save.error.message}</p>}
-      <Button variant="primary" disabled={save.isPending || !!remote || reconciling || !!conflicts.length || targets.isPending || !!targets.error}>{save.isPending ? "Saving…" : "Save job"}</Button>
-    </form>{saved && <p role="status">Job settings saved.</p>}{initial && <DeleteJob jobId={initial.id} name={initial.name} disabled={save.isPending} onDeleted={() => { savingNavigation.current = true; }} />}
+      {!initial && <Button variant="primary" disabled={save.isPending || !!remote || reconciling || !!conflicts.length || targets.isPending || !!targets.error}>{save.isPending ? "Saving…" : "Create job"}</Button>}
+      {initial && <AutosaveStatus state={autosave.state} error={autosave.error} label="Job settings" />}
+    </form>{saved && !initial && <p role="status">Job settings saved.</p>}{initial && <DeleteJob jobId={initial.id} name={initial.name} disabled={save.isPending} onDeleted={() => { savingNavigation.current = true; }} />}
   </Page>;
 }

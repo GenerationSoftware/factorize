@@ -40,7 +40,7 @@ export interface RouteContract {
 
 const exeBody = z.object({
   connectionId: z.string().min(1).optional(),
-  apiToken: z.string().min(1).meta({ writeOnly: true }),
+  apiToken: z.string().min(1).meta({ writeOnly: true }).optional(),
   agentKind: z.enum(["codex", "claude", "pi"]).optional(),
   tags: z
     .array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/))
@@ -54,8 +54,8 @@ const exeTestBody = exeBody
   });
 const ampBody = z.object({
   connectionId: z.string().min(1).optional(),
-  accessToken: z.string().min(1).meta({ writeOnly: true }),
-  project: z.string().min(1),
+  accessToken: z.string().min(1).meta({ writeOnly: true }).optional(),
+  project: z.string().min(1).optional(),
   apiBaseUrl: z.url().optional(),
 });
 const ampTestBody = ampBody
@@ -74,7 +74,7 @@ const tailBody = z.object({
     .meta({ writeOnly: true }),
   generateSecret: z.boolean().optional(),
 });
-const executionTargetBody = z.object({ name: z.string().trim().min(1).max(120), integrationKind: z.enum(["exe", "amp"]), integrationId: z.string().min(1), tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).default([]), agentKind: z.string().min(1).max(40), model: z.string().max(200).default(""), effort: z.string().max(40).default(""), expectedUpdatedAt: z.string().datetime().optional() });
+const executionTargetBody = z.object({ name: z.string().trim().min(1).max(120), integrationKind: z.enum(["exe", "amp"]), integrationId: z.string().min(1), tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).default([]), agentKind: z.string().min(1).max(40) });
 const executionTargetUpdateBody = executionTargetBody;
 const deliveryQuery = z.object({
   provider: z.string().optional(),

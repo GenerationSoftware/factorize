@@ -38,10 +38,10 @@ function TailFields({ config, onChange }: { config: Extract<Config, { provider: 
   return <>{tails.error && <p role="alert">{tails.error.message}</p>}<Label>Tail integration <Select aria-label="Tail integration" required value={config.integrationId} onChange={e => onChange({ ...config, integrationId: e.target.value })}><option value="">Choose integration</option>{tails.data?.map(t => <option key={t.integrationId} value={t.integrationId}>{t.name}</option>)}{config.integrationId && <option value={config.integrationId}>Current: {config.integrationId}</option>}</Select></Label></>;
 }
 const providerDefaults: Record<Config["provider"], Config> = { linear: { provider: "linear", projectId: "", matchRules: [] }, clickup: { provider: "clickup", listId: "", matchRules: [] }, github: { provider: "github", installationId: 0, repositoryId: 0, event: "pull_request", action: "opened" }, cloudflareTail: { provider: "cloudflareTail", integrationId: "" } };
-export function ProviderFields({ config, onChange }: { config: Config; onChange: (value: Config) => void }) {
+export function ProviderFields({ config, onChange, onValidityChange }: { config: Config; onChange: (value: Config) => void; onValidityChange?: (invalid: boolean) => void }) {
   const availability = useQuery(availabilityQuery);
   return <div className="grid gap-3"><Label>Provider <Select aria-label="Provider" value={config.provider} onChange={e => onChange({ ...structuredClone(providerDefaults[e.target.value as Config["provider"]]), ...(config.conditions === undefined ? {} : { conditions: config.conditions }) })}>{Object.keys(providerDefaults).map(p => <option key={p} value={p} disabled={availability.data && !availability.data[p as Config["provider"]]}>{p}{availability.data && !availability.data[p as Config["provider"]] ? " (connect in settings)" : ""}</option>)}</Select></Label>
     {config.provider === "linear" && <LinearFields config={config} onChange={onChange} />}{config.provider === "clickup" && <ClickupFields config={config} onChange={onChange} />}{config.provider === "github" && <GithubFields config={config} onChange={onChange} />}{config.provider === "cloudflareTail" && <TailFields config={config} onChange={onChange} />}
-    <ConditionsEditor conditions={config.conditions} onChange={conditions => onChange({ ...config, conditions })} />
+    <ConditionsEditor conditions={config.conditions} onChange={conditions => onChange({ ...config, conditions })} onValidityChange={onValidityChange} />
   </div>;
 }

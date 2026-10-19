@@ -26,3 +26,19 @@ export function reconcile(base: JobInput, local: JobInput, remote: JobInput) {
 export function writeInput(draft: JobInput): JobInput {
   return { ...draft, triggers: draft.triggers.map(trigger => ({ ...trigger, slug: trigger.slug && /^trigger-[1-9][0-9]*$/.test(trigger.slug) ? trigger.slug : undefined })) };
 }
+
+export function validateJobInput(input: JobInput): string | undefined {
+  if (!input.name.trim() || input.name.length > 120) return "Enter a job name between 1 and 120 characters.";
+  if (!/^[a-z][a-z0-9_-]{0,29}$/.test(input.slug)) return "Slug must start with a lowercase letter and contain at most 30 characters.";
+  if (!input.promptTemplate || input.promptTemplate.length > 50_000) return "Enter a prompt template between 1 and 50,000 characters.";
+  if (!Number.isInteger(input.concurrencyLimit) || input.concurrencyLimit < 1 || input.concurrencyLimit > 50) return "Concurrency limit must be between 1 and 50.";
+  if (!input.executionTargetId) return "Choose an execution target.";
+  if (input.triggers.length > 50) return "A job can have at most 50 triggers.";
+  for (const trigger of input.triggers) {
+    if (!trigger.slug || !/^trigger-[1-9][0-9]*$/.test(trigger.slug)) return "Each trigger needs a valid stable identifier.";
+    if (trigger.kind === "schedule" && (!trigger.config.cron.trim() || !trigger.config.timezone.trim())) return "Schedule triggers require a cron expression and timezone.";
+    if (trigger.kind === "jobLifecycle" && (!trigger.config.sourceJobIds.length || !trigger.config.states.length)) return "Lifecycle triggers require a source job and state.";
+    if (trigger.kind === "webhook" && (trigger.config.provider === "linear" || trigger.config.provider === "clickup") && !trigger.config.matchRules?.length) return "Provider triggers require at least one matching rule.";
+  }
+  return undefined;
+}
