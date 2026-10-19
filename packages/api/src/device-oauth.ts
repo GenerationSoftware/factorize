@@ -6,6 +6,7 @@ import { and, eq, gt } from "drizzle-orm";
 import type { DatabaseClient } from "./postgres/database";
 import { databaseFor } from "./postgres/database";
 import { oauthDeviceAuthorizations } from "./postgres/schema";
+import { normalizeScopes } from "./access-tokens";
 
 export const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 const DEVICE_TTL = 600;
@@ -128,7 +129,7 @@ export async function deviceAuthorization(request: Request, env: Env, oauth: OAu
   if (!compactUserCode) return oauthError("server_error", "Could not allocate a user code.", 500);
   const now = Math.floor(Date.now() / 1000);
   const record: DeviceRecord = {
-    clientId, clientName: client.clientName ?? "this client", tokenEndpointAuthMethod: client.tokenEndpointAuthMethod ?? "none", scope: requested, resource,
+    clientId, clientName: client.clientName ?? "this client", tokenEndpointAuthMethod: client.tokenEndpointAuthMethod ?? "none", scope: requested.some(scope => scope === "flows:read" || scope === "flows:write" || scope === "runs:write") ? requested : normalizeScopes(requested), resource,
     redirectUri: client.redirectUris[0], codeChallenge: await challenge(codeVerifier),
     createdAt: now, expiresAt: now + DEVICE_TTL, interval: DEFAULT_INTERVAL, status: "pending",
   };

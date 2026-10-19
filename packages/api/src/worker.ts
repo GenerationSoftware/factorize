@@ -14,7 +14,10 @@ import { traceChunkUpload } from "./trace-chunk-upload";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 
-const scopes = ["flows:read", "flows:write", "runs:read", "runs:write"];
+const scopes = ["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write"];
+// Keep accepting grants issued by the pre-resource-scope protocol. New
+// consent screens and metadata advertise only the canonical scopes above.
+const oauthScopes = [...scopes, "flows:read", "flows:write", "runs:write"];
 async function currentOwner(request: Request, env: Env) {
   const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
   if (!session) return null;
@@ -72,7 +75,7 @@ const defaultHandler: ExportedHandler<Env> = {
 function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
   apiRoute: ["/api/v1", "/mcp"], apiHandler: ProtectedApiHandler, defaultHandler,
   authorizeEndpoint: "/authorize", tokenEndpoint: "/oauth/token", clientRegistrationEndpoint: "/oauth/register",
-  scopesSupported: scopes, allowImplicitFlow: false, allowPlainPKCE: false,
+  scopesSupported: oauthScopes, allowImplicitFlow: false, allowPlainPKCE: false,
   accessTokenTTL: 3600, refreshTokenTTL: 2_592_000,
   clientIdMetadataDocumentEnabled: true,
   resourceMetadata: { resource: `${env.APP_ORIGIN}/mcp`, authorization_servers: [env.APP_ORIGIN], scopes_supported: scopes, bearer_methods_supported: ["header"], resource_name: "Factorize jobs" },
@@ -103,7 +106,7 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     if (!auth) return Response.json({ error: { code: "invalid_token", message: "The access token is invalid, expired, or revoked." } }, { status: 401, headers: { "WWW-Authenticate": "Bearer error=\"invalid_token\"" } });
     return protectedApiFetch(request, apiEnv, auth, ctx);
   }
-  if (url.pathname === "/oauth/device_authorization") return deviceAuthorization(request, env, getOAuthApi(providerOptions(env), env), scopes);
+  if (url.pathname === "/oauth/device_authorization") return deviceAuthorization(request, env, getOAuthApi(providerOptions(env), env), oauthScopes);
   if (url.pathname === "/oauth/register") return deviceClientRegistration(request, env, oauth, ctx);
   if (url.pathname === "/oauth/token" && request.method === "POST") {
     const clone = request.clone();
