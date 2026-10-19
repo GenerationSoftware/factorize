@@ -11,7 +11,7 @@ const validateSearch = (input: Record<string, unknown>): { token?: string; retur
   returnTo: typeof input.returnTo === "string" ? input.returnTo : undefined,
 });
 export function authRoutes(rootRoute: AnyRootRoute) {
-  function route(path: "/auth/login" | "/auth/signup" | "/auth/password-reset" | "/auth/verify" | "/auth/verify/request" | "/settings/password", mode: AuthMode) {
+  function route(path: "/auth/login" | "/auth/signup" | "/auth/password-reset" | "/auth/verify" | "/auth/verify/request", mode: AuthMode) {
     return createRoute({
       getParentRoute: () => rootRoute, path, validateSearch,
       component: () => <Screen mode={mode} />,
@@ -23,5 +23,5 @@ export function authRoutes(rootRoute: AnyRootRoute) {
       } } : {}),
     });
   }
-  return [route("/auth/login", "login"), route("/auth/signup", "signup"), route("/auth/password-reset", "reset"), route("/auth/verify", "verify"), route("/auth/verify/request", "verify-request"), route("/settings/password", "password")];
+  return [route("/auth/login", "login"), route("/auth/signup", "signup"), route("/auth/password-reset", "reset"), route("/auth/verify", "verify"), route("/auth/verify/request", "verify-request")];
 }
