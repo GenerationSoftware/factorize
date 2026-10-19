@@ -5,11 +5,12 @@ import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { hmac } from "./crypto";
 import type { Env, OAuthProps } from "./types";
 import type { Session } from "./session";
+import { ACCESS_SCOPES, normalizeScopes } from "./access-tokens";
 export const consentPreviewInput = z.object({ authorizationQuery: z.string().min(1).max(8192) }).strict();
-export const consentDecisionInput = z.object({ request: z.string().min(1).max(16384), signature: z.string().min(1).max(256), decision: z.enum(["allow", "deny"]), scopes: z.array(z.enum(["flows:read", "flows:write", "runs:read", "runs:write"])) }).strict();
+export const consentDecisionInput = z.object({ request: z.string().min(1).max(16384), signature: z.string().min(1).max(256), decision: z.enum(["allow", "deny"]), scopes: z.array(z.string()) }).strict();
 export const consentPreviewResponse = z.object({ clientName: z.string(), scopes: z.array(z.string()), request: z.string(), signature: z.string(), expiresAt: z.string() });
 export const consentDecisionResponse = z.object({ redirectTo: z.string() });
-const supported = ["flows:read", "flows:write", "runs:read", "runs:write"];
+const supported = [...ACCESS_SCOPES, "flows:read", "flows:write", "runs:write"];
 const encode = (value: unknown) => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
 const decode = (value: string) => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(value), char => char.charCodeAt(0))));
 const binding = (payload: string, session: Session) => `${payload}.${session.tenantId}.${session.userId}.${session.sessionVersion}`;
@@ -33,7 +34,8 @@ export async function consentPreview(env: Env, session: Session, input: z.infer<
   const nonce = crypto.randomUUID();
   await databaseFor(env).pool.query("INSERT INTO app.oauth_consent_previews(id,expires_at) VALUES ($1,$2)", [nonce, new Date(expiresAt * 1000)]);
   const request = encode({ parsed, expiresAt, nonce, connection: connectionId });
-  return { clientName: client.clientName ?? "this client", scopes: parsed.scope.filter(scope => supported.includes(scope)), request, signature: await hmac(binding(request, session), env.SESSION_SIGNING_SECRET), expiresAt: new Date(expiresAt * 1000).toISOString() };
+  const requestedScopes = parsed.scope.filter(scope => supported.includes(scope));
+  return { clientName: client.clientName ?? "this client", scopes: requestedScopes.some(scope => scope.startsWith("flows:") || scope === "runs:write") ? requestedScopes : normalizeScopes(requestedScopes), request, signature: await hmac(binding(request, session), env.SESSION_SIGNING_SECRET), expiresAt: new Date(expiresAt * 1000).toISOString() };
 }
 export async function consentDecision(env: Env, session: Session, input: z.infer<typeof consentDecisionInput>) {
   if (!env.OAUTH_PROVIDER || !equal(input.signature, await hmac(binding(input.request, session), env.SESSION_SIGNING_SECRET))) return null;
@@ -44,7 +46,11 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
   // Revalidate client registration and redirect URI before grant issuance.
   const client = await env.OAUTH_PROVIDER.lookupClient(parsed.clientId);
   if (!client || !client.redirectUris.includes(parsed.redirectUri)) return null;
-  if (input.scopes.some(scope => !parsed.scope.includes(scope) || !supported.includes(scope))) return null;
+  const allowed = new Set(normalizeScopes(parsed.scope.filter(scope => supported.includes(scope))));
+  const legacyRequest = parsed.scope.some(scope => scope === "flows:read" || scope === "flows:write" || scope === "runs:write");
+  const selected = normalizeScopes(input.scopes);
+  const issuedScopes = legacyRequest ? input.scopes : selected;
+  if (input.scopes.some(scope => !allowed.has(scope) && !allowed.has(normalizeScopes([scope])[0] ?? "") ) || selected.some(scope => !ACCESS_SCOPES.includes(scope as typeof ACCESS_SCOPES[number]))) return null;
   return databaseFor(env).transaction(async transaction => {
     const preview = await transaction.query("UPDATE app.oauth_consent_previews SET used_at=now() WHERE id=$1 AND used_at IS NULL AND expires_at>clock_timestamp() RETURNING id", [envelope.nonce]);
     if (!preview.rows.length) return null;
@@ -53,8 +59,8 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
       if (!consumed.rows.length) return null;
     }
     if (input.decision === "deny") { const redirect = new URL(parsed.redirectUri); redirect.searchParams.set("error", "access_denied"); redirect.searchParams.set("state", parsed.state); if (parsed.issuer) redirect.searchParams.set("iss", parsed.issuer); return { redirectTo: redirect.toString() }; }
-    const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: input.scopes, authMethod: "oauth" };
-    const { redirectTo } = await env.OAUTH_PROVIDER!.completeAuthorization({ request: parsed, userId: session.userId, metadata: { tenantId: session.tenantId }, scope: input.scopes, props });
+    const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: issuedScopes, authMethod: "oauth" };
+    const { redirectTo } = await env.OAUTH_PROVIDER!.completeAuthorization({ request: parsed, userId: session.userId, metadata: { tenantId: session.tenantId }, scope: issuedScopes, props });
     return { redirectTo };
   });
 }

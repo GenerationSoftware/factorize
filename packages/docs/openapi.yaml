@@ -1402,10 +1402,15 @@ paths:
                         items:
                           type: string
                           enum:
-                            - flows:read
-                            - flows:write
+                            - projects:read
+                            - projects:write
+                            - jobs:read
+                            - jobs:write
                             - runs:read
-                            - runs:write
+                            - runs:invoke
+                            - runs:cancel
+                            - integrations:read
+                            - integrations:write
                       expiresAt:
                         type: string
                         format: date-time
@@ -2313,11 +2318,6 @@ paths:
                   type: array
                   items:
                     type: string
-                    enum:
-                      - flows:read
-                      - flows:write
-                      - runs:read
-                      - runs:write
               required:
                 - request
                 - signature
@@ -2377,7 +2377,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the jobs:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_trigger_contexts
@@ -2386,7 +2386,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: jobs:read
       x-owner-session-required: false
   /api/v1/exe-connections:
     get:
@@ -2446,7 +2446,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_exe_connections
@@ -2455,7 +2455,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
   /api/v1/github-installations:
     get:
@@ -2509,7 +2509,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_github_installations
@@ -2518,7 +2518,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
   /api/v1/execution-targets:
     get:
@@ -2596,7 +2596,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_execution_targets
@@ -2605,7 +2605,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
     post:
       summary: Create execution target
@@ -2682,7 +2682,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_execution_targets
@@ -2691,7 +2691,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       requestBody:
         required: true
@@ -2804,7 +2804,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: put_api_v1_execution_targets_targetId
@@ -2813,7 +2813,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       parameters:
         - name: targetId
@@ -2883,7 +2883,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: delete_api_v1_execution_targets_targetId
@@ -2892,7 +2892,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       parameters:
         - name: targetId
@@ -2984,7 +2984,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_execution_targets_targetId_diagnostics
@@ -2993,7 +2993,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       parameters:
         - name: targetId
@@ -3056,7 +3056,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the jobs:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_job_trigger_availability
@@ -3065,7 +3065,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: jobs:read
       x-owner-session-required: false
   /api/v1/schedules/preview:
     post:
@@ -3102,7 +3102,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the jobs:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_schedules_preview
@@ -3111,7 +3111,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: jobs:read
       x-owner-session-required: false
       requestBody:
         required: true
@@ -3185,7 +3185,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_integrations_cloudflare_tail
@@ -3194,7 +3194,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
     post:
       summary: Create a Tail integration
@@ -3243,7 +3243,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_integrations_cloudflare_tail
@@ -3252,7 +3252,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       requestBody:
         required: true
@@ -3466,7 +3466,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_integrations
@@ -3475,7 +3475,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
   /api/v1/integrations/exe:
     put:
@@ -3520,7 +3520,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: put_api_v1_integrations_exe
@@ -3529,7 +3529,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       requestBody:
         required: true
@@ -3630,7 +3630,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_integrations_exe_test
@@ -3639,7 +3639,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       requestBody:
         required: true
@@ -3705,7 +3705,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: put_api_v1_integrations_amp
@@ -3714,7 +3714,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       requestBody:
         required: true
@@ -3774,7 +3774,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_integrations_amp_test
@@ -3783,7 +3783,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       requestBody:
         required: true
@@ -3843,7 +3843,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_providers_linear_projects
@@ -3852,7 +3852,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
   /api/v1/providers/linear/options:
     get:
@@ -3926,7 +3926,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_providers_linear_options
@@ -3935,7 +3935,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
   /api/v1/providers/clickup/lists:
     get:
@@ -3975,7 +3975,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_providers_clickup_lists
@@ -3984,7 +3984,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
   /api/v1/providers/clickup/options:
     get:
@@ -4058,7 +4058,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_providers_clickup_options
@@ -4067,7 +4067,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
       parameters:
         - name: listId
@@ -4128,7 +4128,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_providers_github_installations
@@ -4137,7 +4137,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
   /api/v1/access/authorized-clients:
     get:
@@ -4198,7 +4198,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the jobs:read scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       operationId: get_api_v1_access_authorized_clients
@@ -4207,7 +4207,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: jobs:read
       x-owner-session-required: true
   /api/v1/access-tokens:
     get:
@@ -4231,10 +4231,15 @@ paths:
                       items:
                         type: string
                         enum:
-                          - flows:read
-                          - flows:write
+                          - projects:read
+                          - projects:write
+                          - jobs:read
+                          - jobs:write
                           - runs:read
-                          - runs:write
+                          - runs:invoke
+                          - runs:cancel
+                          - integrations:read
+                          - integrations:write
                     created_at:
                       type: string
                     expires_at:
@@ -4271,7 +4276,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the jobs:read scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       operationId: get_api_v1_access_tokens
@@ -4280,7 +4285,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: jobs:read
       x-owner-session-required: true
     post:
       summary: Create an access token
@@ -4301,10 +4306,15 @@ paths:
                     items:
                       type: string
                       enum:
-                        - flows:read
-                        - flows:write
+                        - projects:read
+                        - projects:write
+                        - jobs:read
+                        - jobs:write
                         - runs:read
-                        - runs:write
+                        - runs:invoke
+                        - runs:cancel
+                        - integrations:read
+                        - integrations:write
                   created_at:
                     type: string
                   expires_at:
@@ -4346,7 +4356,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the jobs:write scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       operationId: post_api_v1_access_tokens
@@ -4355,7 +4365,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: jobs:write
       x-owner-session-required: true
       requestBody:
         required: true
@@ -4372,12 +4382,23 @@ paths:
                   minItems: 1
                   type: array
                   items:
-                    type: string
-                    enum:
-                      - flows:read
-                      - flows:write
-                      - runs:read
-                      - runs:write
+                    anyOf:
+                      - type: string
+                        enum:
+                          - projects:read
+                          - projects:write
+                          - jobs:read
+                          - jobs:write
+                          - runs:read
+                          - runs:invoke
+                          - runs:cancel
+                          - integrations:read
+                          - integrations:write
+                      - type: string
+                        enum:
+                          - flows:read
+                          - flows:write
+                          - runs:write
                 expiryDays:
                   anyOf:
                     - type: number
@@ -4417,7 +4438,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the jobs:write scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       operationId: delete_api_v1_access_tokens_tokenId
@@ -4426,7 +4447,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: jobs:write
       x-owner-session-required: true
       parameters:
         - name: tokenId
@@ -4462,7 +4483,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the jobs:write scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       operationId: delete_api_v1_access_authorized_clients_clientId
@@ -4471,7 +4492,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: jobs:write
       x-owner-session-required: true
       parameters:
         - name: clientId
@@ -4507,7 +4528,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: delete_api_v1_integrations_exe_connectionId
@@ -4516,7 +4537,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       parameters:
         - name: connectionId
@@ -4552,7 +4573,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: delete_api_v1_integrations_amp_connectionId
@@ -4561,7 +4582,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       parameters:
         - name: connectionId
@@ -4618,7 +4639,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: put_api_v1_integrations_cloudflare_tail_integrationId
@@ -4627,7 +4648,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       parameters:
         - name: integrationId
@@ -4687,7 +4708,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: delete_api_v1_integrations_cloudflare_tail_integrationId
@@ -4696,7 +4717,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       parameters:
         - name: integrationId
@@ -4738,7 +4759,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_integrations_cloudflare_tail_integrationId_test
@@ -4747,7 +4768,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       parameters:
         - name: integrationId
@@ -4808,7 +4829,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_providers_github_installations_installationId_repositories
@@ -4817,7 +4838,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
       parameters:
         - name: installationId
@@ -4898,7 +4919,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the integrations:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_providers_github_installations_installationId_repositories_repositoryId_issue_options
@@ -4907,7 +4928,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: integrations:read
       x-owner-session-required: false
       parameters:
         - name: installationId
@@ -4949,7 +4970,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: delete_api_v1_providers_github_installations_installationId
@@ -4958,7 +4979,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       parameters:
         - name: installationId
@@ -4994,7 +5015,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the integrations:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_integrations_exe_connectionId_diagnostics
@@ -5003,7 +5024,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: integrations:write
       x-owner-session-required: false
       parameters:
         - name: connectionId
@@ -5018,7 +5039,7 @@ paths:
       description: |-
         Additive list representation, ordered by immutable UUID descending. Cursor is the last ID; filters must remain the same between pages. Literal case-insensitive name/slug search. No prompts or trigger configuration; statistics are batched. Existing GET /jobs remains an array.
 
-        Requires the flows:read scope.
+        Requires the jobs:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       responses:
@@ -5129,7 +5150,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: jobs:read
       x-owner-session-required: false
       parameters:
         - name: projectId
@@ -5228,7 +5249,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the jobs:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_job_selector
@@ -5237,7 +5258,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: jobs:read
       x-owner-session-required: false
       parameters:
         - name: projectId
@@ -5330,7 +5351,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the projects:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_projects
@@ -5339,7 +5360,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: projects:read
       x-owner-session-required: false
     post:
       summary: Create project
@@ -5393,7 +5414,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the projects:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_projects
@@ -5402,7 +5423,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: projects:write
       x-owner-session-required: false
       requestBody:
         required: true
@@ -5472,7 +5493,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the projects:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_projects_projectId
@@ -5481,7 +5502,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: projects:read
       x-owner-session-required: false
       parameters:
         - name: projectId
@@ -5542,7 +5563,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the projects:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: put_api_v1_projects_projectId
@@ -5551,7 +5572,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: projects:write
       x-owner-session-required: false
       parameters:
         - name: projectId
@@ -5603,7 +5624,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the projects:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: delete_api_v1_projects_projectId
@@ -5612,7 +5633,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: projects:write
       x-owner-session-required: false
       parameters:
         - name: projectId
@@ -6078,7 +6099,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the projects:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_jobs_jobId_project
@@ -6087,7 +6108,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: projects:write
       x-owner-session-required: false
       parameters:
         - name: jobId
@@ -6570,7 +6591,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the jobs:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_jobs
@@ -6579,7 +6600,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: jobs:read
       x-owner-session-required: false
     post:
       summary: Create job
@@ -7037,7 +7058,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the jobs:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_jobs
@@ -7046,7 +7067,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: jobs:write
       x-owner-session-required: false
       requestBody:
         required: true
@@ -7060,7 +7081,7 @@ paths:
       description: |-
         Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke jobs.
 
-        Requires the flows:write scope.
+        Requires the jobs:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       responses:
@@ -7114,7 +7135,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: jobs:write
       x-owner-session-required: false
       requestBody:
         required: true
@@ -7166,7 +7187,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the runs:write scope.
+        Requires the runs:invoke scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_jobs_jobId_invocations
@@ -7175,7 +7196,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: runs:write
+      x-required-scope: runs:invoke
       x-owner-session-required: false
       parameters:
         - name: jobId
@@ -7272,7 +7293,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the jobs:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_jobs_jobId_enable
@@ -7281,7 +7302,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: jobs:write
       x-owner-session-required: false
       parameters:
         - name: jobId
@@ -7317,7 +7338,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the jobs:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_jobs_jobId_disable
@@ -7326,7 +7347,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: jobs:write
       x-owner-session-required: false
       parameters:
         - name: jobId
@@ -7790,7 +7811,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:read scope.
+        Requires the jobs:read scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: get_api_v1_jobs_jobId
@@ -7799,7 +7820,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:read
+      x-required-scope: jobs:read
       x-owner-session-required: false
       parameters:
         - name: jobId
@@ -7813,7 +7834,7 @@ paths:
       description: |-
         Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_job. Omission preserves legacy REST/MCP last-writer-wins updates. Trigger identity is preserved.
 
-        Requires the flows:write scope.
+        Requires the jobs:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       responses:
@@ -8276,7 +8297,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: jobs:write
       x-owner-session-required: false
       parameters:
         - name: jobId
@@ -8622,7 +8643,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the flows:write scope.
+        Requires the jobs:write scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: delete_api_v1_jobs_jobId
@@ -8631,7 +8652,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: flows:write
+      x-required-scope: jobs:write
       x-owner-session-required: false
       parameters:
         - name: jobId
@@ -8774,7 +8795,7 @@ paths:
       description: |-
         Search uses PostgreSQL pg_trgm approximate matching over job names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.
 
-        Requires the runs:read scope.
+        Requires the jobs:read and runs:read scopes.
 
         Accepts a scoped bearer token or interactive owner session.
       responses:
@@ -8882,7 +8903,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: runs:read
+      x-required-scope: jobs:read+runs:read
       x-owner-session-required: false
       parameters:
         - name: q
@@ -9393,9 +9414,9 @@ paths:
     post:
       summary: Replay a retained trace artifact or restore a native-session projection
       description: |-
-        Requires runs:write and an interactive tenant owner session. One terminal run per request, limited to 10 attempts per tenant per minute including retries and failures. Projection and result commit atomically; no artifacts are deleted. Retry failed requests with the same requestId. Conflicting reuse is rejected. Missing bytes cannot be recovered. Does not change the source declaration of an active or future run.
+        Requires runs:cancel and an interactive tenant owner session. One terminal run per request, limited to 10 attempts per tenant per minute including retries and failures. Projection and result commit atomically; no artifacts are deleted. Retry failed requests with the same requestId. Conflicting reuse is rejected. Missing bytes cannot be recovered. Does not change the source declaration of an active or future run.
 
-        Requires the runs:write scope.
+        Requires the runs:cancel scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       responses:
@@ -9413,7 +9434,7 @@ paths:
           description: Invalid owner session
         "403":
           $ref: "#/components/responses/Error403"
-          description: Missing runs:write scope or interactive owner session
+          description: Missing runs:cancel scope or interactive owner session
         "404":
           $ref: "#/components/responses/Error404"
           description: Run not found within the tenant
@@ -9436,7 +9457,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: runs:write
+      x-required-scope: runs:cancel
       x-owner-session-required: true
       parameters:
         - name: runId
@@ -9524,7 +9545,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the runs:write scope.
+        Requires the runs:cancel scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_runs_runId_stop
@@ -9533,7 +9554,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: runs:write
+      x-required-scope: runs:cancel
       x-owner-session-required: false
       parameters:
         - name: runId
@@ -9569,7 +9590,7 @@ paths:
         "503":
           $ref: "#/components/responses/Error503"
       description: |-
-        Requires the runs:write scope.
+        Requires the runs:cancel scope.
 
         Accepts a scoped bearer token or interactive owner session.
       operationId: post_api_v1_runs_runId_kill
@@ -9578,7 +9599,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: runs:write
+      x-required-scope: runs:cancel
       x-owner-session-required: false
       parameters:
         - name: runId
