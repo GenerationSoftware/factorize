@@ -5,13 +5,13 @@ import { api } from "factorize-api-client";
 import { validationMessage } from "./validation-message";
 import type { Trigger } from "./editor-state";
 type Conditions = Extract<Trigger, { kind: "webhook" }>["config"]["conditions"];
-export function ConditionsEditor({ conditions, onChange }: { conditions: Conditions; onChange: (value: Conditions) => void }) {
+export function ConditionsEditor({ conditions, onChange, onValidityChange }: { conditions: Conditions; onChange: (value: Conditions) => void; onValidityChange?: (invalid: boolean) => void }) {
   const [text, setText] = useState(() => conditions === undefined ? "" : JSON.stringify(conditions, null, 2));
   const [webhook, setWebhook] = useState("{}"), [invalid, setInvalid] = useState("");
   const accepted = useRef(JSON.stringify(conditions));
   useEffect(() => {
     const value = JSON.stringify(conditions);
-    if (value !== accepted.current) { accepted.current = value; setText(conditions === undefined ? "" : JSON.stringify(conditions, null, 2)); setInvalid(""); }
+    if (value !== accepted.current) { accepted.current = value; setText(conditions === undefined ? "" : JSON.stringify(conditions, null, 2)); setInvalid(""); onValidityChange?.(false); }
   }, [conditions]);
   const test = useMutation({ retry: false, mutationFn: async () => {
     const example: unknown = JSON.parse(webhook);
@@ -21,8 +21,8 @@ export function ConditionsEditor({ conditions, onChange }: { conditions: Conditi
   } });
   return <div className="grid gap-3"><Label>Conditions JSON (optional) <Textarea maxLength={16_384} rows={8} value={text} onChange={e => {
     const value = e.target.value; setText(value); test.reset();
-    try { const parsed = value.trim() ? JSON.parse(value) : undefined; setInvalid(""); accepted.current = JSON.stringify(parsed); onChange(parsed); }
-    catch { setInvalid("Conditions must be valid JSON before saving."); }
+    try { const parsed = value.trim() ? JSON.parse(value) : undefined; setInvalid(""); onValidityChange?.(false); accepted.current = JSON.stringify(parsed); onChange(parsed); }
+    catch { setInvalid("Conditions must be valid JSON before saving."); onValidityChange?.(true); }
   }} ref={element => element?.setCustomValidity(invalid)} /></Label>
     {invalid && <p role="alert">{invalid}</p>}<p>Empty conditions add no filtering. Conditions only decide whether to invoke; prompt context stays intact.</p>
     <Disclosure><Summary>Test webhook conditions</Summary><p>Supply the prepared context the job would receive. This preview does not authenticate, route events, verify live GitHub state, or invoke jobs.</p>

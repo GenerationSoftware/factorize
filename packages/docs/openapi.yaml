@@ -3558,7 +3558,6 @@ paths:
                     type: string
                     pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
               required:
-                - apiToken
                 - agentKind
   /api/v1/integrations/exe/test:
     post:
@@ -3736,9 +3735,6 @@ paths:
                 apiBaseUrl:
                   type: string
                   format: uri
-              required:
-                - accessToken
-                - project
   /api/v1/integrations/amp/test:
     post:
       summary: Test Amp credentials

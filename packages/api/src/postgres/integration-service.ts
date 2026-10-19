@@ -14,10 +14,12 @@ export class IntegrationService {
   constructor(private database: Database, private tenantId: string, encryptionKey: string) { this.connections = new ConnectionRepository(database, tenantId, encryptionKey); }
 
   async saveExe(value: ExeConnectionInput) {
-    if (!value.apiToken || !["codex", "claude", "pi"].includes(value.agentKind)) throw new Error("An account-level exe.dev HTTPS token and agent are required");
+    const existing = value.connectionId ? await this.connections.get<ExeConnection>(`exe:${value.connectionId}`) : null;
+    const apiToken = value.apiToken || existing?.apiToken;
+    if (!apiToken || !["codex", "claude", "pi"].includes(value.agentKind)) throw new Error("An account-level exe.dev HTTPS token and agent are required");
     const tags = Array.isArray(value.tags) ? value.tags.map(String).map(tag => tag.trim()).filter(Boolean) : [];
     if (tags.length > 20 || tags.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) throw new Error("VM tags are invalid");
-    const candidate: ExeConnection = { apiToken: value.apiToken, tags, agentKind: value.agentKind, models: [], modelsRefreshedAt: "" };
+    const candidate: ExeConnection = { apiToken, tags, agentKind: value.agentKind, models: [], modelsRefreshedAt: "" };
     const backend = new ExeVmBackend(candidate), permissions = await backend.testPermissions();
     if (!permissions.ok) throw new Error(`exe.dev token is missing required permissions: ${permissions.missingPermissions.join(", ")}`);
     const validation = await backend.validateAgentAndModels(value.agentKind), connectionId = value.connectionId || crypto.randomUUID();
@@ -47,7 +49,7 @@ export class IntegrationService {
     try { const validation = await backend.validateAgentAndModels(agentKind); return { ok: true, targetId, integrationId: connectionId, agentKind, tags, permissions: { ok: true, missing: [], tags: permissions.tags }, agent: { ok: true, models: validation.models } }; }
     catch (error) { return { ok: false, targetId, integrationId: connectionId, agentKind, tags, permissions: { ok: true, missing: [], tags: permissions.tags }, agent: { ok: false, error: error instanceof Error ? error.message.slice(0, 500) : "Agent validation failed" } }; }
   }
-  async saveAmp(value: AmpConnectionInput) { if (!value.accessToken || !value.project) throw new Error("Amp access token and project are required"); if (!await new AmpBackend(value).test()) throw new Error("Amp connection verification failed"); const connectionId = value.connectionId || crypto.randomUUID(); await this.connections.put(`amp:${connectionId}`, value); await this.database.pool.query("INSERT INTO app.execution_targets(tenant_id,id,name,integration_kind,integration_id,tags,agent_kind) VALUES ($1,gen_random_uuid(),$2,'amp',$3,'[]','Amp') ON CONFLICT (tenant_id,integration_kind,integration_id,name) DO NOTHING", [this.tenantId, `Amp · ${value.project}`, connectionId]); return { ok: true, connectionId }; }
+  async saveAmp(value: AmpConnectionInput) { const existing = value.connectionId ? await this.connections.get<AmpConnection>(`amp:${value.connectionId}`) : null, accessToken = value.accessToken || existing?.accessToken, project = value.project || existing?.project; if (!accessToken || !project) throw new Error("Amp access token and project are required"); const connection = { ...existing, ...value, accessToken, project }; if (!await new AmpBackend(connection).test()) throw new Error("Amp connection verification failed"); const connectionId = value.connectionId || crypto.randomUUID(); await this.connections.put(`amp:${connectionId}`, connection); await this.database.pool.query("INSERT INTO app.execution_targets(tenant_id,id,name,integration_kind,integration_id,tags,agent_kind) VALUES ($1,gen_random_uuid(),$2,'amp',$3,'[]','Amp') ON CONFLICT (tenant_id,integration_kind,integration_id,name) DO NOTHING", [this.tenantId, `Amp · ${project}`, connectionId]); return { ok: true, connectionId }; }
   async testAmp(input: Partial<AmpConnectionInput>) { const saved = input.connectionId ? await this.connections.get<AmpConnection>(`amp:${input.connectionId}`) : null, connection = input.accessToken ? input as AmpConnection : saved; if (!connection?.accessToken || !connection.project) throw new Error("Amp connection is required"); return { ok: await new AmpBackend(connection).test() }; }
 
   async remove(kind: "exe" | "amp", id: string) {
