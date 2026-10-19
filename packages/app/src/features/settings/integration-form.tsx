@@ -6,7 +6,7 @@ import { api } from "factorize-api-client";
 import { integrationsQuery } from "./queries";
 import { messageOf } from "../auth/session";
 export function IntegrationForm({ kind, connectionId, initialName = "", initialAgent = "codex", initialTags = [], initialApiBaseUrl }: { kind: "exe" | "amp" | "cloudflareTail"; connectionId?: string; initialName?: string; initialAgent?: "codex" | "claude" | "pi"; initialTags?: string[]; initialApiBaseUrl?: string }) {
-  const cache = useQueryClient(), [credential, setCredential] = useState(""), [name, setName] = useState(initialName), [agentKind, setAgentKind] = useState<"codex" | "claude" | "pi">(initialAgent), [tags, setTags] = useState<string[]>(initialTags), [generatedSecret, setGeneratedSecret] = useState(""), savedSnapshot = useRef("");
+  const cache = useQueryClient(), [credential, setCredential] = useState(""), [name, setName] = useState(initialName), [agentKind, setAgentKind] = useState<"codex" | "claude" | "pi">(initialAgent), [tags, setTags] = useState<string[]>(initialTags), [generatedSecret, setGeneratedSecret] = useState(""), [savedFeedback, setSavedFeedback] = useState(false), savedSnapshot = useRef("");
   const test = useMutation({ retry: false, mutationFn: async () => {
     if (kind === "exe") { const { data, error } = await api.POST("/api/v1/integrations/exe/test", { body: { apiToken: credential || undefined, connectionId } }); if (!data || error) throw new Error(messageOf(error)); return data; }
     if (kind === "amp") { const { data, error } = await api.POST("/api/v1/integrations/amp/test", { body: { accessToken: credential || undefined, project: name || undefined, apiBaseUrl: initialApiBaseUrl, connectionId } }); if (!data || error) throw new Error(messageOf(error)); return { ...data, tags: [] }; }
@@ -18,7 +18,7 @@ export function IntegrationForm({ kind, connectionId, initialName = "", initialA
     const body = { name, signingSecret: credential || undefined, generateSecret: !credential && !connectionId };
     const { data, error } = connectionId ? await api.PUT("/api/v1/integrations/cloudflare-tail/{integrationId}", { params: { path: { integrationId: connectionId } }, body }) : await api.POST("/api/v1/integrations/cloudflare-tail", { body });
     if (!data || error) throw new Error(messageOf(error)); setGeneratedSecret(data.generatedSecret ?? ""); return { saved: true };
-  }, onSuccess: async () => { setCredential(""); test.reset(); await cache.invalidateQueries({ queryKey: integrationsQuery.queryKey }); await cache.invalidateQueries({ queryKey: ["providers"] }); await cache.invalidateQueries({ queryKey: ["editor"] }); } });
+  }, onSuccess: async () => { setCredential(""); setSavedFeedback(true); test.reset(); await cache.invalidateQueries({ queryKey: integrationsQuery.queryKey }); await cache.invalidateQueries({ queryKey: ["providers"] }); await cache.invalidateQueries({ queryKey: ["editor"] }); } });
   const value = { credential, name, agentKind, tags };
   if (!savedSnapshot.current) savedSnapshot.current = JSON.stringify({ credential: "", name: initialName, agentKind: initialAgent, tags: initialTags });
   const validate = (next: typeof value) => {
@@ -36,7 +36,7 @@ export function IntegrationForm({ kind, connectionId, initialName = "", initialA
     {kind !== "cloudflareTail" && <Button type="button" disabled={test.isPending || save.isPending} onClick={() => test.mutate()}>Test credentials</Button>}
     {test.data && <p role="status">{test.data.ok ? "Credentials verified" : "Credential test failed"}</p>}
     {!connectionId && <Button variant="primary" disabled={save.isPending || test.isPending}>{save.isPending ? "Saving…" : "Save integration"}</Button>}
-    {connectionId && <AutosaveStatus state={autosave.state} error={autosave.error} label="Integration" />}{!connectionId && save.isSuccess && <p role="status" aria-live="polite">Integration saved</p>}{[test.error, save.error].filter(Boolean).map((error, index) => <p key={index} role="alert">{error?.message}</p>)}
+    {connectionId && <AutosaveStatus state={autosave.state} error={autosave.error} label="Integration" />}{!connectionId && savedFeedback && <p role="status" aria-live="polite">Integration saved</p>}{[test.error, save.error].filter(Boolean).map((error, index) => <p key={index} role="alert">{error?.message}</p>)}
     {generatedSecret && <Card role="status"><p>Copy this signing secret now; it is displayed only once.</p><pre className="whitespace-pre-wrap break-all">{generatedSecret}</pre><Button type="button" onClick={() => setGeneratedSecret("")}>Dismiss secret</Button></Card>}
   </form>;
 }
