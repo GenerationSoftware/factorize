@@ -41,7 +41,7 @@ export interface RouteContract {
 const exeBody = z.object({
   connectionId: z.string().min(1).optional(),
   apiToken: z.string().min(1).meta({ writeOnly: true }).optional(),
-  agentKind: z.enum(["codex", "claude", "pi"]),
+  agentKind: z.enum(["codex", "claude", "pi"]).optional(),
   tags: z
     .array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/))
     .max(20)

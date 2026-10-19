@@ -2,8 +2,9 @@ import type { AgentKind } from "./agent-driver";
 
 export interface ExeConnection {
   apiToken: string;
-  tags: string[];
-  agentKind: AgentKind;
+  /** Legacy fields are read only during the migration window. Targets are authoritative. */
+  tags?: string[];
+  agentKind?: AgentKind;
   models?: string[];
   modelsRefreshedAt?: string;
 }

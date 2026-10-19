@@ -139,10 +139,13 @@ export class PostgresJobRepository implements JobRepository {
       await reserveExecutionSlot(client, this.tenantId, invocation.jobId, run, concurrencyLimit);
       await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,run_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_target,execution_capabilities,created_at,updated_at)
-        SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_target->>'agentKind',$7,
-          CASE WHEN j.execution_target->>'agentKind'='Amp' THEN 'amp' ELSE 'exe-vm' END,
-          j.execution_target || jsonb_build_object('model',j.model,'effort',j.effort), CASE WHEN j.execution_target->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,$9,$10
-        FROM app.jobs j WHERE j.tenant_id=$1 AND j.id=$3`, [this.tenantId, run.id, run.jobId, run.invocationId, invocation.source, invocation.claimKey, run.state, run.runName ?? "", run.createdAt, run.updatedAt]);
+        SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,COALESCE(t.agent_kind,j.execution_target->>'agentKind'),$7,
+          CASE WHEN COALESCE(t.agent_kind,j.execution_target->>'agentKind')='Amp' THEN 'amp' ELSE 'exe-vm' END,
+          CASE WHEN t.id IS NULL THEN j.execution_target || jsonb_build_object('model',j.model,'effort',j.effort)
+            ELSE jsonb_build_object('targetId',t.id,'connectionId',t.integration_id,'agentKind',t.agent_kind,'model',t.model,'effort',t.effort,'tags',t.tags) END,
+          CASE WHEN COALESCE(t.agent_kind,j.execution_target->>'agentKind')='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,$9,$10
+        FROM app.jobs j LEFT JOIN app.execution_targets t ON t.tenant_id=j.tenant_id AND t.id::text=j.execution_target->>'targetId'
+        WHERE j.tenant_id=$1 AND j.id=$3`, [this.tenantId, run.id, run.jobId, run.invocationId, invocation.source, invocation.claimKey, run.state, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");
       return true;
     });

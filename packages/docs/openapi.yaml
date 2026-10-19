@@ -2403,31 +2403,18 @@ paths:
                   properties:
                     connectionId:
                       type: string
-                    agentKind:
+                    credentialStatus:
                       type: string
-                      enum:
-                        - codex
-                        - claude
-                        - pi
-                    tags:
+                      const: connected
+                    accountTags:
                       default: []
                       type: array
                       items:
                         type: string
-                    models:
-                      default: []
-                      type: array
-                      items:
-                        type: string
-                    modelsRefreshedAt:
-                      default: ""
-                      type: string
                   required:
                     - connectionId
-                    - agentKind
-                    - tags
-                    - models
-                    - modelsRefreshedAt
+                    - credentialStatus
+                    - accountTags
                   additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -2554,6 +2541,12 @@ paths:
                       type: array
                       items:
                         type: string
+                    model:
+                      default: ""
+                      type: string
+                    effort:
+                      default: ""
+                      type: string
                     models:
                       type: array
                       items:
@@ -2577,6 +2570,8 @@ paths:
                     - workspace
                     - cwd
                     - agentKind
+                    - model
+                    - effort
                     - capabilities
                   additionalProperties: false
         "400":
@@ -2638,6 +2633,12 @@ paths:
                     type: array
                     items:
                       type: string
+                  model:
+                    default: ""
+                    type: string
+                  effort:
+                    default: ""
+                    type: string
                   models:
                     type: array
                     items:
@@ -2661,6 +2662,8 @@ paths:
                   - workspace
                   - cwd
                   - agentKind
+                  - model
+                  - effort
                   - capabilities
                 additionalProperties: false
         "400":
@@ -2760,6 +2763,12 @@ paths:
                     type: array
                     items:
                       type: string
+                  model:
+                    default: ""
+                    type: string
+                  effort:
+                    default: ""
+                    type: string
                   models:
                     type: array
                     items:
@@ -2783,6 +2792,8 @@ paths:
                   - workspace
                   - cwd
                   - agentKind
+                  - model
+                  - effort
                   - capabilities
                 additionalProperties: false
         "400":
@@ -3325,31 +3336,18 @@ paths:
                         properties:
                           connectionId:
                             type: string
-                          agentKind:
+                          credentialStatus:
                             type: string
-                            enum:
-                              - codex
-                              - claude
-                              - pi
-                          tags:
+                            const: connected
+                          accountTags:
                             default: []
                             type: array
                             items:
                               type: string
-                          models:
-                            default: []
-                            type: array
-                            items:
-                              type: string
-                          modelsRefreshedAt:
-                            default: ""
-                            type: string
                         required:
                           - connectionId
-                          - agentKind
-                          - tags
-                          - models
-                          - modelsRefreshedAt
+                          - credentialStatus
+                          - accountTags
                         additionalProperties: false
                       - type: "null"
                   exeConnections:
@@ -3359,31 +3357,18 @@ paths:
                       properties:
                         connectionId:
                           type: string
-                        agentKind:
+                        credentialStatus:
                           type: string
-                          enum:
-                            - codex
-                            - claude
-                            - pi
-                        tags:
+                          const: connected
+                        accountTags:
                           default: []
                           type: array
                           items:
                             type: string
-                        models:
-                          default: []
-                          type: array
-                          items:
-                            type: string
-                        modelsRefreshedAt:
-                          default: ""
-                          type: string
                       required:
                         - connectionId
-                        - agentKind
-                        - tags
-                        - models
-                        - modelsRefreshedAt
+                        - credentialStatus
+                        - accountTags
                       additionalProperties: false
                   ampConnections:
                     type: array
@@ -3499,7 +3484,6 @@ paths:
                 required:
                   - ok
                   - connectionId
-                  - models
                 additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -3557,8 +3541,6 @@ paths:
                   items:
                     type: string
                     pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
-              required:
-                - agentKind
   /api/v1/integrations/exe/test:
     post:
       summary: Test exe.dev credentials

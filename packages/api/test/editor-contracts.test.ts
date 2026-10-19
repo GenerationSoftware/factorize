@@ -4,7 +4,7 @@ import { jobResponse } from "../src/job-contracts";
 import { generateOpenApi } from "../src/api-contract";
 describe("public editor contracts", () => {
   it("describes required target metadata and provider resources without credential fields", () => {
-    const target = { id: "vm", kind: "exe-vm", name: "VM", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex", models: ["model"], modelsRefreshedAt: null, efforts: ["high"], capabilities: ["stop"] };
+    const target = { id: "vm", kind: "exe-vm", name: "VM", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex", model: "", effort: "", models: ["model"], modelsRefreshedAt: null, efforts: ["high"], capabilities: ["stop"] };
     expect(executionTargetResponse.parse({ ...target, apiToken: "private" })).toEqual(target);
     expect(executionTargetResponse.safeParse({ ...target, models: [42] }).success).toBe(false);
     expect(triggerAvailabilityResponse.parse({ manual: true, schedule: true, jobLifecycle: true, linear: false, clickup: false, github: false, cloudflareTail: false }).linear).toBe(false);

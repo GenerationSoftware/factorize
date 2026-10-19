@@ -34,7 +34,7 @@ export class RunScheduler {
     const id = String(run.executionTarget.connectionId ?? "");
     if (run.executionTarget.agentKind === "Amp") { const connection = await this.connections(run).get<AmpConnection>(`amp:${id}`); if (!connection) throw new Error("Amp connection is unavailable"); return new AmpBackend(connection); }
     const connection = await this.connections(run).get<ExeRunConnection>(`exe:${id}`); if (!connection) throw new Error("exe.dev connection is unavailable");
-    return new ExeVmBackend({ ...connection, model: String(run.executionTarget.model ?? ""), effort: String(run.executionTarget.effort ?? "") });
+    return new ExeVmBackend({ ...connection, tags: Array.isArray(run.executionTarget.tags) ? run.executionTarget.tags : [], model: String(run.executionTarget.model ?? ""), effort: String(run.executionTarget.effort ?? "") });
   }
 
   private async launch(run: PersistedRun) {

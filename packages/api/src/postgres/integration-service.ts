@@ -16,17 +16,17 @@ export class IntegrationService {
   async saveExe(value: ExeConnectionInput) {
     const existing = value.connectionId ? await this.connections.get<ExeConnection>(`exe:${value.connectionId}`) : null;
     const apiToken = value.apiToken || existing?.apiToken;
-    if (!apiToken || !["codex", "claude", "pi"].includes(value.agentKind)) throw new Error("An account-level exe.dev HTTPS token and agent are required");
+    if (!apiToken) throw new Error("An exe.dev HTTPS token is required");
     const tags = Array.isArray(value.tags) ? value.tags.map(String).map(tag => tag.trim()).filter(Boolean) : [];
     if (tags.length > 20 || tags.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) throw new Error("VM tags are invalid");
-    const candidate: ExeConnection = { apiToken, tags, agentKind: value.agentKind, models: [], modelsRefreshedAt: "" };
+    const candidate: ExeConnection = { apiToken, tags, ...(value.agentKind ? { agentKind: value.agentKind } : {}) };
     const backend = new ExeVmBackend(candidate), permissions = await backend.testPermissions();
     if (!permissions.ok) throw new Error(`exe.dev token is missing required permissions: ${permissions.missingPermissions.join(", ")}`);
-    const validation = await backend.validateAgentAndModels(value.agentKind), connectionId = value.connectionId || crypto.randomUUID();
-    const saved = { ...candidate, models: validation.models, modelsRefreshedAt: timestamp() };
+    const validation = value.agentKind ? await backend.validateAgentAndModels(value.agentKind) : undefined, connectionId = value.connectionId || crypto.randomUUID();
+    const saved = { ...candidate, ...(validation ? { models: validation.models, modelsRefreshedAt: timestamp() } : {}) };
     await this.connections.put(`exe:${connectionId}`, saved);
     await this.database.pool.query("INSERT INTO app.execution_targets(tenant_id,id,name,integration_kind,integration_id,tags,agent_kind) VALUES ($1,gen_random_uuid(),$2,'exe',$3,$4,$5) ON CONFLICT (tenant_id,integration_kind,integration_id,name) DO NOTHING", [this.tenantId, `exe.dev · ${connectionId.slice(0, 8)}`, connectionId, JSON.stringify(tags), value.agentKind]);
-    return { ok: true, connectionId, models: validation.models };
+    return { ok: true, connectionId, ...(validation ? { models: validation.models } : {}) };
   }
   async testExe(input: Partial<ExeConnectionInput>) {
     const saved = input.connectionId ? await this.connections.get<ExeConnection>(`exe:${input.connectionId}`) : null;
@@ -38,7 +38,7 @@ export class IntegrationService {
     const connection = await this.connections.get<ExeConnection>(`exe:${connectionId}`); if (!connection) return null;
     const backend = new ExeVmBackend(connection), permissions = await backend.testPermissions();
     if (!permissions.ok) return { ok: false, connectionId, agentKind: connection.agentKind, permissions: { ok: false, missing: permissions.missingPermissions, tags: permissions.tags }, agent: null };
-    try { const validation = await backend.validateAgentAndModels(connection.agentKind); return { ok: true, connectionId, agentKind: connection.agentKind, permissions: { ok: true, missing: [], tags: permissions.tags }, agent: { ok: true, models: validation.models } }; }
+    try { const validation = connection.agentKind ? await backend.validateAgentAndModels(connection.agentKind) : undefined; return { ok: true, connectionId, agentKind: connection.agentKind, permissions: { ok: true, missing: [], tags: permissions.tags }, agent: validation ? { ok: true, models: validation.models } : null }; }
     catch (error) { return { ok: false, connectionId, agentKind: connection.agentKind, permissions: { ok: true, missing: [], tags: permissions.tags }, agent: { ok: false, error: error instanceof Error ? error.message.slice(0, 500) : "Agent validation failed" } }; }
   }
   async diagnoseExeTarget(targetId: string, connectionId: string, tags: string[], agentKind: "codex" | "claude" | "pi") {
