@@ -3760,7 +3760,7 @@ export interface operations {
             content: {
                 "application/json": {
                     name: string;
-                    scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write")[];
+                    scopes: (("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write") | ("flows:read" | "flows:write" | "runs:write"))[];
                     expiryDays: 7 | 30 | 90;
                 };
             };

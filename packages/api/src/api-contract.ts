@@ -104,7 +104,9 @@ const scheduleBody = z
   .strict();
 const accessTokenBody = z.object({
   name: z.string().trim().min(1).max(100),
-  scopes: z.array(scopeSchema).min(1),
+  // Legacy names remain accepted at this boundary for migration; the service
+  // immediately stores their canonical resource-scope expansion.
+  scopes: z.array(z.union([scopeSchema, z.enum(["flows:read", "flows:write", "runs:write"])] )).min(1),
   expiryDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
 });
 

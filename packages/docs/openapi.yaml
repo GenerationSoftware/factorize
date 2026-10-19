@@ -4382,17 +4382,23 @@ paths:
                   minItems: 1
                   type: array
                   items:
-                    type: string
-                    enum:
-                      - projects:read
-                      - projects:write
-                      - jobs:read
-                      - jobs:write
-                      - runs:read
-                      - runs:invoke
-                      - runs:cancel
-                      - integrations:read
-                      - integrations:write
+                    anyOf:
+                      - type: string
+                        enum:
+                          - projects:read
+                          - projects:write
+                          - jobs:read
+                          - jobs:write
+                          - runs:read
+                          - runs:invoke
+                          - runs:cancel
+                          - integrations:read
+                          - integrations:write
+                      - type: string
+                        enum:
+                          - flows:read
+                          - flows:write
+                          - runs:write
                 expiryDays:
                   anyOf:
                     - type: number
