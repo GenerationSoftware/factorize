@@ -2403,31 +2403,18 @@ paths:
                   properties:
                     connectionId:
                       type: string
-                    agentKind:
+                    credentialStatus:
                       type: string
-                      enum:
-                        - codex
-                        - claude
-                        - pi
-                    tags:
+                      const: connected
+                    accountTags:
                       default: []
                       type: array
                       items:
                         type: string
-                    models:
-                      default: []
-                      type: array
-                      items:
-                        type: string
-                    modelsRefreshedAt:
-                      default: ""
-                      type: string
                   required:
                     - connectionId
-                    - agentKind
-                    - tags
-                    - models
-                    - modelsRefreshedAt
+                    - credentialStatus
+                    - accountTags
                   additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -2554,6 +2541,12 @@ paths:
                       type: array
                       items:
                         type: string
+                    model:
+                      default: ""
+                      type: string
+                    effort:
+                      default: ""
+                      type: string
                     models:
                       type: array
                       items:
@@ -2577,6 +2570,8 @@ paths:
                     - workspace
                     - cwd
                     - agentKind
+                    - model
+                    - effort
                     - capabilities
                   additionalProperties: false
         "400":
@@ -2638,6 +2633,12 @@ paths:
                     type: array
                     items:
                       type: string
+                  model:
+                    default: ""
+                    type: string
+                  effort:
+                    default: ""
+                    type: string
                   models:
                     type: array
                     items:
@@ -2661,6 +2662,8 @@ paths:
                   - workspace
                   - cwd
                   - agentKind
+                  - model
+                  - effort
                   - capabilities
                 additionalProperties: false
         "400":
@@ -2723,6 +2726,18 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 40
+                model:
+                  default: ""
+                  type: string
+                  maxLength: 200
+                effort:
+                  default: ""
+                  type: string
+                  maxLength: 40
+                expectedUpdatedAt:
+                  type: string
+                  format: date-time
+                  pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
               required:
                 - name
                 - integrationKind
@@ -2760,6 +2775,12 @@ paths:
                     type: array
                     items:
                       type: string
+                  model:
+                    default: ""
+                    type: string
+                  effort:
+                    default: ""
+                    type: string
                   models:
                     type: array
                     items:
@@ -2783,6 +2804,8 @@ paths:
                   - workspace
                   - cwd
                   - agentKind
+                  - model
+                  - effort
                   - capabilities
                 additionalProperties: false
         "400":
@@ -2852,6 +2875,18 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 40
+                model:
+                  default: ""
+                  type: string
+                  maxLength: 200
+                effort:
+                  default: ""
+                  type: string
+                  maxLength: 40
+                expectedUpdatedAt:
+                  type: string
+                  format: date-time
+                  pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
               required:
                 - name
                 - integrationKind
@@ -3325,31 +3360,18 @@ paths:
                         properties:
                           connectionId:
                             type: string
-                          agentKind:
+                          credentialStatus:
                             type: string
-                            enum:
-                              - codex
-                              - claude
-                              - pi
-                          tags:
+                            const: connected
+                          accountTags:
                             default: []
                             type: array
                             items:
                               type: string
-                          models:
-                            default: []
-                            type: array
-                            items:
-                              type: string
-                          modelsRefreshedAt:
-                            default: ""
-                            type: string
                         required:
                           - connectionId
-                          - agentKind
-                          - tags
-                          - models
-                          - modelsRefreshedAt
+                          - credentialStatus
+                          - accountTags
                         additionalProperties: false
                       - type: "null"
                   exeConnections:
@@ -3359,31 +3381,18 @@ paths:
                       properties:
                         connectionId:
                           type: string
-                        agentKind:
+                        credentialStatus:
                           type: string
-                          enum:
-                            - codex
-                            - claude
-                            - pi
-                        tags:
+                          const: connected
+                        accountTags:
                           default: []
                           type: array
                           items:
                             type: string
-                        models:
-                          default: []
-                          type: array
-                          items:
-                            type: string
-                        modelsRefreshedAt:
-                          default: ""
-                          type: string
                       required:
                         - connectionId
-                        - agentKind
-                        - tags
-                        - models
-                        - modelsRefreshedAt
+                        - credentialStatus
+                        - accountTags
                       additionalProperties: false
                   ampConnections:
                     type: array
@@ -3499,7 +3508,6 @@ paths:
                 required:
                   - ok
                   - connectionId
-                  - models
                 additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -3559,7 +3567,6 @@ paths:
                     pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
               required:
                 - apiToken
-                - agentKind
   /api/v1/integrations/exe/test:
     post:
       summary: Test exe.dev credentials

@@ -12,7 +12,7 @@ export function IntegrationForm({ kind, connectionId, initialName = "", initialA
     throw new Error("Save the Tail integration before testing.");
   } });
   const save = useMutation({ retry: false, mutationFn: async () => {
-    if (kind === "exe") { const { data, error } = await api.PUT("/api/v1/integrations/exe", { body: { apiToken: credential, tags, agentKind, connectionId } }); if (!data || error) throw new Error(messageOf(error)); return { saved: true }; }
+    if (kind === "exe") { const { data, error } = await api.PUT("/api/v1/integrations/exe", { body: { apiToken: credential, connectionId } }); if (!data || error) throw new Error(messageOf(error)); return { saved: true }; }
     if (kind === "amp") { const { data, error } = await api.PUT("/api/v1/integrations/amp", { body: { accessToken: credential, project: name, apiBaseUrl: initialApiBaseUrl, connectionId } }); if (!data || error) throw new Error(messageOf(error)); return { saved: true }; }
     const body = { name, signingSecret: credential || undefined, generateSecret: !credential && !connectionId };
     const { data, error } = connectionId ? await api.PUT("/api/v1/integrations/cloudflare-tail/{integrationId}", { params: { path: { integrationId: connectionId } }, body }) : await api.POST("/api/v1/integrations/cloudflare-tail", { body });
@@ -30,7 +30,7 @@ export function IntegrationForm({ kind, connectionId, initialName = "", initialA
   return <form className="my-4 grid gap-3" onSubmit={e => { e.preventDefault(); save.mutate(); }}>
     {kind !== "exe" && <Label>{kind === "amp" ? "Amp project" : "Tail name"} <Input required value={name} onChange={e => setName(e.target.value)} /></Label>}
     <Label>{kind === "exe" ? "exe.dev account token" : kind === "amp" ? "Amp access token" : "Tail signing secret (leave blank to generate or retain)"} <Input type="password" autoComplete="new-password" required={kind !== "cloudflareTail"} value={credential} onChange={e => { setCredential(e.target.value); test.reset(); }} /></Label>
-    {kind === "exe" && <><Label>Agent <Select value={agentKind} onChange={e => setAgentKind(e.target.value as typeof agentKind)}><option value="codex">Codex</option><option value="claude">Claude</option><option value="pi">Pi</option></Select></Label><Label>VM tags <Select multiple value={tags} disabled={!test.data?.ok} onChange={e => setTags(Array.from(e.target.selectedOptions, option => option.value))}>{Array.from(new Set([...initialTags, ...(test.data?.tags ?? [])])).map(tag => <option key={tag}>{tag}</option>)}</Select></Label><p>Saving validates the agent and models on a temporary VM.</p></>}
+    {kind === "exe" && <p>Integration settings contain only the encrypted credential. Configure agents, models, effort, and VM tags on execution targets.</p>}
     {kind !== "cloudflareTail" && <Button type="button" disabled={test.isPending || save.isPending} onClick={() => test.mutate()}>Test credentials</Button>}
     {test.data && <p role="status">{test.data.ok ? "Credentials verified" : "Credential test failed"}</p>}
     <Button variant="primary" disabled={save.isPending || test.isPending}>{save.isPending ? "Saving…" : "Save integration"}</Button>

@@ -2797,14 +2797,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         connectionId: string;
-                        /** @enum {string} */
-                        agentKind: "codex" | "claude" | "pi";
+                        /** @constant */
+                        credentialStatus: "connected";
                         /** @default [] */
-                        tags: string[];
-                        /** @default [] */
-                        models: string[];
-                        /** @default  */
-                        modelsRefreshedAt: string;
+                        accountTags: string[];
                     }[];
                 };
             };
@@ -2877,6 +2873,10 @@ export interface operations {
                         agentKind: string;
                         integrationId?: string;
                         tags?: string[];
+                        /** @default  */
+                        model: string;
+                        /** @default  */
+                        effort: string;
                         models?: string[];
                         modelsRefreshedAt?: string | null;
                         efforts?: string[];
@@ -2911,6 +2911,12 @@ export interface operations {
                     /** @default [] */
                     tags?: string[];
                     agentKind: string;
+                    /** @default  */
+                    model?: string;
+                    /** @default  */
+                    effort?: string;
+                    /** Format: date-time */
+                    expectedUpdatedAt?: string;
                 };
             };
         };
@@ -2931,6 +2937,10 @@ export interface operations {
                         agentKind: string;
                         integrationId?: string;
                         tags?: string[];
+                        /** @default  */
+                        model: string;
+                        /** @default  */
+                        effort: string;
                         models?: string[];
                         modelsRefreshedAt?: string | null;
                         efforts?: string[];
@@ -2968,6 +2978,12 @@ export interface operations {
                     /** @default [] */
                     tags?: string[];
                     agentKind: string;
+                    /** @default  */
+                    model?: string;
+                    /** @default  */
+                    effort?: string;
+                    /** Format: date-time */
+                    expectedUpdatedAt?: string;
                 };
             };
         };
@@ -2988,6 +3004,10 @@ export interface operations {
                         agentKind: string;
                         integrationId?: string;
                         tags?: string[];
+                        /** @default  */
+                        model: string;
+                        /** @default  */
+                        effort: string;
                         models?: string[];
                         modelsRefreshedAt?: string | null;
                         efforts?: string[];
@@ -3269,25 +3289,17 @@ export interface operations {
                         } | null;
                         exe: {
                             connectionId: string;
-                            /** @enum {string} */
-                            agentKind: "codex" | "claude" | "pi";
+                            /** @constant */
+                            credentialStatus: "connected";
                             /** @default [] */
-                            tags: string[];
-                            /** @default [] */
-                            models: string[];
-                            /** @default  */
-                            modelsRefreshedAt: string;
+                            accountTags: string[];
                         } | null;
                         exeConnections: {
                             connectionId: string;
-                            /** @enum {string} */
-                            agentKind: "codex" | "claude" | "pi";
+                            /** @constant */
+                            credentialStatus: "connected";
                             /** @default [] */
-                            tags: string[];
-                            /** @default [] */
-                            models: string[];
-                            /** @default  */
-                            modelsRefreshedAt: string;
+                            accountTags: string[];
                         }[];
                         ampConnections: {
                             connectionId: string;
@@ -3334,7 +3346,7 @@ export interface operations {
                     connectionId?: string;
                     apiToken: string;
                     /** @enum {string} */
-                    agentKind: "codex" | "claude" | "pi";
+                    agentKind?: "codex" | "claude" | "pi";
                     tags?: string[];
                 };
             };
@@ -3349,7 +3361,7 @@ export interface operations {
                     "application/json": {
                         ok: boolean;
                         connectionId: string;
-                        models: string[];
+                        models?: string[];
                     };
                 };
             };
