@@ -1,5 +1,5 @@
 import { Button, Input, Select, Label, Card } from "../../shared/ui";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
@@ -11,6 +11,7 @@ const allScopes = ["projects:read", "projects:write", "jobs:read", "jobs:write",
 const scopeDescriptions: Record<typeof allScopes[number], string> = { "projects:read": "View projects", "projects:write": "Create, rename, and delete projects", "jobs:read": "View jobs and job configuration", "jobs:write": "Create, edit, enable, disable, and delete jobs", "runs:read": "View runs, traces, context, and diagnostics", "runs:invoke": "Start jobs", "runs:cancel": "Stop or cancel runs", "integrations:read": "View integrations and provider resources", "integrations:write": "Create, configure, test, and remove integrations" };
 
 export function ApiKeyCreate() {
+  const navigate = useNavigate();
   const cache = useQueryClient();
   const [secret, setSecret] = useState("");
   const [name, setName] = useState("");
@@ -32,7 +33,7 @@ export function ApiKeyCreate() {
     {secret ? <Card role="status" className="mt-5 border p-4">
       <p>Copy this key now. It will only be displayed once.</p>
       <pre className="break-all whitespace-pre-wrap" aria-label="One-time API key">{secret}</pre>
-      <div className="flex flex-wrap gap-2"><Button onClick={() => void navigator.clipboard.writeText(secret)}>Copy key</Button><Button onClick={() => setSecret("")}>Dismiss key</Button></div>
+      <div className="flex flex-wrap gap-2"><Button onClick={() => void navigator.clipboard.writeText(secret)}>Copy key</Button><Button onClick={() => void navigate({ to: "/settings/api-keys" })}>Dismiss key</Button></div>
     </Card> : <form className="my-4 grid gap-3" onSubmit={e => { e.preventDefault(); create.mutate(); }}>
       <Label>Key name <Input required maxLength={100} value={name} onChange={e => setName(e.target.value)} /></Label>
       <p>Permissions are independent: write does not imply read. Job writes can affect future schedule, webhook, and lifecycle executions; deleting a job may remove its run history and artifacts.</p>
