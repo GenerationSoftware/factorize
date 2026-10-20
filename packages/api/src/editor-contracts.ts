@@ -1,9 +1,9 @@
 import { z } from "zod";
 export const executionTargetResponse = z.object({
   id: z.string(), kind: z.enum(["exe-vm", "amp"]), name: z.string(), workspace: z.string(), cwd: z.string(), agentKind: z.string(), integrationId: z.string().optional(),
-  models: z.array(z.string()).optional(), modelsRefreshedAt: z.string().nullable().optional(), efforts: z.array(z.string()).optional(), capabilities: z.array(z.string()),
+  tags: z.array(z.string()).optional(), model: z.string().optional(), effort: z.string().optional(), models: z.array(z.string()).optional(), modelsRefreshedAt: z.string().nullable().optional(), efforts: z.array(z.string()).optional(), capabilities: z.array(z.string()), referencingProjects: z.array(z.object({ id: z.string(), name: z.string() })).optional(), referencingJobCount: z.number().int().optional(),
 });
-export const executionTargetResource = z.object({ id: z.string(), name: z.string(), integrationKind: z.enum(["exe", "amp"]), integrationId: z.string(), agentKind: z.string(), createdAt: z.string(), updatedAt: z.string() });
+export const executionTargetResource = z.object({ id: z.string(), name: z.string(), integrationKind: z.enum(["exe", "amp"]), integrationId: z.string(), agentKind: z.string(), tags: z.array(z.string()), models: z.array(z.string()), efforts: z.array(z.string()), createdAt: z.string(), updatedAt: z.string(), referencingProjects: z.array(z.object({ id: z.string(), name: z.string() })), referencingJobCount: z.number().int() });
 export const triggerAvailabilityResponse = z.object({ manual: z.literal(true), schedule: z.literal(true), jobLifecycle: z.literal(true), linear: z.boolean(), clickup: z.boolean(), github: z.boolean(), cloudflareTail: z.boolean() });
 export const namedOption = z.object({ id: z.string(), name: z.string() });
 export const providerOptions = z.object({ statuses: z.array(namedOption), users: z.array(namedOption), labels: z.array(namedOption) });

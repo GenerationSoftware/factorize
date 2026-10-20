@@ -2873,10 +2873,18 @@ export interface operations {
                         cwd: string;
                         agentKind: string;
                         integrationId?: string;
+                        tags?: string[];
+                        model?: string;
+                        effort?: string;
                         models?: string[];
                         modelsRefreshedAt?: string | null;
                         efforts?: string[];
                         capabilities: string[];
+                        referencingProjects?: {
+                            id: string;
+                            name: string;
+                        }[];
+                        referencingJobCount?: number;
                     }[];
                 };
             };
@@ -2906,6 +2914,14 @@ export interface operations {
                     integrationKind: "exe" | "amp";
                     integrationId: string;
                     agentKind: string;
+                    tags?: string[];
+                    /** @default  */
+                    model?: string;
+                    /** @default  */
+                    effort?: string;
+                    models?: string[];
+                    /** Format: date-time */
+                    expectedUpdatedAt?: string;
                 };
             };
         };
@@ -2925,10 +2941,18 @@ export interface operations {
                         cwd: string;
                         agentKind: string;
                         integrationId?: string;
+                        tags?: string[];
+                        model?: string;
+                        effort?: string;
                         models?: string[];
                         modelsRefreshedAt?: string | null;
                         efforts?: string[];
                         capabilities: string[];
+                        referencingProjects?: {
+                            id: string;
+                            name: string;
+                        }[];
+                        referencingJobCount?: number;
                     };
                 };
             };
@@ -2961,6 +2985,14 @@ export interface operations {
                     integrationKind: "exe" | "amp";
                     integrationId: string;
                     agentKind: string;
+                    tags?: string[];
+                    /** @default  */
+                    model?: string;
+                    /** @default  */
+                    effort?: string;
+                    models?: string[];
+                    /** Format: date-time */
+                    expectedUpdatedAt?: string;
                 };
             };
         };
@@ -2980,10 +3012,18 @@ export interface operations {
                         cwd: string;
                         agentKind: string;
                         integrationId?: string;
+                        tags?: string[];
+                        model?: string;
+                        effort?: string;
                         models?: string[];
                         modelsRefreshedAt?: string | null;
                         efforts?: string[];
                         capabilities: string[];
+                        referencingProjects?: {
+                            id: string;
+                            name: string;
+                        }[];
+                        referencingJobCount?: number;
                     };
                 };
             };
