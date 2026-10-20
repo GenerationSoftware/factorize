@@ -74,7 +74,7 @@ const tailBody = z.object({
     .meta({ writeOnly: true }),
   generateSecret: z.boolean().optional(),
 });
-const executionTargetBody = z.object({ name: z.string().trim().max(120).default(""), integrationKind: z.enum(["exe", "amp"]), integrationId: z.string().min(1), agentKind: z.string().min(1).max(40) });
+const executionTargetBody = z.object({ name: z.string().trim().max(120).default(""), integrationKind: z.enum(["exe", "amp"]), integrationId: z.string().min(1), agentKind: z.string().min(1).max(40), tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).optional(), model: z.string().trim().max(120).default(""), effort: z.string().trim().max(40).default(""), models: z.array(z.string().trim().min(1).max(120)).max(100).optional(), expectedUpdatedAt: z.string().datetime().optional() });
 const executionTargetUpdateBody = executionTargetBody;
 const deliveryQuery = z.object({
   provider: z.string().optional(),
