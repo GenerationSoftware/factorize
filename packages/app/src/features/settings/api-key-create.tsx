@@ -25,7 +25,7 @@ export function ApiKeyCreate() {
       setSecret(token);
       return metadata;
     },
-    onSuccess: () => { setName(""); void cache.invalidateQueries({ queryKey: tokensQuery.queryKey }); },
+    onSuccess: async () => { setName(""); await cache.invalidateQueries({ queryKey: tokensQuery.queryKey }); },
   });
   return <SettingsLayout title="Create API key">
     <Link to="/settings/api-keys" className="text-sm font-semibold">← API keys</Link>
