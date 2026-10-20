@@ -13,12 +13,6 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | --- | --- | --- |
 | `list_exe_connections` | integrations:read | `{}` |
 | `list_github_installations` | integrations:read | `{}` |
-| `list_execution_configs` | integrations:read | `{}` |
-| `list_execution_config_resources` | integrations:read | `{}`; returns non-secret target records for management |
-| `create_execution_config` | integrations:write | Required `integrationKind`, `integrationId`, `agentKind`; optional `name` (including empty) |
-| `update_execution_config` | integrations:write | Required `targetId`, `integrationKind`, `integrationId`, `agentKind`; optional `name` (including empty) |
-| `delete_execution_config` | integrations:write | Required string `targetId`; rejects referenced or active targets |
-| `diagnose_execution_config` | integrations:write | Required string `targetId`; probes the target's integration and agent |
 | `diagnose_exe_integration` | integrations:write | Required string `connectionId`; credential-safe diagnostic |
 | `list_cloudflare_tail_integrations` | integrations:read | `{}` |
 | `list_jobs` | jobs:read | `{}` |
