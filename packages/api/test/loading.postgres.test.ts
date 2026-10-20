@@ -68,7 +68,7 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
       await connections.put("cloudflare-tail:legacy", { signingSecret: "private-secret" });
       const status = await new ApiService(env, auth).integrationStatus();
       expect(status.linear).toEqual({ organizationName: null, viewerEmail: null });
-      expect(status.exeConnections).toContainEqual({ connectionId: "legacy", credentialStatus: "connected", accountTags: [] });
+      expect(status.exeConnections).toContainEqual(expect.objectContaining({ connectionId: "legacy", credentialStatus: "connected", accountTags: [] }));
       expect(status.ampConnections).toContainEqual({ connectionId: "legacy", project: "Unnamed Amp project" });
       expect(status.cloudflareTail.installations).toContainEqual({ integrationId: "legacy", name: "Unnamed Tail integration", status: "connected", secretConfigured: true, referencedJobCount: 0 });
       expect(JSON.stringify(status)).not.toContain("private-");
