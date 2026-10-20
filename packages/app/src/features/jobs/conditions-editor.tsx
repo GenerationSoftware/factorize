@@ -28,6 +28,6 @@ export function ConditionsEditor({ conditions, onChange, onValidityChange }: { c
     <Disclosure><Summary>Test webhook conditions</Summary><p>Supply the prepared context the job would receive. This preview does not authenticate, route events, verify live GitHub state, or invoke jobs.</p>
       <Label>Example webhook JSON <Textarea rows={8} value={webhook} onChange={e => { setWebhook(e.target.value); test.reset(); }} /></Label>
       <Button type="button" disabled={test.isPending || Boolean(invalid)} onClick={() => test.mutate()}>Test conditions</Button>
-      {test.error && <p role="alert">{test.error.message}</p>}{test.data && <pre role="status" className="whitespace-pre-wrap break-words">{JSON.stringify(test.data, null, 2)}</pre>}
+      {test.error && <p role="alert">{test.error.message}</p>}{test.data && <p role={test.data.decision === "error" ? "alert" : "status"} aria-live="polite" className={test.data.decision === "match" ? "text-green-700 dark:text-green-400" : undefined}>{test.data.decision === "match" ? "✓ Conditions match the example webhook." : test.data.decision === "no-match" ? "Conditions do not match the example webhook." : "Condition test failed."}</p>}
     </Disclosure></div>;
 }

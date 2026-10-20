@@ -62,7 +62,7 @@ test("provider editor fetches only the selected provider and submits project/mat
   await page.route("**/api/v1/job-conditions/test", route => route.fulfill({ json: { decision: "match", details: [] } }));
   await page.goto(origin + `/jobs/${id}/edit`); assert.equal(reads.length, 0); await page.getByLabel("New trigger kind").selectOption("webhook"); await page.getByRole("button", { name: "Add trigger" }).click();
   await page.getByLabel("Linear project").selectOption("project"); await page.getByRole("button", { name: "Add matching rule" }).click(); await page.getByLabel("Match value").selectOption("done"); await page.getByLabel("Conditions JSON (optional)").fill('{"all":[{"fact":"webhook","path":"$.issue.id","operator":"equal","value":"i1"}]}');
-  await page.getByText("Test webhook conditions", { exact: true }).click(); await page.getByRole("button", { name: "Test conditions", exact: true }).click(); await page.getByRole("status").filter({ hasText: '"decision": "match"' }).waitFor();
+  await page.getByText("Test webhook conditions", { exact: true }).click(); await page.getByRole("button", { name: "Test conditions", exact: true }).click({ force: true }); await page.getByRole("status").filter({ hasText: "Conditions match the example webhook." }).waitFor(); assert.equal(await page.getByText('"decision": "match"', { exact: false }).count(), 0);
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   assert.ok(reads.every(path => path.startsWith("/api/v1/providers/linear/"))); assert.deepEqual(writes[0].triggers[1].config, { provider: "linear", projectId: "project", matchRules: [{ type: "status", targetId: "done" }], conditions: { all: [{ fact: "webhook", path: "$.issue.id", operator: "equal", value: "i1" }] } }); assert.equal(writes[0].triggers[0].id, triggerId); await context.close();
 });
@@ -129,8 +129,8 @@ for (const config of [
   await page.getByLabel("Conditions JSON (optional)").fill(JSON.stringify(changed));
   await page.getByText("Test webhook conditions", { exact: true }).click();
   await page.getByLabel("Example webhook JSON").fill(JSON.stringify({ provider: config.provider }));
-  await page.getByRole("button", { name: "Test conditions", exact: true }).click();
-  await page.getByRole("status").filter({ hasText: '"decision": "match"' }).waitFor();
+  await page.getByRole("button", { name: "Test conditions", exact: true }).click({ force: true });
+  await page.getByRole("status").filter({ hasText: "Conditions match the example webhook." }).waitFor();
   assert.deepEqual(preview, { conditions: changed, webhook: { provider: config.provider } });
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   assert.deepEqual(written.triggers[1], { id: hook.id, slug: hook.slug, kind: hook.kind, enabled: hook.enabled, config: { ...config, conditions: changed } });
