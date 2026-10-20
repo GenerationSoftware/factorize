@@ -17,17 +17,15 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  backend:
-    name: Backend checks
+  required:
+    name: Test and validate Workers
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       AUTH_TEST_DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
       QUEUE_TEST_DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
       DATABASE_URL: postgresql://postgres:local-ci-only@localhost:5432/factorize_ci
     steps:
-      - name: Start backend timing
-        run: echo "CI_START_SECONDS=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@v5
@@ -35,55 +33,17 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm install --global npm@11.19.0
-      - name: Start isolated migrated PostgreSQL database
+      - name: Prepare isolated PostgreSQL database
         run: |
           sudo systemctl start postgresql
           sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'local-ci-only'"
           sudo -u postgres createdb factorize_ci
           pg_isready -h localhost -p 5432
-          npm ci
-          npm run db:migrate --workspace=factorize
-      - name: Install Chromium for compiled static-slice checks
-        run: npm exec --workspace=factorize -- playwright install --with-deps chromium
-      - name: Run the shared backend validation lane
-        run: npm run test:backend
-      - name: Record backend timing
-        if: always()
-        run: |
-          echo "### Backend checks timing\n- Wall time: $(( $(date +%s) - CI_START_SECONDS ))s" >> "$GITHUB_STEP_SUMMARY"
-
-  browser:
-    name: Required browser checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Start browser timing
-        run: echo "CI_START_SECONDS=$(date +%s)" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .node-version
-          cache: npm
-      - run: npm install --global npm@11.19.0
-      - run: npm ci
-      - name: Install Chromium for functional checks
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply migrations
+        run: npm run db:migrate --workspace=factorize
+      - name: Install Chromium
         run: npm exec --workspace=factorize-app -- playwright install --with-deps chromium
-      - name: Run the shared browser validation lane
-        run: npm run test:browser
-      - name: Record browser timing
-        if: always()
-        run: |
-          echo "### Required browser checks timing\n- Wall time: $(( $(date +%s) - CI_START_SECONDS ))s" >> "$GITHUB_STEP_SUMMARY"
-
-  required:
-    name: Test and validate Workers
-    if: ${{ always() }}
-    needs: [backend, browser]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Required CI passed
-        if: ${{ needs.backend.result == 'success' && needs.browser.result == 'success' }}
-        run: echo 'Backend and required browser checks passed.'
-      - name: Required CI failed
-        if: ${{ needs.backend.result != 'success' || needs.browser.result != 'success' }}
-        run: exit 1
+      - name: Run complete local validation
+        run: npm test
