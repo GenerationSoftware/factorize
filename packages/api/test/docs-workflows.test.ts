@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { jobInputSchema, manualInvocationSchema, triggerSchema } from "../src/flow-schemas";
 import { jobUpdateInput } from "../src/job-contracts";
-import { executionTargetResponse } from "../src/editor-contracts";
+import { executionConfigResponse } from "../src/editor-contracts";
 import { ApiService } from "../src/flow-service";
 import { InvocationService, type Invocation, type Job, type JobRun } from "../src/job-domain";
 import { validateScheduleConfig, nextOccurrence } from "../src/schedule";
@@ -14,13 +14,13 @@ const examples = (path: string) => [...guide(path).matchAll(/```json\n([\s\S]*?)
 describe("maintained hosted documentation examples", () => {
   it("first-job discovery/create/invoke renders the actual prompt and deduplicates a lost response", async () => {
     const [create, invocation] = examples("quickstart");
-    const target = executionTargetResponse.parse({ id: "TARGET_ID", kind: "exe-vm", name: "Ephemeral exe.dev VMs", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex", capabilities: ["stop"] });
+    const target = executionConfigResponse.parse({ id: "TARGET_ID", kind: "exe-vm", name: "Ephemeral exe.dev VMs", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex", capabilities: ["stop"] });
     const input = jobInputSchema.parse(create);
-    expect(input.executionTargetId).toBe(target.id);
+    expect(input.executionConfigId).toBe(target.id);
     const service = new ApiService({} as any, {} as any);
     const triggers = (service as any).normalizedTriggers(input.triggers);
     expect(triggers[0].slug).toBe("trigger-1");
-    const job: Job = { ...input, id: "JOB_ID", model: "", enabled: true, triggers, executionTarget: { connectionId: target.id, agentKind: target.agentKind, workspace: target.workspace, cwd: target.cwd }, createdAt: "now", updatedAt: "now" };
+    const job: Job = { ...input, id: "JOB_ID", model: "", enabled: true, triggers, executionConfig: { connectionId: target.id, agentKind: target.agentKind, workspace: target.workspace, cwd: target.cwd }, createdAt: "now", updatedAt: "now" };
     const stored = new Map<string, { invocation: Invocation; run: JobRun }>();
     const repository = {
       getJob: async () => job,
@@ -55,7 +55,7 @@ describe("maintained hosted documentation examples", () => {
     const blocks = examples("mcp/tools");
     const create = blocks.find(value => value.promptTemplate && !value.jobId && !value.id);
     jobInputSchema.parse(create);
-    jobUpdateInput.extend({ jobId: jobInputSchema.shape.executionTargetId }).parse(blocks.find(value => value.expectedUpdatedAt));
+    jobUpdateInput.extend({ jobId: jobInputSchema.shape.executionConfigId }).parse(blocks.find(value => value.expectedUpdatedAt));
     const invoke = blocks.find(value => value.idempotencyKey);
     const { jobId, ...request } = invoke;
     expect(jobId).toBe("JOB_ID");

@@ -5,8 +5,8 @@ export const time = "2026-10-09T12:00:00.000Z";
 export const job = {
   id: jobId, projectId, name: "Review release builds", slug: "review-builds", enabled: true,
   promptTemplate: "Review {{trigger-1.prompt}}.\nCheck the release notes and report any regressions.",
-  runNameTemplate: "Release review", executionTargetId: "vm",
-  executionTarget: { connectionId: "vm", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex" },
+  runNameTemplate: "Release review", executionConfigId: "vm",
+  executionConfig: { connectionId: "vm", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex" },
   model: "gpt-6", effort: "high", concurrencyLimit: 2, runningCount: 1, currentRuns: 1, maxConcurrency: 2,
   agentKind: "codex", lastRunState: "running",
   triggers: [{ id: "trigger", jobId, slug: "trigger-1", kind: "manual", enabled: true, config: {}, createdAt: time, updatedAt: time }],
@@ -45,7 +45,7 @@ export async function mockApi(page, { legacy = false, authenticated = true, empt
     else if (path.endsWith("/trace-pages")) json = { items: events, nextCursor: null, revision: "fixture-1", reset: false };
     else if (path.endsWith("/trace")) json = { items: events.filter(event => event.sequence > Number(url.searchParams.get("after") || 0)).map(event => ({ ...event, kind: event.type, content: event.preview, data: { text: event.preview, command: event.title } })), nextCursor: null, generation: 1, source: "native_session" };
     else if (path.endsWith("/diagnostics")) json = { artifacts: [], warnings: [] };
-    else if (path === "/api/v1/execution-targets") json = targets;
+    else if (path === "/api/v1/execution-integrations") json = targets;
     else if (path === "/api/v1/trigger-contexts") json = { manual: [{ path: "prompt", type: "string", description: "Manual prompt" }] };
     else if (path === "/api/v1/job-trigger-availability") json = { manual: true, schedule: true, jobLifecycle: true, linear: false, github: false, clickup: false, cloudflareTail: false };
     else if (path === "/api/v1/integrations") json = integrations;

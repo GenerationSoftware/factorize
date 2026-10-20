@@ -24,13 +24,13 @@ describe.skipIf(!url)("global search trigram matching (PostgreSQL)", () => {
 
     await db.pool.query("INSERT INTO app.tenants(id) VALUES ($1),($2)", [tenant, otherTenant]);
     await db.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES ($1,md5(($1::uuid)::text || ':default')::uuid,'Default'),($2,md5(($2::uuid)::text || ':default')::uuid,'Default')", [tenant, otherTenant]);
-    await db.pool.query(`INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit)
+    await db.pool.query(`INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit)
       VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Deployment Automation','deployment-automation','prompt','{}',1),($3,$4,md5(($3::uuid)::text || ':default')::uuid,'Private Deployment','private-deployment','prompt','{}',1)`, [tenant, job, otherTenant, otherJob]);
     await db.pool.query(`INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES
       ($1,$2,$3,'manual','search'),($1,$4,$3,'manual','search-typo'),($5,$6,$7,'manual','search')`, [tenant, trigger, job, typoTrigger, otherTenant, privateTrigger, otherJob]);
     await db.pool.query(`INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context) VALUES
       ($1,$2,$3,'manual','search',$4,'{}'),($1,$5,$3,'manual','search-typo',$6,'{}'),($7,$8,$9,'manual','search',$10,'{}')`, [tenant, invocation, job, trigger, typoInvocation, typoTrigger, otherTenant, privateInvocation, otherJob, privateTrigger]);
-    await db.pool.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,issue_title,run_name,agent_name,state,execution_target)
+    await db.pool.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,issue_title,run_name,agent_name,state,execution_config)
       VALUES ($1,$2,$3,$4,'manual','GEN-2157','Fix punctuation in issue identifiers','Deploy GEN-2157','codex','succeeded',$11),
              ($1,$5,$3,$6,'manual','GEN-2158','A nearby but weaker identifier','Deploy GEN-2158','codex','succeeded',$11),
              ($7,$8,$9,$10,'manual','GEN-2157','Private issue','Private GEN-2157','codex','succeeded',$11)`, [tenant, run, job, invocation, typoRun, typoInvocation, otherTenant, privateRun, otherJob, privateInvocation, { agentKind: "codex", connectionId: "local" }]);

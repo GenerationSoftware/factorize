@@ -2,7 +2,7 @@ import { queryOf } from "./query-params";
 import { searchResponse } from "./search-contracts";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
 import { exeConnection, integrationStatus, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
-import { executionTargetResponse, triggerAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
+import { triggerAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { runSummaryResponse, runPageResponse, runStatusResponse, revisionTracePage, revisionTraceQuery } from "./run-read-contracts";
 import { jobPageQuery, jobSummaryPage, jobSelectorPage, jobResponse, jobUpdateInput } from "./job-contracts";
 import { projectInput, projectListQuery, projectResponse } from "./project-contracts";
@@ -74,8 +74,6 @@ const tailBody = z.object({
     .meta({ writeOnly: true }),
   generateSecret: z.boolean().optional(),
 });
-const executionTargetBody = z.object({ name: z.string().trim().max(120).default(""), integrationKind: z.enum(["exe", "amp"]), integrationId: z.string().min(1), agentKind: z.string().min(1).max(40), tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).optional(), model: z.string().trim().max(120).default(""), effort: z.string().trim().max(40).default(""), models: z.array(z.string().trim().min(1).max(120)).max(100).optional(), expectedUpdatedAt: z.string().datetime().optional() });
-const executionTargetUpdateBody = executionTargetBody;
 const deliveryQuery = z.object({
   provider: z.string().optional(),
   deliveryId: z.string().optional(),
@@ -155,12 +153,12 @@ function scopeForRoute(path: string, legacy: string): string | string[] {
   if (legacy === "runs:read" && path === "/api/v1/search") return "jobs:read+runs:read";
   if (legacy === "flows:read") {
     if (path.startsWith("/api/v1/projects") || path.includes("/jobs/") && path.endsWith("/project")) return "projects:read";
-    if (path.includes("/integrations") || path.includes("/providers") || path.includes("execution-target") || path.includes("exe-connections") || path.includes("github-installations")) return "integrations:read";
+    if (path.includes("/integrations") || path.includes("/providers") || path.includes("execution-integration") || path.includes("exe-connections") || path.includes("github-installations")) return "integrations:read";
     return "jobs:read";
   }
   if (legacy === "flows:write") {
     if (path.startsWith("/api/v1/projects") || path.includes("/jobs/") && path.endsWith("/project")) return "projects:write";
-    if (path.includes("/integrations") || path.includes("/providers") || path.includes("execution-target") || path.includes("exe-connections") || path.includes("github-installations")) return "integrations:write";
+    if (path.includes("/integrations") || path.includes("/providers") || path.includes("execution-integration") || path.includes("exe-connections") || path.includes("github-installations")) return "integrations:write";
     return "jobs:write";
   }
   if (legacy === "runs:write") return path.includes("invocation") ? "runs:invoke" : "runs:cancel";
@@ -242,29 +240,6 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service) => service.listGitHubInstallations(),
   ),
-  route(
-    "GET",
-    "/api/v1/execution-targets",
-    "flows:read",
-    {
-      summary: "List execution targets",
-      responses: {
-        "200": {
-          description: "Targets",
-          content: {
-            "application/json": {
-              schema: jsonSchema(z.array(executionTargetResponse), "output"),
-            },
-          },
-        },
-      },
-    },
-    (service) => service.listExecutionTargets(),
-  ),
-  route("POST", "/api/v1/execution-targets", "flows:write", { summary: "Create execution target", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(executionTargetResponse, "output") } } } } }, (service, { body }) => service.createExecutionTarget(body), { body: executionTargetBody }),
-  route("PUT", "/api/v1/execution-targets/{targetId}", "flows:write", { summary: "Update execution target", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(executionTargetResponse, "output") } } } } }, (service, { params, body }) => service.updateExecutionTarget(params.targetId, body), { body: executionTargetUpdateBody }),
-  route("DELETE", "/api/v1/execution-targets/{targetId}", "flows:write", { summary: "Delete execution target", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteExecutionTarget(params.targetId)),
-  route("POST", "/api/v1/execution-targets/{targetId}/diagnostics", "flows:write", { summary: "Diagnose an execution target", responses: { "200": { description: "Target-scoped credential-safe diagnostic result", content: { "application/json": { schema: jsonSchema(z.object({ ok: z.boolean(), targetId: z.string(), integrationId: z.string(), agentKind: z.string(), tags: z.array(z.string()), permissions: z.object({ ok: z.boolean(), missing: z.array(z.string()), tags: z.array(z.string()) }), agent: z.object({ ok: z.boolean(), models: z.array(z.string()).optional(), error: z.string().optional() }).nullable() }), "output") } } } } }, (service, { params }) => service.diagnoseExecutionTarget(params.targetId)),
   route(
     "GET",
     "/api/v1/job-trigger-availability",

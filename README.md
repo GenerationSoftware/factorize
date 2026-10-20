@@ -14,9 +14,9 @@ https://app.factorize.sh/mcp
 
 Follow [Connect your agent](https://docs.factorize.sh/mcp/overview) for Codex/Claude Code configuration and browser consent. Then ask:
 
-> Show me my available execution targets. Create a manual job called ‘Review recent changes’ using my repository’s target. Have it clone REPOSITORY_URL, review the latest commit and summarize any problems. Run it once and report the result.
+> Show me my available execution integrations. Create a manual job called ‘Review recent changes’ using my repository’s target. Have it clone REPOSITORY_URL, review the latest commit and summarize any problems. Run it once and report the result.
 
-The conversational agent calls `list_execution_targets`, checks existing jobs, creates a job, invokes it with a stable idempotency key, and reads `get_run` until completion. Current exe.dev targets select an account/agent, not a repository: put the repository URL in the prompt. Browser-only signup, integration credentials, resource selection and consent are separate from MCP job management.
+The conversational agent calls `list_execution_configs`, checks existing jobs, creates a job, invokes it with a stable idempotency key, and reads `get_run` until completion. Current exe.dev targets select an account/agent, not a repository: put the repository URL in the prompt. Browser-only signup, integration credentials, resource selection and consent are separate from MCP job management.
 
 Read [Your first job](https://docs.factorize.sh/quickstart), [safe editing and configuration replacement](https://docs.factorize.sh/work/jobs), and [stop/retry behavior](https://docs.factorize.sh/work/stop-retry). Add [schedules](https://docs.factorize.sh/recipes/scheduled-review), [Linear](https://docs.factorize.sh/recipes/linear-job), [GitHub](https://docs.factorize.sh/integrations/github), [ClickUp](https://docs.factorize.sh/integrations/clickup), or [job chaining](https://docs.factorize.sh/recipes/chaining) after a successful manual run.
 

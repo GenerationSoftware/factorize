@@ -16,7 +16,7 @@ export class JobSummaryRepository {
     const sort = input.sort ?? "id";
     const result = await this.database.pool.query<SummaryRow>(`
       WITH page AS MATERIALIZED (
-        SELECT id,project_id project_id,name,slug,enabled,model,effort,execution_target->>'agentKind' agent_kind,
+        SELECT id,project_id project_id,name,slug,enabled,model,effort,execution_config->>'agentKind' agent_kind,
           concurrency_limit,created_at,updated_at
         FROM app.jobs WHERE tenant_id=$1 AND ($2::uuid IS NULL OR ($7='updated' OR id<$2))
           AND ($3='' OR strpos(lower(name),lower($3))>0 OR strpos(lower(slug),lower($3))>0)

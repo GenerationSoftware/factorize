@@ -34,17 +34,17 @@ export async function loadingFixture(url: string) {
     cookie = `factorize_session=${await signSession({ ...auth, email: "owner@example.test", exp: Math.floor(Date.now()/1000)+3600 }, env.SESSION_SIGNING_SECRET)}`;
     const prompt = await encrypt("Prompt", env.CREDENTIAL_ENCRYPTION_KEY);
     for (const [i, id] of jobIds.entries()) {
-      await db.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1, $2, $3, $4, $4, $5, $6, 2)", [tenantId, id, projectId, `Job-${i}`, prompt, { agentKind: "codex", connectionId: "local" }]);
+      await db.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit) VALUES ($1, $2, $3, $4, $4, $5, $6, 2)", [tenantId, id, projectId, `Job-${i}`, prompt, { agentKind: "codex", connectionId: "local" }]);
       for (const [position, kind] of ["manual", "schedule"].entries()) await db.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug,position,config) VALUES ($1,$2,$3,$4,$4,$5,$6)", [tenantId, crypto.randomUUID(), id, kind, position, kind === "schedule" ? { cron: "0 * * * *", timezone: "UTC" } : {}]);
     }
     // Same job ID in another tenant must never contribute triggers or statistics.
-    await db.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Private','private',$3,'{}',1)", [otherTenant, jobIds[0], prompt]);
+    await db.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit) VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Private','private',$3,'{}',1)", [otherTenant, jobIds[0], prompt]);
     await db.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES ($1,$2,$3,'manual','private')", [otherTenant, crypto.randomUUID(), jobIds[0]]);
     for (const [i, state] of ["running", "succeeded", "queued"].entries()) {
       const id = i === 2 ? runId : crypto.randomUUID(), invocationId = crypto.randomUUID();
       await db.pool.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,context,trigger_id) VALUES ($1,$2,$3,'manual',$4,'{}',(SELECT id FROM app.triggers WHERE tenant_id=$1 AND job_id=$3 AND kind='manual'))", [tenantId, invocationId, jobIds[0], `test-${i}`]);
       await db.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)", [tenantId, id, jobIds[0], invocationId, state, prompt, new Date(1000+i*1000)]);
-      await db.pool.query("INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,agent_kind,state,execution_backend_kind,agent_name,execution_target) VALUES ($1,$2,$3,$4,'manual',$5,'codex',$6,'exe-vm','',$7)", [tenantId, id, jobIds[0], invocationId, `test-${i}`, state, { agentKind: "codex", connectionId: "local" }]);
+      await db.pool.query("INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,agent_kind,state,execution_backend_kind,agent_name,execution_config) VALUES ($1,$2,$3,$4,'manual',$5,'codex',$6,'exe-vm','',$7)", [tenantId, id, jobIds[0], invocationId, `test-${i}`, state, { agentKind: "codex", connectionId: "local" }]);
     }
     const connections = new ConnectionRepository(db, tenantId, env.CREDENTIAL_ENCRYPTION_KEY);
     await connections.put("exe:local", { apiToken: "private-exe-token", agentKind: "codex", models: [] });

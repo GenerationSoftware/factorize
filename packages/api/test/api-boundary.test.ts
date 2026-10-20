@@ -90,7 +90,7 @@ const jobInput = {
   name: "Job",
   slug: "job",
   promptTemplate: "Do work",
-  executionTargetId: "exe-1",
+  executionConfigId: "exe-1",
 };
 
 describe("Worker OpenAPI request/response boundaries", () => {
@@ -109,7 +109,7 @@ describe("Worker OpenAPI request/response boundaries", () => {
   it("validates and normalizes job input and uses the catalog's 201 status", async () => {
     const create = vi
       .spyOn(ApiService.prototype, "createJob")
-      .mockResolvedValue({ ...jobInput, id: "00000000-0000-4000-8000-000000000001", enabled: true, runNameTemplate: "", model: "", effort: "", executionTarget: { connectionId: "exe-1", agentKind: "codex", workspace: "ephemeral", cwd: "/workspace" }, agentKind: "codex", concurrencyLimit: 1, runningCount: 0, currentRuns: 0, maxConcurrency: 1, lastRunState: null, triggers: [], createdAt: "2026-10-09T12:00:00.000Z", updatedAt: "2026-10-09T12:00:00.000Z" });
+      .mockResolvedValue({ ...jobInput, id: "00000000-0000-4000-8000-000000000001", enabled: true, runNameTemplate: "", model: "", effort: "", executionConfig: { connectionId: "exe-1", agentKind: "codex", workspace: "ephemeral", cwd: "/workspace" }, agentKind: "codex", concurrencyLimit: 1, runningCount: 0, currentRuns: 0, maxConcurrency: 1, lastRunState: null, triggers: [], createdAt: "2026-10-09T12:00:00.000Z", updatedAt: "2026-10-09T12:00:00.000Z" });
     await assertResponse(
       await request("POST", "/api/v1/jobs", jobInput),
       "POST",

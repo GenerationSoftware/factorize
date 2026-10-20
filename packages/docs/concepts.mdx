@@ -3,7 +3,7 @@ title: Jobs, triggers, runs, and targets
 description: Understand the workflow before configuring automation.
 ---
 
-A **job** is a saved instruction: what to do, where to execute it, and when it may run. A **trigger** is a reason to run it: a manual request, schedule, provider event, or another job's lifecycle event. A **run** is one execution of the job, with its own state, prompt, context and output. An **execution target** is a saved execution account/agent configuration discovered with `list_execution_targets`.
+A **job** is a saved instruction: what to do, where to execute it, and when it may run. A **trigger** is a reason to run it: a manual request, schedule, provider event, or another job's lifecycle event. A **run** is one execution of the job, with its own state, prompt, context and output. An **execution integration** is a saved execution account/agent configuration discovered with `list_execution_configs`.
 
 The **conversational agent** you talk to uses MCP to control Factorize. The **execution agent** receives the job's rendered prompt and does the work on the execution account. Giving the conversational agent MCP permission does not give the execution agent repository, provider or model access. Your saved connection, VM tags and prompt must supply those.
 

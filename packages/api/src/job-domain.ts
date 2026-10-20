@@ -5,7 +5,7 @@ export type TriggerKind = "manual" | "schedule" | "webhook" | "jobLifecycle";
 export type InvocationSource = "manual" | TriggerKind;
 export type JobRunState = "queued" | "reserved" | "running" | "succeeded" | "failed" | "stopped";
 
-export interface ExecutionTarget {
+export interface ExecutionConfig {
   targetId?: string;
   connectionId: string;
   workspace: string;
@@ -35,7 +35,7 @@ export interface Job {
   model: string;
   effort?: string;
   tags?: string[];
-  executionTarget: ExecutionTarget;
+  executionConfig: ExecutionConfig;
   concurrencyLimit: number;
   enabled: boolean;
   triggers: Trigger[];

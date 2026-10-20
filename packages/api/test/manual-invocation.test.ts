@@ -13,7 +13,7 @@ describe("manual invocation API and shared service", () => {
   async function invoke(input: Record<string, unknown>, template = "{{trigger-1.data.identifier}} — {{trigger-1.data.title}}", transport = "REST") {
     const job: Job = {
       id: "job-1", name: "dev", slug: "dev", promptTemplate: "{{trigger-1.prompt}} {{trigger-1.data.identifier}}",
-      runNameTemplate: template, model: "", executionTarget: { connectionId: "exe-1", workspace: "", cwd: "", agentKind: "codex" },
+      runNameTemplate: template, model: "", executionConfig: { connectionId: "exe-1", workspace: "", cwd: "", agentKind: "codex" },
       concurrencyLimit: 1, enabled: true, createdAt: "now", updatedAt: "now",
       triggers: [{ id: "manual-1", jobId: "job-1", kind: "manual", slug: "trigger-1", enabled: true, config: {}, createdAt: "now", updatedAt: "now" }],
     };

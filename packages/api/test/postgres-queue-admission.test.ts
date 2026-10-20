@@ -22,7 +22,7 @@ describe.skipIf(!url)("PostgreSQL queue admission", () => {
     tenants.push(tenantId);
     await database.pool.query("INSERT INTO app.tenants(id) VALUES ($1)", [tenantId]);
     await database.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES ($1,md5(($1::uuid)::text || ':default')::uuid,'Default')", [tenantId]);
-    await database.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit) VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Queue test','queue-test','{{manual.prompt}}',$3,$4)", [tenantId, jobId, { agentKind: "codex" }, concurrency]);
+    await database.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit) VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Queue test','queue-test','{{manual.prompt}}',$3,$4)", [tenantId, jobId, { agentKind: "codex" }, concurrency]);
     await database.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES ($1,$2,$3,'manual','manual')", [tenantId, triggerId, jobId]);
     const service = new InvocationService(new PostgresJobRepository(database, tenantId, identity, identity), identity);
     const invoke = (claimKey: string, source: InvocationSource = "manual") => service.invoke(jobId, { source, triggerId, claimKey, context: { manual: { prompt: claimKey } } });

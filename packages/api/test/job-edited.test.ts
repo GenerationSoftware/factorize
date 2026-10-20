@@ -26,7 +26,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("job edit delivery (PostgreSQL)"
   async function job(tenantId: string, sourceIds: string[] = [], states = ["edited"], enabled = true) {
     const id = crypto.randomUUID(), timestamp = new Date().toISOString();
     const triggers: Trigger[] = sourceIds.length ? [{ id: crypto.randomUUID(), jobId: id, kind: "jobLifecycle", slug: "trigger-1", enabled, config: { sourceJobIds: sourceIds, states }, createdAt: timestamp, updatedAt: timestamp }] : [];
-    return repository(tenantId).create({ id, name: "Job", slug: "job-" + id, promptTemplate: "{{trigger-1.event}} {{trigger-1.source_job_id}}", runNameTemplate: "", model: "", executionTarget: { connectionId: "test", workspace: "", cwd: "", agentKind: "codex" }, concurrencyLimit: 1, enabled: true, triggers, createdAt: timestamp, updatedAt: timestamp } as Job);
+    return repository(tenantId).create({ id, name: "Job", slug: "job-" + id, promptTemplate: "{{trigger-1.event}} {{trigger-1.source_job_id}}", runNameTemplate: "", model: "", executionConfig: { connectionId: "test", workspace: "", cwd: "", agentKind: "codex" }, concurrencyLimit: 1, enabled: true, triggers, createdAt: timestamp, updatedAt: timestamp } as Job);
   }
   const pending = async () => (await database.pool.query("SELECT * FROM app.job_edit_deliveries WHERE tenant_id=ANY($1::uuid[])", [tenants])).rows;
   const deliver = () => (new AutomationScheduler(database, { CREDENTIAL_ENCRYPTION_KEY: key } as any) as any).jobEdits();

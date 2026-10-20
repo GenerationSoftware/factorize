@@ -6,18 +6,18 @@ import type { Database, DatabaseClient } from "./database";
 
 export interface PersistedRun {
   tenantId: string; id: string; jobId: string; invocationId: string; state: ExecutionState;
-  encryptedPrompt: string; executionTarget: Record<string, any>; executionHandle: RunHandle | null;
+  encryptedPrompt: string; executionConfig: Record<string, any>; executionHandle: RunHandle | null;
   traceSources?: TraceSources | null; executionDiagnostics?: ExecutionDiagnostics | null; finalizationAttempt?: number;
   backendKind: string; capabilities: string[]; artifactState: string; createdAt: string; updatedAt: string;
 }
 
 interface RunRow {
   tenant_id: string; id: string; job_id: string; invocation_id: string; state: ExecutionState; encrypted_prompt: string;
-  execution_target: Record<string, any>; execution_handle: RunHandle | null; execution_backend_kind: string;
+  execution_config: Record<string, any>; execution_handle: RunHandle | null; execution_backend_kind: string;
   trace_sources: TraceSources | null; execution_diagnostics: ExecutionDiagnostics | null; vm_cleanup_attempt: number;
   execution_capabilities: string[]; artifact_state: string; created_at: Date; updated_at: Date;
 }
-const mapped = (row: RunRow): PersistedRun => ({ tenantId: row.tenant_id, id: row.id, jobId: row.job_id, invocationId: row.invocation_id, state: row.state, encryptedPrompt: row.encrypted_prompt, executionTarget: row.execution_target, traceSources: row.trace_sources, executionHandle: row.execution_handle, executionDiagnostics: row.execution_diagnostics, finalizationAttempt: row.vm_cleanup_attempt, backendKind: row.execution_backend_kind, capabilities: row.execution_capabilities, artifactState: row.artifact_state, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() });
+const mapped = (row: RunRow): PersistedRun => ({ tenantId: row.tenant_id, id: row.id, jobId: row.job_id, invocationId: row.invocation_id, state: row.state, encryptedPrompt: row.encrypted_prompt, executionConfig: row.execution_config, traceSources: row.trace_sources, executionHandle: row.execution_handle, executionDiagnostics: row.execution_diagnostics, finalizationAttempt: row.vm_cleanup_attempt, backendKind: row.execution_backend_kind, capabilities: row.execution_capabilities, artifactState: row.artifact_state, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() });
 
 export class RunRepository {
   constructor(private database: Database) {}
@@ -35,7 +35,7 @@ export class RunRepository {
         ), claimed AS (
           UPDATE app.job_runs r SET state='starting',launch_lease_expires_at=now()+interval '5 minutes',updated_at=now()
           FROM candidate c WHERE r.tenant_id=c.tenant_id AND r.id=c.id RETURNING r.*
-        ) SELECT c.tenant_id,c.id,c.job_id,c.invocation_id,c.state,c.encrypted_prompt,x.execution_target,x.trace_sources,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.vm_cleanup_attempt,x.artifact_state,c.created_at,c.updated_at
+        ) SELECT c.tenant_id,c.id,c.job_id,c.invocation_id,c.state,c.encrypted_prompt,x.execution_config,x.trace_sources,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.vm_cleanup_attempt,x.artifact_state,c.created_at,c.updated_at
           FROM claimed c JOIN app.jobs j ON j.tenant_id=c.tenant_id AND j.id=c.job_id JOIN app.runs x ON x.tenant_id=c.tenant_id AND x.id=c.id`, []);
       const row = result.rows[0];
       if (!row) return null;
@@ -45,7 +45,7 @@ export class RunRepository {
   }
 
   async dueForPoll(limit = 40): Promise<PersistedRun[]> {
-    const result = await this.database.pool.query<RunRow>(`SELECT r.tenant_id,r.id,r.job_id,r.invocation_id,r.state,r.encrypted_prompt,x.execution_target,x.trace_sources,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.vm_cleanup_attempt,x.artifact_state,r.created_at,r.updated_at
+    const result = await this.database.pool.query<RunRow>(`SELECT r.tenant_id,r.id,r.job_id,r.invocation_id,r.state,r.encrypted_prompt,x.execution_config,x.trace_sources,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.vm_cleanup_attempt,x.artifact_state,r.created_at,r.updated_at
       FROM app.job_runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.runs x ON x.tenant_id=r.tenant_id AND x.id=r.id
       WHERE r.state IN ('running','blocked','stopping') AND (r.next_poll_at IS NULL OR r.next_poll_at<=now()) ORDER BY r.next_poll_at NULLS FIRST,r.updated_at LIMIT $1`, [limit]);
     return result.rows.map(mapped);

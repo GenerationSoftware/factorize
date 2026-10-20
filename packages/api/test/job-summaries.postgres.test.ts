@@ -19,9 +19,9 @@ describe.skipIf(!url)("bounded job reads and conditional editing (PostgreSQL)", 
     for (const file of (await readdir(directory)).filter(f => f.endsWith(".sql")).sort()) await db.pool.query(await readFile(new URL(file, directory), "utf8"));
     await db.pool.query("INSERT INTO app.tenants(id) VALUES ($1),($2)", [tenant, other]);
     await db.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES ($1,md5(($1::uuid)::text || ':default')::uuid,'Default'),($2,md5(($2::uuid)::text || ':default')::uuid,'Default')", [tenant, other]);
-    await db.pool.query(`INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit)
+    await db.pool.query(`INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit)
       SELECT $1,md5(i::text)::uuid,md5(($1::uuid)::text || ':default')::uuid,'Job '||i,'job-'||i,repeat('p',50000),'{"connectionId":"local","agentKind":"codex","workspace":"ephemeral","cwd":"/home/exedev/workspace"}'::jsonb,1 FROM generate_series(1,205) i`, [tenant]);
-    await db.pool.query(`INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit)
+    await db.pool.query(`INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit)
       VALUES ($1,md5('1')::uuid,md5(($1::uuid)::text || ':default')::uuid,'Private Job','private-job','secret','{}',1)`, [other]);
   });
   afterAll(async () => { if (db) { await db.pool.query("DELETE FROM app.tenants WHERE id=ANY($1::uuid[])", [[tenant, other]]); await db.close(); } if (admin) { await admin.pool.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`); await admin.close(); } });

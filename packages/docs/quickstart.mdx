@@ -16,13 +16,13 @@ These account, credential and consent steps happen in the browser. MCP can disco
 
 Copy this request and replace the repository URL:
 
-> Show me my available execution targets. Create a manual job called ‘Review recent changes’ using my repository’s target. Have it clone https://github.com/YOUR_ORG/YOUR_REPO.git, review the latest commit and summarize any problems. Run it once and report the result.
+> Show me my available execution integrations. Create a manual job called ‘Review recent changes’ using my repository’s target. Have it clone https://github.com/YOUR_ORG/YOUR_REPO.git, review the latest commit and summarize any problems. Run it once and report the result.
 
 If several targets are available, choose one by its agent/account metadata. Target discovery does not imply a repository binding.
 
 Expected tools:
 
-1. `list_execution_targets({})`: choose a returned `id`; never invent one. Empty results mean browser execution setup is incomplete.
+1. `list_execution_configs({})`: choose a returned `id`; never invent one. Empty results mean browser execution setup is incomplete.
 2. `list_jobs({})`: check whether this job already exists before creating it.
 3. `create_job` with the input below. Save its returned `id` as `JOB_ID`.
 4. `invoke_job` with `JOB_ID` and a stable key. Save `runId`.
@@ -32,7 +32,7 @@ Expected tools:
 {
   "name": "Review recent changes",
   "slug": "review-recent-changes",
-  "executionTargetId": "TARGET_ID",
+  "executionConfigId": "TARGET_ID",
   "promptTemplate": "Clone https://github.com/YOUR_ORG/YOUR_REPO.git into the workspace. Review the latest commit on the default branch, run relevant checks, and summarize any problems. {{trigger-1.prompt}}",
   "concurrencyLimit": 1,
   "triggers": [{"kind": "manual", "config": {}}]

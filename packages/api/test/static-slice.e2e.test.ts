@@ -98,7 +98,7 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
     const f = await loadingFixture(url!), browser = await chromium.launch({ headless: true });
     try {
       const service = new ApiService(f.env, f.auth);
-      const job = await service.createJob({ name: "Editor fixture", slug: "editor-fixture", promptTemplate: "Original", executionTargetId: "local", concurrencyLimit: 1, triggers: [{ kind: "manual", enabled: true, config: {} }] });
+      const job = await service.createJob({ name: "Editor fixture", slug: "editor-fixture", promptTemplate: "Original", executionConfigId: "local", concurrencyLimit: 1, triggers: [{ kind: "manual", enabled: true, config: {} }] });
       expect(jobResponse.safeParse(job).success).toBe(true);
       const context = await browser.newContext();
       await context.addCookies([{ name: "factorize_session", value: f.cookie.slice("factorize_session=".length), domain: "factorize.test", path: "/", secure: true, httpOnly: true, sameSite: "Lax" }]);
@@ -117,7 +117,7 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       await page.goto(`https://factorize.test/jobs/${job.id}/edit`);
       await page.waitForURL(`**/jobs/${job.id}/settings`);
       await page.getByLabel("Prompt template", { exact: true }).fill("My edited prompt");
-      await service.updateJob(job.id, { name: "Concurrent name", slug: job.slug, promptTemplate: job.promptTemplate, executionTargetId: job.executionTargetId, concurrencyLimit: 1, triggers: [{ id: job.triggers[0].id, slug: job.triggers[0].slug, kind: "manual", enabled: true, config: {} }], expectedUpdatedAt: job.updatedAt });
+      await service.updateJob(job.id, { name: "Concurrent name", slug: job.slug, promptTemplate: job.promptTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: 1, triggers: [{ id: job.triggers[0].id, slug: job.triggers[0].slug, kind: "manual", enabled: true, config: {} }], expectedUpdatedAt: job.updatedAt });
       await page.getByRole("button", { name: "Reconcile my changes" }).waitFor();
       await page.getByRole("button", { name: "Reconcile my changes" }).click();
       expect(await page.getByLabel("Name", { exact: true }).inputValue()).toBe("Concurrent name");

@@ -10,7 +10,7 @@ The reset deletes tenant membership, Jobs, triggers, runs, Access Tokens, OAuth 
 
 1. Confirm the existing Worker secrets and environment configuration are present. Do not run `wrangler delete`, create another Worker, change the Worker name, replace the OAuth KV binding, or remove secrets.
 2. Deploy this revision with `npm run deploy:app`. Migration `v3-fresh-durable-objects` creates the SQLite-backed `TenantV2` and `GitHubInstallationRegistryV2` classes. The existing binding names switch to those fresh namespaces, while the legacy class exports remain available for safe rollback.
-3. Confirm the deployment succeeds before taking any retirement action. Sign in, reconnect an execution integration, and create a Job with a Manual trigger, prompt template `{{trigger-1.prompt}}`, and that execution target. Confirm the Job is created without `SQLITE_CONSTRAINT_NOTNULL`.
+3. Confirm the deployment succeeds before taking any retirement action. Sign in, reconnect an execution integration, and create a Job with a Manual trigger, prompt template `{{trigger-1.prompt}}`, and that execution integration. Confirm the Job is created without `SQLITE_CONSTRAINT_NOTNULL`.
 4. Notify users that they must sign in again and reconnect integrations.
 
 ## Phase 2: retire legacy namespaces

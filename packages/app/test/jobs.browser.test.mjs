@@ -63,7 +63,7 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
     const url = new URL(route.request().url()); requests.push(url);
     return route.fulfill({ json: { items: url.searchParams.has("cursor") ? fixtures.slice(30) : fixtures.slice(0, 30), nextCursor: url.searchParams.has("cursor") ? null : fixtures[29].id } });
   });
-  await page.route(`**/api/v1/jobs/${fixtures[30].id}`, route => route.fulfill({ json: { ...fixtures[30], promptTemplate: "Template", runNameTemplate: "", executionTargetId: "local", executionTarget: { connectionId: "local", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex" }, triggers: [], currentRuns: 2, maxConcurrency: 10 } }));
+  await page.route(`**/api/v1/jobs/${fixtures[30].id}`, route => route.fulfill({ json: { ...fixtures[30], promptTemplate: "Template", runNameTemplate: "", executionConfigId: "local", executionConfig: { connectionId: "local", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex" }, triggers: [], currentRuns: 2, maxConcurrency: 10 } }));
   await page.goto(origin + `/projects/${projectId}?q=Review`);
   const table = page.getByRole("table", { name: "Jobs", exact: true });
   await table.getByRole("link", { name: "Alpha running", exact: true }).waitFor();
@@ -155,7 +155,7 @@ test("jobs can sort running and title in both directions with accessible state",
 });
 test("split invocation runs defaults immediately and supports prompt-only modal", async () => {
   const { page, context } = await contextFor();
-  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", runNameTemplate: "", executionTargetId: "local", executionTarget: { connectionId: "local", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex" }, triggers: [], currentRuns: 0, maxConcurrency: 2 } }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", runNameTemplate: "", executionConfigId: "local", executionConfig: { connectionId: "local", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex" }, triggers: [], currentRuns: 0, maxConcurrency: 2 } }));
   const inputs = [];
   await page.route(`**/api/v1/jobs/${jobId}/invocations`, route => {
     inputs.push(route.request().postDataJSON());
@@ -182,7 +182,7 @@ test("split invocation runs defaults immediately and supports prompt-only modal"
 });
 test("invocation preserves retry idempotency and navigates to lightweight run/trace", async () => {
   const { page, context } = await contextFor();
-  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", runNameTemplate: "", executionTargetId: "local", executionTarget: { connectionId: "local", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex" }, triggers: [], currentRuns: 0, maxConcurrency: 2 } }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", runNameTemplate: "", executionConfigId: "local", executionConfig: { connectionId: "local", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex" }, triggers: [], currentRuns: 0, maxConcurrency: 2 } }));
   const inputs = [];
   await page.route(`**/api/v1/jobs/${jobId}/invocations`, route => {
     inputs.push(route.request().postDataJSON());
@@ -203,7 +203,7 @@ test("invocation preserves retry idempotency and navigates to lightweight run/tr
 });
 test("prompt modal Escape restores focus and does not run", async () => {
   const { page, context } = await contextFor();
-  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", runNameTemplate: "", executionTargetId: "local", executionTarget: { connectionId: "local", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex" }, triggers: [], currentRuns: 0, maxConcurrency: 2 } }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", runNameTemplate: "", executionConfigId: "local", executionConfig: { connectionId: "local", workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: "codex" }, triggers: [], currentRuns: 0, maxConcurrency: 2 } }));
   const inputs = [];
   await page.route(`**/api/v1/jobs/${jobId}/invocations`, route => { inputs.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: { runId, invocationId: "invocation", state: "queued", duplicate: false } }); });
   await page.goto(origin + "/jobs/" + jobId);
@@ -217,7 +217,7 @@ for (const width of [1280, 390]) test(`job header actions and status remain usab
   const { page, context } = await contextFor({ viewport: { width, height: 844 } });
   let enabled = true;
   const longTitle = "Production deployment " + "with a deliberately long title ".repeat(12);
-  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, name: longTitle, enabled, runningCount: 1, concurrencyLimit: 3, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, name: longTitle, enabled, runningCount: 1, concurrencyLimit: 3, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
   await page.goto(origin + "/jobs/" + jobId);
   const heading = page.getByRole("heading", { name: longTitle, exact: true });
   await heading.waitFor();
@@ -287,7 +287,7 @@ test("20k-event continuous trace keeps DOM bounded, retains expanded details on 
 
 test("job Runs tab paginates distinct records, supports refresh/back and keeps configuration in Settings on mobile", async () => {
   const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
-  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Private template", runNameTemplate: "", executionTargetId: "local", triggers: [] } }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Private template", runNameTemplate: "", executionConfigId: "local", triggers: [] } }));
   const cursors = [];
   await page.route("**/api/v1/runs?**", route => {
     const url = new URL(route.request().url()), cursor = url.searchParams.get("cursor"); cursors.push(cursor);
@@ -329,7 +329,7 @@ test("job Runs tab paginates distinct records, supports refresh/back and keeps c
 
 test("run table headers sort every column accessibly and persist in the URL", async () => {
   const { page, context } = await contextFor();
-  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
   const requests = [];
   await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: [{ id: runId, run_name: "Run", issue_title: "", state: "succeeded", created_at: summary.createdAt, agent_kind: "codex" }], nextCursor: null } }); });
   await page.goto(origin + `/jobs/${jobId}`);
@@ -352,7 +352,7 @@ test("run table headers sort every column accessibly and persist in the URL", as
 });
 test("job run history shares status filtering and keeps it across pagination", async () => {
   const { page, context } = await contextFor(); const requests = [];
-  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
   await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: [{ id: runId, run_name: "Failed run", state: "failed", created_at: summary.createdAt, agent_kind: "codex" }], nextCursor: "next" } }); });
   await page.goto(origin + `/jobs/${jobId}`); await page.getByRole("button", { name: /Status, all statuses/ }).click(); const dialog = page.getByRole("dialog", { name: "Status filter and sort" }); await dialog.getByLabel("Failed").click({ noWaitAfter: true }); await page.waitForFunction(() => location.search.includes("state") || location.search.includes("states")); await page.waitForTimeout(250); assert.equal(requests.find(url => url.searchParams.get("state") === "failed")?.searchParams.get("state"), "failed");
   assert.equal(await dialog.isVisible(), true);
@@ -363,7 +363,7 @@ test("job run history shares status filtering and keeps it across pagination", a
 
 test("job with no runs has an empty table and disabled pagination", async () => {
   const { page, context } = await contextFor();
-  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionTargetId: "local", triggers: [] } }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
   await page.goto(origin + `/jobs/${jobId}`); await page.getByRole("cell", { name: "No runs found." }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Previous page", exact: true }).isDisabled(), true);
   assert.equal(await page.getByRole("button", { name: "Next page", exact: true }).isDisabled(), true);

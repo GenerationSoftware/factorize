@@ -2,9 +2,9 @@ import type { components, operations } from "factorize-api-client";
 export type JobInput = components["schemas"]["JobInput"];
 export type Job = operations["get_api_v1_jobs_jobId"]["responses"][200]["content"]["application/json"];
 export type Trigger = JobInput["triggers"][number];
-export const emptyJob = (): JobInput => ({ name: "", slug: "", promptTemplate: "", runNameTemplate: "", executionTargetId: "", concurrencyLimit: 1, tags: [], model: "", effort: "", triggers: [{ kind: "manual", slug: "trigger-1", enabled: true, config: {} }] });
+export const emptyJob = (): JobInput => ({ name: "", slug: "", promptTemplate: "", runNameTemplate: "", executionConfigId: "", concurrencyLimit: 1, tags: [], model: "", effort: "", triggers: [{ kind: "manual", slug: "trigger-1", enabled: true, config: {} }] });
 export function editableJob(job: Job): JobInput {
-  return { name: job.name, slug: job.slug, promptTemplate: job.promptTemplate, runNameTemplate: job.runNameTemplate, executionTargetId: job.executionTargetId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", triggers: job.triggers.map(trigger => {
+  return { name: job.name, slug: job.slug, promptTemplate: job.promptTemplate, runNameTemplate: job.runNameTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", triggers: job.triggers.map(trigger => {
     const { id, slug, kind, enabled } = trigger;
     const config = trigger.kind === "webhook" ? Object.fromEntries(Object.entries(trigger.config).filter(([key]) => !["destination", "secretConfigured"].includes(key))) : trigger.config;
     return { id, slug, kind, enabled, config } as Trigger;
@@ -32,7 +32,7 @@ export function validateJobInput(input: JobInput): string | undefined {
   if (!/^[a-z][a-z0-9_-]{0,29}$/.test(input.slug)) return "Slug must start with a lowercase letter and contain at most 30 characters.";
   if (!input.promptTemplate || input.promptTemplate.length > 50_000) return "Enter a prompt template between 1 and 50,000 characters.";
   if (!Number.isInteger(input.concurrencyLimit) || input.concurrencyLimit < 1 || input.concurrencyLimit > 50) return "Concurrency limit must be between 1 and 50.";
-  if (!input.executionTargetId) return "Choose an execution target.";
+  if (!input.executionConfigId) return "Choose an execution integration.";
   if ((input.tags?.length ?? 0) > 20 || input.tags?.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) return "VM tags are invalid.";
   if (input.triggers.length > 50) return "A job can have at most 50 triggers.";
   for (const trigger of input.triggers) {

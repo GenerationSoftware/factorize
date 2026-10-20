@@ -39,7 +39,7 @@
         "passed": true
       },
       {
-        "path": "/api/v1/execution-targets",
+        "path": "/api/v1/execution-integrations",
         "status": 200,
         "expected": 200,
         "passed": true

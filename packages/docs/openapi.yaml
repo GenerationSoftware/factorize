@@ -788,7 +788,7 @@ components:
           type: integer
           minimum: 1
           maximum: 50
-        executionTargetId:
+        executionConfigId:
           type: string
           minLength: 1
         tags:
@@ -1069,7 +1069,7 @@ components:
         - name
         - slug
         - promptTemplate
-        - executionTargetId
+        - executionConfigId
       additionalProperties: false
     ManualInvocation:
       type: object
@@ -2513,585 +2513,6 @@ paths:
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
-  /api/v1/execution-targets:
-    get:
-      summary: List execution targets
-      responses:
-        "200":
-          description: Targets
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    kind:
-                      type: string
-                      enum:
-                        - exe-vm
-                        - amp
-                    name:
-                      type: string
-                    workspace:
-                      type: string
-                    cwd:
-                      type: string
-                    agentKind:
-                      type: string
-                    integrationId:
-                      type: string
-                    tags:
-                      type: array
-                      items:
-                        type: string
-                    model:
-                      type: string
-                    effort:
-                      type: string
-                    models:
-                      type: array
-                      items:
-                        type: string
-                    modelsRefreshedAt:
-                      type:
-                        - string
-                        - "null"
-                    efforts:
-                      type: array
-                      items:
-                        type: string
-                    capabilities:
-                      type: array
-                      items:
-                        type: string
-                    referencingProjects:
-                      type: array
-                      items:
-                        type: object
-                        properties:
-                          id:
-                            type: string
-                          name:
-                            type: string
-                        required:
-                          - id
-                          - name
-                        additionalProperties: false
-                    referencingJobCount:
-                      type: integer
-                      minimum: -9007199254740991
-                      maximum: 9007199254740991
-                  required:
-                    - id
-                    - kind
-                    - name
-                    - workspace
-                    - cwd
-                    - agentKind
-                    - capabilities
-                  additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the integrations:read scope.
-
-        Accepts a scoped bearer token or interactive owner session.
-      operationId: get_api_v1_execution_targets
-      tags:
-        - execution-targets
-      security:
-        - bearerAuth: []
-        - cookieAuth: []
-      x-required-scope: integrations:read
-      x-owner-session-required: false
-    post:
-      summary: Create execution target
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  kind:
-                    type: string
-                    enum:
-                      - exe-vm
-                      - amp
-                  name:
-                    type: string
-                  workspace:
-                    type: string
-                  cwd:
-                    type: string
-                  agentKind:
-                    type: string
-                  integrationId:
-                    type: string
-                  tags:
-                    type: array
-                    items:
-                      type: string
-                  model:
-                    type: string
-                  effort:
-                    type: string
-                  models:
-                    type: array
-                    items:
-                      type: string
-                  modelsRefreshedAt:
-                    type:
-                      - string
-                      - "null"
-                  efforts:
-                    type: array
-                    items:
-                      type: string
-                  capabilities:
-                    type: array
-                    items:
-                      type: string
-                  referencingProjects:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        name:
-                          type: string
-                      required:
-                        - id
-                        - name
-                      additionalProperties: false
-                  referencingJobCount:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                required:
-                  - id
-                  - kind
-                  - name
-                  - workspace
-                  - cwd
-                  - agentKind
-                  - capabilities
-                additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "415":
-          $ref: "#/components/responses/Error415"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the integrations:write scope.
-
-        Accepts a scoped bearer token or interactive owner session.
-      operationId: post_api_v1_execution_targets
-      tags:
-        - execution-targets
-      security:
-        - bearerAuth: []
-        - cookieAuth: []
-      x-required-scope: integrations:write
-      x-owner-session-required: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  default: ""
-                  type: string
-                  maxLength: 120
-                integrationKind:
-                  type: string
-                  enum:
-                    - exe
-                    - amp
-                integrationId:
-                  type: string
-                  minLength: 1
-                agentKind:
-                  type: string
-                  minLength: 1
-                  maxLength: 40
-                tags:
-                  maxItems: 20
-                  type: array
-                  items:
-                    type: string
-                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
-                model:
-                  default: ""
-                  type: string
-                  maxLength: 120
-                effort:
-                  default: ""
-                  type: string
-                  maxLength: 40
-                models:
-                  maxItems: 100
-                  type: array
-                  items:
-                    type: string
-                    minLength: 1
-                    maxLength: 120
-                expectedUpdatedAt:
-                  type: string
-                  format: date-time
-                  pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
-              required:
-                - integrationKind
-                - integrationId
-                - agentKind
-  /api/v1/execution-targets/{targetId}:
-    put:
-      summary: Update execution target
-      responses:
-        "200":
-          description: Updated
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  kind:
-                    type: string
-                    enum:
-                      - exe-vm
-                      - amp
-                  name:
-                    type: string
-                  workspace:
-                    type: string
-                  cwd:
-                    type: string
-                  agentKind:
-                    type: string
-                  integrationId:
-                    type: string
-                  tags:
-                    type: array
-                    items:
-                      type: string
-                  model:
-                    type: string
-                  effort:
-                    type: string
-                  models:
-                    type: array
-                    items:
-                      type: string
-                  modelsRefreshedAt:
-                    type:
-                      - string
-                      - "null"
-                  efforts:
-                    type: array
-                    items:
-                      type: string
-                  capabilities:
-                    type: array
-                    items:
-                      type: string
-                  referencingProjects:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        name:
-                          type: string
-                      required:
-                        - id
-                        - name
-                      additionalProperties: false
-                  referencingJobCount:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                required:
-                  - id
-                  - kind
-                  - name
-                  - workspace
-                  - cwd
-                  - agentKind
-                  - capabilities
-                additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "415":
-          $ref: "#/components/responses/Error415"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the integrations:write scope.
-
-        Accepts a scoped bearer token or interactive owner session.
-      operationId: put_api_v1_execution_targets_targetId
-      tags:
-        - execution-targets
-      security:
-        - bearerAuth: []
-        - cookieAuth: []
-      x-required-scope: integrations:write
-      x-owner-session-required: false
-      parameters:
-        - name: targetId
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  default: ""
-                  type: string
-                  maxLength: 120
-                integrationKind:
-                  type: string
-                  enum:
-                    - exe
-                    - amp
-                integrationId:
-                  type: string
-                  minLength: 1
-                agentKind:
-                  type: string
-                  minLength: 1
-                  maxLength: 40
-                tags:
-                  maxItems: 20
-                  type: array
-                  items:
-                    type: string
-                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
-                model:
-                  default: ""
-                  type: string
-                  maxLength: 120
-                effort:
-                  default: ""
-                  type: string
-                  maxLength: 40
-                models:
-                  maxItems: 100
-                  type: array
-                  items:
-                    type: string
-                    minLength: 1
-                    maxLength: 120
-                expectedUpdatedAt:
-                  type: string
-                  format: date-time
-                  pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
-              required:
-                - integrationKind
-                - integrationId
-                - agentKind
-    delete:
-      summary: Delete execution target
-      responses:
-        "200":
-          description: Deleted
-          content:
-            application/json:
-              schema:
-                type: object
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the integrations:write scope.
-
-        Accepts a scoped bearer token or interactive owner session.
-      operationId: delete_api_v1_execution_targets_targetId
-      tags:
-        - execution-targets
-      security:
-        - bearerAuth: []
-        - cookieAuth: []
-      x-required-scope: integrations:write
-      x-owner-session-required: false
-      parameters:
-        - name: targetId
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-  /api/v1/execution-targets/{targetId}/diagnostics:
-    post:
-      summary: Diagnose an execution target
-      responses:
-        "200":
-          description: Target-scoped credential-safe diagnostic result
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  targetId:
-                    type: string
-                  integrationId:
-                    type: string
-                  agentKind:
-                    type: string
-                  tags:
-                    type: array
-                    items:
-                      type: string
-                  permissions:
-                    type: object
-                    properties:
-                      ok:
-                        type: boolean
-                      missing:
-                        type: array
-                        items:
-                          type: string
-                      tags:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - ok
-                      - missing
-                      - tags
-                    additionalProperties: false
-                  agent:
-                    anyOf:
-                      - type: object
-                        properties:
-                          ok:
-                            type: boolean
-                          models:
-                            type: array
-                            items:
-                              type: string
-                          error:
-                            type: string
-                        required:
-                          - ok
-                        additionalProperties: false
-                      - type: "null"
-                required:
-                  - ok
-                  - targetId
-                  - integrationId
-                  - agentKind
-                  - tags
-                  - permissions
-                  - agent
-                additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the integrations:write scope.
-
-        Accepts a scoped bearer token or interactive owner session.
-      operationId: post_api_v1_execution_targets_targetId_diagnostics
-      tags:
-        - execution-targets
-      security:
-        - bearerAuth: []
-        - cookieAuth: []
-      x-required-scope: integrations:write
-      x-owner-session-required: false
-      parameters:
-        - name: targetId
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
   /api/v1/job-trigger-availability:
     get:
       summary: List available trigger kinds
@@ -5770,7 +5191,7 @@ paths:
                     type: string
                   effort:
                     type: string
-                  executionTarget:
+                  executionConfig:
                     type: object
                     properties:
                       connectionId:
@@ -5785,7 +5206,7 @@ paths:
                       - connectionId
                       - agentKind
                     additionalProperties: false
-                  executionTargetId:
+                  executionConfigId:
                     type: string
                   agentKind:
                     type: string
@@ -6163,8 +5584,8 @@ paths:
                   - promptTemplate
                   - runNameTemplate
                   - model
-                  - executionTarget
-                  - executionTargetId
+                  - executionConfig
+                  - executionConfigId
                   - agentKind
                   - concurrencyLimit
                   - runningCount
@@ -6268,7 +5689,7 @@ paths:
                       type: string
                     effort:
                       type: string
-                    executionTarget:
+                    executionConfig:
                       type: object
                       properties:
                         connectionId:
@@ -6283,7 +5704,7 @@ paths:
                         - connectionId
                         - agentKind
                       additionalProperties: false
-                    executionTargetId:
+                    executionConfigId:
                       type: string
                     agentKind:
                       type: string
@@ -6661,8 +6082,8 @@ paths:
                     - promptTemplate
                     - runNameTemplate
                     - model
-                    - executionTarget
-                    - executionTargetId
+                    - executionConfig
+                    - executionConfigId
                     - agentKind
                     - concurrencyLimit
                     - runningCount
@@ -6737,7 +6158,7 @@ paths:
                     type: string
                   effort:
                     type: string
-                  executionTarget:
+                  executionConfig:
                     type: object
                     properties:
                       connectionId:
@@ -6752,7 +6173,7 @@ paths:
                       - connectionId
                       - agentKind
                     additionalProperties: false
-                  executionTargetId:
+                  executionConfigId:
                     type: string
                   agentKind:
                     type: string
@@ -7130,8 +6551,8 @@ paths:
                   - promptTemplate
                   - runNameTemplate
                   - model
-                  - executionTarget
-                  - executionTargetId
+                  - executionConfig
+                  - executionConfigId
                   - agentKind
                   - concurrencyLimit
                   - runningCount
@@ -7496,7 +6917,7 @@ paths:
                     type: string
                   effort:
                     type: string
-                  executionTarget:
+                  executionConfig:
                     type: object
                     properties:
                       connectionId:
@@ -7511,7 +6932,7 @@ paths:
                       - connectionId
                       - agentKind
                     additionalProperties: false
-                  executionTargetId:
+                  executionConfigId:
                     type: string
                   agentKind:
                     type: string
@@ -7889,8 +7310,8 @@ paths:
                   - promptTemplate
                   - runNameTemplate
                   - model
-                  - executionTarget
-                  - executionTargetId
+                  - executionConfig
+                  - executionConfigId
                   - agentKind
                   - concurrencyLimit
                   - runningCount
@@ -7978,7 +7399,7 @@ paths:
                     type: string
                   effort:
                     type: string
-                  executionTarget:
+                  executionConfig:
                     type: object
                     properties:
                       connectionId:
@@ -7993,7 +7414,7 @@ paths:
                       - connectionId
                       - agentKind
                     additionalProperties: false
-                  executionTargetId:
+                  executionConfigId:
                     type: string
                   agentKind:
                     type: string
@@ -8371,8 +7792,8 @@ paths:
                   - promptTemplate
                   - runNameTemplate
                   - model
-                  - executionTarget
-                  - executionTargetId
+                  - executionConfig
+                  - executionConfigId
                   - agentKind
                   - concurrencyLimit
                   - runningCount
@@ -8447,7 +7868,7 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 50
-                executionTargetId:
+                executionConfigId:
                   type: string
                   minLength: 1
                 tags:
@@ -8732,7 +8153,7 @@ paths:
                 - name
                 - slug
                 - promptTemplate
-                - executionTargetId
+                - executionConfigId
               additionalProperties: false
     delete:
       summary: Delete job

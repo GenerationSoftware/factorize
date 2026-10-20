@@ -27,7 +27,7 @@ describe.skipIf(!databaseUrl)("cookie loading baseline", () => {
       { name: "Jobs", page: "/jobs", endpoint: "/api/v1/jobs", selector: "main a[href^='/jobs/']" },
       { name: "Job detail", page: `/jobs/${fixture.jobIds[0]}`, endpoint: `/api/v1/jobs/${fixture.jobIds[0]}`, selector: "main h1" },
       { name: "Run detail", page: `/job-runs/${fixture.runId}`, endpoint: `/api/v1/runs/${fixture.runId}`, selector: "main h1" },
-      { name: "Job create", page: "/jobs/new", endpoint: "/api/v1/execution-targets", selector: "main select option[value='local']" },
+      { name: "Job create", page: "/jobs/new", endpoint: "/api/v1/execution-integrations", selector: "main select option[value='local']" },
       { name: "Job edit", page: `/jobs/${fixture.jobIds[0]}/edit`, endpoint: `/api/v1/jobs/${fixture.jobIds[0]}`, selector: "main select option[value='local']" },
       { name: "Integrations", page: "/settings/integrations", endpoint: "/api/v1/integrations", selector: "main h1" },
       { name: "API Keys", page: "/settings/api-keys", endpoint: "/api/v1/access-tokens", selector: "main h1" },

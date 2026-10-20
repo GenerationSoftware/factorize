@@ -27,7 +27,7 @@ export async function checkContent() {
   }
   const main = ["index", "quickstart", "mcp/overview"].map(name => guides.get(name)).join("\n");
   for (const url of ["https://app.factorize.sh", "https://app.factorize.sh/mcp"]) if (!main.includes(url)) throw new Error("Missing hosted URL");
-  for (const phrase of ["list_execution_targets", "create_job", "invoke_job", "get_run", "idempotencyKey", "browser", "output"]) if (!guides.get("quickstart").includes(phrase)) throw new Error(`Incomplete first-job guide: ${phrase}`);
+  for (const phrase of ["list_execution_configs", "create_job", "invoke_job", "get_run", "idempotencyKey", "browser", "output"]) if (!guides.get("quickstart").includes(phrase)) throw new Error(`Incomplete first-job guide: ${phrase}`);
   if (/Worker secrets|POSTMARK_SERVER_TOKEN|LINEAR_CLIENT_SECRET|Cloudflare account/.test(main)) throw new Error("Operator prerequisite in main onboarding");
   for (const body of guides.values()) if (/username\/password|username, email|Job create object|mirrors REST/.test(body)) throw new Error("Stale auth or capability claim");
   const reference = guides.get("mcp/tools");

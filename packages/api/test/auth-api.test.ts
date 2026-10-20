@@ -195,7 +195,7 @@ describe("public auth API and cookie security", () => {
 
   it("enforces origin for cookie application mutations while preserving bearer clients", async () => {
     const create = vi.spyOn(ApiService.prototype, "createJob").mockResolvedValue({ id: "job" } as never);
-    const request = () => new Request(env.APP_ORIGIN + "/api/v1/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Job", slug: "job", promptTemplate: "Do work", executionTargetId: "exe-1" }) });
+    const request = () => new Request(env.APP_ORIGIN + "/api/v1/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Job", slug: "job", promptTemplate: "Do work", executionConfigId: "exe-1" }) });
     expect((await protectedApiFetch(request(), env, auth, ctx)).status).toBe(403);
     expect(create).not.toHaveBeenCalled();
     expect((await protectedApiFetch(request(), env, { ...auth, authMethod: "access_token" }, ctx)).status).toBe(201);

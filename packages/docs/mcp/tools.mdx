@@ -13,17 +13,17 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | --- | --- | --- |
 | `list_exe_connections` | integrations:read | `{}` |
 | `list_github_installations` | integrations:read | `{}` |
-| `list_execution_targets` | integrations:read | `{}` |
-| `list_execution_target_resources` | integrations:read | `{}`; returns non-secret target records for management |
-| `create_execution_target` | integrations:write | Required `integrationKind`, `integrationId`, `agentKind`; optional `name` (including empty) |
-| `update_execution_target` | integrations:write | Required `targetId`, `integrationKind`, `integrationId`, `agentKind`; optional `name` (including empty) |
-| `delete_execution_target` | integrations:write | Required string `targetId`; rejects referenced or active targets |
-| `diagnose_execution_target` | integrations:write | Required string `targetId`; probes the target's integration and agent |
+| `list_execution_configs` | integrations:read | `{}` |
+| `list_execution_config_resources` | integrations:read | `{}`; returns non-secret target records for management |
+| `create_execution_config` | integrations:write | Required `integrationKind`, `integrationId`, `agentKind`; optional `name` (including empty) |
+| `update_execution_config` | integrations:write | Required `targetId`, `integrationKind`, `integrationId`, `agentKind`; optional `name` (including empty) |
+| `delete_execution_config` | integrations:write | Required string `targetId`; rejects referenced or active targets |
+| `diagnose_execution_config` | integrations:write | Required string `targetId`; probes the target's integration and agent |
 | `diagnose_exe_integration` | integrations:write | Required string `connectionId`; credential-safe diagnostic |
 | `list_cloudflare_tail_integrations` | integrations:read | `{}` |
 | `list_jobs` | jobs:read | `{}` |
 | `get_job` | jobs:read | Required string `jobId` |
-| `create_job` | jobs:write | Required `name`, `slug`, `promptTemplate`, `executionTargetId`; job fields below |
+| `create_job` | jobs:write | Required `name`, `slug`, `promptTemplate`, `executionConfigId`; job fields below |
 | `update_job` | jobs:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` |
 | `delete_job` | jobs:write | Required string `jobId`; deletion removes execution history/artifacts |
 | `enable_job` | jobs:write | Required string `jobId` |
@@ -49,8 +49,8 @@ The inventory is validated against every registered implementation tool. All req
 
 ## Discovery inputs and outputs
 
-- `list_execution_targets({})` → `{"items":[{"id":"TARGET_ID","kind":"exe-vm","name":"Ephemeral exe.dev VMs","workspace":"ephemeral","cwd":"/home/exedev/workspace","agentKind":"codex","models":[],"efforts":["minimal","low","medium","high","xhigh"],"capabilities":["recovery","stop"]}]}`. Copy `id` into `executionTargetId`. Amp IDs have an `amp:` prefix and kind `amp`. Empty results require browser integration setup. Targets do not contain repository URLs.
-- Execution targets identify a saved integration and agent. Their display name is optional. Jobs own VM tags, model, and effort; `diagnose_execution_target` checks the integration and agent, while `delete_execution_target` is rejected when a job or queued/active run still references it.
+- `list_execution_configs({})` → `{"items":[{"id":"TARGET_ID","kind":"exe-vm","name":"Ephemeral exe.dev VMs","workspace":"ephemeral","cwd":"/home/exedev/workspace","agentKind":"codex","models":[],"efforts":["minimal","low","medium","high","xhigh"],"capabilities":["recovery","stop"]}]}`. Copy `id` into `executionConfigId`. Amp IDs have an `amp:` prefix and kind `amp`. Empty results require browser integration setup. Targets do not contain repository URLs.
+- execution integrations identify a saved integration and agent. Their display name is optional. Jobs own VM tags, model, and effort; `diagnose_execution_config` checks the integration and agent, while `delete_execution_config` is rejected when a job or queued/active run still references it.
 - `list_exe_connections({})` → `{"items":[{"connectionId":"CONNECTION_ID","agentKind":"codex","tags":[]}]}` (selected fields). Use `connectionId` for integration diagnosis.
 - `list_github_installations({})` → `{"items":[{"installationId":12345,"accountLogin":"YOUR_ORG","state":"active"}]}` (selected fields). Use numeric `installationId` in GitHub triggers; choose repository IDs in the browser.
 - `list_cloudflare_tail_integrations({})` → `{"items":[{"integrationId":"INTEGRATION_ID","name":"Worker errors","referencedJobCount":0}]}` (selected fields). Use `integrationId` in Tail trigger configuration.
@@ -63,7 +63,7 @@ The inventory is validated against every registered implementation tool. All req
 | `name` | Required trimmed string, 1–120 characters |
 | `slug` | Required string matching `^[a-z][a-z0-9_-]{0,29}$`; unique within workspace |
 | `promptTemplate` | Required string, 1–50,000 characters |
-| `executionTargetId` | Required non-empty ID from target discovery |
+| `executionConfigId` | Required non-empty ID from target discovery |
 | `runNameTemplate` | Optional string, max 500; defaults to empty |
 | `concurrencyLimit` | Optional integer 1–50; defaults to 1 |
 | `model` | Optional trimmed string, max 120; defaults to empty/provider default |
@@ -93,13 +93,13 @@ Match rule types: `owner`, `creator`, `status`, `label`, `assignee`, with non-em
 `create_job` input:
 
 ```json
-{"name":"Review recent changes","slug":"review-recent-changes","promptTemplate":"Clone REPOSITORY_URL and review the latest commit. {{trigger-1.prompt}}","executionTargetId":"TARGET_ID","concurrencyLimit":1,"triggers":[{"kind":"manual","config":{}}]}
+{"name":"Review recent changes","slug":"review-recent-changes","promptTemplate":"Clone REPOSITORY_URL and review the latest commit. {{trigger-1.prompt}}","executionConfigId":"TARGET_ID","concurrencyLimit":1,"triggers":[{"kind":"manual","config":{}}]}
 ```
 
 Result includes (selected fields):
 
 ```json
-{"id":"JOB_ID","name":"Review recent changes","slug":"review-recent-changes","enabled":true,"executionTargetId":"TARGET_ID","concurrencyLimit":1,"currentRuns":0,"maxConcurrency":1,"updatedAt":"2026-10-10T09:00:00.000Z","triggers":[{"id":"TRIGGER_ID","slug":"trigger-1","kind":"manual","enabled":true,"config":{}}]}
+{"id":"JOB_ID","name":"Review recent changes","slug":"review-recent-changes","enabled":true,"executionConfigId":"TARGET_ID","concurrencyLimit":1,"currentRuns":0,"maxConcurrency":1,"updatedAt":"2026-10-10T09:00:00.000Z","triggers":[{"id":"TRIGGER_ID","slug":"trigger-1","kind":"manual","enabled":true,"config":{}}]}
 ```
 
 Save `id`, trigger IDs/slugs and `updatedAt`. Full job results include prompt/configuration, timestamps, agent metadata and trigger reflection. `list_jobs({})` returns `{"items":[...jobs]}`; `get_job({"jobId":"JOB_ID"})` returns a single job. Creation errors include `conflict` for duplicate slug and `invalid_request` for invalid/unknown target or invalid fields. If creation's response is lost, list/find the job before recreating it.
@@ -109,7 +109,7 @@ Save `id`, trigger IDs/slugs and `updatedAt`. Full job results include prompt/co
 `update_job` replaces configuration. Fetch first; preserve all intended fields and triggers; strip read-only fields. Example for a manual-only job:
 
 ```json
-{"jobId":"JOB_ID","expectedUpdatedAt":"2026-10-10T09:00:00.000Z","name":"Review recent changes","slug":"review-recent-changes","promptTemplate":"Clone REPOSITORY_URL and review the latest commit. Run relevant checks. {{trigger-1.prompt}}","executionTargetId":"TARGET_ID","runNameTemplate":"","concurrencyLimit":1,"model":"","triggers":[{"id":"TRIGGER_ID","slug":"trigger-1","kind":"manual","enabled":true,"config":{}}]}
+{"jobId":"JOB_ID","expectedUpdatedAt":"2026-10-10T09:00:00.000Z","name":"Review recent changes","slug":"review-recent-changes","promptTemplate":"Clone REPOSITORY_URL and review the latest commit. Run relevant checks. {{trigger-1.prompt}}","executionConfigId":"TARGET_ID","runNameTemplate":"","concurrencyLimit":1,"model":"","triggers":[{"id":"TRIGGER_ID","slug":"trigger-1","kind":"manual","enabled":true,"config":{}}]}
 ```
 
 Result is the saved job with new `updatedAt`. Preserve any automatic triggers too. Omission can reset optional settings or remove automatic triggers. On `stale_job`, fetch/reapply; omitting `expectedUpdatedAt` is last-writer-wins. Stable slugs survive edits when trigger identity/kind is retained; changing kind creates a new trigger identity. Inspect returned slugs rather than assuming numbering.

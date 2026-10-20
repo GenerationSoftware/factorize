@@ -34,7 +34,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
   async function job(tenantId: string, config?: Record<string, unknown>, enabled = true) {
     const id = crypto.randomUUID(), timestamp = new Date().toISOString();
     const trigger: Trigger = { id: crypto.randomUUID(), jobId: id, kind: config ? "jobLifecycle" : "manual", slug: "trigger-1", enabled, config: config ?? {}, createdAt: timestamp, updatedAt: timestamp };
-    return repository(tenantId).create({ id, name: "Job", slug: "job-" + id, promptTemplate: "{{trigger-1.state}}", runNameTemplate: "", model: "", executionTarget: { connectionId: "test", workspace: "", cwd: "", agentKind: "codex" }, concurrencyLimit: 1, enabled: true, triggers: [trigger], createdAt: timestamp, updatedAt: timestamp } as Job);
+    return repository(tenantId).create({ id, name: "Job", slug: "job-" + id, promptTemplate: "{{trigger-1.state}}", runNameTemplate: "", model: "", executionConfig: { connectionId: "test", workspace: "", cwd: "", agentKind: "codex" }, concurrencyLimit: 1, enabled: true, triggers: [trigger], createdAt: timestamp, updatedAt: timestamp } as Job);
   }
   async function complete(tenantId: string, source: Job, state: "succeeded" | "failed" | "stopped" = "succeeded") {
     const result = await new InvocationService(repository(tenantId), value => encrypt(value, key)).invoke(source.id, { source: "manual", triggerId: source.triggers[0]!.id, claimKey: crypto.randomUUID(), context: {} });

@@ -354,84 +354,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/execution-targets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List execution targets
-         * @description Requires the integrations:read scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        get: operations["get_api_v1_execution_targets"];
-        put?: never;
-        /**
-         * Create execution target
-         * @description Requires the integrations:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_execution_targets"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/execution-targets/{targetId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Update execution target
-         * @description Requires the integrations:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        put: operations["put_api_v1_execution_targets_targetId"];
-        post?: never;
-        /**
-         * Delete execution target
-         * @description Requires the integrations:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        delete: operations["delete_api_v1_execution_targets_targetId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/execution-targets/{targetId}/diagnostics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Diagnose an execution target
-         * @description Requires the integrations:write scope.
-         *
-         *     Accepts a scoped bearer token or interactive owner session.
-         */
-        post: operations["post_api_v1_execution_targets_targetId_diagnostics"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/job-trigger-availability": {
         parameters: {
             query?: never;
@@ -1863,7 +1785,7 @@ export interface components {
             runNameTemplate?: string;
             /** @default 1 */
             concurrencyLimit: number;
-            executionTargetId: string;
+            executionConfigId: string;
             tags?: string[];
             model?: string;
             effort?: string;
@@ -2837,271 +2759,6 @@ export interface operations {
                         state: string;
                         updatedAt: string;
                     }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_execution_targets: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Targets */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        id: string;
-                        /** @enum {string} */
-                        kind: "exe-vm" | "amp";
-                        name: string;
-                        workspace: string;
-                        cwd: string;
-                        agentKind: string;
-                        integrationId?: string;
-                        tags?: string[];
-                        model?: string;
-                        effort?: string;
-                        models?: string[];
-                        modelsRefreshedAt?: string | null;
-                        efforts?: string[];
-                        capabilities: string[];
-                        referencingProjects?: {
-                            id: string;
-                            name: string;
-                        }[];
-                        referencingJobCount?: number;
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_execution_targets: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @default  */
-                    name?: string;
-                    /** @enum {string} */
-                    integrationKind: "exe" | "amp";
-                    integrationId: string;
-                    agentKind: string;
-                    tags?: string[];
-                    /** @default  */
-                    model?: string;
-                    /** @default  */
-                    effort?: string;
-                    models?: string[];
-                    /** Format: date-time */
-                    expectedUpdatedAt?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        id: string;
-                        /** @enum {string} */
-                        kind: "exe-vm" | "amp";
-                        name: string;
-                        workspace: string;
-                        cwd: string;
-                        agentKind: string;
-                        integrationId?: string;
-                        tags?: string[];
-                        model?: string;
-                        effort?: string;
-                        models?: string[];
-                        modelsRefreshedAt?: string | null;
-                        efforts?: string[];
-                        capabilities: string[];
-                        referencingProjects?: {
-                            id: string;
-                            name: string;
-                        }[];
-                        referencingJobCount?: number;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_execution_targets_targetId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                targetId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @default  */
-                    name?: string;
-                    /** @enum {string} */
-                    integrationKind: "exe" | "amp";
-                    integrationId: string;
-                    agentKind: string;
-                    tags?: string[];
-                    /** @default  */
-                    model?: string;
-                    /** @default  */
-                    effort?: string;
-                    models?: string[];
-                    /** Format: date-time */
-                    expectedUpdatedAt?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        id: string;
-                        /** @enum {string} */
-                        kind: "exe-vm" | "amp";
-                        name: string;
-                        workspace: string;
-                        cwd: string;
-                        agentKind: string;
-                        integrationId?: string;
-                        tags?: string[];
-                        model?: string;
-                        effort?: string;
-                        models?: string[];
-                        modelsRefreshedAt?: string | null;
-                        efforts?: string[];
-                        capabilities: string[];
-                        referencingProjects?: {
-                            id: string;
-                            name: string;
-                        }[];
-                        referencingJobCount?: number;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_execution_targets_targetId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                targetId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_execution_targets_targetId_diagnostics: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                targetId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Target-scoped credential-safe diagnostic result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        ok: boolean;
-                        targetId: string;
-                        integrationId: string;
-                        agentKind: string;
-                        tags: string[];
-                        permissions: {
-                            ok: boolean;
-                            missing: string[];
-                            tags: string[];
-                        };
-                        agent: {
-                            ok: boolean;
-                            models?: string[];
-                            error?: string;
-                        } | null;
-                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -4524,13 +4181,13 @@ export interface operations {
                         tags?: string[];
                         model: string;
                         effort?: string;
-                        executionTarget: {
+                        executionConfig: {
                             connectionId: string;
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
                         };
-                        executionTargetId: string;
+                        executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
                         runningCount: number;
@@ -4692,13 +4349,13 @@ export interface operations {
                         tags?: string[];
                         model: string;
                         effort?: string;
-                        executionTarget: {
+                        executionConfig: {
                             connectionId: string;
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
                         };
-                        executionTargetId: string;
+                        executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
                         runningCount: number;
@@ -4863,13 +4520,13 @@ export interface operations {
                         tags?: string[];
                         model: string;
                         effort?: string;
-                        executionTarget: {
+                        executionConfig: {
                             connectionId: string;
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
                         };
-                        executionTargetId: string;
+                        executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
                         runningCount: number;
@@ -5206,13 +4863,13 @@ export interface operations {
                         tags?: string[];
                         model: string;
                         effort?: string;
-                        executionTarget: {
+                        executionConfig: {
                             connectionId: string;
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
                         };
-                        executionTargetId: string;
+                        executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
                         runningCount: number;
@@ -5365,7 +5022,7 @@ export interface operations {
                     runNameTemplate?: string;
                     /** @default 1 */
                     concurrencyLimit?: number;
-                    executionTargetId: string;
+                    executionConfigId: string;
                     tags?: string[];
                     model?: string;
                     effort?: string;
@@ -5481,13 +5138,13 @@ export interface operations {
                         tags?: string[];
                         model: string;
                         effort?: string;
-                        executionTarget: {
+                        executionConfig: {
                             connectionId: string;
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
                         };
-                        executionTargetId: string;
+                        executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
                         runningCount: number;

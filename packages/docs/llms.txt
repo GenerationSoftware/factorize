@@ -34,7 +34,7 @@ Current MCP does not return execution output; inspect browser traces or REST tra
 
 ## Troubleshooting
 
-- [Connection problems](https://docs.factorize.sh/troubleshooting/connection): Recover authorization, scopes, and execution targets.
+- [Connection problems](https://docs.factorize.sh/troubleshooting/connection): Recover authorization, scopes, and execution integrations.
 - [Jobs not firing](https://docs.factorize.sh/troubleshooting/events): Verify automation from provider event to accepted run.
 - [Failed or stuck runs](https://docs.factorize.sh/troubleshooting/runs): Investigate evidence, fix the cause, and verify recovery.
 

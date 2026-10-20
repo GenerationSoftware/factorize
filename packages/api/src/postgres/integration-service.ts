@@ -32,7 +32,6 @@ export class IntegrationService {
     const validation = value.agentKind ? await backend.validateAgentAndModels(value.agentKind) : undefined, connectionId = value.connectionId || crypto.randomUUID();
     const saved = { ...candidate, ...(validation ? { models: validation.models, modelsRefreshedAt: timestamp() } : {}) };
     await this.connections.put(`exe:${connectionId}`, saved);
-    await this.database.pool.query("INSERT INTO app.execution_targets(tenant_id,id,name,integration_kind,integration_id,agent_kind) VALUES ($1,gen_random_uuid(),$2,'exe',$3,$4) ON CONFLICT DO NOTHING", [this.tenantId, `exe.dev · ${connectionId.slice(0, 8)}`, connectionId, value.agentKind ?? "codex"]);
     return { ok: true, connectionId, ...(validation ? { models: validation.models } : {}) };
   }
   async testExe(input: Partial<ExeConnectionInput>) {
@@ -56,14 +55,13 @@ export class IntegrationService {
     try { const validation = await backend.validateAgentAndModels(agentKind); return { ok: true, targetId, integrationId: connectionId, agentKind, tags, permissions: { ok: true, missing: [], tags: permissions.tags }, agent: { ok: true, models: validation.models } }; }
     catch (error) { return { ok: false, targetId, integrationId: connectionId, agentKind, tags, permissions: { ok: true, missing: [], tags: permissions.tags }, agent: { ok: false, error: error instanceof Error ? error.message.slice(0, 500) : "Agent validation failed" } }; }
   }
-  async saveAmp(value: AmpConnectionInput) { const existing = value.connectionId ? await this.connections.get<AmpConnection>(`amp:${value.connectionId}`) : null, accessToken = value.accessToken || existing?.accessToken, project = value.project || existing?.project; if (!accessToken || !project) throw new Error("Amp access token and project are required"); const connection = { ...existing, ...value, accessToken, project }; if (!await new AmpBackend(connection).test()) throw new Error("Amp connection verification failed"); const connectionId = value.connectionId || crypto.randomUUID(); await this.connections.put(`amp:${connectionId}`, connection); await this.database.pool.query("INSERT INTO app.execution_targets(tenant_id,id,name,integration_kind,integration_id,agent_kind) VALUES ($1,gen_random_uuid(),$2,'amp',$3,'Amp') ON CONFLICT DO NOTHING", [this.tenantId, `Amp · ${project}`, connectionId]); return { ok: true, connectionId }; }
+  async saveAmp(value: AmpConnectionInput) { const existing = value.connectionId ? await this.connections.get<AmpConnection>(`amp:${value.connectionId}`) : null, accessToken = value.accessToken || existing?.accessToken, project = value.project || existing?.project; if (!accessToken || !project) throw new Error("Amp access token and project are required"); const connection = { ...existing, ...value, accessToken, project }; if (!await new AmpBackend(connection).test()) throw new Error("Amp connection verification failed"); const connectionId = value.connectionId || crypto.randomUUID(); await this.connections.put(`amp:${connectionId}`, connection); return { ok: true, connectionId }; }
   async testAmp(input: Partial<AmpConnectionInput>) { const saved = input.connectionId ? await this.connections.get<AmpConnection>(`amp:${input.connectionId}`) : null, connection = input.accessToken ? input as AmpConnection : saved; if (!connection?.accessToken || !connection.project) throw new Error("Amp connection is required"); return { ok: await new AmpBackend(connection).test() }; }
 
   async remove(kind: "exe" | "amp", id: string) {
     const targetKind = kind === "exe" ? "exe-vm" : "Amp";
-    const used = await this.database.pool.query("SELECT 1 FROM app.jobs WHERE tenant_id=$1 AND execution_target->>'connectionId'=$2 AND execution_target->>'agentKind' " + (kind === "exe" ? "<> 'Amp'" : "= 'Amp'") + " LIMIT 1", [this.tenantId, id]);
-    const targetUsed = await this.database.pool.query("SELECT 1 FROM app.execution_targets WHERE tenant_id=$1 AND integration_kind=$2 AND integration_id=$3 LIMIT 1", [this.tenantId, kind, id]);
-    if (used.rowCount || targetUsed.rowCount) return { conflict: true, deleted: false };
+    const used = await this.database.pool.query("SELECT 1 FROM app.jobs WHERE tenant_id=$1 AND execution_config->>'connectionId'=$2 AND execution_config->>'agentKind' " + (kind === "exe" ? "<> 'Amp'" : "= 'Amp'") + " LIMIT 1", [this.tenantId, id]);
+    if (used.rowCount) return { conflict: true, deleted: false };
     return { conflict: false, deleted: await this.connections.delete(`${kind}:${id}`), targetKind };
   }
 

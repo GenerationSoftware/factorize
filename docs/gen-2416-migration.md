@@ -15,7 +15,7 @@ connections, targets, jobs, and runs; splits targets by the tuple
 `(integration, agent, model, effort, tags)` with deterministic UUIDs derived from
 tenant, original target, and tuple; and records migrated/reused/split/ambiguous
 counts in the checkpoint report. Queued and active runs are never relaunched:
-their existing `runs.execution_target` is frozen before the scheduler switches
+their existing `runs.execution_config` is frozen before the scheduler switches
 precedence. Historical rows are read-only.
 
 If a batch is interrupted, rerun it from its checkpoint; deterministic IDs and

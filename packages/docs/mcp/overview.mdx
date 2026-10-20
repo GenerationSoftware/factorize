@@ -38,7 +38,7 @@ The client opens Factorize authorization in your browser. Sign in with your veri
 
 Consent lists nine independent permissions: `projects:read`, `projects:write`, `jobs:read`, `jobs:write`, `runs:read`, `runs:invoke`, `runs:cancel`, `integrations:read`, and `integrations:write`. Write does not imply read. If you need to create an account or verify your email, finish those steps and restart client authorization; do not assume the signup screen will automatically resume the original request. No Linear or execution token belongs in the MCP client.
 
-Ask **“List my Factorize jobs.”** The agent should call `list_jobs({})`. An empty `items` list is a successful connection to a workspace with no jobs. Next ask it to list execution targets and follow the [first-job walkthrough](/quickstart).
+Ask **“List my Factorize jobs.”** The agent should call `list_jobs({})`. An empty `items` list is a successful connection to a workspace with no jobs. Next ask it to list execution integrations and follow the [first-job walkthrough](/quickstart).
 
 Other clients must support remote Streamable HTTP and Factorize's OAuth discovery/PKCE flow. Their UI and plan availability vary; consult their own documentation rather than pasting either configuration above.
 

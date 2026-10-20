@@ -15,7 +15,7 @@ describe.skipIf(!url)("migration API measurements", () => {
         if (size > 10) {
           const cipher = await encrypt("p".repeat(50000), f.env.CREDENTIAL_ENCRYPTION_KEY);
           await f.db.pool.query("UPDATE app.jobs SET encrypted_prompt_template=$2 WHERE tenant_id=$1", [f.tenantId, cipher]);
-          await f.db.pool.query(`INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_target,concurrency_limit)
+          await f.db.pool.query(`INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit)
             SELECT $1,gen_random_uuid(),md5($1::text || ':default')::uuid,'Large Job '||i,'large-job-'||i,$2,'{"connectionId":"local","agentKind":"codex"}',1 FROM generate_series(1,195) i`, [f.tenantId, cipher]);
           await f.db.pool.query("UPDATE app.job_runs SET encrypted_prompt=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, cipher]);
           await f.db.pool.query(`UPDATE app.invocations SET context=jsonb_build_object('data',repeat('c',50000)) WHERE tenant_id=$1`, [f.tenantId]);
@@ -29,7 +29,7 @@ describe.skipIf(!url)("migration API measurements", () => {
           ["job_detail", () => service.getJob(f.jobIds[0]), 1],
           ["legacy_editor_job_and_all_jobs", async () => Promise.all([service.getJob(f.jobIds[0]), service.listJobs()]), 2],
           ["bounded_editor_job_and_selector", async () => Promise.all([service.getJob(f.jobIds[0]), service.listJobSummaries({ limit: 30, q: "" }, true)]), 2],
-          ["static_editor_configuration", async () => Promise.all([service.getJob(f.jobIds[0]), service.listExecutionTargets(), service.listJobTriggerAvailability(), service.triggerContextMetadata()]), 4],
+          ["static_editor_configuration", async () => Promise.all([service.getJob(f.jobIds[0]), service.listExecutionConfigs(), service.listJobTriggerAvailability(), service.triggerContextMetadata()]), 4],
           ["static_lifecycle_selector", async () => service.listJobSummaries({ limit: 30, q: "" }, true), 1],
           ["legacy_run_poll", () => service.getRun(f.runId), 1],
           ["lightweight_status_poll", () => service.getRunStatus(f.runId), 1],

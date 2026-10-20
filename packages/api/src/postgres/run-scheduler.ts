@@ -31,14 +31,14 @@ export class RunScheduler {
 
   private connections(run: PersistedRun) { return new ConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private async backend(run: PersistedRun) {
-    const id = String(run.executionTarget.connectionId ?? "");
-    if (run.executionTarget.agentKind === "Amp") { const connection = await this.connections(run).get<AmpConnection>(`amp:${id}`); if (!connection) throw new Error("Amp connection is unavailable"); return new AmpBackend(connection); }
+    const id = String(run.executionConfig.connectionId ?? "");
+    if (run.executionConfig.agentKind === "Amp") { const connection = await this.connections(run).get<AmpConnection>(`amp:${id}`); if (!connection) throw new Error("Amp connection is unavailable"); return new AmpBackend(connection); }
     const connection = await this.connections(run).get<ExeRunConnection>(`exe:${id}`); if (!connection) throw new Error("exe.dev connection is unavailable");
-    return new ExeVmBackend({ ...connection, tags: Array.isArray(run.executionTarget.tags) ? run.executionTarget.tags : [], model: String(run.executionTarget.model ?? ""), effort: String(run.executionTarget.effort ?? "") });
+    return new ExeVmBackend({ ...connection, tags: Array.isArray(run.executionConfig.tags) ? run.executionConfig.tags : [], model: String(run.executionConfig.model ?? ""), effort: String(run.executionConfig.effort ?? "") });
   }
 
   private async launch(run: PersistedRun) {
-    const backend = await this.backend(run), driver = agentDriver(run.executionTarget.agentKind as AgentKind), harness = driver.launch(run.id, { model: run.executionTarget.model, effort: run.executionTarget.effort });
+    const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, { model: run.executionConfig.model, effort: run.executionConfig.effort });
     const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
     validateTraceSources(sources);
     const launched = await backend.launch({ runId: run.id, prompt: await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY), traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
@@ -136,20 +136,20 @@ export class RunScheduler {
     const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), byte => byte.toString(16).padStart(2, "0")).join("");
     const key = artifactKey(run.tenantId, run.id, "harness/stderr.txt");
     await this.env.RUN_ARTIFACTS.put(key, bytes, { httpMetadata: { contentType: "text/plain; charset=utf-8" }, sha256 });
-    await artifacts.record({ runId: run.id, kind: "terminal_log", objectKey: key, provider: String(run.executionTarget.agentKind), format: "text", byteSize: bytes.length, sha256 });
+    await artifacts.record({ runId: run.id, kind: "terminal_log", objectKey: key, provider: String(run.executionConfig.agentKind), format: "text", byteSize: bytes.length, sha256 });
   }
 
   private sources(run: PersistedRun): TraceSources {
     if (run.traceSources) return run.traceSources;
     // Undeclared Codex runs must never discover or create a native artifact.
-    if (run.executionTarget.agentKind === "codex") return driverTraceSources("codex", agentDriver("codex").launch(run.id, {}));
+    if (run.executionConfig.agentKind === "codex") return driverTraceSources("codex", agentDriver("codex").launch(run.id, {}));
     // Runs launched before a source declaration existed must keep their native
     // trace even when the current driver now produces an execution stream.
     return { primary: this.nativeSource(run) };
   }
 
   private nativeSource(run: PersistedRun): TraceSource {
-    const kind = run.executionTarget.agentKind as AgentKind;
+    const kind = run.executionConfig.agentKind as AgentKind;
     const { traceSources: _sources, ...legacy } = agentDriver(kind).launch(run.id, {});
     return driverTraceSources(kind, legacy).primary;
   }

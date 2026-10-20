@@ -7,7 +7,7 @@ User request:
 
 > After my review job succeeds, run a second job to inspect its findings. Keep the follow-up manually runnable.
 
-Discover source job ID with `list_jobs`, and choose a target with `list_execution_targets`. Create the destination with required job fields and:
+Discover source job ID with `list_jobs`, and choose a target with `list_execution_configs`. Create the destination with required job fields and:
 
 ```json
 {"kind":"jobLifecycle","enabled":true,"config":{"sourceJobIds":["SOURCE_JOB_ID"],"states":["succeeded"]}}
