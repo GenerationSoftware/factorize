@@ -32,6 +32,15 @@ describe("independent loading", () => {
     connections.resolve(new Map()); counts.resolve({ rows: [] });
     expect(await result).toMatchObject({ exeConnections: [], ampConnections: [], cloudflareTail: { count: 0, installations: [] } });
   });
+
+  it("keeps configured exe.dev tags visible when inventory refresh omits them", async () => {
+    vi.spyOn(ConnectionRepository.prototype, "all").mockResolvedValue(new Map([
+      ["exe:vm", { availableTags: ["current"], tags: ["anarack", "current"], agentKind: "codex" }],
+    ]));
+    vi.spyOn(IntegrationService.prototype, "tails").mockResolvedValue([]);
+    const result = await new IntegrationService({ pool: { query: vi.fn(async () => ({ rows: [] })) } } as any, "tenant", "key").status();
+    expect(result.exeConnections[0].accountTags).toEqual(["anarack", "current"]);
+  });
   it("propagates a failed integration read without leaving an unhandled sibling promise", async () => {
     vi.spyOn(ConnectionRepository.prototype, "all").mockRejectedValue(new Error("Connection read failed"));
     const query = vi.fn(async () => ({ rows: [] }));
