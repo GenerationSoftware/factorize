@@ -7,6 +7,7 @@ export const jobPageQuery = z.object({
   cursor: z.guid().optional(),
   q: z.string().trim().max(120).default(""),
   enabled: z.enum(["true", "false"]).optional(),
+  sort: z.enum(["id", "updated"]).optional(),
 });
 export type JobPageQuery = z.infer<typeof jobPageQuery>;
 export const jobSelectorItem = z.object({ id: z.guid(), name: z.string(), slug: z.string(), enabled: z.boolean() });

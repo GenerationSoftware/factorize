@@ -4158,6 +4158,7 @@ export interface operations {
                 cursor?: string;
                 q?: string;
                 enabled?: "true" | "false";
+                sort?: "id" | "updated";
             };
             header?: never;
             path?: never;
@@ -4211,6 +4212,7 @@ export interface operations {
                 cursor?: string;
                 q?: string;
                 enabled?: "true" | "false";
+                sort?: "id" | "updated";
             };
             header?: never;
             path?: never;
@@ -4248,7 +4250,10 @@ export interface operations {
     };
     get_api_v1_projects: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                sort?: "name" | "updated";
+            };
             header?: never;
             path?: never;
             cookie?: never;

@@ -34,6 +34,7 @@ export const jobsQuery = (search: JobsSearch) => queryOptions({
     return { items: page, nextCursor: start + 30 < items.length ? page.at(-1)!.id : null };
   }, staleTime: 10_000,
 });
+export const recentJobsQuery = queryOptions({ queryKey: ["jobs", "recent"], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/job-summaries", { signal, params: { query: { limit: 5, sort: "updated", q: "" } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, staleTime: 10_000 });
 export const jobQuery = (jobId: string) => queryOptions({
   queryKey: ["jobs", "detail", jobId],
   queryFn: async ({ signal }) => {

@@ -5122,6 +5122,14 @@ paths:
             enum:
               - "true"
               - "false"
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - id
+              - updated
   /api/v1/job-selector:
     get:
       summary: Search bounded lifecycle job options
@@ -5230,6 +5238,14 @@ paths:
             enum:
               - "true"
               - "false"
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - id
+              - updated
   /api/v1/projects:
     get:
       summary: List projects
@@ -5294,6 +5310,24 @@ paths:
         - cookieAuth: []
       x-required-scope: projects:read
       x-owner-session-required: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            default: 100
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: sort
+          in: query
+          required: false
+          schema:
+            default: name
+            type: string
+            enum:
+              - name
+              - updated
     post:
       summary: Create project
       responses:
