@@ -15,7 +15,7 @@ async function setup(options) {
   const context = await browser.newContext(options), page = await context.newPage();
   await page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [], nextCursor: null } })); page.setDefaultTimeout(10000);
   await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } }));
-  await page.route("**/api/v1/execution-integrations", route => route.fulfill({ json: [{ id: "vm", kind: "exe-vm", name: "VM", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex", models: ["gpt-6"], efforts: ["high"], capabilities: ["stop"] }] }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [{ connectionId: "vm", agentKind: "codex", tags: [], models: ["gpt-6"] }], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
   await page.route("**/api/v1/trigger-contexts", route => route.fulfill({ json: { manual: [{ path: "prompt", type: "string", description: "Manual prompt" }] } }));
   await page.route("**/api/v1/job-trigger-availability", route => route.fulfill({ json: { manual: true, schedule: true, jobLifecycle: true, linear: true, clickup: true, github: true, cloudflareTail: true } }));
   return { context, page };
@@ -42,7 +42,7 @@ test("create uses bounded lifecycle selector, lazy provider reads, schedule prev
   await page.route("**/api/v1/schedules/preview", route => route.fulfill({ json: { nextRunAt: "2026-10-09T14:00:00.000Z" } }));
   await page.route("**/api/v1/jobs", route => { body = route.request().postDataJSON(); return route.fulfill({ status: 201, json: { ...initial, ...body } }); });
   await page.route(`**/api/v1/jobs/${id}`, route => route.fulfill({ json: initial }));
-  await page.goto(origin + "/jobs/new"); await page.getByLabel("Name", { exact: true }).fill("Created job"); await page.getByLabel("Slug", { exact: true }).fill("created-job"); await page.getByLabel("execution integration").selectOption("vm"); await page.getByLabel("Prompt template", { exact: true }).fill("Do work");
+  await page.goto(origin + "/jobs/new"); await page.getByLabel("Name", { exact: true }).fill("Created job"); await page.getByLabel("Slug", { exact: true }).fill("created-job"); await page.getByLabel("Integration").selectOption("vm"); await page.getByLabel("Prompt template", { exact: true }).fill("Do work");
   await page.getByRole("button", { name: "Add trigger" }).click(); await page.getByRole("button", { name: "Preview schedule" }).click(); await page.getByText("Next run: 2026-10-09T14:00:00.000Z").waitFor();
   await page.getByLabel("New trigger kind").selectOption("jobLifecycle"); await page.getByRole("button", { name: "Add trigger" }).click(); await page.getByLabel("Search source jobs").fill("Source"); await page.getByLabel("Source", { exact: true }).check();
   assert.equal(providerReads, 0); assert.ok(selectors.every(url => url.searchParams.get("limit") === "30"));
