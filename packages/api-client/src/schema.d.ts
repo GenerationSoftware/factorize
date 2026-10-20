@@ -1864,6 +1864,7 @@ export interface components {
             /** @default 1 */
             concurrencyLimit: number;
             executionTargetId: string;
+            tags?: string[];
             model?: string;
             effort?: string;
             /** @default [] */
@@ -2872,11 +2873,6 @@ export interface operations {
                         cwd: string;
                         agentKind: string;
                         integrationId?: string;
-                        tags?: string[];
-                        /** @default  */
-                        model: string;
-                        /** @default  */
-                        effort: string;
                         models?: string[];
                         modelsRefreshedAt?: string | null;
                         efforts?: string[];
@@ -2904,12 +2900,11 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    name: string;
+                    /** @default  */
+                    name?: string;
                     /** @enum {string} */
                     integrationKind: "exe" | "amp";
                     integrationId: string;
-                    /** @default [] */
-                    tags?: string[];
                     agentKind: string;
                 };
             };
@@ -2930,11 +2925,6 @@ export interface operations {
                         cwd: string;
                         agentKind: string;
                         integrationId?: string;
-                        tags?: string[];
-                        /** @default  */
-                        model: string;
-                        /** @default  */
-                        effort: string;
                         models?: string[];
                         modelsRefreshedAt?: string | null;
                         efforts?: string[];
@@ -2965,12 +2955,11 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    name: string;
+                    /** @default  */
+                    name?: string;
                     /** @enum {string} */
                     integrationKind: "exe" | "amp";
                     integrationId: string;
-                    /** @default [] */
-                    tags?: string[];
                     agentKind: string;
                 };
             };
@@ -2991,11 +2980,6 @@ export interface operations {
                         cwd: string;
                         agentKind: string;
                         integrationId?: string;
-                        tags?: string[];
-                        /** @default  */
-                        model: string;
-                        /** @default  */
-                        effort: string;
                         models?: string[];
                         modelsRefreshedAt?: string | null;
                         efforts?: string[];
@@ -4492,6 +4476,7 @@ export interface operations {
                         enabled: boolean;
                         promptTemplate: string;
                         runNameTemplate: string;
+                        tags?: string[];
                         model: string;
                         effort?: string;
                         executionTarget: {
@@ -4659,6 +4644,7 @@ export interface operations {
                         enabled: boolean;
                         promptTemplate: string;
                         runNameTemplate: string;
+                        tags?: string[];
                         model: string;
                         effort?: string;
                         executionTarget: {
@@ -4829,6 +4815,7 @@ export interface operations {
                         enabled: boolean;
                         promptTemplate: string;
                         runNameTemplate: string;
+                        tags?: string[];
                         model: string;
                         effort?: string;
                         executionTarget: {
@@ -5171,6 +5158,7 @@ export interface operations {
                         enabled: boolean;
                         promptTemplate: string;
                         runNameTemplate: string;
+                        tags?: string[];
                         model: string;
                         effort?: string;
                         executionTarget: {
@@ -5333,6 +5321,7 @@ export interface operations {
                     /** @default 1 */
                     concurrencyLimit?: number;
                     executionTargetId: string;
+                    tags?: string[];
                     model?: string;
                     effort?: string;
                     /** @default [] */
@@ -5444,6 +5433,7 @@ export interface operations {
                         enabled: boolean;
                         promptTemplate: string;
                         runNameTemplate: string;
+                        tags?: string[];
                         model: string;
                         effort?: string;
                         executionTarget: {

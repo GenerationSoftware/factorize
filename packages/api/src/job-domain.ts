@@ -34,6 +34,7 @@ export interface Job {
   runNameTemplate?: string;
   model: string;
   effort?: string;
+  tags?: string[];
   executionTarget: ExecutionTarget;
   concurrencyLimit: number;
   enabled: boolean;
