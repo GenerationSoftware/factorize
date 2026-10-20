@@ -23,6 +23,8 @@ function harnessCommand(harness: NonNullable<LaunchRequest["harness"]>): string 
   return [...environment, harness.executable, ...harness.args].map((value, index) => index < environment.length ? value : shellAtom(value)).join(" ");
 }
 
+export class ExeIntegrationError extends Error {}
+
 export interface ExePermissionTest { ok: boolean; missingPermissions: string[]; tags: string[]; checks: BackendCommandResult[] }
 export interface ExeAgentValidation { models: string[]; command: BackendCommandResult }
 
@@ -51,6 +53,11 @@ export class ExeVmBackend implements ExecutionBackend {
     return { body, status: response.status, exitCode, ok: response.ok && (exitCode === null || exitCode === 0), requestBody: command };
   }
 
+  private validationFailure(message: string, result: BackendCommandResult): ExeIntegrationError {
+    const detail = safeDiagnosticText(result.body.split(this.connection.apiToken).join("[REDACTED]"), 300);
+    return new ExeIntegrationError(`${message} (HTTP ${result.status}${result.exitCode === null ? "" : `, exit ${result.exitCode}`}): ${detail}`);
+  }
+
   async testPermissions(): Promise<ExePermissionTest> {
     const commands = ["ls --json", "integrations list --json", "new --help", "ssh --help", "rm --help"];
     const checks = await Promise.all(commands.map(command => this.api(command)));
@@ -71,19 +78,20 @@ export class ExeVmBackend implements ExecutionBackend {
     const vm = vmNameFor(`validate-${crypto.randomUUID()}`);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
-    if (!created.ok) throw new Error(`Could not create the validation VM (${created.status}): ${created.body.slice(0, 300)}`);
+    if (!created.ok) throw this.validationFailure("Could not create the validation VM. Check your exe.dev VM capacity and token permissions", created);
     try {
       const binary = agentKind;
       const remote = `command -v ${binary} >/dev/null && curl --fail --silent --show-error https://llm.int.exe.xyz/v1/models | jq -cer '[.data[]?.id | strings] | unique'`;
       let result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(remote)}`);
       for (let attempt = 1; !result.ok && attempt < 5; attempt++) result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(remote)}`);
-      if (!result.ok) throw new Error(`${binary} or its model integration is unavailable on a VM with these tags (${result.status}): ${result.body.slice(0, 300)}`);
-      const parsed: unknown = JSON.parse(result.body);
-      if (!Array.isArray(parsed) || parsed.some(model => typeof model !== "string")) throw new Error("The exe.dev model endpoint returned an invalid response");
+      if (!result.ok) throw this.validationFailure(`${binary} or its model integration is unavailable. Check that the agent is installed and the llm integration is attached to VMs with the selected tags`, result);
+      let parsed: unknown;
+      try { parsed = JSON.parse(result.body); } catch { throw new ExeIntegrationError("The exe.dev model endpoint returned invalid JSON"); }
+      if (!Array.isArray(parsed) || parsed.some(model => typeof model !== "string")) throw new ExeIntegrationError("The exe.dev model endpoint returned an invalid response");
       return { models: [...new Set(parsed.map(model => model.trim()).filter(Boolean))].sort(), command: result };
     } finally {
       const removed = await this.deleteVm(vm);
-      if (!removed.ok) throw new Error(`The validation VM could not be deleted (${removed.status}): ${removed.body.slice(0, 300)}`);
+      if (!removed.ok) throw this.validationFailure(`The validation VM ${vm} could not be deleted. Remove it in exe.dev and check the token rm permission`, removed);
     }
   }
 

@@ -1,3 +1,4 @@
+import { ExeIntegrationError } from "./exe-vm-backend";
 import { queryOf } from "./query-params";
 import { jobUpdateInput } from "./job-contracts";
 import { InvocationError } from "./job-domain";
@@ -13,6 +14,7 @@ import { matchApiOperation } from "./api-contract";
 import { normalizeScopes } from "./access-tokens";
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof ExeIntegrationError) return Response.json({ error: { code: "invalid_request", message: error.message } }, { status: 400 });
   if (error instanceof URIError) return Response.json({ error: { code: "invalid_request", message: "Invalid path encoding" } }, { status: 400 });
   if (error instanceof InvocationError && error.code === "queue_full") return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
   if (error instanceof z.ZodError) return Response.json({ error: { code: "invalid_request", message: "Request validation failed", details: error.issues } }, { status: 400 });

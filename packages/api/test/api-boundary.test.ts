@@ -1,3 +1,4 @@
+import { ExeIntegrationError } from "../src/exe-vm-backend";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
@@ -357,5 +358,15 @@ describe("Worker OpenAPI request/response boundaries", () => {
       404,
     );
     expect(missing).toHaveBeenCalledWith("missing");
+  });
+});
+
+
+describe("exe integration validation errors", () => {
+  it("returns actionable validation failures through the public API", async () => {
+    vi.spyOn(ApiService.prototype, "saveExeIntegration").mockRejectedValue(new ExeIntegrationError("exe.dev token is missing required permissions: rm"));
+    const response = await request("PUT", "/api/v1/integrations/exe", { apiToken: "test", agentKind: "codex", tags: [] });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: { code: "invalid_request", message: "exe.dev token is missing required permissions: rm" } });
   });
 });
