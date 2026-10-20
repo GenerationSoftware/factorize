@@ -33,7 +33,7 @@ export const triggerResponse = z.discriminatedUnion("kind", [
 ]);
 export const jobResponse = z.object({
   id: z.guid(), projectId: z.guid().optional(), name: z.string(), slug: z.string(), enabled: z.boolean(),
-  promptTemplate: z.string(), runNameTemplate: z.string(), model: z.string(), effort: z.string().optional(),
+  promptTemplate: z.string(), runNameTemplate: z.string(), tags: z.array(z.string()).optional(), model: z.string(), effort: z.string().optional(),
   executionTarget: z.object({ connectionId: z.string(), workspace: z.string().optional(), cwd: z.string().optional(), agentKind: z.string() }),
   executionTargetId: z.string(), agentKind: z.string(), concurrencyLimit: z.number().int(),
   runningCount: z.number().int(), currentRuns: z.number().int(), maxConcurrency: z.number().int(), lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(),

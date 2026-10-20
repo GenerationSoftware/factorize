@@ -7,7 +7,7 @@ Factorize accounts own dashboard identity. Sign up with an email and password, v
 
 | Account | Browser action and required access | Verification |
 | --- | --- | --- |
-| exe.dev | Add an account-level token, test credentials, choose Codex/Claude/Pi and VM tags, save. Needs VM listing/creation/SSH/deletion and tagged repository/model integrations. | Test connection, then `list_execution_targets`; optionally diagnose the saved connection. |
+| exe.dev | Add an account-level token, test credentials, and save. Execution targets select Codex/Claude/Pi; jobs select VM tags, model, and effort. Needs VM listing/creation/SSH/deletion and tagged repository/model integrations. | Test connection, then `list_execution_targets`; optionally diagnose the saved connection. |
 | Amp | Add access token and project; ensure project/model/repository access. | Test and save, then discover the `amp:` target. |
 | Linear | Connect Linear and approve the workspace. Your account must access the selected project and issues; organization policies may require an administrator. | Select project/rules in the browser editor, send one matching event, inspect delivery/run. |
 | ClickUp | Connect ClickUp and approve the intended workspace/team with access to the list/tasks. | Select list/rules, change one matching task and inspect delivery/run. |

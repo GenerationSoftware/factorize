@@ -15,10 +15,10 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `list_github_installations` | integrations:read | `{}` |
 | `list_execution_targets` | integrations:read | `{}` |
 | `list_execution_target_resources` | integrations:read | `{}`; returns non-secret target records for management |
-| `create_execution_target` | integrations:write | Required `name`, `integrationKind`, `integrationId`, `agentKind`; optional `tags` |
-| `update_execution_target` | integrations:write | Required `targetId`, `name`, `integrationKind`, `integrationId`, `agentKind`; optional `tags` |
+| `create_execution_target` | integrations:write | Required `integrationKind`, `integrationId`, `agentKind`; optional `name` (including empty) |
+| `update_execution_target` | integrations:write | Required `targetId`, `integrationKind`, `integrationId`, `agentKind`; optional `name` (including empty) |
 | `delete_execution_target` | integrations:write | Required string `targetId`; rejects referenced or active targets |
-| `diagnose_execution_target` | integrations:write | Required string `targetId`; probes the target's exact tags and agent |
+| `diagnose_execution_target` | integrations:write | Required string `targetId`; probes the target's integration and agent |
 | `diagnose_exe_integration` | integrations:write | Required string `connectionId`; credential-safe diagnostic |
 | `list_cloudflare_tail_integrations` | integrations:read | `{}` |
 | `list_jobs` | jobs:read | `{}` |
@@ -50,7 +50,7 @@ The inventory is validated against every registered implementation tool. All req
 ## Discovery inputs and outputs
 
 - `list_execution_targets({})` → `{"items":[{"id":"TARGET_ID","kind":"exe-vm","name":"Ephemeral exe.dev VMs","workspace":"ephemeral","cwd":"/home/exedev/workspace","agentKind":"codex","models":[],"efforts":["minimal","low","medium","high","xhigh"],"capabilities":["recovery","stop"]}]}`. Copy `id` into `executionTargetId`. Amp IDs have an `amp:` prefix and kind `amp`. Empty results require browser integration setup. Targets do not contain repository URLs.
-- Execution target management uses existing saved credentials without accepting or returning secrets: `create_execution_target` and `update_execution_target` take an integration reference plus display name, agent kind, and VM tags. `diagnose_execution_target` uses those exact target tags and agent, while `delete_execution_target` is rejected when a job or queued/active run still references it.
+- Execution targets identify a saved integration and agent. Their display name is optional. Jobs own VM tags, model, and effort; `diagnose_execution_target` checks the integration and agent, while `delete_execution_target` is rejected when a job or queued/active run still references it.
 - `list_exe_connections({})` → `{"items":[{"connectionId":"CONNECTION_ID","agentKind":"codex","tags":[]}]}` (selected fields). Use `connectionId` for integration diagnosis.
 - `list_github_installations({})` → `{"items":[{"installationId":12345,"accountLogin":"YOUR_ORG","state":"active"}]}` (selected fields). Use numeric `installationId` in GitHub triggers; choose repository IDs in the browser.
 - `list_cloudflare_tail_integrations({})` → `{"items":[{"integrationId":"INTEGRATION_ID","name":"Worker errors","referencedJobCount":0}]}` (selected fields). Use `integrationId` in Tail trigger configuration.

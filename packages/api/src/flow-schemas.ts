@@ -41,6 +41,7 @@ export const jobInputSchema = z.object({
   runNameTemplate: z.string().max(500).optional(),
   concurrencyLimit: z.number().int().min(1).max(50).default(1),
   executionTargetId: z.string().min(1),
+  tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).optional(),
   model: z.string().trim().max(120).optional(),
   effort: z.string().trim().max(40).optional(),
   triggers: z.array(triggerSchema).max(50).default([]),

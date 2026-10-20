@@ -791,6 +791,12 @@ components:
         executionTargetId:
           type: string
           minLength: 1
+        tags:
+          maxItems: 20
+          type: array
+          items:
+            type: string
+            pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
         model:
           type: string
           maxLength: 120
@@ -2537,16 +2543,6 @@ paths:
                       type: string
                     integrationId:
                       type: string
-                    tags:
-                      type: array
-                      items:
-                        type: string
-                    model:
-                      default: ""
-                      type: string
-                    effort:
-                      default: ""
-                      type: string
                     models:
                       type: array
                       items:
@@ -2570,8 +2566,6 @@ paths:
                     - workspace
                     - cwd
                     - agentKind
-                    - model
-                    - effort
                     - capabilities
                   additionalProperties: false
         "400":
@@ -2629,16 +2623,6 @@ paths:
                     type: string
                   integrationId:
                     type: string
-                  tags:
-                    type: array
-                    items:
-                      type: string
-                  model:
-                    default: ""
-                    type: string
-                  effort:
-                    default: ""
-                    type: string
                   models:
                     type: array
                     items:
@@ -2662,8 +2646,6 @@ paths:
                   - workspace
                   - cwd
                   - agentKind
-                  - model
-                  - effort
                   - capabilities
                 additionalProperties: false
         "400":
@@ -2704,8 +2686,8 @@ paths:
               type: object
               properties:
                 name:
+                  default: ""
                   type: string
-                  minLength: 1
                   maxLength: 120
                 integrationKind:
                   type: string
@@ -2715,19 +2697,11 @@ paths:
                 integrationId:
                   type: string
                   minLength: 1
-                tags:
-                  default: []
-                  maxItems: 20
-                  type: array
-                  items:
-                    type: string
-                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
                 agentKind:
                   type: string
                   minLength: 1
                   maxLength: 40
               required:
-                - name
                 - integrationKind
                 - integrationId
                 - agentKind
@@ -2759,16 +2733,6 @@ paths:
                     type: string
                   integrationId:
                     type: string
-                  tags:
-                    type: array
-                    items:
-                      type: string
-                  model:
-                    default: ""
-                    type: string
-                  effort:
-                    default: ""
-                    type: string
                   models:
                     type: array
                     items:
@@ -2792,8 +2756,6 @@ paths:
                   - workspace
                   - cwd
                   - agentKind
-                  - model
-                  - effort
                   - capabilities
                 additionalProperties: false
         "400":
@@ -2841,8 +2803,8 @@ paths:
               type: object
               properties:
                 name:
+                  default: ""
                   type: string
-                  minLength: 1
                   maxLength: 120
                 integrationKind:
                   type: string
@@ -2852,19 +2814,11 @@ paths:
                 integrationId:
                   type: string
                   minLength: 1
-                tags:
-                  default: []
-                  maxItems: 20
-                  type: array
-                  items:
-                    type: string
-                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
                 agentKind:
                   type: string
                   minLength: 1
                   maxLength: 40
               required:
-                - name
                 - integrationKind
                 - integrationId
                 - agentKind
@@ -5649,6 +5603,10 @@ paths:
                     type: string
                   runNameTemplate:
                     type: string
+                  tags:
+                    type: array
+                    items:
+                      type: string
                   model:
                     type: string
                   effort:
@@ -6143,6 +6101,10 @@ paths:
                       type: string
                     runNameTemplate:
                       type: string
+                    tags:
+                      type: array
+                      items:
+                        type: string
                     model:
                       type: string
                     effort:
@@ -6608,6 +6570,10 @@ paths:
                     type: string
                   runNameTemplate:
                     type: string
+                  tags:
+                    type: array
+                    items:
+                      type: string
                   model:
                     type: string
                   effort:
@@ -7363,6 +7329,10 @@ paths:
                     type: string
                   runNameTemplate:
                     type: string
+                  tags:
+                    type: array
+                    items:
+                      type: string
                   model:
                     type: string
                   effort:
@@ -7841,6 +7811,10 @@ paths:
                     type: string
                   runNameTemplate:
                     type: string
+                  tags:
+                    type: array
+                    items:
+                      type: string
                   model:
                     type: string
                   effort:
@@ -8317,6 +8291,12 @@ paths:
                 executionTargetId:
                   type: string
                   minLength: 1
+                tags:
+                  maxItems: 20
+                  type: array
+                  items:
+                    type: string
+                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
                 model:
                   type: string
                   maxLength: 120
