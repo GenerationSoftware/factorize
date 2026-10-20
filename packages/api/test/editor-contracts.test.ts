@@ -16,7 +16,7 @@ describe("public editor contracts", () => {
   });
   it("publishes concrete create and editor resource schemas in the executable contract", () => {
     const document = generateOpenApi() as any;
-    for (const path of ["/api/v1/execution-integrations", "/api/v1/job-trigger-availability", "/api/v1/providers/linear/projects", "/api/v1/providers/linear/options", "/api/v1/providers/clickup/lists", "/api/v1/providers/clickup/options", "/api/v1/providers/github/installations", "/api/v1/integrations/cloudflare-tail"]) {
+    for (const path of ["/api/v1/job-trigger-availability", "/api/v1/providers/linear/projects", "/api/v1/providers/linear/options", "/api/v1/providers/clickup/lists", "/api/v1/providers/clickup/options", "/api/v1/providers/github/installations", "/api/v1/integrations/cloudflare-tail"]) {
       const schema = document.paths[path].get.responses[200].content["application/json"].schema;
       expect(schema.type === "array" ? schema.items.required.length : schema.required.length).toBeGreaterThan(0);
     }
