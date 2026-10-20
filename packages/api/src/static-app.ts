@@ -7,7 +7,11 @@ function isBackendNamespace(path: string) {
   return backendNamespaces.some(namespace => path === namespace || path.startsWith(`${namespace}/`));
 }
 export function isStaticPage(path: string) {
-  return pages.has(path) || (!isBackendNamespace(path) && !path.startsWith("/assets/") && path !== "/styles.css");
+  return pages.has(path) ||
+    /^\/jobs\/[^/]+(?:\/edit|\/settings)?$/.test(path) ||
+    /^\/projects\/[^/]+$/.test(path) ||
+    /^\/job-runs\/[^/]+$/.test(path) ||
+    path.startsWith("/settings/");
 }
 export function isStaticAsset(path: string) {
   return /^\/assets\/[A-Za-z0-9_.-]+$/.test(path) || path === "/styles.css";
