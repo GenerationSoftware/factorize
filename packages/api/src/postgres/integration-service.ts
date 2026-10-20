@@ -1,5 +1,5 @@
 import { AmpBackend, type AmpConnection } from "../amp-backend";
-import { ExeVmBackend } from "../exe-vm-backend";
+import { ExeIntegrationError, ExeVmBackend } from "../exe-vm-backend";
 import type { ExeConnection } from "../exe";
 import type { AmpConnectionInput, ExeConnectionInput, TailIntegrationInput } from "../types";
 import { signTailDelivery, verifyTailDelivery } from "../cloudflare-tail";
@@ -18,12 +18,17 @@ export class IntegrationService {
   async saveExe(value: ExeConnectionInput) {
     const existing = value.connectionId ? await this.connections.get<ExeConnection>(`exe:${value.connectionId}`) : null;
     const apiToken = value.apiToken || existing?.apiToken;
-    if (!apiToken) throw new Error("An exe.dev HTTPS token is required");
+    if (!apiToken) throw new ExeIntegrationError("An exe.dev HTTPS token is required");
     const tags = Array.isArray(value.tags) ? value.tags.map(String).map(tag => tag.trim()).filter(Boolean) : [];
-    if (tags.length > 20 || tags.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) throw new Error("VM tags are invalid");
+    if (tags.length > 20 || tags.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) throw new ExeIntegrationError("VM tags are invalid");
     const candidate: ExeConnection = { apiToken, tags, ...(value.agentKind ? { agentKind: value.agentKind } : {}) };
     const backend = new ExeVmBackend(candidate), permissions = await backend.testPermissions();
-    if (!permissions.ok) throw new Error(`exe.dev token is missing required permissions: ${permissions.missingPermissions.join(", ")}`);
+    if (!permissions.ok) {
+      if (permissions.checks.some(check => check.status === 401)) throw new ExeIntegrationError("exe.dev rejected the account token. Check that it is valid and has not expired.");
+      if (permissions.missingPermissions.length) throw new ExeIntegrationError(`exe.dev token is missing required permissions: ${permissions.missingPermissions.map(command => command === "integrations" ? "integrations list" : command).join(", ")}`);
+      const failed = permissions.checks.find(check => !check.ok);
+      throw new ExeIntegrationError(`exe.dev credential verification failed${failed ? ` for ${failed.requestBody} (HTTP ${failed.status})` : ""}. Try again shortly.`);
+    }
     const validation = value.agentKind ? await backend.validateAgentAndModels(value.agentKind) : undefined, connectionId = value.connectionId || crypto.randomUUID();
     const saved = { ...candidate, ...(validation ? { models: validation.models, modelsRefreshedAt: timestamp() } : {}) };
     await this.connections.put(`exe:${connectionId}`, saved);

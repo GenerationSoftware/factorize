@@ -224,3 +224,25 @@ describe("ExecutionBackend contract", () => {
     expect(await backend.stop(launched.handle)).toEqual({ state: "stopped" });
   });
 });
+
+
+describe("exe validation diagnostics", () => {
+  it("reports VM creation failure without exposing the account token", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Capacity exhausted secret", { status: 422 })));
+    await expect(new ExeVmBackend(connection).validateAgentAndModels("codex")).rejects.toThrow("Capacity exhausted [REDACTED]");
+  });
+
+  it("cleans up the temporary VM when model discovery fails", async () => {
+    let vm = "";
+    const commands: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const command = String(init.body); commands.push(command);
+      if (command.startsWith("new ")) { vm = command.match(/--name='([^']+)'/)?.[1] ?? ""; return new Response("created"); }
+      if (command.startsWith("ssh ")) return new Response("curl: integration unavailable", { status: 422 });
+      if (command === "ls --json") return new Response(JSON.stringify({ vms: [{ name: vm, comment: `Factorize VM ${vm}` }] }));
+      return new Response("removed");
+    }));
+    await expect(new ExeVmBackend(connection).validateAgentAndModels("codex")).rejects.toThrow("llm integration is attached to VMs with the selected tags");
+    expect(commands.at(-1)).toBe(`rm '${vm}'`);
+  });
+});
