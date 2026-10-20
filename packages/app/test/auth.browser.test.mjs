@@ -138,6 +138,39 @@ test("authenticated password route shows settings navigation with the active pas
   await context.close();
 });
 
+test("authenticated password change is isolated from global auth navigation and reports invalidation", async () => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  let active = true;
+  await page.route("**/api/v1/session", route => route.fulfill({ json: active ? {
+    authenticated: true, user: { id: "owner-a", email: "owner@example.test" },
+    workspace: { id: "workspace-a", name: "Workspace", role: "owner" }, capabilities: [],
+  } : { authenticated: false } }));
+  await page.route("**/api/v1/auth/password", async route => {
+    assert.deepEqual(route.request().postDataJSON(), { currentPassword: "old-test-password", password: "new-test-password" });
+    active = false;
+    await route.fulfill({ json: { ok: true }, headers: { "Set-Cookie": "factorize_session=; Max-Age=0; Path=/" } });
+  });
+  await page.goto(origin + "/settings/password");
+  assert.equal(await page.getByRole("navigation", { name: "Account" }).count(), 0);
+  await page.getByLabel("Current password", { exact: true }).fill("old-test-password");
+  await page.getByLabel("New password", { exact: true }).fill("new-test-password");
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await waitText(page, "status", "Password updated. Sign in with your new password.");
+  assert.equal(await page.getByRole("navigation", { name: "Account" }).count(), 0);
+  await context.close();
+});
+
+test("password recovery keeps its unauthenticated auth navigation", async () => {
+  const { page, context } = await pageFor("/auth/password-reset");
+  await page.getByRole("heading", { name: "Reset password" }).waitFor();
+  const account = page.getByRole("navigation", { name: "Account" });
+  await account.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+  await account.getByRole("link", { name: "Resend verification", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Current password", { exact: true }).count(), 0);
+  await context.close();
+});
+
 test("logout refreshes session identity and removes the account display", async () => {
   const context = await browser.newContext();
   const page = await context.newPage();

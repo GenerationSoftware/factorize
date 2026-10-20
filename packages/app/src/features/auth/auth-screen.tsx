@@ -74,11 +74,11 @@ export function AuthScreen({ mode, inSettingsLayout = false }: { mode: AuthMode;
         {mutation.isError && <p role="alert">{mutation.error.message}</p>}
         {notice && <p role="status">{notice}</p>}
       </form>
-      <nav className="mt-6 flex flex-wrap gap-4" aria-label="Account">
+      {mode !== "password" && <nav className="mt-6 flex flex-wrap gap-4" aria-label="Account">
         {mode !== "login" && <Link to="/auth/login" search={{ connection: search.connection, returnTo: search.returnTo }}>Sign in</Link>}
         {mode === "login" && <><Link to="/auth/signup" search={{ connection: search.connection, returnTo: search.returnTo }}>Create an account</Link><Link to="/auth/password-reset" search={{ connection: search.connection, returnTo: search.returnTo }}>Forgot password?</Link></>}
         <Link to="/auth/verify/request" search={{ connection: search.connection, returnTo: search.returnTo }}>Resend verification</Link>
-      </nav>
+      </nav>}
     </>;
   return inSettingsLayout ? <SettingsLayout title={titles[mode]}>{content}</SettingsLayout> : <Page className="my-8 flex-none max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-8">{content}</Page>;
 }
