@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExeVmBackend, isOwnedVmName, tagsFromInventory, vmNameFor } from "../src/exe-vm-backend";
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
-import type { ExeRunConnection } from "../src/exe";
+import { effortOptions, type ExeRunConnection } from "../src/exe";
 import { agentDriver } from "../src/agent-driver";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -9,6 +9,11 @@ afterEach(() => vi.unstubAllGlobals());
 const connection = { apiToken: "secret", agentKind: "codex", tags: ["github", "llm"], model: "gpt-5.5", effort: "high" } satisfies ExeRunConnection;
 
 describe("ExeVmBackend", () => {
+  it("defines the supported effort choices by agent", () => {
+    expect(effortOptions.codex).toEqual(["minimal", "low", "medium", "high", "xhigh"]);
+    expect(effortOptions.claude).toEqual(["low", "medium", "high"]);
+    expect(effortOptions.pi).toEqual([]);
+  });
   it.each([true, false])("terminates the writer while preserving the VM (stop succeeds=%s)", async succeeds => {
     const commands: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {

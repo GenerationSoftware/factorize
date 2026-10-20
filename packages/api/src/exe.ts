@@ -4,10 +4,19 @@ export interface ExeConnection {
   apiToken: string;
   /** Legacy fields are read only during the migration window. Targets are authoritative. */
   tags?: string[];
+  availableTags?: string[];
   agentKind?: AgentKind;
   models?: string[];
   modelsRefreshedAt?: string;
+  modelsByAgent?: Partial<Record<AgentKind, string[]>>;
+  modelsRefreshedAtByAgent?: Partial<Record<AgentKind, string>>;
 }
+
+export const effortOptions: Record<AgentKind, string[]> = {
+  codex: ["minimal", "low", "medium", "high", "xhigh"],
+  claude: ["low", "medium", "high"],
+  pi: [],
+};
 
 export interface ExeRunConnection extends ExeConnection {
   agentCommand?: string;

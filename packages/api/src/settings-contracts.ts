@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tailIntegration } from "./editor-contracts";
 const timestamp = z.string();
-export const exeConnection = z.object({ connectionId: z.string(), credentialStatus: z.literal("connected"), accountTags: z.array(z.string()).default([]) });
+export const exeConnection = z.object({ connectionId: z.string(), credentialStatus: z.literal("connected"), accountTags: z.array(z.string()).default([]), agentKind: z.enum(["codex", "claude", "pi"]).optional(), models: z.array(z.string()).default([]), efforts: z.array(z.string()).default([]) });
 export const ampConnection = z.object({ connectionId: z.string(), project: z.string(), apiBaseUrl: z.string().optional() });
 export const integrationStatus = z.object({ linear: z.object({ organizationName: z.string().nullable(), viewerEmail: z.string().nullable() }).nullable(), clickup: z.object({ teamName: z.string().nullable() }).nullable(), exe: exeConnection.nullable(), exeConnections: z.array(exeConnection), ampConnections: z.array(ampConnection), cloudflareTail: z.object({ count: z.number().int(), installations: z.array(tailIntegration) }) });
 export const authorizedClient = z.object({ grantId: z.string(), clientId: z.string(), clientName: z.string(), scopes: z.array(z.string()), authorizationDate: timestamp, expiresAt: timestamp.nullable(), lastUsedAt: timestamp.nullable() });
