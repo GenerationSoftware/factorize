@@ -129,7 +129,7 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       await page.getByLabel("Prompt template", { exact: true }).waitFor();
       expect(await page.getByLabel("Name", { exact: true }).inputValue()).toBe("Concurrent name");
       expect(await page.getByLabel("Prompt template", { exact: true }).inputValue()).toBe("My edited prompt");
-      await page.goto("https://factorize.test/settings/api-keys"); await page.getByLabel("Key name").fill("Real key"); await page.getByRole("button", { name: "Create key" }).click(); await page.getByText("Copy this key now. It will only be displayed once.", { exact: true }).waitFor();
+      await page.goto("https://factorize.test/settings/api-keys"); await page.getByRole("button", { name: "Create API Key" }).click(); await page.waitForURL("**/settings/api-keys/new"); await page.getByLabel("Key name").fill("Real key"); await page.getByRole("button", { name: "Create key" }).click(); await page.getByText("Copy this key now. It will only be displayed once.", { exact: true }).waitFor();
       await page.getByRole("button", { name: "Dismiss key" }).click(); await page.reload(); await page.getByText("Real key", { exact: true }).waitFor();
       page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "Revoke key" }).click(); await page.getByText("Revoked", { exact: true }).waitFor();
       expect((await f.db.pool.query("SELECT revoked_at FROM app.access_tokens WHERE tenant_id=$1", [f.tenantId])).rows[0].revoked_at).not.toBeNull();
