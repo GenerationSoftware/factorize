@@ -2724,6 +2724,12 @@ export interface operations {
                         credentialStatus: "connected";
                         /** @default [] */
                         accountTags: string[];
+                        /** @enum {string} */
+                        agentKind?: "codex" | "claude" | "pi";
+                        /** @default [] */
+                        models: string[];
+                        /** @default [] */
+                        efforts: string[];
                     }[];
                 };
             };
@@ -2962,6 +2968,12 @@ export interface operations {
                             credentialStatus: "connected";
                             /** @default [] */
                             accountTags: string[];
+                            /** @enum {string} */
+                            agentKind?: "codex" | "claude" | "pi";
+                            /** @default [] */
+                            models: string[];
+                            /** @default [] */
+                            efforts: string[];
                         } | null;
                         exeConnections: {
                             connectionId: string;
@@ -2969,6 +2981,12 @@ export interface operations {
                             credentialStatus: "connected";
                             /** @default [] */
                             accountTags: string[];
+                            /** @enum {string} */
+                            agentKind?: "codex" | "claude" | "pi";
+                            /** @default [] */
+                            models: string[];
+                            /** @default [] */
+                            efforts: string[];
                         }[];
                         ampConnections: {
                             connectionId: string;

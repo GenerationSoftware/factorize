@@ -4,7 +4,7 @@ import { messageOf } from "../auth/session";
 export const targetsQuery = queryOptions({ queryKey: ["editor", "integrations"], queryFn: async ({ signal }) => {
   const { data, error } = await api.GET("/api/v1/integrations", { signal });
   if (!data || error) throw new Error(messageOf(error));
-  return [...data.exeConnections.map(connection => ({ id: connection.connectionId, name: "exe.dev", kind: "exe" as const, agentKind: "codex", efforts: ["minimal", "low", "medium", "high", "xhigh"] as string[] })), ...data.ampConnections.map(connection => ({ id: `amp:${connection.connectionId}`, name: `Amp · ${connection.project}`, kind: "amp" as const, agentKind: "Amp", efforts: [] as string[] }))];
+  return [...data.exeConnections.map(connection => ({ id: connection.connectionId, name: "exe.dev", kind: "exe" as const, agentKind: connection.agentKind ?? "codex", models: connection.models ?? [], tags: connection.accountTags ?? [], efforts: connection.efforts ?? [] })), ...data.ampConnections.map(connection => ({ id: `amp:${connection.connectionId}`, name: `Amp · ${connection.project}`, kind: "amp" as const, agentKind: "Amp", models: [] as string[], tags: [] as string[], efforts: [] as string[] }))];
 }, staleTime: 60_000 });
 export const metadataQuery = queryOptions({ queryKey: ["editor", "templates"], queryFn: async ({ signal }) => {
   const { data, error } = await api.GET("/api/v1/trigger-contexts", { signal });

@@ -1,6 +1,6 @@
 import { AmpBackend, type AmpConnection } from "../amp-backend";
 import { ExeIntegrationError, ExeVmBackend } from "../exe-vm-backend";
-import type { ExeConnection } from "../exe";
+import { effortOptions, type ExeConnection } from "../exe";
 import type { AmpConnectionInput, ExeConnectionInput, TailIntegrationInput } from "../types";
 import { signTailDelivery, verifyTailDelivery } from "../cloudflare-tail";
 import type { Database } from "./database";
@@ -21,7 +21,8 @@ export class IntegrationService {
     if (!apiToken) throw new ExeIntegrationError("An exe.dev HTTPS token is required");
     const tags = Array.isArray(value.tags) ? value.tags.map(String).map(tag => tag.trim()).filter(Boolean) : [];
     if (tags.length > 20 || tags.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) throw new ExeIntegrationError("VM tags are invalid");
-    const candidate: ExeConnection = { apiToken, tags, ...(value.agentKind ? { agentKind: value.agentKind } : {}) };
+    const priorCache = existing?.modelsByAgent ?? (existing?.agentKind && existing.models ? { [existing.agentKind]: existing.models } : {});
+    const candidate: ExeConnection = { ...existing, apiToken, tags, ...(value.agentKind ? { agentKind: value.agentKind } : {}), modelsByAgent: priorCache };
     const backend = new ExeVmBackend(candidate), permissions = await backend.testPermissions();
     if (!permissions.ok) {
       if (permissions.checks.some(check => check.status === 401)) throw new ExeIntegrationError("exe.dev rejected the account token. Check that it is valid and has not expired.");
@@ -29,10 +30,12 @@ export class IntegrationService {
       const failed = permissions.checks.find(check => !check.ok);
       throw new ExeIntegrationError(`exe.dev credential verification failed${failed ? ` for ${failed.requestBody} (HTTP ${failed.status})` : ""}. Try again shortly.`);
     }
-    const validation = value.agentKind ? await backend.validateAgentAndModels(value.agentKind) : undefined, connectionId = value.connectionId || crypto.randomUUID();
-    const saved = { ...candidate, ...(validation ? { models: validation.models, modelsRefreshedAt: timestamp() } : {}) };
+    const cached = value.agentKind ? candidate.modelsByAgent?.[value.agentKind] : undefined;
+    const validation = value.agentKind && !cached ? await backend.validateAgentAndModels(value.agentKind) : undefined, connectionId = value.connectionId || crypto.randomUUID();
+    const modelsByAgent = value.agentKind && validation ? { ...candidate.modelsByAgent, [value.agentKind]: validation.models } : candidate.modelsByAgent;
+    const saved = { ...candidate, availableTags: permissions.tags, ...(modelsByAgent ? { modelsByAgent } : {}), ...(value.agentKind ? { models: modelsByAgent?.[value.agentKind] ?? [], modelsRefreshedAt: existing?.modelsRefreshedAtByAgent?.[value.agentKind] ?? timestamp(), modelsRefreshedAtByAgent: { ...existing?.modelsRefreshedAtByAgent, ...(validation ? { [value.agentKind]: timestamp() } : {}) } } : {}) };
     await this.connections.put(`exe:${connectionId}`, saved);
-    return { ok: true, connectionId, ...(validation ? { models: validation.models } : {}) };
+    return { ok: true, connectionId, models: saved.models ?? [] };
   }
   async testExe(input: Partial<ExeConnectionInput>) {
     const saved = input.connectionId ? await this.connections.get<ExeConnection>(`exe:${input.connectionId}`) : null;
@@ -90,7 +93,7 @@ export class IntegrationService {
     const connectionsPromise = this.connections.all(["linear", "clickup", "exe:", "amp:", "cloudflare-tail:"]);
     const [connections, tails] = await Promise.all([connectionsPromise, this.tails(connectionsPromise)]);
     const linear = connections.get("linear"), clickup = connections.get("clickup");
-    const exeConnections = [...connections].filter(([kind]) => kind.startsWith("exe:")).map(([kind, value]) => ({ connectionId: kind.slice(4), credentialStatus: "connected" as const, accountTags: tags(value?.tags) }));
+    const exeConnections = [...connections].filter(([kind]) => kind.startsWith("exe:")).map(([kind, value]) => { const agentKind = value?.agentKind; return { connectionId: kind.slice(4), credentialStatus: "connected" as const, accountTags: tags(value?.availableTags ?? value?.tags), ...(agentKind ? { agentKind } : {}), models: (agentKind && (value?.modelsByAgent?.[agentKind] ?? value?.models)) ?? [], efforts: agentKind ? effortOptions[agentKind as keyof typeof effortOptions] ?? [] : [] }; });
     const ampConnections = [...connections].filter(([kind]) => kind.startsWith("amp:")).map(([kind, value]) => ({ connectionId: kind.slice(4), project: text(value?.project) ?? "Unnamed Amp project", ...(text(value?.apiBaseUrl) ? { apiBaseUrl: text(value.apiBaseUrl) } : {}) }));
     return { linear: linear ? { organizationName: text(linear.organizationName) ?? null, viewerEmail: text(linear.viewerEmail) ?? null } : null, clickup: clickup ? { teamName: text(clickup.teamName) ?? null } : null, exe: exeConnections[0] ?? null, exeConnections, ampConnections, cloudflareTail: { count: tails.length, installations: tails } };
   }
