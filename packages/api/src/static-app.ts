@@ -1,7 +1,7 @@
 import type { Env } from "./types";
 
 export const STATIC_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
-const pages = new Set(["/", "/jobs", "/jobs/new", "/projects", "/projects/new", "/job-runs", "/settings", "/settings/integrations", "/settings/api-keys", "/settings/authorized-clients", "/settings/password", "/auth/login", "/auth/signup", "/auth/password-reset", "/auth/verify", "/auth/verify/request", "/authorize", "/device"]);
+const pages = new Set(["/", "/jobs", "/jobs/new", "/projects", "/projects/new", "/job-runs", "/settings", "/settings/integrations", "/settings/api-keys", "/settings/api-keys/new", "/settings/authorized-clients", "/settings/password", "/auth/login", "/auth/signup", "/auth/password-reset", "/auth/verify", "/auth/verify/request", "/authorize", "/device"]);
 export function isStaticPage(path: string) {
   return pages.has(path) || /^\/jobs\/[^/]+(?:\/(?:edit|settings))?$/.test(path) || /^\/projects\/[^/]+$/.test(path) || /^\/job-runs\/[^/]+$/.test(path);
 }

@@ -26,11 +26,11 @@ test("integration settings tolerates legacy exe connections without tags", async
   await page.getByText("Account tags available", { exact: true }).waitFor();
   await context.close();
 });
-test("API keys show a secret once, support explicit revocation and survive deep-link refresh", async () => {
+test("API keys create on a dedicated page, show a secret once, support revocation and survive refresh", async () => {
   const { context, page } = await setup(); let revoked = false, created = false; const time = "2026-10-09T12:00:00Z";
   await page.route("**/api/v1/access-tokens", route => { if (route.request().method() === "POST") { created = true; return route.fulfill({ status: 201, json: { id: "key", name: "CLI", scopes: ["flows:read", "runs:read"], created_at: time, expires_at: time, token: "one-time-secret" } }); } return route.fulfill({ json: created ? [{ id: "key", name: "CLI", scopes: ["flows:read"], created_at: time, expires_at: time, last_used_at: null, revoked_at: revoked ? time : null }] : [] }); });
   await page.route("**/api/v1/access-tokens/key", route => { revoked = true; return route.fulfill({ json: { revoked: true } }); });
-  await page.goto(origin + "/settings/api-keys"); await page.getByLabel("Key name").fill("CLI"); await page.getByRole("button", { name: "Create key" }).click(); await page.getByText("one-time-secret", { exact: true }).waitFor(); await page.getByRole("button", { name: "Dismiss key" }).click(); await page.reload(); await page.getByText("CLI", { exact: true }).waitFor(); assert.equal(await page.getByText("one-time-secret", { exact: true }).count(), 0);
+  await page.goto(origin + "/settings/api-keys"); await page.getByRole("button", { name: "Create API Key" }).click(); await page.waitForURL("**/settings/api-keys/new"); await page.getByLabel("Key name").fill("CLI"); await page.getByRole("button", { name: "Create key" }).click(); await page.getByText("one-time-secret", { exact: true }).waitFor(); await page.getByRole("button", { name: "Dismiss key" }).click(); await page.goto(origin + "/settings/api-keys"); await page.reload(); await page.getByText("CLI", { exact: true }).waitFor(); assert.equal(await page.getByText("one-time-secret", { exact: true }).count(), 0);
   page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "Revoke key" }).click(); await page.getByText("Revoked", { exact: true }).waitFor(); await context.close();
 });
 test("authorized client revocation refreshes the grants list", async () => {
