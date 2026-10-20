@@ -5,7 +5,7 @@ import { exeConnection, integrationStatus, authorizedClient, accessToken, create
 import { executionTargetResponse, triggerAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { runSummaryResponse, runPageResponse, runStatusResponse, revisionTracePage, revisionTraceQuery } from "./run-read-contracts";
 import { jobPageQuery, jobSummaryPage, jobSelectorPage, jobResponse, jobUpdateInput } from "./job-contracts";
-import { projectInput, projectResponse } from "./project-contracts";
+import { projectInput, projectListQuery, projectResponse } from "./project-contracts";
 import { z } from "zod";
 import type { ApiService } from "./flow-service";
 import {
@@ -669,7 +669,8 @@ export const API_ROUTES: RouteContract[] = [
     "/api/v1/projects",
     "flows:read",
     { summary: "List projects", responses: { "200": { description: "Projects", content: { "application/json": { schema: jsonSchema(z.array(projectResponse), "output") } } } } },
-    (service) => service.listProjects(),
+    (service, { query }) => service.listProjects(query),
+    { query: projectListQuery },
   ),
   route("POST", "/api/v1/projects", "flows:write", { summary: "Create project", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { body }) => service.createProject(body), { body: projectInput }),
   route("GET", "/api/v1/projects/{projectId}", "flows:read", { summary: "Get project", responses: { "200": { description: "Project", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params }) => service.getProject(params.projectId)),
