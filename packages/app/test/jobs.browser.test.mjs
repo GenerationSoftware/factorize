@@ -25,6 +25,33 @@ async function contextFor(options) {
   await page.route(`**/api/v1/projects/${projectId}`, route => route.fulfill({ json: { id: projectId, name: "Release project", description: "Project jobs", jobCount: 31 } }));
   return { context, page };
 }
+test("project details can rename and describe a project", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+  const saved = [];
+  let projectResponse = { id: projectId, name: "Release project", description: "Project jobs", jobCount: 31 };
+  await page.route(`**/api/v1/projects/${projectId}`, async route => {
+    if (route.request().method() !== "PUT") return route.fulfill({ json: projectResponse });
+    saved.push(route.request().postDataJSON());
+    projectResponse = { id: projectId, name: "Renamed project", description: "Updated details", jobCount: 31 };
+    return route.fulfill({ json: projectResponse });
+  });
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  await page.goto(origin + `/projects/${projectId}`);
+  await page.getByRole("heading", { name: "Release project", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Renamed project");
+  await page.locator("dialog textarea").fill("Updated details");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByRole("heading", { name: "Renamed project", exact: true }).waitFor();
+  assert.deepEqual(saved, [{ name: "Renamed project", description: "Updated details" }]);
+  assert.match(await page.locator("main").textContent(), /Updated details/);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Name", { exact: true }).fill("   ");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "Project name is required." }).waitFor();
+  assert.equal(saved.length, 1);
+  await context.close();
+});
 for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) test(`compact jobs grouping, pagination, focus and long titles at ${width} ${theme}`, async () => {
   const { page, context } = await contextFor({ viewport: { width, height: 844 }, colorScheme: theme });
   const longTitle = "Zulu " + "long title ".repeat(30);
