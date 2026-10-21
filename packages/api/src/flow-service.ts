@@ -32,7 +32,7 @@ import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken, normalizeScopes } f
 import { TraceProjectionRepository } from "./postgres/trace-projection-repository";
 import { replayTrace, traceReplaySchema, traceReplayRunIdSchema, TraceReplayError } from "./trace-replay";
 import { ProjectRepository } from "./postgres/project-repository";
-import { effortOptions, type ExeConnection } from "./exe";
+import { effortOptions, selectableExeTags, type ExeConnection } from "./exe";
 
 export class ServiceError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -80,7 +80,7 @@ export class ApiService {
     const availableEfforts = effortOptions[connection.agentKind ?? "codex"] ?? [];
     if (model && availableModels.length && !availableModels.includes(model)) throw new ServiceError(400, "invalid_request", "Model is not available on this agent.");
     if (effort && availableEfforts.length && !availableEfforts.includes(effort)) throw new ServiceError(400, "invalid_request", "Effort is not available on this agent.");
-    const availableTags = new Set(connection.availableTags ?? connection.tags ?? []);
+    const availableTags = new Set(selectableExeTags(connection));
     if (tags.some(tag => !availableTags.has(tag))) throw new ServiceError(400, "invalid_request", "VM tags must be selected from the available exe.dev labels.");
   }
 

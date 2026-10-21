@@ -12,6 +12,16 @@ export interface ExeConnection {
   modelsRefreshedAtByAgent?: Partial<Record<AgentKind, string>>;
 }
 
+/**
+ * Labels that may be selected by a job. Older connections stored their
+ * discovered/configured labels in `tags`; keep those labels usable while the
+ * connection is migrated to the `availableTags` inventory.
+ */
+export function selectableExeTags(connection: { availableTags?: unknown; tags?: unknown }): string[] {
+  const strings = (value: unknown) => Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === "string") : [];
+  return [...new Set([...strings(connection.availableTags), ...strings(connection.tags)])].sort((a, b) => a.localeCompare(b));
+}
+
 export const effortOptions: Record<AgentKind, string[]> = {
   codex: ["minimal", "low", "medium", "high", "xhigh"],
   claude: ["low", "medium", "high"],

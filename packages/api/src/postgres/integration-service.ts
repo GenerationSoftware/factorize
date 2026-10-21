@@ -1,6 +1,6 @@
 import { AmpBackend, type AmpConnection } from "../amp-backend";
 import { ExeIntegrationError, ExeVmBackend } from "../exe-vm-backend";
-import { effortOptions, type ExeConnection } from "../exe";
+import { effortOptions, selectableExeTags, type ExeConnection } from "../exe";
 import type { AmpConnectionInput, ExeConnectionInput, TailIntegrationInput } from "../types";
 import { signTailDelivery, verifyTailDelivery } from "../cloudflare-tail";
 import type { Database } from "./database";
@@ -9,7 +9,6 @@ import { ConnectionRepository } from "./connection-repository";
 const timestamp = () => new Date().toISOString();
 const tailSecret = () => `fztail_${Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, "0")).join("")}`;
 const text = (value: unknown) => typeof value === "string" ? value : undefined;
-const tags = (value: unknown) => Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === "string") : [];
 
 export class IntegrationService {
   readonly connections: ConnectionRepository;
@@ -93,7 +92,7 @@ export class IntegrationService {
     const connectionsPromise = this.connections.all(["linear", "clickup", "exe:", "amp:", "cloudflare-tail:"]);
     const [connections, tails] = await Promise.all([connectionsPromise, this.tails(connectionsPromise)]);
     const linear = connections.get("linear"), clickup = connections.get("clickup");
-    const exeConnections = [...connections].filter(([kind]) => kind.startsWith("exe:")).map(([kind, value]) => { const agentKind = value?.agentKind; return { connectionId: kind.slice(4), credentialStatus: "connected" as const, accountTags: [...new Set([...tags(value?.availableTags), ...tags(value?.tags)])].sort((a, b) => a.localeCompare(b)), ...(agentKind ? { agentKind } : {}), models: (agentKind && (value?.modelsByAgent?.[agentKind] ?? value?.models)) ?? [], efforts: agentKind ? effortOptions[agentKind as keyof typeof effortOptions] ?? [] : [] }; });
+    const exeConnections = [...connections].filter(([kind]) => kind.startsWith("exe:")).map(([kind, value]) => { const agentKind = value?.agentKind; return { connectionId: kind.slice(4), credentialStatus: "connected" as const, accountTags: selectableExeTags(value ?? {}), ...(agentKind ? { agentKind } : {}), models: (agentKind && (value?.modelsByAgent?.[agentKind] ?? value?.models)) ?? [], efforts: agentKind ? effortOptions[agentKind as keyof typeof effortOptions] ?? [] : [] }; });
     const ampConnections = [...connections].filter(([kind]) => kind.startsWith("amp:")).map(([kind, value]) => ({ connectionId: kind.slice(4), project: text(value?.project) ?? "Unnamed Amp project", ...(text(value?.apiBaseUrl) ? { apiBaseUrl: text(value.apiBaseUrl) } : {}) }));
     return { linear: linear ? { organizationName: text(linear.organizationName) ?? null, viewerEmail: text(linear.viewerEmail) ?? null } : null, clickup: clickup ? { teamName: text(clickup.teamName) ?? null } : null, exe: exeConnections[0] ?? null, exeConnections, ampConnections, cloudflareTail: { count: tails.length, installations: tails } };
   }
