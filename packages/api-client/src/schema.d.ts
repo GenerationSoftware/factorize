@@ -1537,6 +1537,11 @@ export interface components {
             created_at: string;
             updated_at: string;
             started_at: string | null;
+            estimated_time?: {
+                low: number;
+                median: number;
+                high: number;
+            } | null;
         } & {
             [key: string]: unknown;
         };
@@ -1566,6 +1571,11 @@ export interface components {
                 created_at: string;
                 updated_at: string;
                 started_at: string | null;
+                estimated_time?: {
+                    low: number;
+                    median: number;
+                    high: number;
+                } | null;
             }[];
             nextCursor: string | null;
         };
