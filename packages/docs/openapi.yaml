@@ -110,6 +110,22 @@ components:
           type:
             - string
             - "null"
+        estimated_time:
+          anyOf:
+            - type: object
+              properties:
+                low:
+                  type: number
+                median:
+                  type: number
+                high:
+                  type: number
+              required:
+                - low
+                - median
+                - high
+              additionalProperties: false
+            - type: "null"
       required:
         - id
         - job_id
@@ -212,6 +228,22 @@ components:
                 type:
                   - string
                   - "null"
+              estimated_time:
+                anyOf:
+                  - type: object
+                    properties:
+                      low:
+                        type: number
+                      median:
+                        type: number
+                      high:
+                        type: number
+                    required:
+                      - low
+                      - median
+                      - high
+                    additionalProperties: false
+                  - type: "null"
             required:
               - id
               - job_id

@@ -32,8 +32,22 @@ export class RunQueryRepository {
     }
     values.push(limit + 1);
     const order = sort ? `CASE WHEN ${sortExpressions[sort]} IS NULL THEN 1 ELSE 0 END ASC, ${sortExpressions[sort]} ${direction} NULLS LAST, r.id ${direction}` : "r.created_at DESC,r.id DESC";
-    const result = await this.database.pool.query<any>(`SELECT r.id,r.job_id,j.project_id,j.name job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at
-      FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.projects p ON p.tenant_id=j.tenant_id AND p.id=j.project_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT $${values.length}`, values);
+    const result = await this.database.pool.query<any>(`SELECT r.id,r.job_id,j.project_id,j.name job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at,e.estimated_time
+      FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.projects p ON p.tenant_id=j.tenant_id AND p.id=j.project_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id
+      LEFT JOIN LATERAL (
+        WITH durations AS (
+          SELECT EXTRACT(EPOCH FROM (completed.updated_at - completed.started_at)) duration
+          FROM app.job_runs completed
+          WHERE completed.tenant_id=r.tenant_id AND completed.job_id=r.job_id AND completed.state IN ('succeeded','failed','stopped')
+            AND completed.started_at IS NOT NULL AND completed.updated_at >= completed.started_at
+        ), stats AS (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY duration) median FROM durations)
+        SELECT CASE WHEN stats.median IS NULL THEN NULL ELSE json_build_object(
+          'low', round(avg(durations.duration) FILTER (WHERE durations.duration <= stats.median)),
+          'median', round(stats.median),
+          'high', round(avg(durations.duration) FILTER (WHERE durations.duration >= stats.median))
+        ) END estimated_time FROM durations CROSS JOIN stats GROUP BY stats.median
+      ) e ON true
+      WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT $${values.length}`, values);
     const rows = result.rows.slice(0, limit), hasMore = result.rows.length > limit;
     const last = rows.at(-1);
     const nextCursor = hasMore && last ? sort ? (() => {
