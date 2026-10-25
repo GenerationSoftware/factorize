@@ -16,3 +16,8 @@ With concurrency 1, a review already running occupies the only active slot. One 
 Concurrency can be 1–50. With concurrency 2, two reviews may execute and one may wait. Queued runs keep the prompt/context they were submitted with; editing a job does not rewrite those runs. Query runs and the provider for authoritative work when automatic events coalesce.
 
 Inspect output before treating a terminal state as a useful result. Trace collection can be incomplete even when execution completed; advanced trace recovery belongs in [operations](/self-hosting/operations).
+## Global skills
+
+Skills are reusable, tenant-scoped instruction bodies that can be attached to jobs in an explicit order. A body is literal text: Mustache expressions, braces, Unicode, whitespace, and HTML-like text are passed through unchanged. Only the job context is rendered with trigger data.
+
+Renaming a skill changes its shared key without changing stable job references. Deletion is rejected while any enabled or disabled saved job uses it. A run resolves its selected skills when queued and stores the exact bodies, keys, revisions, and order; later edits, renames, or deletion do not change historical runs. Skill library operations require `skills:read` or `skills:write`; inspecting affected jobs also requires `jobs:read`.

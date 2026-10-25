@@ -18,6 +18,7 @@ import {
 import { traceReplaySchema } from "./trace-replay-schemas";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
+import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput } from "./skills";
 
 type JsonSchema = Record<string, any>;
 export interface RouteContract {
@@ -93,6 +94,7 @@ const traceQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(100),
 });
 const searchQuery = z.object({ q: z.string().default("") });
+const skillQuery = z.object({ q: z.string().default(""), limit: z.coerce.number().int().min(1).max(100).default(30), cursor: z.guid().optional() });
 const clickUpQuery = z.object({ listId: z.string().default("") });
 const scheduleBody = z
   .object({
@@ -651,6 +653,13 @@ export const API_ROUTES: RouteContract[] = [
   route("GET", "/api/v1/projects/{projectId}", "flows:read", { summary: "Get project", responses: { "200": { description: "Project", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params }) => service.getProject(params.projectId)),
   route("PUT", "/api/v1/projects/{projectId}", "flows:write", { summary: "Update project", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params, body }) => service.updateProject(params.projectId, body), { body: projectInput }),
   route("DELETE", "/api/v1/projects/{projectId}", "flows:write", { summary: "Delete empty project", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteProject(params.projectId)),
+  route("GET", "/api/v1/skills", "skills:read", { summary: "Search global skills", responses: { "200": { description: "Skills", content: { "application/json": { schema: jsonSchema(skillPage, "output") } } } } }, (service, { query }) => service.listSkills(query), { query: skillQuery }),
+  route("POST", "/api/v1/skills", "skills:write", { summary: "Create a global skill", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { body }) => service.createSkill(body), { body: skillInput }),
+  route("POST", "/api/v1/skills/preview", "skills:read", { summary: "Preview a composed job prompt", responses: { "200": { description: "Prompt preview" } } }, (service, { body }) => service.previewJobPrompt(body), { body: previewSkillInput }),
+  route("GET", "/api/v1/skills/{skillId}", "skills:read", { summary: "Get a global skill", responses: { "200": { description: "Skill", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { params }) => service.getSkill(params.skillId)),
+  route("PUT", "/api/v1/skills/{skillId}", "skills:write", { summary: "Update a global skill", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { params, body }) => service.updateSkill(params.skillId, body), { body: skillUpdateInput }),
+  route("DELETE", "/api/v1/skills/{skillId}", "skills:write", { summary: "Delete an unused global skill", responses: { "200": { description: "Deleted" } } }, (service, { params, query }) => service.deleteSkill(params.skillId, query.expectedRevision), { query: z.object({ expectedRevision: z.coerce.number().int().positive() }) }),
+  route("GET", "/api/v1/skills/{skillId}/jobs", "skills:read", { summary: "List jobs using a skill", responses: { "200": { description: "Jobs", content: { "application/json": { schema: jsonSchema(skillJobsResponse, "output") } } } } }, (service, { params }) => service.listSkillJobs(params.skillId)),
   route("POST", "/api/v1/jobs/{jobId}/project", "flows:write", { summary: "Move a job to a project", responses: { "200": { description: "Moved", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } } } }, (service, { params, body }) => service.moveJob(params.jobId, body.projectId, body.expectedUpdatedAt), { body: z.object({ projectId: z.guid(), expectedUpdatedAt: z.iso.datetime().optional() }) }),
   route(
     "GET",

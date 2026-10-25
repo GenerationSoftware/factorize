@@ -2,7 +2,7 @@ import type { Env, OAuthProps } from "./types";
 import { databaseFor } from "./postgres/database";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
 
-export const ACCESS_SCOPES = ["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write"] as const;
+export const ACCESS_SCOPES = ["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write", "skills:read", "skills:write"] as const;
 export type AccessScope = typeof ACCESS_SCOPES[number];
 export type LegacyScope = "flows:read" | "flows:write" | "runs:write";
 

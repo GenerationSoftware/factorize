@@ -1030,6 +1030,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search global skills
+         * @description Requires the skills:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_skills"];
+        put?: never;
+        /**
+         * Create a global skill
+         * @description Requires the skills:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_skills"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a composed job prompt
+         * @description Requires the skills:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_skills_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills/{skillId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a global skill
+         * @description Requires the skills:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_skills_skillId"];
+        /**
+         * Update a global skill
+         * @description Requires the skills:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        put: operations["put_api_v1_skills_skillId"];
+        post?: never;
+        /**
+         * Delete an unused global skill
+         * @description Requires the skills:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        delete: operations["delete_api_v1_skills_skillId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills/{skillId}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List jobs using a skill
+         * @description Requires the skills:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_skills_skillId_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs/{jobId}/project": {
         parameters: {
             query?: never;
@@ -1888,6 +1994,7 @@ export interface components {
                     states: ("succeeded" | "failed" | "stopped" | "edited")[];
                 };
             })[];
+            skillIds?: string[];
         };
         ManualInvocation: {
             /** @default  */
@@ -3471,7 +3578,7 @@ export interface operations {
             content: {
                 "application/json": {
                     name: string;
-                    scopes: (("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write") | ("flows:read" | "flows:write" | "runs:write"))[];
+                    scopes: (("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write") | ("flows:read" | "flows:write" | "runs:write"))[];
                     expiryDays: 7 | 30 | 90;
                 };
             };
@@ -4172,6 +4279,294 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_skills: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Skills */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            revision: number;
+                            usageCount: number;
+                            createdAt: string;
+                            updatedAt: string;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_skills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    key: string;
+                    body: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        key: string;
+                        revision: number;
+                        body: string;
+                        usageCount: number;
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_skills_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    skillIds: string[];
+                    jobContext: string;
+                    sampleTriggerData?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Prompt preview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_skills_skillId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Skill */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        key: string;
+                        revision: number;
+                        body: string;
+                        usageCount: number;
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_skills_skillId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    key?: string;
+                    body?: string;
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        key: string;
+                        revision: number;
+                        body: string;
+                        usageCount: number;
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_skills_skillId: {
+        parameters: {
+            query: {
+                expectedRevision: number;
+            };
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_skills_skillId_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        skillId: string;
+                        jobs: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            slug: string;
+                            enabled: boolean;
+                            /** Format: uuid */
+                            projectId: string;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     post_api_v1_jobs_jobId_project: {
         parameters: {
             query?: never;
@@ -4335,6 +4730,13 @@ export interface operations {
                             createdAt: string;
                             updatedAt: string;
                         })[];
+                        skills?: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            revision: number;
+                            position: number;
+                        }[];
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -4503,6 +4905,13 @@ export interface operations {
                             createdAt: string;
                             updatedAt: string;
                         })[];
+                        skills?: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            revision: number;
+                            position: number;
+                        }[];
                         createdAt: string;
                         updatedAt: string;
                     }[];
@@ -4674,6 +5083,13 @@ export interface operations {
                             createdAt: string;
                             updatedAt: string;
                         })[];
+                        skills?: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            revision: number;
+                            position: number;
+                        }[];
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -5017,6 +5433,13 @@ export interface operations {
                             createdAt: string;
                             updatedAt: string;
                         })[];
+                        skills?: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            revision: number;
+                            position: number;
+                        }[];
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -5143,6 +5566,7 @@ export interface operations {
                             states: ("succeeded" | "failed" | "stopped" | "edited")[];
                         };
                     })[];
+                    skillIds?: string[];
                     /** Format: date-time */
                     expectedUpdatedAt?: string;
                 };
@@ -5292,6 +5716,13 @@ export interface operations {
                             createdAt: string;
                             updatedAt: string;
                         })[];
+                        skills?: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            revision: number;
+                            position: number;
+                        }[];
                         createdAt: string;
                         updatedAt: string;
                     };
