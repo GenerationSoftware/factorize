@@ -110,21 +110,26 @@ components:
           type:
             - string
             - "null"
-        estimated_time:
+        elapsed_time:
           anyOf:
-            - type: object
-              properties:
-                low:
-                  type: number
-                median:
-                  type: number
-                high:
-                  type: number
-              required:
-                - low
-                - median
-                - high
-              additionalProperties: false
+            - anyOf:
+                - type: object
+                  properties:
+                    duration:
+                      type: number
+                  required:
+                    - duration
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    low:
+                      type: number
+                    high:
+                      type: number
+                  required:
+                    - low
+                    - high
+                  additionalProperties: false
             - type: "null"
       required:
         - id
@@ -228,21 +233,26 @@ components:
                 type:
                   - string
                   - "null"
-              estimated_time:
+              elapsed_time:
                 anyOf:
-                  - type: object
-                    properties:
-                      low:
-                        type: number
-                      median:
-                        type: number
-                      high:
-                        type: number
-                    required:
-                      - low
-                      - median
-                      - high
-                    additionalProperties: false
+                  - anyOf:
+                      - type: object
+                        properties:
+                          duration:
+                            type: number
+                        required:
+                          - duration
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          low:
+                            type: number
+                          high:
+                            type: number
+                        required:
+                          - low
+                          - high
+                        additionalProperties: false
                   - type: "null"
             required:
               - id

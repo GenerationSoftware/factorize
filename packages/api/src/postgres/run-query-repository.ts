@@ -32,7 +32,11 @@ export class RunQueryRepository {
     }
     values.push(limit + 1);
     const order = sort ? `CASE WHEN ${sortExpressions[sort]} IS NULL THEN 1 ELSE 0 END ASC, ${sortExpressions[sort]} ${direction} NULLS LAST, r.id ${direction}` : "r.created_at DESC,r.id DESC";
-    const result = await this.database.pool.query<any>(`SELECT r.id,r.job_id,j.project_id,j.name job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at,e.estimated_time
+    const result = await this.database.pool.query<any>(`SELECT r.id,r.job_id,j.project_id,j.name job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at,
+      CASE WHEN r.state IN ('succeeded','failed','stopped') AND jr.started_at IS NOT NULL AND jr.updated_at >= jr.started_at
+        THEN json_build_object('duration', round(EXTRACT(EPOCH FROM (jr.updated_at - jr.started_at))))
+        WHEN r.state NOT IN ('succeeded','failed','stopped') THEN e.elapsed_time
+      END elapsed_time
       FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.projects p ON p.tenant_id=j.tenant_id AND p.id=j.project_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id
       LEFT JOIN LATERAL (
         WITH durations AS (
@@ -40,12 +44,11 @@ export class RunQueryRepository {
           FROM app.job_runs completed
           WHERE completed.tenant_id=r.tenant_id AND completed.job_id=r.job_id AND completed.state IN ('succeeded','failed','stopped')
             AND completed.started_at IS NOT NULL AND completed.updated_at >= completed.started_at
-        ), stats AS (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY duration) median FROM durations)
-        SELECT CASE WHEN stats.median IS NULL THEN NULL ELSE json_build_object(
-          'low', round(avg(durations.duration) FILTER (WHERE durations.duration <= stats.median)),
-          'median', round(stats.median),
-          'high', round(avg(durations.duration) FILTER (WHERE durations.duration >= stats.median))
-        ) END estimated_time FROM durations CROSS JOIN stats GROUP BY stats.median
+        )
+        SELECT CASE WHEN count(durations.duration) = 0 THEN NULL ELSE json_build_object(
+          'low', round(min(durations.duration)),
+          'high', round(max(durations.duration))
+        ) END elapsed_time FROM durations
       ) e ON true
       WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT $${values.length}`, values);
     const rows = result.rows.slice(0, limit), hasMore = result.rows.length > limit;
