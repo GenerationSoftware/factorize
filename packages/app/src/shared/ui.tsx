@@ -66,6 +66,7 @@ export function Textarea({ className = "", ...props }: ComponentProps<"textarea"
 export function Select({ className = "", ...props }: ComponentProps<"select">) { return <select {...props} className={`${fieldClasses} ${className}`} />; }
 export function Label({ className = "", ...props }: ComponentProps<"label">) { return <label {...props} className={`block min-w-0 text-sm font-medium text-slate-700 dark:text-slate-300 ${className}`} />; }
 export function Page({ className = "", ...props }: ComponentProps<"main">) { return <main {...props} id="main-content" className={`mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-12 lg:px-8 ${className}`} />; }
+export function Breadcrumb({ children }: { children?: ReactNode }) { return <nav aria-label="Breadcrumb" className="mb-4 flex min-h-6 min-w-0 flex-wrap items-center gap-2 text-sm">{children}</nav>; }
 export function Card({ className = "", ...props }: ComponentProps<"section">) { return <section {...props} className={`min-w-0 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6 ${className}`} />; }
 export function PageHeader({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
   return <div className="mb-8 flex min-w-0 flex-wrap items-start justify-between gap-4"><div className="min-w-0"><h1 className="text-3xl font-bold tracking-tight">{title}</h1>{description && <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{description}</p>}</div>{children}</div>;

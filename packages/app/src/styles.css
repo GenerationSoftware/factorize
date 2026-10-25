@@ -28,6 +28,8 @@
   #root { @apply flex min-h-dvh min-w-0 flex-col; }
   :focus-visible { @apply outline-2 outline-offset-4 outline-factorize-600 dark:outline-factorize-500; }
   h1 { @apply mb-4 break-words text-3xl font-bold tracking-tight; }
+  main > nav[aria-label="Breadcrumb"] { @apply mb-4 flex min-h-6 min-w-0 flex-wrap items-center gap-2 text-sm; }
+  main.max-w-6xl > a:first-child { @apply mb-4 block min-h-6 text-sm font-semibold; }
   h2 { @apply mb-3 text-xl font-semibold tracking-tight; }
   h3 { @apply mb-2 font-semibold; }
   p { @apply leading-relaxed; }

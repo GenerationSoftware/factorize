@@ -52,6 +52,21 @@ test("project details can rename and describe a project", async () => {
   assert.equal(saved.length, 1);
   await context.close();
 });
+test("projects and job pages keep a stable breadcrumb row", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+  await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
+  await page.goto(origin + "/projects");
+  await page.getByRole("heading", { name: "Projects", exact: true }).waitFor();
+  assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 1);
+  await page.goto(origin + `/projects/${projectId}`);
+  await page.getByRole("heading", { name: "Release project", exact: true }).waitFor();
+  assert.deepEqual(await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link").allTextContents(), ["Projects"]);
+  await page.goto(origin + `/jobs/${jobId}`);
+  await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
+  assert.deepEqual(await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link").allTextContents(), ["Projects", "Release project"]);
+  await context.close();
+});
 for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) test(`compact jobs grouping, pagination, focus and long titles at ${width} ${theme}`, async () => {
   const { page, context } = await contextFor({ viewport: { width, height: 844 }, colorScheme: theme });
   const longTitle = "Zulu " + "long title ".repeat(30);
