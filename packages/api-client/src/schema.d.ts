@@ -1537,11 +1537,12 @@ export interface components {
             created_at: string;
             updated_at: string;
             started_at: string | null;
-            estimated_time?: {
+            elapsed_time?: ({
+                duration: number;
+            } | {
                 low: number;
-                median: number;
                 high: number;
-            } | null;
+            }) | null;
         } & {
             [key: string]: unknown;
         };
@@ -1571,11 +1572,12 @@ export interface components {
                 created_at: string;
                 updated_at: string;
                 started_at: string | null;
-                estimated_time?: {
+                elapsed_time?: ({
+                    duration: number;
+                } | {
                     low: number;
-                    median: number;
                     high: number;
-                } | null;
+                }) | null;
             }[];
             nextCursor: string | null;
         };
