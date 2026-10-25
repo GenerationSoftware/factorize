@@ -430,6 +430,13 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `list_webhook_deliveries` | runs:read | Optional strings `provider`, `deliveryId`, `event`, `action`, `outcome`, `jobId`, `q`, `from`, `to`, `cursor`; integer `limit` (1–100, default 50) |
 | `get_webhook_delivery` | runs:read | Required string `deliveryId` |
 | `test_job_webhook_conditions` | jobs:write | Required prepared JSON object `webhook`; optional `conditions` tree |
+| `list_skills` | skills:read | Optional `q`, `limit`, and `cursor` |
+| `get_skill` | skills:read | Required string `skillId` |
+| `create_skill` | skills:write | Required `key` and `body` |
+| `update_skill` | skills:write | Required `skillId` and `expectedRevision`; optional `key` and `body` |
+| `delete_skill` | skills:write | Required `skillId` and `expectedRevision` |
+| `list_skill_jobs` | skills:read | Required string `skillId` |
+| `preview_job_prompt` | skills:read | Required `skillIds` array and `jobContext`; optional `sampleTriggerData` |
 
 The inventory is validated against every registered implementation tool. All required IDs are non-empty strings except numeric GitHub installation/repository IDs in trigger configuration.
 
@@ -572,6 +579,11 @@ With concurrency 1, a review already running occupies the only active slot. One 
 Concurrency can be 1–50. With concurrency 2, two reviews may execute and one may wait. Queued runs keep the prompt/context they were submitted with; editing a job does not rewrite those runs. Query runs and the provider for authoritative work when automatic events coalesce.
 
 Inspect output before treating a terminal state as a useful result. Trace collection can be incomplete even when execution completed; advanced trace recovery belongs in [operations](https://docs.factorize.sh/self-hosting/operations).
+## Global skills
+
+Skills are reusable, tenant-scoped instruction bodies that can be attached to jobs in an explicit order. A body is literal text: Mustache expressions, braces, Unicode, whitespace, and HTML-like text are passed through unchanged. Only the job context is rendered with trigger data.
+
+Renaming a skill changes its shared key without changing stable job references. Deletion is rejected while any enabled or disabled saved job uses it. A run resolves its selected skills when queued and stores the exact bodies, keys, revisions, and order; later edits, renames, or deletion do not change historical runs. Skill library operations require `skills:read` or `skills:write`; inspecting affected jobs also requires `jobs:read`.
 
 ## REST API reference
 Source: https://docs.factorize.sh/api/reference
