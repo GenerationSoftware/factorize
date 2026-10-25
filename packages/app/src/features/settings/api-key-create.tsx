@@ -2,20 +2,33 @@ import { Button, Input, Select, Label, Card } from "../../shared/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "factorize-api-client";
+import { api, type paths } from "factorize-api-client";
 import { tokensQuery } from "./queries";
 import { SettingsLayout } from "./navigation";
 import { messageOf } from "../auth/session";
 
-const allScopes = ["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write"] as const;
-const scopeDescriptions: Record<typeof allScopes[number], string> = { "projects:read": "View projects", "projects:write": "Create, rename, and delete projects", "jobs:read": "View jobs and job configuration", "jobs:write": "Create, edit, enable, disable, and delete jobs", "runs:read": "View runs, traces, context, and diagnostics", "runs:invoke": "Start jobs", "runs:cancel": "Stop or cancel runs", "integrations:read": "View integrations and provider resources", "integrations:write": "Create, configure, test, and remove integrations" };
+type AccessScope = paths["/api/v1/access-tokens"]["get"]["responses"][200]["content"]["application/json"][number]["scopes"][number];
+const scopeDescriptions: Record<AccessScope, string> = {
+  "projects:read": "View projects",
+  "projects:write": "Create, rename, and delete projects",
+  "jobs:read": "View jobs and job configuration",
+  "jobs:write": "Create, edit, enable, disable, and delete jobs",
+  "runs:read": "View runs, traces, context, and diagnostics",
+  "runs:invoke": "Start jobs",
+  "runs:cancel": "Stop or cancel runs",
+  "integrations:read": "View integrations and provider resources",
+  "integrations:write": "Create, configure, test, and remove integrations",
+  "skills:read": "View shared skills and the jobs using them",
+  "skills:write": "Create, edit, and delete shared skills",
+};
+const allScopes = Object.keys(scopeDescriptions) as AccessScope[];
 
 export function ApiKeyCreate() {
   const navigate = useNavigate();
   const cache = useQueryClient();
   const [secret, setSecret] = useState("");
   const [name, setName] = useState("");
-  const [scopes, setScopes] = useState<(typeof allScopes[number])[]>(["jobs:read", "runs:read"]);
+  const [scopes, setScopes] = useState<AccessScope[]>(["jobs:read", "runs:read"]);
   const [expiryDays, setExpiryDays] = useState<7 | 30 | 90>(30);
   const create = useMutation({
     retry: false,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ACCESS_SCOPES, normalizeScopes } from "../src/access-tokens";
+import { accessToken, createdAccessToken } from "../src/settings-contracts";
 import { API_ROUTES } from "../src/api-contract";
 
 describe("GEN-2418 permission boundaries", () => {
@@ -7,6 +8,12 @@ describe("GEN-2418 permission boundaries", () => {
     expect(ACCESS_SCOPES).toEqual(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
     expect(normalizeScopes(["flows:read", "runs:write"])).toEqual(["projects:read", "jobs:read", "integrations:read", "runs:read", "runs:invoke", "runs:cancel"]);
     expect(ACCESS_SCOPES).not.toContain("flows:read" as never);
+  });
+
+  it("returns every issuable scope in created and listed API key metadata", () => {
+    const metadata = { id: "key", name: "Integration", scopes: [...ACCESS_SCOPES], created_at: "2026-10-25T00:00:00Z", expires_at: "2026-11-24T00:00:00Z" };
+    expect(createdAccessToken.parse({ ...metadata, token: "one-time-secret" }).scopes).toEqual(ACCESS_SCOPES);
+    expect(accessToken.parse(metadata).scopes).toEqual(ACCESS_SCOPES);
   });
 
   it("keeps project creation separate from job and integration writes", () => {

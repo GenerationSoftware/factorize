@@ -3823,6 +3823,8 @@ paths:
                           - runs:cancel
                           - integrations:read
                           - integrations:write
+                          - skills:read
+                          - skills:write
                     created_at:
                       type: string
                     expires_at:
@@ -3898,6 +3900,8 @@ paths:
                         - runs:cancel
                         - integrations:read
                         - integrations:write
+                        - skills:read
+                        - skills:write
                   created_at:
                     type: string
                   expires_at:

@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { ACCESS_SCOPES } from "./access-tokens";
 import { tailIntegration } from "./editor-contracts";
 const timestamp = z.string();
 export const exeConnection = z.object({ connectionId: z.string(), credentialStatus: z.literal("connected"), accountTags: z.array(z.string()).default([]), agentKind: z.enum(["codex", "claude", "pi"]).optional(), models: z.array(z.string()).default([]), efforts: z.array(z.string()).default([]) });
 export const ampConnection = z.object({ connectionId: z.string(), project: z.string(), apiBaseUrl: z.string().optional() });
 export const integrationStatus = z.object({ linear: z.object({ organizationName: z.string().nullable(), viewerEmail: z.string().nullable() }).nullable(), clickup: z.object({ teamName: z.string().nullable() }).nullable(), exe: exeConnection.nullable(), exeConnections: z.array(exeConnection), ampConnections: z.array(ampConnection), cloudflareTail: z.object({ count: z.number().int(), installations: z.array(tailIntegration) }) });
 export const authorizedClient = z.object({ grantId: z.string(), clientId: z.string(), clientName: z.string(), scopes: z.array(z.string()), authorizationDate: timestamp, expiresAt: timestamp.nullable(), lastUsedAt: timestamp.nullable() });
-export const accessToken = z.object({ id: z.string(), name: z.string(), scopes: z.array(z.enum(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write"])), created_at: timestamp, expires_at: timestamp, last_used_at: timestamp.nullable().optional(), revoked_at: timestamp.nullable().optional() });
+export const accessToken = z.object({ id: z.string(), name: z.string(), scopes: z.array(z.enum(ACCESS_SCOPES)), created_at: timestamp, expires_at: timestamp, last_used_at: timestamp.nullable().optional(), revoked_at: timestamp.nullable().optional() });
 export const createdAccessToken = accessToken.extend({ token: z.string() });
 export const okResult = z.object({ ok: z.boolean() });
 export const savedExe = okResult.extend({ connectionId: z.string(), models: z.array(z.string()).optional() });

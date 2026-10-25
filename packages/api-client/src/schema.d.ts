@@ -3549,7 +3549,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write")[];
+                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -3593,7 +3593,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write")[];
+                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
