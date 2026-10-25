@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { conditionsSchema, preparedWebhookSchema } from "./webhook-conditions";
 
-export const scopeSchema = z.enum(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write"]);
+export const scopeSchema = z.enum(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
 export const runStateSchema = z.enum(["queued", "reserved", "starting", "running", "done", "blocked", "failed", "ignored", "succeeded", "stopping", "stopped"]);
 export const matchRuleSchema = z.object({
   type: z.enum(["owner", "creator", "status", "label", "assignee"]),
@@ -45,6 +45,7 @@ export const jobInputSchema = z.object({
   model: z.string().trim().max(120).optional(),
   effort: z.string().trim().max(40).optional(),
   triggers: z.array(triggerSchema).max(50).default([]),
+  skillIds: z.array(z.guid()).max(50).optional(),
 }).strict();
 export const jobIdSchema = z.object({ jobId: z.string().min(1) });
 export const manualInvocationSchema = z.object({

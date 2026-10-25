@@ -1,0 +1,4 @@
+CREATE TABLE app.skills (tenant_id uuid NOT NULL REFERENCES app.tenants(id) ON DELETE CASCADE, id uuid NOT NULL, key text NOT NULL, encrypted_body text NOT NULL, revision integer NOT NULL DEFAULT 1, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (tenant_id,id), UNIQUE (tenant_id,key), CHECK (revision > 0));
+CREATE TABLE app.job_skills (tenant_id uuid NOT NULL, job_id uuid NOT NULL, skill_id uuid NOT NULL, position integer NOT NULL, PRIMARY KEY (tenant_id,job_id,skill_id), UNIQUE (tenant_id,job_id,position), FOREIGN KEY (tenant_id,job_id) REFERENCES app.jobs(tenant_id,id) ON DELETE CASCADE, FOREIGN KEY (tenant_id,skill_id) REFERENCES app.skills(tenant_id,id) ON DELETE RESTRICT);
+CREATE INDEX job_skills_skill_usage ON app.job_skills(tenant_id,skill_id);
+ALTER TABLE app.job_runs ADD COLUMN IF NOT EXISTS encrypted_skill_snapshot text;

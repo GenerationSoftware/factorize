@@ -39,6 +39,7 @@ export const jobResponse = z.object({
   executionConfigId: z.string(), agentKind: z.string(), concurrencyLimit: z.number().int(),
   runningCount: z.number().int(), currentRuns: z.number().int(), maxConcurrency: z.number().int(), lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(),
   triggers: z.array(triggerResponse),
+  skills: z.array(z.object({ id: z.guid(), key: z.string(), revision: z.number().int().positive(), position: z.number().int().nonnegative() })).optional(),
   createdAt: z.string(), updatedAt: z.string(),
 });
 // Omission keeps legacy REST/MCP last-writer-wins behavior. New editors supply

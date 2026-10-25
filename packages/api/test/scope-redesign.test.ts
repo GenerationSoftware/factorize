@@ -3,8 +3,8 @@ import { ACCESS_SCOPES, normalizeScopes } from "../src/access-tokens";
 import { API_ROUTES } from "../src/api-contract";
 
 describe("GEN-2418 permission boundaries", () => {
-  it("exposes exactly nine independently issuable scopes and maps legacy grants without issuing them", () => {
-    expect(ACCESS_SCOPES).toEqual(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write"]);
+  it("exposes independently issuable skill scopes and maps legacy grants without issuing them", () => {
+    expect(ACCESS_SCOPES).toEqual(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
     expect(normalizeScopes(["flows:read", "runs:write"])).toEqual(["projects:read", "jobs:read", "integrations:read", "runs:read", "runs:invoke", "runs:cancel"]);
     expect(ACCESS_SCOPES).not.toContain("flows:read" as never);
   });

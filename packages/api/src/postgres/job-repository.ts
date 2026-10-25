@@ -21,9 +21,12 @@ export class PostgresJobRepository implements JobRepository {
     const result = await db.execute(sql`INSERT INTO app.projects(tenant_id,id,name,description) VALUES (${this.tenantId}::uuid,md5(${this.tenantId}::text || ':default')::uuid,'Default','Jobs created by legacy clients') ON CONFLICT (tenant_id,name) DO UPDATE SET updated_at=app.projects.updated_at RETURNING id`);
     return result.rows[0].id as string;
   }
-  private async mapped(row: JobRow, db: any = this.database.orm, loadedTriggers?: TriggerRow[]): Promise<Job> {
+  private async mapped(row: JobRow, db: any = this.database.orm, loadedTriggers?: TriggerRow[], loadedSkills?: any[]): Promise<Job> {
     const triggerRows: TriggerRow[] = loadedTriggers ?? await db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
-    return { id: row.id, projectId: row.projectId, name: row.name, slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
+    const skillRows = loadedSkills?.filter(skill => skill.job_id === row.id) ?? (db === this.database.orm
+      ? (await this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.job_id=$2 ORDER BY js.position", [this.tenantId, row.id])).rows
+      : (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.job_id=${row.id}::uuid ORDER BY js.position`)).rows);
+    return { id: row.id, projectId: row.projectId, name: row.name, slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), selectedSkills: await Promise.all(skillRows.map(async (skill: any) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: await this.decrypt(skill.encrypted_body), position: skill.position }))), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
   async getJob(id: string): Promise<Job | null> {
@@ -41,13 +44,14 @@ export class PostgresJobRepository implements JobRepository {
       group.push(trigger);
       byJob.set(trigger.jobId, group);
     }
-    return Promise.all(rows.map(row => this.mapped(row, this.database.orm, byJob.get(row.id) ?? [])));
+    return Promise.all(rows.map(row => this.mapped(row, this.database.orm, byJob.get(row.id) ?? [], [])));
   }
 
   async create(job: Job): Promise<Job> {
     return this.database.orm.transaction(async tx => {
       const [row] = await tx.insert(jobs).values({ tenantId: this.tenantId, id: job.id, projectId: job.projectId ?? await this.defaultProjectId(tx), name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionConfig: job.executionConfig, tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, createdAt: new Date(job.createdAt), updatedAt: new Date(job.updatedAt) }).returning();
       await this.reconcileTriggers(tx, job, []);
+      await this.reconcileSkills(tx, job, []);
       return this.mapped(row!, tx);
     });
   }
@@ -61,6 +65,7 @@ export class PostgresJobRepository implements JobRepository {
       const existing: TriggerRow[] = await tx.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, job.id), isNull(triggers.removedAt))).orderBy(triggers.position);
       const [row] = await tx.update(jobs).set({ projectId: job.projectId, name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionConfig: job.executionConfig, tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, updatedAt: new Date(job.updatedAt) }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, job.id))).returning();
       await this.reconcileTriggers(tx, job, existing);
+      await this.reconcileSkills(tx, job, []);
       await this.recordEdit(tx, job.id, job.updatedAt);
       return this.mapped(row!, tx);
     });
@@ -123,13 +128,24 @@ export class PostgresJobRepository implements JobRepository {
       } else await tx.delete(scheduleState).where(and(eq(scheduleState.tenantId, this.tenantId), eq(scheduleState.triggerId, trigger.id)));
     }
   }
+  private async reconcileSkills(tx: any, job: Job, _existing: unknown[]): Promise<void> {
+    const selected = job.selectedSkills ?? [];
+    const ids = selected.map(skill => skill.id);
+    if (new Set(ids).size !== ids.length) throw new Error("A skill may only be selected once per job");
+    if (ids.length) {
+      const found = await tx.execute(sql`SELECT id FROM app.skills WHERE tenant_id=${this.tenantId}::uuid AND id IN (${sql.join(ids.map(id => sql`${id}::uuid`), sql`, `)}) FOR SHARE`);
+      if (found.rows.length !== ids.length) throw new Error("One or more selected skills are unavailable");
+    }
+    await tx.execute(sql`DELETE FROM app.job_skills WHERE tenant_id=${this.tenantId}::uuid AND job_id=${job.id}::uuid`);
+    for (const [position, skill] of selected.entries()) await tx.execute(sql`INSERT INTO app.job_skills(tenant_id,job_id,skill_id,position) VALUES(${this.tenantId}::uuid,${job.id}::uuid,${skill.id}::uuid,${position})`);
+  }
 
   async delete(id: string): Promise<boolean> { return Boolean((await this.database.orm.delete(jobs).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).returning({ id: jobs.id })).length); }
   async findInvocation(jobId: string, claimKey: string) {
-    const result = await this.database.pool.query<any>(`SELECT i.id invocation_id,i.job_id,i.source,i.claim_key,i.trigger_id,i.context,i.occurrence,i.created_at invocation_created_at,r.id run_id,r.state run_state,r.encrypted_prompt,r.run_name,r.created_at run_created_at,r.updated_at run_updated_at,r.started_at
+    const result = await this.database.pool.query<any>(`SELECT i.id invocation_id,i.job_id,i.source,i.claim_key,i.trigger_id,i.context,i.occurrence,i.created_at invocation_created_at,r.id run_id,r.state run_state,r.encrypted_prompt,r.encrypted_skill_snapshot,r.run_name,r.created_at run_created_at,r.updated_at run_updated_at,r.started_at
       FROM app.invocations i JOIN app.job_runs r ON r.tenant_id=i.tenant_id AND r.invocation_id=i.id WHERE i.tenant_id=$1 AND i.job_id=$2 AND i.claim_key=$3`, [this.tenantId, jobId, claimKey]);
     const row = result.rows[0]; if (!row) return null;
-    return { invocation: { id: row.invocation_id, jobId: row.job_id, source: row.source, claimKey: row.claim_key, triggerId: row.trigger_id, context: row.context, ...(row.occurrence ? { occurrence: row.occurrence } : {}), createdAt: row.invocation_created_at.toISOString() } as Invocation, run: { id: row.run_id, jobId: row.job_id, invocationId: row.invocation_id, state: row.run_state, encryptedPrompt: row.encrypted_prompt, ...(row.run_name ? { runName: row.run_name } : {}), createdAt: row.run_created_at.toISOString(), updatedAt: row.run_updated_at.toISOString(), ...(row.started_at ? { startedAt: row.started_at.toISOString() } : {}) } as JobRun };
+    return { invocation: { id: row.invocation_id, jobId: row.job_id, source: row.source, claimKey: row.claim_key, triggerId: row.trigger_id, context: row.context, ...(row.occurrence ? { occurrence: row.occurrence } : {}), createdAt: row.invocation_created_at.toISOString() } as Invocation, run: { id: row.run_id, jobId: row.job_id, invocationId: row.invocation_id, state: row.run_state, encryptedPrompt: row.encrypted_prompt, ...(row.encrypted_skill_snapshot ? { encryptedSkillSnapshot: row.encrypted_skill_snapshot } : {}), ...(row.run_name ? { runName: row.run_name } : {}), createdAt: row.run_created_at.toISOString(), updatedAt: row.run_updated_at.toISOString(), ...(row.started_at ? { startedAt: row.started_at.toISOString() } : {}) } as JobRun };
   }
   async insertInvocationAndRun(invocation: Invocation, run: JobRun): Promise<boolean> {
     return this.database.transaction(async client => {
@@ -137,7 +153,7 @@ export class PostgresJobRepository implements JobRepository {
       const inserted = await client.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context,occurrence,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (tenant_id,job_id,claim_key) DO NOTHING", [this.tenantId, invocation.id, invocation.jobId, invocation.source, invocation.claimKey, invocation.triggerId, invocation.context, invocation.occurrence ?? null, invocation.createdAt]);
       if (!inserted.rowCount) return false;
       await reserveExecutionSlot(client, this.tenantId, invocation.jobId, run, concurrencyLimit);
-      await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,run_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.runName ?? "", run.createdAt, run.updatedAt]);
+      await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,encrypted_skill_snapshot,run_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.encryptedSkillSnapshot ?? null, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_config,execution_capabilities,created_at,updated_at)
         SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_config->>'agentKind',$7,
           CASE WHEN j.execution_config->>'agentKind'='Amp' THEN 'amp' ELSE 'exe-vm' END,

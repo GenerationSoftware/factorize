@@ -1107,6 +1107,13 @@ components:
                   - kind
                   - config
                 additionalProperties: false
+        skillIds:
+          maxItems: 50
+          type: array
+          items:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
       required:
         - name
         - slug
@@ -3968,6 +3975,8 @@ paths:
                           - runs:cancel
                           - integrations:read
                           - integrations:write
+                          - skills:read
+                          - skills:write
                       - type: string
                         enum:
                           - flows:read
@@ -5250,6 +5259,562 @@ paths:
           schema:
             type: string
             minLength: 1
+  /api/v1/skills:
+    get:
+      summary: Search global skills
+      responses:
+        "200":
+          description: Skills
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        key:
+                          type: string
+                        revision:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                        usageCount:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        createdAt:
+                          type: string
+                        updatedAt:
+                          type: string
+                      required:
+                        - id
+                        - key
+                        - revision
+                        - usageCount
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
+                  nextCursor:
+                    anyOf:
+                      - type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      - type: "null"
+                required:
+                  - items
+                  - nextCursor
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_skills
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: skills:read
+      x-owner-session-required: false
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            default: ""
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            default: 30
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+    post:
+      summary: Create a global skill
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  key:
+                    type: string
+                  revision:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  body:
+                    type: string
+                  usageCount:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - key
+                  - revision
+                  - body
+                  - usageCount
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: post_api_v1_skills
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: skills:write
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                  pattern: ^[a-z][a-z0-9_-]{0,63}$
+                body:
+                  type: string
+                  maxLength: 100000
+              required:
+                - key
+                - body
+              additionalProperties: false
+  /api/v1/skills/preview:
+    post:
+      summary: Preview a composed job prompt
+      responses:
+        "200":
+          description: Prompt preview
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: post_api_v1_skills_preview
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: skills:read
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                skillIds:
+                  maxItems: 50
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                jobContext:
+                  type: string
+                  maxLength: 50000
+                sampleTriggerData:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+              required:
+                - skillIds
+                - jobContext
+              additionalProperties: false
+  /api/v1/skills/{skillId}:
+    get:
+      summary: Get a global skill
+      responses:
+        "200":
+          description: Skill
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  key:
+                    type: string
+                  revision:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  body:
+                    type: string
+                  usageCount:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - key
+                  - revision
+                  - body
+                  - usageCount
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_skills_skillId
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: skills:read
+      x-owner-session-required: false
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+    put:
+      summary: Update a global skill
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  key:
+                    type: string
+                  revision:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  body:
+                    type: string
+                  usageCount:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - key
+                  - revision
+                  - body
+                  - usageCount
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: put_api_v1_skills_skillId
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: skills:write
+      x-owner-session-required: false
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                  pattern: ^[a-z][a-z0-9_-]{0,63}$
+                body:
+                  type: string
+                  maxLength: 100000
+                expectedRevision:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - expectedRevision
+              additionalProperties: false
+    delete:
+      summary: Delete an unused global skill
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: delete_api_v1_skills_skillId
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: skills:write
+      x-owner-session-required: false
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - name: expectedRevision
+          in: query
+          required: true
+          schema:
+            type: integer
+            exclusiveMinimum: 0
+            maximum: 9007199254740991
+  /api/v1/skills/{skillId}/jobs:
+    get:
+      summary: List jobs using a skill
+      responses:
+        "200":
+          description: Jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skillId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  jobs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        name:
+                          type: string
+                        slug:
+                          type: string
+                        enabled:
+                          type: boolean
+                        projectId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      required:
+                        - id
+                        - name
+                        - slug
+                        - enabled
+                        - projectId
+                      additionalProperties: false
+                required:
+                  - skillId
+                  - jobs
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_skills_skillId_jobs
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: skills:read
+      x-owner-session-required: false
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /api/v1/jobs/{jobId}/project:
     post:
       summary: Move a job to a project
@@ -5668,6 +6233,31 @@ paths:
                             - createdAt
                             - updatedAt
                           additionalProperties: false
+                  skills:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        key:
+                          type: string
+                        revision:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                        position:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                      required:
+                        - id
+                        - key
+                        - revision
+                        - position
+                      additionalProperties: false
                   createdAt:
                     type: string
                   updatedAt:
@@ -6166,6 +6756,31 @@ paths:
                               - createdAt
                               - updatedAt
                             additionalProperties: false
+                    skills:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                          key:
+                            type: string
+                          revision:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          position:
+                            type: integer
+                            minimum: 0
+                            maximum: 9007199254740991
+                        required:
+                          - id
+                          - key
+                          - revision
+                          - position
+                        additionalProperties: false
                     createdAt:
                       type: string
                     updatedAt:
@@ -6635,6 +7250,31 @@ paths:
                             - createdAt
                             - updatedAt
                           additionalProperties: false
+                  skills:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        key:
+                          type: string
+                        revision:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                        position:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                      required:
+                        - id
+                        - key
+                        - revision
+                        - position
+                      additionalProperties: false
                   createdAt:
                     type: string
                   updatedAt:
@@ -7394,6 +8034,31 @@ paths:
                             - createdAt
                             - updatedAt
                           additionalProperties: false
+                  skills:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        key:
+                          type: string
+                        revision:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                        position:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                      required:
+                        - id
+                        - key
+                        - revision
+                        - position
+                      additionalProperties: false
                   createdAt:
                     type: string
                   updatedAt:
@@ -7876,6 +8541,31 @@ paths:
                             - createdAt
                             - updatedAt
                           additionalProperties: false
+                  skills:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        key:
+                          type: string
+                        revision:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                        position:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                      required:
+                        - id
+                        - key
+                        - revision
+                        - position
+                      additionalProperties: false
                   createdAt:
                     type: string
                   updatedAt:
@@ -8241,6 +8931,13 @@ paths:
                           - kind
                           - config
                         additionalProperties: false
+                skillIds:
+                  maxItems: 50
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                 expectedUpdatedAt:
                   type: string
                   format: date-time
