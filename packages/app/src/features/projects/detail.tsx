@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { Button, Input, Label, Page, PageHeader, Textarea } from "../../shared/ui";
+import { Breadcrumb, Button, Input, Label, Page, PageHeader, Textarea } from "../../shared/ui";
 import { Dialog } from "../../shared/dialog";
 import { messageOf } from "../auth/session";
 import { projectQuery, projectsQuery } from "./queries";
@@ -40,5 +40,5 @@ export function ProjectDetail() {
     setValidationError("");
     setEditing(true);
   };
-  return <Page className="max-w-6xl"><Link to="/projects" className="text-sm font-semibold">Projects</Link>{project.data&&<><PageHeader title={project.data.name} description={project.data.description}><div className="flex flex-wrap gap-2"><Button onClick={openEditor}>Edit</Button><Link to="/jobs/new" search={{ projectId }}><Button>Create job</Button></Link></div></PageHeader><JobsTable projectId={projectId} />{editing&&<Dialog title="Edit project" close={() => { if (!edit.isPending) setEditing(false); }}><form className="space-y-5" onSubmit={event => { event.preventDefault(); edit.mutate(); }}><Label>Name<Input required maxLength={120} value={name} onChange={event => setName(event.target.value)} /></Label><Label>Description<Textarea maxLength={2000} value={description} onChange={event => setDescription(event.target.value)} /></Label>{validationError&&<p role="alert">{validationError}</p>}<div className="flex justify-end gap-2"><Button type="button" onClick={() => setEditing(false)} disabled={edit.isPending}>Cancel</Button><Button type="submit" variant="primary" disabled={edit.isPending}>{edit.isPending ? "Saving…" : "Save changes"}</Button></div></form></Dialog>}</>}</Page>;
+  return <Page className="max-w-6xl"><Breadcrumb><Link to="/projects" className="font-semibold">Projects</Link></Breadcrumb>{project.data&&<><PageHeader title={project.data.name} description={project.data.description}><div className="flex flex-wrap gap-2"><Button onClick={openEditor}>Edit</Button><Link to="/jobs/new" search={{ projectId }}><Button>Create job</Button></Link></div></PageHeader><JobsTable projectId={projectId} />{editing&&<Dialog title="Edit project" close={() => { if (!edit.isPending) setEditing(false); }}><form className="space-y-5" onSubmit={event => { event.preventDefault(); edit.mutate(); }}><Label>Name<Input required maxLength={120} value={name} onChange={event => setName(event.target.value)} /></Label><Label>Description<Textarea maxLength={2000} value={description} onChange={event => setDescription(event.target.value)} /></Label>{validationError&&<p role="alert">{validationError}</p>}<div className="flex justify-end gap-2"><Button type="button" onClick={() => setEditing(false)} disabled={edit.isPending}>Cancel</Button><Button type="submit" variant="primary" disabled={edit.isPending}>{edit.isPending ? "Saving…" : "Save changes"}</Button></div></form></Dialog>}</>}</Page>;
 }
