@@ -123,9 +123,21 @@ describe("public auth API and cookie security", () => {
     vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue(member);
     vi.mocked(env.DATABASE!.pool.query).mockResolvedValue({ rows: [{ name: "Workspace A" }] } as never);
     const response = await call("/api/v1/session", undefined, { Cookie: "factorize_session=" + cookie });
-    expect(await contract(response, "/api/v1/session", "GET")).toMatchObject({ authenticated: true, user: { id: identity.userId, email: identity.email }, workspace: { id: identity.tenantId, name: "Workspace A", role: "owner" } });
+    expect(await contract(response, "/api/v1/session", "GET")).toMatchObject({ authenticated: true, user: { id: identity.userId, email: identity.email }, workspace: { id: identity.tenantId, name: "Workspace A", role: "owner" }, capabilities: expect.arrayContaining(["skills:read", "skills:write"]) });
     const query = vi.mocked(env.DATABASE!.pool.query).mock.calls.at(-1)!;
     expect(query[1]).toEqual([identity.tenantId]);
+  });
+
+  it("allows an existing owner session to list and create skills", async () => {
+    const cookie = await signSession({ ...identity, exp: Math.floor(Date.now() / 1000) + 100 }, env.SESSION_SIGNING_SECRET);
+    const headers = { Cookie: "factorize_session=" + cookie, Origin: env.APP_ORIGIN };
+    const list = vi.spyOn(ApiService.prototype, "listSkills").mockResolvedValue({ items: [], nextCursor: null });
+    const skill = { id: "00000000-0000-4000-8000-000000000001", key: "review", body: "Review carefully", revision: 1, usageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const create = vi.spyOn(ApiService.prototype, "createSkill").mockResolvedValue(skill);
+    expect(await contract(await call("/api/v1/skills", undefined, headers), "/api/v1/skills", "GET")).toEqual({ items: [], nextCursor: null });
+    expect(list).toHaveBeenCalledOnce();
+    expect(await contract(await call("/api/v1/skills", { key: skill.key, body: skill.body }, headers), "/api/v1/skills", "POST")).toEqual(skill);
+    expect(create).toHaveBeenCalledWith({ key: skill.key, body: skill.body });
   });
 
   it.each([null, { ...member, role: "member" as const }, { ...member, sessionVersion: 5 }])("treats revoked, removed and non-owner sessions as unauthenticated", async current => {

@@ -2247,7 +2247,7 @@ export interface operations {
                             /** @constant */
                             role: "owner";
                         };
-                        capabilities: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write")[];
+                        capabilities: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         /** Format: date-time */
                         expiresAt: string;
                     };

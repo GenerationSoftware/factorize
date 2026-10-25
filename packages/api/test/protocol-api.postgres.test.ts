@@ -1,3 +1,4 @@
+import worker from "../src/worker";
 import { describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { protectedApiFetch } from "../src/protected-api";
@@ -6,6 +7,31 @@ vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 const url = process.env.AUTH_TEST_DATABASE_URL;
 describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", () => {
+  it("lists skills and their usage through an existing browser session", async () => {
+    const f = await loadingFixture(url!);
+    try {
+      const request = (body?: unknown) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1/skills", {
+        method: body ? "POST" : "GET",
+        headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      }), f.env, {} as ExecutionContext);
+      const empty = await request();
+      expect(empty.status).toBe(200);
+      expect(await empty.json()).toEqual({ items: [], nextCursor: null });
+      const created = await request({ key: "review", body: "Review carefully" });
+      expect(created.status).toBe(201);
+      const skill = await created.json() as { id: string };
+      await f.db.pool.query("INSERT INTO app.job_skills(tenant_id,job_id,skill_id,position) VALUES($1,$2,$3,0)", [f.tenantId, f.jobIds[0], skill.id]);
+      const listed = await request();
+      expect(listed.status).toBe(200);
+      const page = await listed.json() as { items: Record<string, unknown>[]; nextCursor: string | null };
+      expect(page.items).toHaveLength(1);
+      expect(page.items[0]).toMatchObject({ id: skill.id, key: "review", revision: 1, usageCount: 1 });
+      expect(page.items[0]).not.toHaveProperty("body");
+      expect(page.nextCursor).toBeNull();
+    } finally { await f.cleanup(); }
+  });
+
   it("checks real owner/session version before consent and rejects revoked sessions", async () => {
     const f = await loadingFixture(url!);
     try {

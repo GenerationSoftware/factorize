@@ -32,10 +32,13 @@ pre-cutover snapshot, including all six Durable Object migrations.
 | `/oauth`, `/mcp`, `/.well-known/*` | OAuth/device/MCP protocols | Never SPA HTML |
 | Provider `/auth/linear`, `/auth/clickup`, `/auth/github/install`, their registered callbacks/setup URLs | Existing backend redirects/callbacks | Never SPA HTML |
 | `/webhooks`, `/internal`, `/healthz` | Existing backend handlers | Never SPA HTML |
-| Unknown paths or extra application segments | Backend 404 | Never SPA HTML |
+| Other paths outside reserved backend and asset namespaces | Static entry HTML; frontend router handles pages and not-found UI | Backend 404 |
 
 The assets configuration uses `run_worker_first:true` and `not_found_handling:none`.
-There is no blanket SPA fallback. Explicit deep links fetch the built `/index.html`;
+The Worker serves `/index.html` for GET/HEAD frontend paths without a page allowlist.
+The entire `/api` namespace, health, protocol, callback and asset namespaces are
+excluded; only the named browser auth screens are exceptions within `/auth`.
+New frontend routes therefore support direct visits and refresh automatically;
 query parameters stay in the browser URL and are never embedded in HTML. Static
 route guards are UX only; every API request retains server-side authorization.
 

@@ -41,14 +41,15 @@ test("actual Cloudflare local runtime enforces static/API/protocol ownership, he
   });
   try {
     await ready;
-    for (const path of ["/jobs/id/edit", "/jobs/id/settings", "/job-runs", "/job-runs/id", "/settings/authorized-clients", "/auth/verify?token=test-token"]) {
+    for (const path of ["/skills", "/skills/new", "/skills/id", "/future-feature/nested/page", "/unknown", "/jobs/id/edit", "/jobs/id/settings", "/job-runs", "/job-runs/id", "/settings/authorized-clients", "/auth/verify?token=test-token"]) {
       const page = await read(port, path); assert.equal(page.status, 200); assert.match(page.headers["content-type"], /text\/html/); assert.equal(page.headers["cache-control"], "no-cache, must-revalidate"); assert.match(page.headers["content-security-policy"], /script-src 'self'/); assert.ok(!page.headers["content-security-policy"].includes("unsafe-inline")); assert.equal(page.headers["x-content-type-options"], "nosniff");
       const assetPath = page.body.match(/src="(\/assets\/[^"/]+\.js)"/)?.[1]; assert.ok(assetPath);
       const asset = await read(port, assetPath); assert.equal(asset.status, 200); assert.equal(asset.headers["cache-control"], "public, max-age=31536000, immutable");
     }
     const head = await read(port, "/jobs/id", "HEAD"); assert.equal(head.status, 200); assert.equal(head.body, "");
+    const health = await read(port, "/healthz"); assert.equal(health.status, 200); assert.deepEqual(JSON.parse(health.body), { ok: true });
     const session = await read(port, "/api/v1/session"); assert.equal(session.status, 200); assert.equal(session.headers["x-factorize-contract"], "gen-2157-static-v1"); assert.deepEqual(JSON.parse(session.body), { authenticated: false });
-    for (const [path, method, expected] of [["/api/v1/unknown", "GET", 401], ["/api/v1/jobs", "PATCH", 401], ["/oauth/unknown", "GET", 404], ["/auth/unknown", "GET", 404], ["/internal/unknown", "GET", 404], ["/webhooks/unknown", "GET", 404], ["/mcp", "GET", 401], ["/unknown", "GET", 404], ["/assets/missing.js", "GET", 404], ["/jobs", "POST", 404], ["/auth/logout", "GET", 404]]) {
+    for (const [path, method, expected] of [["/api/unknown", "GET", 404], ["/api/v2/unknown", "GET", 404], ["/healthz/unknown", "GET", 404], ["/assets/subdir/missing.js", "GET", 404], ["/skills", "POST", 404], ["/api/v1/unknown", "GET", 401], ["/api/v1/jobs", "PATCH", 401], ["/oauth/unknown", "GET", 404], ["/auth/unknown", "GET", 404], ["/internal/unknown", "GET", 404], ["/webhooks/unknown", "GET", 404], ["/mcp", "GET", 401], ["/assets/missing.js", "GET", 404], ["/jobs", "POST", 404], ["/auth/logout", "GET", 404]]) {
       const result = await read(port, path, method); assert.equal(result.status, expected, path); assert.ok(!result.headers["content-type"]?.includes("text/html"), path); assert.equal(result.headers["cache-control"], "no-store", path);
     }
     // Unknown protocol requests fail validation before onboarding; they cannot become return cookies.

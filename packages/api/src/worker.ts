@@ -8,13 +8,13 @@ import { startConnection, connectionFor } from "./oauth-continuation";
 import { consentDecision } from "./consent-api";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
-import { authenticateAccessToken } from "./access-tokens";
+import { ACCESS_SCOPES, authenticateAccessToken } from "./access-tokens";
 import { artifactUpload } from "./artifact-upload";
 import { traceChunkUpload } from "./trace-chunk-upload";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 
-const scopes = ["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write"];
+const scopes = [...ACCESS_SCOPES];
 // Keep accepting grants issued by the pre-resource-scope protocol. New
 // consent screens and metadata advertise only the canonical scopes above.
 const oauthScopes = [...scopes, "flows:read", "flows:write", "runs:write"];

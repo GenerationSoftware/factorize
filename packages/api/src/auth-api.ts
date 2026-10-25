@@ -1,3 +1,4 @@
+import { ACCESS_SCOPES } from "./access-tokens";
 import { connectionFor, originalBrowser, startConnection, connectionDestination } from "./oauth-continuation";
 import { inspectDevice, decideDevice, deviceConsentSignature, safeEqual } from "./device-oauth";
 import { consentPreview, consentDecision, consentPreviewInput, consentDecisionInput } from "./consent-api";
@@ -9,7 +10,7 @@ import { databaseFor } from "./postgres/database";
 import { readSession, requestCookie, signSession, type Session } from "./session";
 import type { Env } from "./types";
 
-export const SESSION_SCOPES = ["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write"] as const;
+export const SESSION_SCOPES = ACCESS_SCOPES;
 const email = z.string().trim().toLowerCase().email().max(320);
 const password = z.string().min(12).max(200).meta({ writeOnly: true });
 const connection = z.uuid().optional();

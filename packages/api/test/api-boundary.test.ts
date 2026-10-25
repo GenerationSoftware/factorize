@@ -247,6 +247,12 @@ describe("Worker OpenAPI request/response boundaries", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it.each(["access_token", "oauth"] as const)("does not grant skill access to %s credentials without skill scopes", async authMethod => {
+    const limited = { ...auth, authMethod, scopes: ["jobs:read", "jobs:write"] } as OAuthProps;
+    await assertResponse(await request("GET", "/api/v1/skills", undefined, { auth: limited }), "GET", "/api/v1/skills", 403);
+    await assertResponse(await request("POST", "/api/v1/skills", { key: "review", body: "Review carefully" }, { auth: limited }), "POST", "/api/v1/skills", 403);
+  });
+
   it("enforces scope and interactive-session metadata and preserves service identity errors", async () => {
     const list = vi.spyOn(ApiService.prototype, "listJobs");
     const denied = await request("GET", "/api/v1/jobs", undefined, {
