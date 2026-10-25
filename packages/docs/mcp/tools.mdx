@@ -38,6 +38,13 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `list_webhook_deliveries` | runs:read | Optional strings `provider`, `deliveryId`, `event`, `action`, `outcome`, `jobId`, `q`, `from`, `to`, `cursor`; integer `limit` (1–100, default 50) |
 | `get_webhook_delivery` | runs:read | Required string `deliveryId` |
 | `test_job_webhook_conditions` | jobs:write | Required prepared JSON object `webhook`; optional `conditions` tree |
+| `list_skills` | skills:read | Optional `q`, `limit`, and `cursor` |
+| `get_skill` | skills:read | Required string `skillId` |
+| `create_skill` | skills:write | Required `key` and `body` |
+| `update_skill` | skills:write | Required `skillId` and `expectedRevision`; optional `key` and `body` |
+| `delete_skill` | skills:write | Required `skillId` and `expectedRevision` |
+| `list_skill_jobs` | skills:read | Required string `skillId` |
+| `preview_job_prompt` | skills:read | Required `skillIds` array and `jobContext`; optional `sampleTriggerData` |
 
 The inventory is validated against every registered implementation tool. All required IDs are non-empty strings except numeric GitHub installation/repository IDs in trigger configuration.
 
