@@ -1,4 +1,4 @@
-import { Badge, Button, Page } from "../../shared/ui";
+import { Badge, Button, Breadcrumb, Page, ResourceHeader } from "../../shared/ui";
 import { ContinuousTrace } from "./continuous-trace";
 import { ExpandedRunDetail } from "./expanded-detail";
 import { ReplayTrace } from "./replay";
@@ -42,16 +42,13 @@ export function RunDetail() {
   }, onSuccess: () => cache.invalidateQueries({ queryKey: ["runs", runId] }) });
   return <Page className="max-w-6xl">
     {status.isPending && <p role="status">Loading run…</p>}{status.error && <p role="alert">{status.error.message}</p>}
-    <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-2">{status.data?.project_id && status.data.project_name ? <Link to="/projects/$projectId" params={{ projectId: status.data.project_id }}>{status.data.project_name}</Link> : <Link to="/projects">Projects</Link>}{status.data && <><span aria-hidden="true">→</span><Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: status.data.job_id }}>{status.data.job_name}</Link></>}</nav>
+    <Breadcrumb>{status.data ? <Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: status.data.job_id }}>{status.data.job_name}</Link> : <Link to="/projects">Projects</Link>}</Breadcrumb>
     {status.data && <>
-      <div className="mt-5 flex min-w-0 flex-wrap items-start gap-3">
-        <h1 className="min-w-0 flex-1 break-words text-3xl font-semibold">{status.data.run_name || "Run"}</h1>
-        {["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button className="shrink-0" disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}
-      </div>
-      <p role="status" className="mb-4"><Badge active={active}>{status.data.state}</Badge>{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}</p>
+      <ResourceHeader type="Run" title={status.data.run_name || "Run"} description={<p role="status"><Badge active={active}>{status.data.state}</Badge>{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}</p>}>{["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button className="shrink-0" disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}</ResourceHeader>
     </>}
+    {!status.data && <ResourceHeader type="Run" title="Run" />}
     {stop.error && <p role="alert">{stop.error.message}</p>}
-    <nav role="tablist" aria-label="Run details" className="mt-6 flex gap-1 overflow-x-auto border-b border-stone-200 dark:border-slate-700">
+    <nav role="tablist" aria-label="Run details" className="mt-5 flex gap-1 overflow-x-auto border-b border-stone-200 dark:border-slate-700">
       {(["trace", "info"] as const).map((name, index, tabs) => <Link key={name} to={tabPath(name)} params={{ runId: runId! }} search={{ after: 0 }} role="tab" id={`run-tab-${name}`} aria-controls={`run-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1}
         className={`min-h-11 shrink-0 border-b-2 px-4 py-3 text-sm capitalize ${tab === name ? "border-factorize-500 font-semibold" : "border-transparent text-slate-600 hover:border-stone-300 dark:text-slate-400"}`}
         onKeyDown={event => {

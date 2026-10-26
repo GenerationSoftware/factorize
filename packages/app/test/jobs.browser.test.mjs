@@ -62,9 +62,11 @@ test("projects and job pages keep a stable breadcrumb row", async () => {
   await page.goto(origin + `/projects/${projectId}`);
   await page.getByRole("heading", { name: "Release project", exact: true }).waitFor();
   assert.deepEqual(await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link").allTextContents(), ["Projects"]);
+  assert.equal(await page.getByText("Project", { exact: true }).count(), 1);
   await page.goto(origin + `/jobs/${jobId}`);
   await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
-  assert.deepEqual(await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link").allTextContents(), ["Projects", "Release project"]);
+  assert.deepEqual(await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link").allTextContents(), ["Release project"]);
+  assert.equal(await page.getByText("Job", { exact: true }).count(), 1);
   await context.close();
 });
 for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) test(`compact jobs grouping, pagination, focus and long titles at ${width} ${theme}`, async () => {
