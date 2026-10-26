@@ -17,8 +17,10 @@ export class RunQueryRepository {
   constructor(private database: Database, private tenantId: string) { if (!tenantId) throw new Error("tenantId is required"); }
   async list(query: URLSearchParams) {
     const limit = Math.max(1, Math.min(100, Number(query.get("limit") ?? 50))), cursor = decodeCursor(query.get("cursor")), sortParam = query.get("sort"), sort = sortParam && Object.hasOwn(sortExpressions, sortParam) ? sortParam as RunSort : null, direction = sort ? (query.get("direction") === "desc" ? "DESC" : "ASC") : "DESC", values: unknown[] = [this.tenantId], clauses = ["r.tenant_id=$1"];
-    if (query.get("projectId")) { values.push(query.get("projectId")); clauses.push(`j.project_id=$${values.length}`); }
-    if (query.get("jobId")) { values.push(query.get("jobId")); clauses.push(`r.job_id=$${values.length}`); }
+    const projectIds = query.getAll("projectId");
+    if (projectIds.length) { values.push(projectIds); clauses.push(`j.project_id=ANY($${values.length}::uuid[])`); }
+    const jobIds = query.getAll("jobId");
+    if (jobIds.length) { values.push(jobIds); clauses.push(`r.job_id=ANY($${values.length}::uuid[])`); }
     const states = query.getAll("state");
     if (states.length) { values.push(states.flatMap(state => state === "done" ? ["done", "succeeded"] : [state])); clauses.push(`r.state=ANY($${values.length}::text[])`); }
     if (query.get("contextQuery")) { values.push(`%${query.get("contextQuery")}%`); clauses.push(`i.context::text ILIKE $${values.length}`); }

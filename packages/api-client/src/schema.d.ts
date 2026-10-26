@@ -1343,7 +1343,7 @@ export interface paths {
         };
         /**
          * List runs
-         * @description Returns tenant-authorized runs. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.
+         * @description Returns tenant-authorized runs. Project, job, and state filters accept repeated values and match any selected value within each filter; filters are applied before cursor pagination. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.
          *
          *     Requires the runs:read scope.
          *
@@ -5773,8 +5773,8 @@ export interface operations {
     get_api_v1_runs: {
         parameters: {
             query?: {
-                projectId?: string;
-                jobId?: string;
+                projectId?: string | string[];
+                jobId?: string | string[];
                 state?: ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped") | ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped")[];
                 contextQuery?: string;
                 sort?: "job" | "run" | "status" | "created" | "agent";
