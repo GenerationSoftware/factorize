@@ -1,15 +1,18 @@
 import type { Env } from "./types";
 
 export const STATIC_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
-// Browser auth screens share /auth with backend callbacks and form handlers.
-const authPages = new Set(["/auth/login", "/auth/signup", "/auth/password-reset", "/auth/verify", "/auth/verify/request"]);
+const pages = new Set(["/", "/jobs", "/jobs/new", "/projects", "/projects/new", "/job-runs", "/settings", "/settings/integrations", "/settings/api-keys", "/settings/api-keys/new", "/settings/authorized-clients", "/settings/password", "/auth/login", "/auth/signup", "/auth/password-reset", "/auth/verify", "/auth/verify/request", "/authorize", "/device"]);
 const backendNamespaces = ["/api", "/healthz", "/auth", "/oauth", "/webhooks", "/internal", "/mcp", "/.well-known"];
 function isBackendNamespace(path: string) {
   return backendNamespaces.some(namespace => path === namespace || path.startsWith(`${namespace}/`));
 }
 export function isStaticPage(path: string) {
-  if (authPages.has(path)) return true;
-  return !isBackendNamespace(path) && path !== "/assets" && !path.startsWith("/assets/") && path !== "/styles.css";
+  return pages.has(path) ||
+    /^\/jobs\/[^/]+(?:\/edit|\/settings)?$/.test(path) ||
+    /^\/projects\/[^/]+$/.test(path) ||
+    /^\/job-runs\/[^/]+(?:\/(?:trace|info|context|settings))?$/.test(path) ||
+    /^\/skills(?:\/[^/]+)?$/.test(path) ||
+    (path.startsWith("/settings/") && !isBackendNamespace(path));
 }
 export function isStaticAsset(path: string) {
   return /^\/assets\/[A-Za-z0-9_.-]+$/.test(path) || path === "/styles.css";
