@@ -1,6 +1,6 @@
 import { traceClasses, EventBody } from "./event-body";
 import { Disclosure, Summary, Card } from "../../shared/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useInfiniteQuery, useQuery, type InfiniteData } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf } from "../auth/session";
@@ -28,9 +28,12 @@ function conversation(events: Event[]): ConversationItem[] {
 export function ContinuousTrace({ runId, revision, active, onReset }: { runId: string; revision: string; active: boolean; onReset: (revision: string) => void }) {
   const [liveItems, setLiveItems] = useState<Event[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [pullDistance, setPullDistance] = useState(0);
+  const [pullLoading, setPullLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const historyLoadingRef = useRef(false);
+  const pullStartY = useRef<number | null>(null);
   const prependAnchor = useRef<{ height: number; top: number } | null>(null);
   const initialAlignedRevision = useRef<string | null>(null);
   const trace = useInfiniteQuery<TracePage, Error, InfiniteData<TracePage>, string[], PageParam>({
@@ -67,20 +70,35 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
     const bottom = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
     followRef.current = bottom;
   };
-  const loadHistory = () => {
+  const loadHistory = async (pageCount = 1) => {
     const element = scrollRef.current;
     if (!element || !trace.hasNextPage || trace.isFetching || historyLoadingRef.current) return;
     historyLoadingRef.current = true;
     prependAnchor.current = { height: element.scrollHeight, top: element.scrollTop };
-    void trace.fetchNextPage().finally(() => { historyLoadingRef.current = false; });
+    try {
+      for (let page = 0; page < pageCount; page += 1) {
+        const result = await trace.fetchNextPage();
+        if (!result.data?.pages.at(-1)?.previousCursor) break;
+      }
+    } finally {
+      historyLoadingRef.current = false;
+    }
   };
-  useEffect(() => {
-    const element = scrollRef.current;
-    if (!element) return;
-    const onScroll = () => { updateScrollState(); if (element.scrollTop <= 160) loadHistory(); };
-    element.addEventListener("scroll", onScroll, { passive: true });
-    return () => element.removeEventListener("scroll", onScroll);
-  });
+  const onTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    if (scrollRef.current?.scrollTop === 0 && event.touches[0]) pullStartY.current = event.touches[0].clientY;
+  };
+  const onTouchMove = (event: TouchEvent<HTMLDivElement>) => {
+    if (pullStartY.current === null || !event.touches[0]) return;
+    const distance = Math.max(0, event.touches[0].clientY - pullStartY.current);
+    setPullDistance(Math.min(distance, 96));
+  };
+  const onTouchEnd = () => {
+    const shouldLoad = pullDistance >= 56 && !pullLoading;
+    pullStartY.current = null;
+    if (!shouldLoad) { setPullDistance(0); return; }
+    setPullLoading(true);
+    void loadHistory(3).finally(() => { setPullLoading(false); setPullDistance(0); });
+  };
   useLayoutEffect(() => {
     const element = scrollRef.current;
     const previous = prependAnchor.current;
@@ -118,7 +136,8 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   }, []);
   const grouped = conversation(items);
   return <Card className="border-0 p-0 shadow-none">{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
-    <div ref={scrollRef} data-run-trace-scroll aria-label="Run trace" className="h-[min(60rem,calc(100dvh-18rem))] min-h-64 min-w-0 overflow-y-auto overscroll-contain rounded-lg border border-stone-200 p-4 dark:border-slate-800" onScroll={updateScrollState}>
+    <div ref={scrollRef} data-run-trace-scroll aria-label="Run trace" className="-mx-4 h-[min(60rem,calc(100svh-18rem))] min-h-64 w-[calc(100%+2rem)] min-w-0 overflow-y-auto overscroll-contain rounded-none border-0 p-0 dark:border-slate-800 sm:mx-0 sm:h-[min(60rem,calc(100svh-18rem))] sm:w-auto sm:rounded-lg sm:border sm:border-stone-200 sm:p-4" onScroll={updateScrollState} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
+      {(pullDistance > 0 || pullLoading) && <p data-run-trace-pull role="status" aria-live="polite" className="sticky top-0 z-10 -mb-8 flex h-8 items-center justify-center bg-stone-50/90 text-xs font-medium text-slate-600 backdrop-blur dark:bg-slate-950/90 dark:text-slate-400">{pullLoading ? "Loading older events…" : pullDistance >= 56 ? "Release to load older events" : `Pull to load older events · ${Math.round((pullDistance / 56) * 100)}%`}</p>}
       {!trace.isPending && !grouped.length && <p className="text-sm text-slate-600 dark:text-slate-400">No assistant messages yet.</p>}
       <div data-run-trace className="flex min-h-full min-w-0 flex-col justify-end space-y-4" aria-live={active ? "polite" : undefined}>{grouped.map((item, index) => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={item.events[0]?.id + ":" + index} className={traceClasses("tool_call")} open={expanded.has(item.events[0]?.id + ":" + index)} onToggle={event => { const key = item.events[0]?.id + ":" + index; const open = event.currentTarget.open; setExpanded(previous => { const next = new Set(previous); open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary><div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div></Disclosure>)}</div>
     </div>
