@@ -1,4 +1,5 @@
-import { Disclosure, Summary, Button, Input, Select, Label, Page, Card } from "../../shared/ui";
+import { Disclosure, Summary, Button, Input, Select, Label, Page, Card, Textarea } from "../../shared/ui";
+import { Dialog } from "../../shared/dialog";
 import { JobHeader } from "./header";
 import { DeleteJob } from "./delete";
 import { validationMessage } from "./validation-message";
@@ -12,7 +13,7 @@ import { editableJob, emptyJob, reconcile, validateJobInput, writeInput, type Jo
 import { TemplateField } from "./template-field";
 import { TriggerEditor } from "./trigger-editor";
 import { messageOf } from "../auth/session";
-import { projectQuery } from "../projects/queries";
+import { projectQuery, projectsQuery } from "../projects/queries";
 import { AutosaveStatus, useDebouncedAutosave } from "../../shared/use-debounced-autosave";
 import { skillsQuery } from "../skills/queries";
 export function JobEditor() {
@@ -34,8 +35,13 @@ function EditorForm({ initial }: { initial?: Job }) {
   useEffect(() => { const handler = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } }; window.addEventListener("beforeunload", handler); return () => window.removeEventListener("beforeunload", handler); }, [dirty]);
   const targets = useQuery(targetsQuery), metadata = useQuery(metadataQuery), skills = useQuery(skillsQuery());
   const project = useQuery({ ...projectQuery(initial?.projectId ?? ""), enabled: !!initial?.projectId });
+  const projects = useQuery({ ...projectsQuery, enabled: !initial });
   const target = targets.data?.find(t => t.id === draft.executionConfigId);
   const projectId = new URLSearchParams(location.searchStr).get("projectId") ?? undefined;
+  const selectedProjectId = initial?.projectId ?? draft.projectId ?? projectId;
+  const [projectDialog, setProjectDialog] = useState(false);
+  const onlyProject = projects.data?.length === 1 ? projects.data[0] : undefined;
+  useEffect(() => { if (!initial && !draft.projectId && !projectId && onlyProject) setDraft(previous => ({ ...previous, projectId: onlyProject.id })); }, [initial, draft.projectId, projectId, onlyProject]);
   const update = <K extends keyof JobInput>(key: K, value: JobInput[K]) => { setSaved(false); setDraft(previous => ({ ...previous, [key]: value })); };
   const refreshConflict = useMutation({ retry: false, mutationFn: async () => {
     if (!initial) throw new Error("No job selected");
@@ -44,7 +50,8 @@ function EditorForm({ initial }: { initial?: Job }) {
   }, onSuccess: value => { setRemote(value); setReconciling(false); } });
   const save = useMutation({ retry: false, mutationFn: async () => {
     if (remote || conflicts.length) throw new Error("Resolve the stale edit before saving.");
-    const input = { ...writeInput(draft), ...(projectId ? { projectId } : {}) };
+    if (!initial && !selectedProjectId) throw new Error("Choose a project before creating the job.");
+    const input = { ...writeInput(draft), ...(selectedProjectId ? { projectId: selectedProjectId } : {}) };
     const result = initial ? await api.PUT("/api/v1/jobs/{jobId}", { params: { path: { jobId: initial.id } }, body: { ...input, expectedUpdatedAt: revision } }) : await api.POST("/api/v1/jobs", { body: input });
     if (result.error || !result.data) {
       if (result.error?.error.code === "stale_job") { setReconciling(true); refreshConflict.mutate(); }
@@ -61,14 +68,14 @@ function EditorForm({ initial }: { initial?: Job }) {
     if (conflicts.length === 1) setRemote(undefined);
   };
   const [localConflictDraft, setLocalConflictDraft] = useState(draft);
-  return <Page className="max-w-6xl"><nav aria-label="Breadcrumb" className="mb-4 flex min-h-6 min-w-0 flex-wrap items-center gap-2 text-sm">{project.data && initial?.projectId ? <Link to="/projects/$projectId" params={{ projectId: initial.projectId }}>{project.data.name}</Link> : <Link to="/projects">Projects</Link>}</nav>{initial && <JobHeader job={initial} />}
+  return <Page className="max-w-6xl"><nav aria-label="Breadcrumb" className="mb-4 flex min-h-6 min-w-0 flex-wrap items-center gap-2 text-sm"><Link to="/jobs" className="font-semibold">Jobs</Link>{project.data && initial?.projectId && <><span aria-hidden="true">/</span><Link to="/projects/$projectId" params={{ projectId: initial.projectId }}>{project.data.name}</Link></>}<Link to="/projects" className="text-slate-500 underline underline-offset-4">Projects</Link></nav>{initial && <JobHeader job={initial} />}
     {(remote || reconciling || refreshConflict.error) && <Card role="alert" className="my-4 border p-4"><h2>This job changed while you were editing</h2><p>Your unsaved draft is retained. Review the latest configuration before retrying.</p>
       {refreshConflict.isPending && <p>Loading latest configuration…</p>}{refreshConflict.error && <><p>{refreshConflict.error.message}</p><Button onClick={() => refreshConflict.mutate()}>Retry loading latest</Button></>}
       {remote && !conflicts.length && <><pre className="max-h-64 overflow-auto whitespace-pre-wrap">{JSON.stringify(editableJob(remote), null, 2)}</pre><Button onClick={acceptRemote}>Reload latest and discard my changes</Button><Button onClick={() => { setLocalConflictDraft(draft); merge(); }}>Reconcile my changes</Button></>}
       {conflicts.map(field => <fieldset key={field}><legend>Both versions changed {field}</legend><pre className="max-h-40 overflow-auto">Mine: {JSON.stringify(localConflictDraft[field], null, 2)}<br />Latest: {JSON.stringify(base[field], null, 2)}</pre><Button onClick={() => resolve(field, true)}>Keep my {field}</Button><Button onClick={() => resolve(field, false)}>Keep latest {field}</Button></fieldset>)}
     </Card>}
     <form className="my-4 grid gap-4" onSubmit={e => { e.preventDefault(); save.mutate(); }}>
-      <Card><h2>Job details</h2><p className="mb-5 text-sm text-slate-600 dark:text-slate-400">Name this job and set its stable identifier.</p><div className="grid gap-5 sm:grid-cols-2"><Label>Name <Input required maxLength={120} value={draft.name} onChange={e => update("name", e.target.value)} /></Label>
+      <Card><h2>Job details</h2><p className="mb-5 text-sm text-slate-600 dark:text-slate-400">Name this job and set its stable identifier.</p><div className="grid gap-5 sm:grid-cols-2">{!initial && <div><Label>Project <Select required aria-label="Project" value={selectedProjectId ?? ""} onChange={e => update("projectId", e.target.value || undefined)}><option value="">Choose a project</option>{projects.data?.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</Select></Label><Button type="button" className="mt-2" onClick={() => setProjectDialog(true)}>Create new project</Button>{projects.isPending && <p role="status">Loading projects…</p>}{projects.error && <p role="alert">{projects.error.message}</p>}</div>}<Label>Name <Input required maxLength={120} value={draft.name} onChange={e => update("name", e.target.value)} /></Label>
       <Label>Slug <Input required pattern="[a-z][a-z0-9_-]{0,29}" value={draft.slug} onChange={e => update("slug", e.target.value)} /></Label>
       </div></Card><Card><h2>Execution</h2><p className="mb-5 text-sm text-slate-600 dark:text-slate-400">Choose an integration for this job, then configure its VM tags, model, effort, and concurrency.</p><div className="grid gap-5 sm:grid-cols-2"><Label>Integration <Select required value={draft.executionConfigId} onChange={e => { update("executionConfigId", e.target.value); update("model", ""); update("effort", ""); }}><option value="">Choose an integration</option>{targets.data?.map(t => <option key={t.id} value={t.id}>{t.name} · {t.agentKind}</option>)}{draft.executionConfigId && !target && <option value={draft.executionConfigId}>Unavailable integration: {draft.executionConfigId}</option>}</Select></Label>
       {targets.isPending && <p role="status">Loading integrations…</p>}{targets.error && <p role="alert">{targets.error.message}</p>}{targets.data?.length === 0 && <p>Connect an execution provider in settings before creating a job.</p>}
@@ -84,6 +91,12 @@ function EditorForm({ initial }: { initial?: Job }) {
       </Card>{save.error && <p role="alert">{save.error.message}</p>}
       {!initial && <Button variant="primary" disabled={save.isPending || !!remote || reconciling || !!conflicts.length || targets.isPending || !!targets.error}>{save.isPending ? "Saving…" : "Create job"}</Button>}
       {initial && <AutosaveStatus state={autosave.state} error={autosave.error} label="Job settings" />}
-    </form>{saved && !initial && <p role="status">Job settings saved.</p>}{initial && <DeleteJob jobId={initial.id} name={initial.name} disabled={save.isPending} onDeleted={() => { savingNavigation.current = true; }} />}
+    </form>{saved && !initial && <p role="status">Job settings saved.</p>}{initial && <DeleteJob jobId={initial.id} name={initial.name} disabled={save.isPending} onDeleted={() => { savingNavigation.current = true; }} />}{projectDialog && <ProjectDialog close={() => setProjectDialog(false)} onCreated={value => { cache.setQueryData(projectsQuery.queryKey, (current = []) => [...current, value]); void cache.invalidateQueries({ queryKey: ["projects"] }); update("projectId", value.id); setProjectDialog(false); }} />}
   </Page>;
+}
+
+function ProjectDialog({ close, onCreated }: { close: () => void; onCreated: (project: { id: string; name: string; description?: string; jobCount: number; createdAt: string; updatedAt: string }) => void }) {
+  const [name, setName] = useState(""), [description, setDescription] = useState("");
+  const create = useMutation({ retry: false, mutationFn: async () => { const trimmed = name.trim(); if (!trimmed) throw new Error("Project name is required."); const { data, error } = await api.POST("/api/v1/projects", { body: { name: trimmed, description: description.trim() || undefined } }); if (!data || error) throw new Error(messageOf(error)); return data; }, onSuccess: onCreated });
+  return <Dialog title="Create new project" close={() => { if (!create.isPending) close(); }}><form className="space-y-5" onSubmit={event => { event.preventDefault(); if (!create.isPending) create.mutate(); }}><Label>Name<Input autoFocus required maxLength={120} value={name} onChange={event => setName(event.target.value)} /></Label><Label>Description<Textarea maxLength={2000} value={description} onChange={event => setDescription(event.target.value)} /></Label>{create.error && <p role="alert">{create.error.message}</p>}<div className="flex justify-end gap-2"><Button type="button" onClick={close} disabled={create.isPending}>Cancel</Button><Button type="submit" variant="primary" disabled={create.isPending || !name.trim()}>{create.isPending ? "Creating…" : "Create project"}</Button></div></form></Dialog>;
 }

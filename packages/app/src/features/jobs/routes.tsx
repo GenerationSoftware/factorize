@@ -1,7 +1,7 @@
 import { createRoute, lazyRouteComponent, redirect, type AnyRootRoute } from "@tanstack/react-router";
 import { sessionQuery } from "../auth/session";
 import { queryClient } from "../../shared/query-client";
-import { jobQuery } from "./queries";
+import { jobQuery, jobsQuery } from "./queries";
 import { runStatuses } from "../../shared/ui";
 const runStates = runStatuses;
 const parseRunStates = (value: unknown) => {
@@ -12,7 +12,11 @@ export function jobsRoutes(root: AnyRootRoute) {
   const guard = async ({ location }: { location: { href: string } }) => {
     if (!(await queryClient.ensureQueryData(sessionQuery)).authenticated) throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } });
   };
-  const jobs = createRoute({ getParentRoute: () => root, path: "/jobs", beforeLoad: () => { throw redirect({ to: "/projects" }); } });
+  const jobs = createRoute({ getParentRoute: () => root, path: "/jobs", beforeLoad: guard,
+    validateSearch: (s: Record<string, unknown>) => ({ q: typeof s.q === "string" ? s.q.slice(0, 120) : "", projectId: typeof s.projectId === "string" ? s.projectId : undefined, cursor: typeof s.cursor === "string" ? s.cursor : undefined, sort: s.sort === "running" || s.sort === "title" ? s.sort : undefined, order: s.order === "asc" || s.order === "desc" ? s.order : undefined }),
+    loader: ({ deps }) => queryClient.ensureQueryData(jobsQuery(deps)),
+    component: lazyRouteComponent(() => import("./list"), "GlobalJobsList"),
+  });
   const job = createRoute({ getParentRoute: () => root, path: "/jobs/$jobId", beforeLoad: guard,
     validateSearch: (s: Record<string, unknown>) => ({ cursor: typeof s.cursor === "string" ? s.cursor : undefined, previous: typeof s.previous === "string" ? s.previous.slice(0, 20_000) : undefined, states: parseRunStates(s.states) as any, sort: ["run", "status", "created", "agent"].includes(String(s.sort)) ? s.sort as "run" | "status" | "created" | "agent" : undefined, direction: s.direction === "asc" || s.direction === "desc" ? s.direction : undefined }),
     loader: ({ params }) => queryClient.ensureQueryData(jobQuery(params.jobId)),

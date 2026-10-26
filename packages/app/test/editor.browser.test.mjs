@@ -37,6 +37,8 @@ test("stale editor reconciles non-overlapping fields, requires explicit conflict
 });
 test("create uses bounded lifecycle selector, lazy provider reads, schedule preview and typed form submission on mobile", async () => {
   const { context, page } = await setup({ viewport: { width: 390, height: 844 } }); let body, providerReads = 0; const selectors = [];
+  const projectId = "00000000-0000-4000-8000-000000000010";
+  await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "", jobCount: 0 }] }));
   await page.route("**/api/v1/providers/**", route => { providerReads++; return route.fulfill({ json: [] }); });
   await page.route("**/api/v1/job-selector?**", route => { selectors.push(new URL(route.request().url())); return route.fulfill({ json: { items: [{ id, name: "Source", slug: "source", enabled: true }], nextCursor: null } }); });
   await page.route("**/api/v1/schedules/preview", route => route.fulfill({ json: { nextRunAt: "2026-10-09T14:00:00.000Z" } }));
@@ -47,7 +49,7 @@ test("create uses bounded lifecycle selector, lazy provider reads, schedule prev
   await page.getByLabel("New trigger kind").selectOption("jobLifecycle"); await page.getByRole("button", { name: "Add trigger" }).click(); await page.getByLabel("Search source jobs").fill("Source"); await page.getByLabel("Source", { exact: true }).check();
   assert.equal(providerReads, 0); assert.ok(selectors.every(url => url.searchParams.get("limit") === "30"));
   await page.getByRole("button", { name: "Create job", exact: true }).click(); await page.waitForURL(`**/jobs/${id}`);
-  assert.equal(body.name, "Created job"); assert.deepEqual(body.triggers[2].config.sourceJobIds, [id]); assert.equal(body.expectedUpdatedAt, undefined); await context.close();
+  assert.equal(body.name, "Created job"); assert.equal(body.projectId, projectId); assert.deepEqual(body.triggers[2].config.sourceJobIds, [id]); assert.equal(body.expectedUpdatedAt, undefined); await context.close();
 });
 test("template insertion escapes values and navigation protects unsaved work", async () => {
   const { context, page } = await setup(); await page.route(`**/api/v1/jobs/${id}`, route => route.fulfill({ json: initial }));

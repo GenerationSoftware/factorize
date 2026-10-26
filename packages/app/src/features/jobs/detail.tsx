@@ -10,7 +10,7 @@ export function JobDetail() {
   const query = useQuery(jobQuery(jobId!));
   const job = query.data;
   const project = useQuery({ ...projectQuery(job?.projectId ?? ""), enabled: !!job?.projectId });
-  return <Page className="max-w-6xl"><Breadcrumb>{project.data && job?.projectId ? <Link to="/projects/$projectId" params={{ projectId: job.projectId }}>{project.data.name}</Link> : <Link to="/projects">Projects</Link>}</Breadcrumb>
+  return <Page className="max-w-6xl"><nav aria-label="Job navigation" className="mb-2 text-sm"><Link to="/jobs" className="font-semibold underline underline-offset-4">Jobs</Link></nav><Breadcrumb>{project.data && job?.projectId ? <Link to="/projects/$projectId" params={{ projectId: job.projectId }}>{project.data.name}</Link> : <Link to="/projects">Projects</Link>}</Breadcrumb>
     {query.isPending && <><ResourceHeader type="Job" title="Job" /><p role="status">Loading job…</p></>}{query.error && <p role="alert">{query.error.message}</p>}
     {job && <><JobHeader job={job} /><div className="mb-6"><RunHistory jobId={job.id} /></div></>}
   </Page>;
