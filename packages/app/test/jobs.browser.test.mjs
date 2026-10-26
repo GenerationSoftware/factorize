@@ -25,6 +25,30 @@ async function contextFor(options) {
   await page.route(`**/api/v1/projects/${projectId}`, route => route.fulfill({ json: { id: projectId, name: "Release project", description: "Project jobs", jobCount: 31 } }));
   return { context, page };
 }
+test("global jobs use the Runs-style project filter", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+  const otherProjectId = "00000000-0000-4000-8000-000000000011";
+  await page.route("**/api/v1/projects", route => route.fulfill({ json: [
+    { id: projectId, name: "Release project", description: "", jobCount: 1 },
+    { id: otherProjectId, name: "Other project", description: "", jobCount: 1 },
+  ] }));
+  await page.route("**/api/v1/job-summaries?**", route => {
+    return route.fulfill({ json: { items: [{ ...summary, projectId }], nextCursor: null } });
+  });
+  await page.goto(origin + "/jobs");
+  const table = page.getByRole("table", { name: "Jobs", exact: true });
+  await table.getByRole("button", { name: /Project, all projects/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Project filter" });
+  const filteredRequest = page.waitForRequest(request => request.url().includes("/api/v1/job-summaries?") && new URL(request.url()).searchParams.has("projectId"));
+  await dialog.getByLabel("Release project").click({ noWaitAfter: true });
+  await page.waitForURL(/projectId=/);
+  const filtered = await filteredRequest;
+  assert.equal(new URL(filtered.url()).searchParams.get("projectId"), projectId);
+  await table.getByRole("button", { name: /Project/ }).click();
+  await page.getByRole("dialog", { name: "Project filter" }).getByRole("button", { name: "Clear project filters" }).click();
+  await page.waitForFunction(() => !new URL(location.href).searchParams.has("projectId"));
+  await context.close();
+});
 test("project details can rename and describe a project", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   const saved = [];
