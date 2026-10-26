@@ -94,7 +94,7 @@ test("project and job detail pages omit redundant collection labels", async () =
   await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
   const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
   assert.deepEqual(await breadcrumb.getByRole("link").allTextContents(), ["Release project"]);
-  assert.equal(await breadcrumb.getByText("Jobs", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("navigation", { name: "Job navigation" }).count(), 0);
   assert.equal(await page.getByText("Job", { exact: true }).count(), 1);
   await context.close();
 });
