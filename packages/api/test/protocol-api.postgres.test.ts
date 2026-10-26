@@ -21,6 +21,9 @@ describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", () => {
       const created = await request({ key: "review", body: "Review carefully" });
       expect(created.status).toBe(201);
       const skill = await created.json() as { id: string };
+      const detail = await worker.fetch(new Request(f.env.APP_ORIGIN + `/api/v1/skills/${skill.id}`, { headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN } }), f.env, {} as ExecutionContext);
+      expect(detail.status).toBe(200);
+      expect(await detail.json()).toMatchObject({ id: skill.id, key: "review", body: "Review carefully", revision: 1, usageCount: 0 });
       await f.db.pool.query("INSERT INTO app.job_skills(tenant_id,job_id,skill_id,position) VALUES($1,$2,$3,0)", [f.tenantId, f.jobIds[0], skill.id]);
       const listed = await request();
       expect(listed.status).toBe(200);
