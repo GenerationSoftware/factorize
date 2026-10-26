@@ -11,8 +11,8 @@ import { messageOf } from "../auth/session";
 export function RunDetail() {
   const { runId } = useParams({ strict: false });
   const location = useLocation(), navigate = useNavigate(), cache = useQueryClient();
-  const tab: "trace" | "info" | "settings" = location.pathname.endsWith("/info") ? "info" : location.pathname.endsWith("/settings") ? "settings" : "trace";
-  const tabPath = (name: "trace" | "info" | "settings"): "/job-runs/$runId" | "/job-runs/$runId/info" | "/job-runs/$runId/settings" => name === "trace" ? "/job-runs/$runId" : name === "info" ? "/job-runs/$runId/info" : "/job-runs/$runId/settings";
+  const tab: "trace" | "info" = location.pathname.endsWith("/info") ? "info" : "trace";
+  const tabPath = (name: "trace" | "info"): "/job-runs/$runId" | "/job-runs/$runId/info" => name === "trace" ? "/job-runs/$runId" : "/job-runs/$runId/info";
   const status = useQuery(runStatusQuery(runId!));
   const [revision, setRevision] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -52,7 +52,7 @@ export function RunDetail() {
     </>}
     {stop.error && <p role="alert">{stop.error.message}</p>}
     <nav role="tablist" aria-label="Run details" className="mt-6 flex gap-1 overflow-x-auto border-b border-stone-200 dark:border-slate-700">
-      {(["trace", "info", "settings"] as const).map((name, index, tabs) => <Link key={name} to={tabPath(name)} params={{ runId: runId! }} search={{ after: 0 }} role="tab" id={`run-tab-${name}`} aria-controls={`run-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1}
+      {(["trace", "info"] as const).map((name, index, tabs) => <Link key={name} to={tabPath(name)} params={{ runId: runId! }} search={{ after: 0 }} role="tab" id={`run-tab-${name}`} aria-controls={`run-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1}
         className={`min-h-11 shrink-0 border-b-2 px-4 py-3 text-sm capitalize ${tab === name ? "border-factorize-500 font-semibold" : "border-transparent text-slate-600 hover:border-stone-300 dark:text-slate-400"}`}
         onKeyDown={event => {
           const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
@@ -69,8 +69,6 @@ export function RunDetail() {
         <div className="sm:col-span-2"><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Execution destination</dt><dd className="break-words text-sm text-slate-600 dark:text-slate-400">{status.data.destination_url && /^https?:\/\//.test(status.data.destination_url) ? <><a className="break-all underline" href={status.data.destination_url} target="_blank" rel="noopener noreferrer">{status.data.destination_url}</a><span className="mt-1 block text-xs">The location where this run executes.</span></> : "Not available for this run"}</dd></div>
       </dl>}
       <ExpandedRunDetail runId={runId!} />
-    </section>
-    <section role="tabpanel" id="run-panel-settings" aria-labelledby="run-tab-settings" hidden={tab !== "settings"} tabIndex={0}>
       {status.data && !active ? <ReplayTrace runId={runId!} /> : <p className="my-4">Replay is available after the run finishes and trace finalization completes.</p>}
     </section>
     <section role="tabpanel" id="run-panel-trace" aria-labelledby="run-tab-trace" hidden={tab !== "trace"} tabIndex={0}>
