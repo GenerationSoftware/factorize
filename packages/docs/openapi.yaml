@@ -9002,7 +9002,7 @@ paths:
     get:
       summary: List runs
       description: |-
-        Returns tenant-authorized runs. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.
+        Returns tenant-authorized runs. Project, job, and state filters accept repeated values and match any selected value within each filter; filters are applied before cursor pagination. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.
 
         Requires the runs:read scope.
 
@@ -9043,14 +9043,32 @@ paths:
           in: query
           required: false
           schema:
-            type: string
-            minLength: 1
+            anyOf:
+              - type: string
+                format: uuid
+                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+              - minItems: 1
+                maxItems: 100
+                type: array
+                items:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
         - name: jobId
           in: query
           required: false
           schema:
-            type: string
-            minLength: 1
+            anyOf:
+              - type: string
+                format: uuid
+                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+              - minItems: 1
+                maxItems: 100
+                type: array
+                items:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
         - name: state
           in: query
           required: false

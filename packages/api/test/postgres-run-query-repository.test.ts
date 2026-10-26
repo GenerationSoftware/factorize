@@ -53,4 +53,13 @@ describe("run timing queries", () => {
     expect(sql).toContain("r.state=ANY($2::text[])");
     expect(values).toEqual(["tenant", ["failed", "stopped"], 11]);
   });
+
+  it("applies independent project and job filters before cursor pagination", async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    await new RunQueryRepository({ pool: { query } } as any, "tenant").list(new URLSearchParams([['projectId', 'project-a'], ['projectId', 'project-b'], ['jobId', 'job-a'], ['jobId', 'job-b'], ['limit', '10']]));
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain("j.project_id=ANY($2::uuid[])");
+    expect(sql).toContain("r.job_id=ANY($3::uuid[])");
+    expect(values).toEqual(["tenant", ["project-a", "project-b"], ["job-a", "job-b"], 11]);
+  });
 });

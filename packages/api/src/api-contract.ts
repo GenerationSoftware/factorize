@@ -803,7 +803,7 @@ export const API_ROUTES: RouteContract[] = [
     "runs:read",
     {
       summary: "List runs",
-      description: "Returns tenant-authorized runs. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.",
+      description: "Returns tenant-authorized runs. Project, job, and state filters accept repeated values and match any selected value within each filter; filters are applied before cursor pagination. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.",
       responses: {
         "200": {
           description: "Paginated runs",

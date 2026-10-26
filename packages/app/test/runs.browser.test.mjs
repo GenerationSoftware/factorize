@@ -14,7 +14,7 @@ const runs = Array.from({ length: 21 }, (_, index) => ({ id: `00000000-0000-4000
   await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); refreshes++; const second = url.searchParams.has("cursor"); return route.fulfill({ json: { items: second ? [runs[20]] : runs.slice(0, 20), nextCursor: second ? null : "page-2" } }); });
   await page.goto(origin + "/job-runs"); await page.getByRole("heading", { name: "Job Runs", exact: true }).waitFor(); await page.getByRole("link", { name: "Run 0", exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: "Jobs", exact: true }).count(), 0); assert.equal(await page.getByRole("link", { name: "Runs", exact: true }).evaluate(el => el.className.includes("border-factorize-500")), true);
-  const table = page.getByRole("table"); assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Project name", "Job name", "Run", "Elapsed", "Created"]); assert.equal(await page.getByText("Run 0", { exact: true }).count(), 1); assert.equal(await page.getByText("1m–3m", { exact: true }).count(), 1); assert.equal(await page.getByText("2m", { exact: true }).count(), 19); assert.equal(await page.getByRole("link", { name: "Project Alpha", exact: true }).first().getAttribute("href"), `/projects/${projectId}`); assert.equal(await page.locator("td time").count(), 20); assert.equal(await page.locator("td time").first().getAttribute("datetime"), time);
+  const table = page.getByRole("table"); assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Project", "Job", "Run", "Elapsed", "Created"]); assert.equal(await page.getByText("Run 0", { exact: true }).count(), 1); assert.equal(await page.getByText("1m–3m", { exact: true }).count(), 1); assert.equal(await page.getByText("2m", { exact: true }).count(), 19); assert.equal(await page.getByRole("link", { name: "Project Alpha", exact: true }).first().getAttribute("href"), `/projects/${projectId}`); assert.equal(await page.locator("td time").count(), 20); assert.equal(await page.locator("td time").first().getAttribute("datetime"), time);
   const firstRowCells = await table.locator("tbody tr").first().locator("td").all(); const elapsedBox = await firstRowCells[4].boundingBox(); const createdBox = await firstRowCells[5].boundingBox(); assert.ok(elapsedBox && createdBox && elapsedBox.x + elapsedBox.width <= createdBox.x, "Elapsed and Created columns must not overlap");
   assert.ok(requests.every(url => url.searchParams.get("limit") === "20" && !url.searchParams.has("jobId")));
   await page.getByRole("link", { name: "Next page" }).click(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); await page.reload(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); assert.ok(refreshes >= 2);
@@ -44,6 +44,16 @@ test("all-runs status header supports multi-select filtering, independent sortin
   await dialog.waitFor({ state: "hidden" });
   await page.getByRole("button", { name: /Status, 2 statuses selected/ }).click();
   await page.getByRole("dialog", { name: "Status filter and sort" }).getByRole("button", { name: "Clear filters and reset sort" }).click(); await page.waitForFunction(() => { const params = new URLSearchParams(location.search); return location.pathname === "/job-runs" && !params.has("state") && !params.has("states"); }); assert.equal(requests.at(-1).searchParams.has("state"), false); await context.close();
+});
+test("all-runs combines independent project and job filters, preserves them through pagination, and toggles row filters", async () => {
+  const { context, page } = await setup(); const requests = [], projectA = "00000000-0000-4000-8000-000000000003", jobA = "00000000-0000-4000-8000-000000000001";
+  await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectA, name: "Project Alpha", description: "", jobCount: 1 }] }));
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [{ id: jobA, name: "Review builds", projectId: projectA, runningCount: 0 }], nextCursor: null } }));
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: [{ id: runId, project_id: projectA, project_name: "Project Alpha", job_id: jobA, job_name: "Review builds", run_name: "Filtered run", state: "failed", created_at: time, agent_kind: "codex" }], nextCursor: "next" } }); });
+  await page.goto(origin + "/job-runs"); await page.getByRole("button", { name: /Project, all projects/ }).click(); await page.getByRole("dialog", { name: "Project filter" }).getByLabel("Project Alpha").click({ noWaitAfter: true }); await page.waitForURL(/projects=/); await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /Job, all jobs/ }).click(); await page.getByRole("dialog", { name: "Job filter" }).getByLabel("Review builds").click({ noWaitAfter: true }); await page.waitForURL(/jobs=/); await page.waitForTimeout(250);
+  const latest = requests.at(-1); assert.deepEqual(latest.searchParams.getAll("projectId"), [projectA]); assert.deepEqual(latest.searchParams.getAll("jobId"), [jobA]); assert.equal(latest.searchParams.has("cursor"), false);
+  await page.getByRole("button", { name: "Remove project Project Alpha" }).click(); await page.waitForFunction(() => !new URL(location.href).searchParams.has("projects")); await page.getByRole("button", { name: "Filter by project Project Alpha" }).click(); await page.waitForURL(/projects=/); await context.close();
 });
 test("shared run status dots show running transitions in both tables", async () => {
   const { context, page } = await setup(); let state = "running";
@@ -91,7 +101,7 @@ test("prompt/provenance and diagnostics are lazy, terminal replay retries reuse 
   assert.equal(await page.locator('a[href^="javascript:"]').count(), 0); assert.equal(await page.locator("main script").count(), 0);
   assert.equal(await page.getByRole("tab", { name: "Trace", exact: true }).getAttribute("aria-selected"), "true");
   const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
-  assert.equal(await breadcrumbs.getByRole("link", { name: "Projects", exact: true }).getAttribute("href"), "/projects");
+  assert.equal(await breadcrumbs.getByRole("link", { name: "Job", exact: true }).count(), 1);
   assert.equal(await breadcrumbs.getByRole("link", { name: "Job", exact: true }).getAttribute("href"), "/jobs/" + jobId);
   await page.getByRole("tab", { name: "Info", exact: true }).click();
   await page.getByText("Created", { exact: true }).waitFor(); await page.getByText("Started", { exact: true }).waitFor(); await page.getByText("Queue time", { exact: true }).waitFor(); await page.getByText("Runtime", { exact: true }).waitFor(); await page.getByText("Execution destination", { exact: true }).waitFor();
