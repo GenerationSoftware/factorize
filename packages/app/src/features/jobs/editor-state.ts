@@ -4,7 +4,7 @@ export type Job = operations["get_api_v1_jobs_jobId"]["responses"][200]["content
 export type Trigger = JobInput["triggers"][number];
 export const emptyJob = (): JobInput => ({ name: "", slug: "", promptTemplate: "", runNameTemplate: "", executionConfigId: "", concurrencyLimit: 1, tags: [], model: "", effort: "", skillIds: [], triggers: [{ kind: "manual", slug: "trigger-1", enabled: true, config: {} }] });
 export function editableJob(job: Job): JobInput {
-  return { name: job.name, slug: job.slug, promptTemplate: job.promptTemplate, runNameTemplate: job.runNameTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", skillIds: job.skills?.map(skill => skill.id) ?? [], triggers: job.triggers.map(trigger => {
+  return { projectId: job.projectId, name: job.name, slug: job.slug, promptTemplate: job.promptTemplate, runNameTemplate: job.runNameTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", skillIds: job.skills?.map(skill => skill.id) ?? [], triggers: job.triggers.map(trigger => {
     const { id, slug, kind, enabled } = trigger;
     const config = trigger.kind === "webhook" ? Object.fromEntries(Object.entries(trigger.config).filter(([key]) => !["destination", "secretConfigured"].includes(key))) : trigger.config;
     return { id, slug, kind, enabled, config } as Trigger;

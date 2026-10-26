@@ -3,7 +3,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { messageOf } from "../auth/session";
 export type JobsSort = "running" | "title";
 export type JobsOrder = "asc" | "desc";
-export type JobsSearch = { q: string; projectId?: string; cursor?: string; enabled?: "true" | "false"; sort?: JobsSort; order?: JobsOrder };
+export type JobsSearch = { q?: string; projectId?: string; cursor?: string; enabled?: "true" | "false"; sort?: JobsSort; order?: JobsOrder };
 export const jobsQuery = (search: JobsSearch) => queryOptions({
   queryKey: ["jobs", "summaries", { projectId: search.projectId, q: search.q, enabled: search.enabled, sort: search.sort, order: search.order }],
   queryFn: async ({ signal }) => {
@@ -12,7 +12,7 @@ export const jobsQuery = (search: JobsSearch) => queryOptions({
     const items = [];
     let cursor: string | undefined;
     do {
-      const { data, error } = await api.GET("/api/v1/job-summaries", { signal, params: { query: { projectId: search.projectId, q: search.q, enabled: search.enabled, cursor, limit: 100 } } });
+      const { data, error } = await api.GET("/api/v1/job-summaries", { signal, params: { query: { projectId: search.projectId, q: search.q ?? "", enabled: search.enabled, cursor, limit: 100 } } });
       if (!data || error) throw new Error(messageOf(error));
       items.push(...data.items);
       cursor = data.nextCursor ?? undefined;
