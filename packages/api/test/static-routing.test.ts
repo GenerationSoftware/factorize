@@ -3,10 +3,10 @@ import { isStaticPage, staticApp, STATIC_CSP } from "../src/static-app";
 import type { Env } from "../src/types";
 
 describe("same-origin static ownership", () => {
-  it("serves frontend deep links without a page allowlist with an external-bundle policy and revalidated entry HTML", async () => {
+  it("serves supported frontend deep links with an external-bundle policy and revalidated entry HTML", async () => {
     const fetch = vi.fn(async (request: Request) => new Response(request.method === "HEAD" ? null : "entry", { headers: { "Content-Type": "text/html" } }));
     const env = { ASSETS: { fetch } } as unknown as Env;
-    for (const path of ["/skills", "/skills/new", "/skills/id", "/future-feature/nested/page", "/unknown", "/", "/jobs", "/jobs/new", "/jobs/id/edit", "/jobs/id/settings", "/projects", "/projects/new", "/projects/id", "/job-runs", "/job-runs/id", "/settings/authorized-clients", "/settings/targets", "/auth/verify?token=one-time", "/authorize?client_id=test", "/device?user_code=ABCD-2345"]) {
+    for (const path of ["/skills", "/skills/id", "/", "/jobs", "/jobs/new", "/jobs/id/edit", "/jobs/id/settings", "/projects", "/projects/new", "/projects/id", "/job-runs", "/job-runs/id", "/job-runs/id/trace", "/settings/authorized-clients", "/settings/targets", "/auth/verify?token=one-time", "/authorize?client_id=test", "/device?user_code=ABCD-2345"]) {
       const response = await staticApp(new Request(`https://app.factorize.sh${path}`), env);
       expect(response?.status).toBe(200);
       expect(response?.headers.get("content-security-policy")).toBe(STATIC_CSP);
@@ -16,6 +16,7 @@ describe("same-origin static ownership", () => {
       expect(new URL(fetch.mock.calls.at(-1)![0].url).pathname).toBe("/index.html");
       expect(new URL(fetch.mock.calls.at(-1)![0].url).search).toBe("");
     }
+    expect(await staticApp(new Request("https://app.factorize.sh/unknown"), env)).toBeNull();
     const head = await staticApp(new Request("https://app.factorize.sh/jobs/id", { method: "HEAD" }), env);
     expect(await head?.text()).toBe("");
   });
@@ -24,7 +25,7 @@ describe("same-origin static ownership", () => {
     for (const path of ["/api", "/assets", "/auth/unknown", "/healthz/unknown", "/api/v1", "/api/v1/unknown", "/api/v1/jobs", "/oauth/token", "/auth/linear", "/auth/github/setup", "/webhooks/github", "/internal/missing", "/mcp", "/healthz", "/.well-known/oauth-authorization-server", "/assets/subdir/file.js"]) {
       expect(await staticApp(new Request(`https://app.factorize.sh${path}`), env)).toBeNull();
     }
-    for (const method of ["POST", "PUT", "DELETE", "OPTIONS"]) for (const path of ["/skills", "/future-feature/nested/page", "/jobs", "/authorize", "/device", "/assets/index-hash.js", "/auth/login"]) expect(await staticApp(new Request(`https://app.factorize.sh${path}`, { method }), env)).toBeNull();
+    for (const method of ["POST", "PUT", "DELETE", "OPTIONS"]) for (const path of ["/skills", "/unknown", "/jobs", "/authorize", "/device", "/assets/index-hash.js", "/auth/login"]) expect(await staticApp(new Request(`https://app.factorize.sh${path}`, { method }), env)).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
     expect(isStaticPage("/settings/unknown")).toBe(true);
   });

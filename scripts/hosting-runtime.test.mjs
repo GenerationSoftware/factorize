@@ -41,11 +41,12 @@ test("actual Cloudflare local runtime enforces static/API/protocol ownership, he
   });
   try {
     await ready;
-    for (const path of ["/skills", "/skills/new", "/skills/id", "/future-feature/nested/page", "/unknown", "/jobs/id/edit", "/jobs/id/settings", "/job-runs", "/job-runs/id", "/settings/authorized-clients", "/auth/verify?token=test-token"]) {
+    for (const path of ["/skills", "/skills/id", "/jobs/id/edit", "/jobs/id/settings", "/job-runs", "/job-runs/id", "/settings/authorized-clients", "/auth/verify?token=test-token"]) {
       const page = await read(port, path); assert.equal(page.status, 200); assert.match(page.headers["content-type"], /text\/html/); assert.equal(page.headers["cache-control"], "no-cache, must-revalidate"); assert.match(page.headers["content-security-policy"], /script-src 'self'/); assert.ok(!page.headers["content-security-policy"].includes("unsafe-inline")); assert.equal(page.headers["x-content-type-options"], "nosniff");
       const assetPath = page.body.match(/src="(\/assets\/[^"/]+\.js)"/)?.[1]; assert.ok(assetPath);
       const asset = await read(port, assetPath); assert.equal(asset.status, 200); assert.equal(asset.headers["cache-control"], "public, max-age=31536000, immutable");
     }
+    const unknownPage = await read(port, "/unknown"); assert.equal(unknownPage.status, 404); assert.ok(!unknownPage.headers["content-type"]?.includes("text/html"));
     const head = await read(port, "/jobs/id", "HEAD"); assert.equal(head.status, 200); assert.equal(head.body, "");
     const health = await read(port, "/healthz"); assert.equal(health.status, 200); assert.deepEqual(JSON.parse(health.body), { ok: true });
     const session = await read(port, "/api/v1/session"); assert.equal(session.status, 200); assert.equal(session.headers["x-factorize-contract"], "gen-2157-static-v1"); assert.deepEqual(JSON.parse(session.body), { authenticated: false });
