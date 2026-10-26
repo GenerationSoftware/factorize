@@ -1,5 +1,5 @@
 import { traceClasses, EventBody } from "./event-body";
-import { Disclosure, Summary, Card } from "../../shared/ui";
+import { Disclosure, Summary } from "../../shared/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useInfiniteQuery, useQuery, type InfiniteData } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
@@ -135,12 +135,12 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
     return () => { window.removeEventListener("resize", resize); observer.disconnect(); };
   }, []);
   const grouped = conversation(items);
-  return <Card className="border-0 p-0 shadow-none">{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
-    <div ref={scrollRef} data-run-trace-scroll aria-label="Run trace" className="-mx-4 h-[min(60rem,calc(100svh-18rem))] min-h-64 w-[calc(100%+2rem)] min-w-0 overflow-y-auto overscroll-contain rounded-none border-0 p-0 dark:border-slate-800 sm:mx-0 sm:h-[min(60rem,calc(100svh-18rem))] sm:w-auto sm:rounded-lg sm:border sm:border-stone-200 sm:p-4" onScroll={updateScrollState} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
+  return <>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
+    <div ref={scrollRef} data-run-trace-scroll aria-label="Run trace" className="-mx-4 h-[min(60rem,calc(100svh-18rem))] min-h-64 w-[calc(100%+2rem)] min-w-0 overflow-y-auto overscroll-contain p-0 sm:mx-0 sm:h-[min(60rem,calc(100svh-18rem))] sm:w-auto" onScroll={updateScrollState} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
       {(pullDistance > 0 || pullLoading) && <p data-run-trace-pull role="status" aria-live="polite" className="sticky top-0 z-10 -mb-8 flex h-8 items-center justify-center bg-stone-50/90 text-xs font-medium text-slate-600 backdrop-blur dark:bg-slate-950/90 dark:text-slate-400">{pullLoading ? "Loading older events…" : pullDistance >= 56 ? "Release to load older events" : `Pull to load older events · ${Math.round((pullDistance / 56) * 100)}%`}</p>}
       {!trace.isPending && !grouped.length && <p className="text-sm text-slate-600 dark:text-slate-400">No assistant messages yet.</p>}
       <div data-run-trace className="flex min-h-full min-w-0 flex-col justify-end space-y-4" aria-live={active ? "polite" : undefined}>{grouped.map((item, index) => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={item.events[0]?.id + ":" + index} className={traceClasses("tool_call")} open={expanded.has(item.events[0]?.id + ":" + index)} onToggle={event => { const key = item.events[0]?.id + ":" + index; const open = event.currentTarget.open; setExpanded(previous => { const next = new Set(previous); open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary><div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div></Disclosure>)}</div>
     </div>
     {active && <p role="status" className="mt-5 text-sm font-medium"><span aria-hidden="true" className="mr-2 inline-block motion-safe:animate-pulse">●</span>Running…</p>}
-  </Card>;
+  </>;
 }
