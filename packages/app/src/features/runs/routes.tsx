@@ -23,11 +23,14 @@ export function runRoutes(root: AnyRootRoute) {
   const base = createRoute({ getParentRoute: () => root, path: "/job-runs/$runId",
     validateSearch, beforeLoad, loader, component,
   });
-  const tab = (path: "/trace" | "/info" | "/settings") => createRoute({ getParentRoute: () => root, path: `/job-runs/$runId${path}`,
+  const tab = (path: "/trace" | "/info") => createRoute({ getParentRoute: () => root, path: `/job-runs/$runId${path}`,
     validateSearch, beforeLoad, loader, component,
   });
   const contextCompatibility = createRoute({ getParentRoute: () => root, path: "/job-runs/$runId/context",
     validateSearch, beforeLoad: ({ params, search }) => { throw redirect({ to: "/job-runs/$runId/info", params, search }); },
   });
-  return [list, base, tab("/trace"), tab("/info"), tab("/settings"), contextCompatibility];
+  const settingsCompatibility = createRoute({ getParentRoute: () => root, path: "/job-runs/$runId/settings",
+    validateSearch, beforeLoad: ({ params, search }) => { throw redirect({ to: "/job-runs/$runId/info", params, search }); },
+  });
+  return [list, base, tab("/trace"), tab("/info"), settingsCompatibility, contextCompatibility];
 }
