@@ -1,4 +1,4 @@
-import { Button, Card, Label, Select, SortableHeader, Table, tableCellClasses, tableHeadClasses, tableRowClasses } from "../../shared/ui";
+import { Button, Card, MultiSelectHeader, SortableHeader, Table, tableCellClasses, tableHeadClasses, tableRowClasses } from "../../shared/ui";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { jobsQuery, type JobsOrder, type JobsSearch, type JobsSort } from "./queries";
@@ -7,13 +7,7 @@ import { Page, PageHeader } from "../../shared/ui";
 
 export function GlobalJobsList() {
   const search = useSearch({ from: "/jobs" });
-  return <Page className="max-w-6xl"><PageHeader title="Jobs" description="Configure and monitor jobs across your projects."><Link to="/jobs/new" search={{ projectId: search.projectId }}><Button variant="primary">Create job</Button></Link></PageHeader><div className="mb-5 flex flex-wrap items-end justify-between gap-4"><Label className="max-w-sm">Project <ProjectFilter search={search} /></Label><Link to="/projects" className="text-sm font-semibold underline underline-offset-4">Manage projects</Link></div><JobsTable projectId={search.projectId} global /></Page>;
-}
-
-function ProjectFilter({ search }: { search: JobsSearch }) {
-  const navigate = useNavigate({ from: "/jobs" });
-  const projects = useQuery(projectsQuery);
-  return <Select aria-label="Project filter" value={search.projectId ?? ""} onChange={event => void navigate({ search: { ...search, projectId: event.target.value || undefined, cursor: undefined } })}><option value="">All projects</option>{projects.data?.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</Select>;
+  return <Page className="max-w-6xl"><PageHeader title="Jobs" description="Configure and monitor jobs across your projects."><Link to="/jobs/new" search={{ projectId: search.projectId }}><Button variant="primary">Create job</Button></Link></PageHeader><div className="mb-5 flex justify-end"><Link to="/projects" className="text-sm font-semibold underline underline-offset-4">Manage projects</Link></div><JobsTable projectId={search.projectId} global /></Page>;
 }
 
 export function JobsTable({ projectId, global = false }: { projectId?: string; global?: boolean }) {
@@ -33,7 +27,7 @@ export function JobsTable({ projectId, global = false }: { projectId?: string; g
       {!!query.data.items.length && <Table className="table-fixed" aria-label="Jobs">
         <thead className={tableHeadClasses}><tr>
           <SortableHeader label="Running" ariaLabel={`${sortLabel("running")} sort`} active={search.sort === "running"} direction={search.order} className="w-20" onSort={() => chooseSort("running")} />
-          {global && <th scope="col" className={tableCellClasses}>Project</th>}
+          {global && <MultiSelectHeader label="Project" options={(projects.data ?? []).map(project => ({ id: project.id, label: project.name }))} selected={projectId ? [projectId] : []} onChange={(id, checked) => void globalNavigate({ search: { ...search, projectId: checked ? id : undefined, cursor: undefined } })} onClear={() => void globalNavigate({ search: { ...search, projectId: undefined, cursor: undefined } })} />}
           <SortableHeader label="Title" ariaLabel={`${sortLabel("title")} sort`} active={search.sort === "title"} direction={search.order} onSort={() => chooseSort("title")} />
         </tr></thead>
         <tbody>{query.data.items.map(job => <tr key={job.id} className={`${tableRowClasses} ${job.enabled ? "" : "text-slate-500 dark:text-slate-500"}`}>
