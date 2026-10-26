@@ -121,15 +121,15 @@ test("stopping a run submits once, observes stopping state and keeps terminal fi
   await page.getByText("stopped · Finalizing trace and artifacts", { exact: true }).waitFor(); assert.equal(await page.getByRole("button", { name: "Stop run", exact: true }).count(), 0);
   await context.close();
 });
-test("run trace owns scrolling, preserves the history anchor, exhausts history, and never crashes on disclosure toggles", async () => {
+test("run trace uses pull-to-load history, preserves the anchor, and never crashes on disclosure toggles", async () => {
   const { context, page } = await setup(); const requests = [];
   const event = (sequence, type = "assistant_message") => ({ id: `trace-${sequence}`, sequence, type, title: `Trace ${sequence}`, preview: `Trace ${sequence}`, display: {} });
   const recent = [...Array.from({ length: 14 }, (_, index) => event(index + 11)), event(25, "tool_call"), event(26, "tool_result")];
-  const older = Array.from({ length: 10 }, (_, index) => event(index + 1));
+  const olderPages = [Array.from({ length: 10 }, (_, index) => event(index + 1)), Array.from({ length: 10 }, (_, index) => event(index + 27)), Array.from({ length: 10 }, (_, index) => event(index + 37))];
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Job", run_name: "Run", state: "succeeded", finalizing: false, trace_revision: "rev", artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
   await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => {
     const url = new URL(route.request().url()); requests.push(url);
-    if (url.searchParams.has("before")) return route.fulfill({ json: { items: older, nextCursor: null, previousCursor: null, revision: "rev", reset: false } });
+    if (url.searchParams.has("before")) { const page = requests.filter(request => request.searchParams.has("before")).length - 1; return route.fulfill({ json: { items: olderPages[page], nextCursor: null, previousCursor: page < olderPages.length - 1 ? page + 1 : null, revision: "rev", reset: false } }); }
     if (url.searchParams.has("after")) return route.fulfill({ json: { items: [], nextCursor: null, previousCursor: null, revision: "rev", reset: false } });
     return route.fulfill({ json: { items: recent, nextCursor: null, previousCursor: 10, revision: "rev", reset: false } });
   });
@@ -140,13 +140,13 @@ test("run trace owns scrolling, preserves the history anchor, exhausts history, 
   const initial = await scroller.evaluate(element => ({ top: element.scrollTop, height: element.scrollHeight, client: element.clientHeight }));
   assert.ok(initial.height > initial.client && initial.top > 0, "initial trace should be bottom-aligned inside its own scroller");
   const before = await scroller.evaluate(element => element.scrollHeight);
-  await scroller.evaluate(element => { element.scrollTop = 0; });
-  await page.waitForFunction(() => document.querySelectorAll("[data-run-trace] article").length >= 24);
+  await scroller.evaluate(element => { element.scrollTop = 0; const event = new Event("touchstart", { bubbles: true }); Object.defineProperty(event, "touches", { value: [{ clientY: 100 }] }); element.dispatchEvent(event); });
+  await scroller.evaluate(element => { const event = new Event("touchmove", { bubbles: true }); Object.defineProperty(event, "touches", { value: [{ clientY: 180 }] }); element.dispatchEvent(event); });
+  await scroller.evaluate(element => { const event = new Event("touchend", { bubbles: true }); Object.defineProperty(event, "touches", { value: [] }); element.dispatchEvent(event); });
+  await page.waitForFunction(() => document.querySelectorAll("[data-run-trace] article").length >= 44);
   const after = await scroller.evaluate(element => ({ top: element.scrollTop, height: element.scrollHeight }));
-  assert.ok(requests.some(url => url.searchParams.has("before")), "scrolling to the top should request history");
+  assert.equal(requests.filter(url => url.searchParams.has("before")).length, 3, "a pull should load several history pages");
   assert.ok(after.top > 0 && after.height > before, "prepending history should preserve the visible anchor");
-  await scroller.evaluate(element => { element.scrollTop = 0; }); await page.waitForTimeout(100);
-  assert.equal(requests.filter(url => url.searchParams.has("before")).length, 1, "exhausted history must not loop");
   await page.setViewportSize({ width: 900, height: 700 }); const shortHeight = await scroller.evaluate(element => element.clientHeight);
   await page.setViewportSize({ width: 900, height: 900 }); const tallHeight = await scroller.evaluate(element => element.clientHeight);
   assert.ok(tallHeight > shortHeight, "trace viewport should resize with the window");
