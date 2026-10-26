@@ -37,6 +37,9 @@ test("global jobs use the Runs-style project filter", async () => {
   });
   await page.goto(origin + "/jobs");
   const table = page.getByRole("table", { name: "Jobs", exact: true });
+  const projectFilter = table.getByRole("button", { name: "Filter by project Release project" });
+  await projectFilter.waitFor();
+  assert.equal(await projectFilter.count(), 1);
   await table.getByRole("button", { name: /Project, all projects/ }).click();
   const dialog = page.getByRole("dialog", { name: "Project filter" });
   const filteredRequest = page.waitForRequest(request => request.url().includes("/api/v1/job-summaries?") && new URL(request.url()).searchParams.has("projectId"));
