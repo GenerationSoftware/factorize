@@ -156,7 +156,7 @@ export class ApiService {
   async search(query: string) { await this.authorize("jobs:read"); await this.authorize("runs:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
   async triggerContextMetadata() { await this.authorize("jobs:read"); return triggerContextCatalog; }
   async getRunStatus(runId: string) { await this.authorize("runs:read"); const status = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).status(runId); if (!status) throw new ServiceError(404, "not_found", "Run not found"); return status; }
-  async getRevisionTrace(runId: string, after: number, limit: number, revision?: string) { await this.authorize("runs:read"); const page = await new TraceRepository(databaseFor(this.env), this.auth.tenantId).revisionPage(runId, after, limit, revision); if (!page) throw new ServiceError(404, "not_found", "Run not found"); return page; }
+  async getRevisionTrace(runId: string, after: number, limit: number, revision?: string, before?: number, recent = false) { await this.authorize("runs:read"); const page = await new TraceRepository(databaseFor(this.env), this.auth.tenantId).revisionPage(runId, after, limit, revision, before, recent); if (!page) throw new ServiceError(404, "not_found", "Run not found"); return page; }
   async getRun(runId: string) {
     await this.authorize("runs:read");
     const repository = new RunQueryRepository(databaseFor(this.env), this.auth.tenantId);

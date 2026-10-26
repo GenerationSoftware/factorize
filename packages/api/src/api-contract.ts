@@ -862,7 +862,7 @@ export const API_ROUTES: RouteContract[] = [
     summary: "Get revision-bound trace page",
     description: "First request omits revision and uses after=0. Subsequent requests supply the returned revision. A changed generation or canonical projection returns reset=true and events from zero in the new revision, from one database snapshot. Discard all cached old pages before merging the response. nextCursor=null means caught up, not finalized; poll after the last sequence while active/finalizing. Legacy GET /trace remains unchanged.",
     responses: { "200": { description: "Revision-bound page", content: { "application/json": { schema: jsonSchema(revisionTracePage, "output") } } } },
-  }, (service, { params, query }) => service.getRevisionTrace(params.runId, query.after, query.limit, query.revision), { query: revisionTraceQuery, parameters: z.object({ runId: z.guid() }) }),
+  }, (service, { params, query }) => query.before !== undefined || query.recent ? service.getRevisionTrace(params.runId, query.after, query.limit, query.revision, query.before, query.recent) : service.getRevisionTrace(params.runId, query.after, query.limit, query.revision), { query: revisionTraceQuery, parameters: z.object({ runId: z.guid() }) }),
   route(
     "GET",
     "/api/v1/runs/{runId}",

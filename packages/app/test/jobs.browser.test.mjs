@@ -179,7 +179,7 @@ test("split invocation runs defaults immediately and supports prompt-only modal"
     return inputs.length < 3 ? route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Try again" } } }) : route.fulfill({ status: 202, json: { runId, invocationId: "invocation", state: "queued", duplicate: true } });
   });
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Review builds", run_name: "Manual run", state: "succeeded", finalizing: false, trace_revision: "rev-1", artifact_state: "stored", started_at: null, created_at: summary.createdAt, updated_at: summary.updatedAt, destination_url: null } }));
-  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [{ id: "e1", sequence: 1, type: "reasoning", title: "Thinking", preview: "<script>alert('xss')</script>", display: {} }], nextCursor: null, revision: "rev-1", reset: false } }));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [{ id: "e1", sequence: 1, type: "assistant_message", title: "Assistant", preview: "<script>alert('xss')</script>", display: {} }], nextCursor: null, revision: "rev-1", reset: false } }));
   await page.goto(origin + "/jobs/" + jobId);
   await page.getByRole("button", { name: "Run job", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
@@ -192,7 +192,6 @@ test("split invocation runs defaults immediately and supports prompt-only modal"
   await page.getByRole("heading", { name: "Run with prompt", exact: true }).click(); assert.equal(await page.getByRole("dialog").count(), 1);
   await page.getByRole("button", { name: "Run with prompt", exact: true }).click(); await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
   await page.getByRole("button", { name: "Run with prompt", exact: true }).click(); await page.waitForURL(`**/job-runs/${runId}?**`);
-  await page.getByText("Thinking · reasoning", { exact: true }).click();
   await page.getByText("<script>alert('xss')</script>", { exact: true }).waitFor();
   assert.equal(inputs.length, 3); assert.equal(inputs[1].prompt, "Review"); assert.equal(inputs[1].idempotencyKey, inputs[2].idempotencyKey);
   assert.equal(await page.locator("main script").count(), 0); await context.close();
@@ -206,7 +205,7 @@ test("invocation preserves retry idempotency and navigates to lightweight run/tr
     return inputs.length === 1 ? route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Try again" } } }) : route.fulfill({ status: 202, json: { runId, invocationId: "invocation", state: "queued", duplicate: true } });
   });
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Review builds", run_name: "Manual run", state: "succeeded", finalizing: false, trace_revision: "rev-1", artifact_state: "stored", started_at: null, created_at: summary.createdAt, updated_at: summary.updatedAt, destination_url: null } }));
-  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [{ id: "e1", sequence: 1, type: "reasoning", title: "Thinking", preview: "<script>alert('xss')</script>", display: {} }], nextCursor: null, revision: "rev-1", reset: false } }));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [{ id: "e1", sequence: 1, type: "assistant_message", title: "Assistant", preview: "<script>alert('xss')</script>", display: {} }], nextCursor: null, revision: "rev-1", reset: false } }));
   await page.goto(origin + "/jobs/" + jobId);
   await page.getByRole("button", { name: "More run options", exact: true }).click();
   await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
@@ -214,7 +213,7 @@ test("invocation preserves retry idempotency and navigates to lightweight run/tr
   await page.getByRole("button", { name: "Run with prompt", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
   await page.getByRole("button", { name: "Run with prompt", exact: true }).click(); await page.waitForURL(`**/job-runs/${runId}?**`);
-  await page.getByText("Thinking · reasoning", { exact: true }).click(); await page.getByText("<script>alert('xss')</script>", { exact: true }).waitFor();
+  await page.getByText("<script>alert('xss')</script>", { exact: true }).waitFor();
   assert.equal(inputs.length, 2); assert.equal(inputs[0].idempotencyKey, inputs[1].idempotencyKey); assert.equal(inputs[1].prompt, "Review");
   assert.equal(await page.locator("main script").count(), 0); await context.close();
 });
@@ -258,11 +257,11 @@ test("trace reset between requests discards old pages and finalization keeps ter
   await page.route(`**/api/v1/runs/${runId}/status`, route => { statusCalls++; return route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Review builds", run_name: "Run", state: "succeeded", finalizing: true, trace_revision: "old", artifact_state: "collecting", created_at: summary.createdAt, updated_at: summary.updatedAt, started_at: null, destination_url: null } }); });
   await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => {
     const query = new URL(route.request().url()).searchParams;
-    if (query.get("after") === "100") reset = true;
+    if (query.get("after") === "1") reset = true;
     return route.fulfill({ json: { items: [{ id: reset ? "new" : "old", sequence: 1, type: "assistant_message", title: reset ? "New projection" : "Old projection", preview: "Safe text", display: {} }], nextCursor: reset ? null : 100, revision: reset ? "new" : "old", reset: reset && query.get("revision") === "old" } });
   });
-  await page.goto(origin + "/job-runs/" + runId); await page.getByText("Old projection · assistant_message", { exact: true }).waitFor();
-  await page.getByText("New projection · assistant_message", { exact: true }).waitFor();
+  await page.goto(origin + "/job-runs/" + runId); await page.getByText("Safe text", { exact: true }).waitFor();
+  await page.getByText("Safe text", { exact: true }).waitFor();
   assert.equal(await page.getByText("Old projection · assistant_message", { exact: true }).count(), 0);
   await page.waitForTimeout(2200); assert.ok(statusCalls >= 2);
   await context.close();

@@ -5978,6 +5978,8 @@ export interface operations {
         parameters: {
             query?: {
                 after?: number;
+                before?: number;
+                recent?: boolean;
                 limit?: number;
                 revision?: string;
             };
@@ -6011,6 +6013,7 @@ export interface operations {
                             };
                         }[];
                         nextCursor: number | null;
+                        previousCursor?: number | null;
                         revision: string;
                         reset: boolean;
                     };

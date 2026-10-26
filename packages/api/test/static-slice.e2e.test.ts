@@ -77,19 +77,19 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       expect(calls.filter(call => call === `POST /api/v1/jobs/${f.jobIds[1]}/invocations`)).toHaveLength(1);
       const row = (await f.db.pool.query("SELECT i.context,jr.state FROM app.invocations i JOIN app.job_runs jr ON jr.tenant_id=i.tenant_id AND jr.invocation_id=i.id WHERE jr.tenant_id=$1 AND jr.id=$2", [f.tenantId, runId])).rows[0];
       expect(row).toMatchObject({ state: "reserved", context: { manual: { prompt: "Real invocation", data: {} } } });
-      await page.reload(); await page.getByText("No trace events yet.", { exact: true }).waitFor();
+      await page.reload(); await page.getByText("No assistant messages yet.", { exact: true }).waitFor();
       await f.db.transaction(async client => {
         await client.query("INSERT INTO app.run_trace_events(tenant_id,run_id,sequence,id,event_type,title,preview_text,display_data) VALUES ($1,$2,1,'canonical','assistant_message','Final output','Safe output','{}')", [f.tenantId, runId]);
         await client.query("INSERT INTO app.run_trace_projections(tenant_id,run_id,source_kind,artifact_sha256,parser_version,reconciliation) VALUES ($1,$2,'native_session',$3,'test','{}')", [f.tenantId, runId, "b".repeat(64)]);
         await client.query("UPDATE app.job_runs SET state='succeeded' WHERE tenant_id=$1 AND id=$2", [f.tenantId, runId]);
         await client.query("UPDATE app.runs SET state='succeeded',artifact_state='stored',vm_cleanup_complete=true WHERE tenant_id=$1 AND id=$2", [f.tenantId, runId]);
       });
-      await page.getByText("Final output · assistant_message", { exact: true }).waitFor();
+      await page.getByText("Safe output", { exact: true }).waitFor();
       expect(calls.some(call => call === `GET /api/v1/runs/${runId}/status`)).toBe(true);
       expect(calls.some(call => call === `GET /api/v1/runs/${runId}`)).toBe(false);
-      const trace = page.getByRole("region", { name: "Full trace" });
-      await trace.getByText("Final output · assistant_message", { exact: true }).waitFor();
-      expect(await trace.locator("li").count()).toBe(1);
+      const trace = page.locator("[data-run-trace]");
+      await trace.getByText("Safe output", { exact: true }).waitFor();
+      expect(await trace.locator("article").count()).toBe(1);
       expect(failures).toEqual([]);
       await context.close();
     } finally { await browser.close(); await f.cleanup(); }

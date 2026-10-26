@@ -1,81 +1,73 @@
-import { traceClasses } from "./event-body";
-import { Disclosure, Summary, Button, Card } from "../../shared/ui";
-import { EventBody } from "./event-body";
-import { useRef, useState, useEffect } from "react";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
+import { traceClasses, EventBody } from "./event-body";
+import { Disclosure, Summary, Card } from "../../shared/ui";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useInfiniteQuery, useQuery, type InfiniteData } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf } from "../auth/session";
+import type { operations } from "factorize-api-client";
+
+type Event = operations["get_api_v1_runs_runId_trace_pages"]["responses"][200]["content"]["application/json"]["items"][number];
+type TracePage = { items: Event[]; nextCursor: number | null; previousCursor?: number | null; revision: string; reset: boolean };
+type PageParam = { mode: "recent" | "before"; cursor?: number; revision?: string };
+type ConversationItem = { kind: "assistant"; event: Event } | { kind: "tools"; events: Event[]; count: number };
+
+function conversation(events: Event[]): ConversationItem[] {
+  const visible = events.filter(event => ["assistant_message", "tool_call", "tool_result"].includes(event.type));
+  const result: ConversationItem[] = [];
+  for (const event of visible) {
+    if (event.type === "assistant_message") result.push({ kind: "assistant", event });
+    else {
+      const previous = result.at(-1);
+      if (previous?.kind === "tools") { previous.events.push(event); if (event.type === "tool_call") previous.count += 1; }
+      else result.push({ kind: "tools", events: [event], count: event.type === "tool_call" ? 1 : 0 });
+    }
+  }
+  return result;
+}
+
 export function ContinuousTrace({ runId, revision, active, onReset }: { runId: string; revision: string; active: boolean; onReset: (revision: string) => void }) {
-  const cache = useQueryClient();
-  const [focused, setFocused] = useState<number | null>(null), [selection, setSelection] = useState<number[]>([]);
-  const container = useRef<HTMLDivElement>(null), [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const paginationStarted = useRef(false);
-  const trace = useInfiniteQuery({ queryKey: ["runs", runId, "continuous-trace", revision], initialPageParam: 0,
-    queryFn: async ({ signal, pageParam }) => { const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: pageParam, revision, limit: 200 } } }); if (!data || error) throw new Error(messageOf(error)); return data; },
-    enabled: !!revision, getNextPageParam: page => page.reset ? undefined : page.nextCursor ?? undefined,
+  const [liveItems, setLiveItems] = useState<Event[]>([]);
+  const [atBottom, setAtBottom] = useState(true);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const anchor = useRef<{ height: number; top: number } | null>(null);
+  const trace = useInfiniteQuery<TracePage, Error, InfiniteData<TracePage>, string[], PageParam>({
+    queryKey: ["runs", runId, "conversation-trace", revision],
+    initialPageParam: { mode: "recent" } as PageParam,
+    queryFn: async ({ signal, pageParam }) => {
+      const query = pageParam.mode === "recent" ? { recent: true, revision: pageParam.revision, limit: 100 } : { before: pageParam.cursor, revision: pageParam.revision, limit: 100 };
+      const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query } });
+      if (!data || error) throw new Error(messageOf(error));
+      return data;
+    },
+    enabled: !!revision, getNextPageParam: page => page.previousCursor == null ? undefined : { mode: "before", cursor: page.previousCursor, revision: page.revision } as PageParam,
     staleTime: Infinity, retry: 1,
   });
-  const lastParam = trace.data?.pageParams.at(-1);
-  const lastAfter = typeof lastParam === "number" ? lastParam : 0;
-  const live = useQuery({ queryKey: ["runs", runId, "continuous-tail", revision, lastAfter], enabled: active && !!trace.data && !trace.hasNextPage && !trace.isFetching,
-    queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: lastAfter, revision, limit: 200 } } }); if (!data || error) throw new Error(messageOf(error)); return data; },
+  const pages = trace.data?.pages ?? [];
+  const items = useMemo(() => [...pages.flatMap(page => page.items), ...liveItems].filter((event, index, all) => all.findIndex(candidate => candidate.id === event.id) === index).sort((a, b) => a.sequence - b.sequence), [pages, liveItems]);
+  const latestSequence = items.at(-1)?.sequence ?? 0;
+  const live = useQuery({
+    queryKey: ["runs", runId, "conversation-tail", revision, latestSequence],
+    enabled: active && !!trace.data && !trace.isFetching,
+    queryFn: async ({ signal }) => {
+      const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: latestSequence, revision, limit: 100 } } });
+      if (!data || error) throw new Error(messageOf(error)); return data;
+    },
     refetchIntervalInBackground: false, refetchInterval: query => query.state.error ? 10_000 : 2_000, retry: 1,
   });
-  useEffect(() => { const changed = live.data?.reset ? live.data : trace.data?.pages.find(page => page.reset || page.revision !== revision); if (changed) onReset(changed.revision); }, [live.data, trace.data, revision, onReset]);
-  useEffect(() => { if (live.data && !live.data.reset && live.data.revision === revision) cache.setQueryData(trace.data ? ["runs", runId, "continuous-trace", revision] : [], (previous: typeof trace.data) => previous ? { ...previous, pages: previous.pages.map((page, index) => index === previous.pages.length - 1 ? live.data! : page) } : previous); }, [live.data, cache, runId, revision]);
-  const items = trace.data?.pages.filter(page => page.revision === revision && !page.reset).flatMap(page => page.items) ?? [];
-  const latestAssistant = [...items].reverse().find(event => event.type === "assistant_message");
+  useEffect(() => { const changed = live.data?.reset ? live.data : pages.find(page => page.reset || page.revision !== revision); if (changed) onReset(changed.revision); }, [live.data, pages, revision, onReset]);
+  useEffect(() => { if (live.data && !live.data.reset && live.data.revision === revision) setLiveItems(previous => [...previous, ...live.data!.items]); }, [live.data, revision]);
+  useEffect(() => { setLiveItems([]); setExpanded(new Set()); }, [revision]);
   useEffect(() => {
-    const element = container.current;
-    if (!element) return;
-    const changed = () => { paginationStarted.current = true; };
-    element.addEventListener("scroll", changed, { passive: true });
-    return () => element.removeEventListener("scroll", changed);
-  }, []);
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (paginationStarted.current && trace.hasNextPage && !trace.isFetching) void trace.fetchNextPage();
-    }, 100);
-    return () => window.clearInterval(timer);
+    const onScroll = () => { const bottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 48; setAtBottom(bottom); if (window.scrollY < 160 && trace.hasNextPage && !trace.isFetching) { anchor.current = { height: document.documentElement.scrollHeight, top: window.scrollY }; void trace.fetchNextPage(); } };
+    window.addEventListener("scroll", onScroll, { passive: true }); return () => window.removeEventListener("scroll", onScroll);
   }, [trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
-  useEffect(() => {
-    const changed = () => {
-      const current = window.getSelection();
-      const indices = current && !current.isCollapsed ? [current.anchorNode, current.focusNode].flatMap(node => {
-        const element = node instanceof Element ? node : node?.parentElement;
-        const row = element?.closest<HTMLElement>("li[data-index]");
-        return row && container.current?.contains(row) ? [Number(row.dataset.index)] : [];
-      }) : [];
-      setSelection(previous => JSON.stringify(previous) === JSON.stringify(indices) ? previous : indices);
-    };
-    document.addEventListener("selectionchange", changed); return () => document.removeEventListener("selectionchange", changed);
-  }, []);
-  const virtualizer = useVirtualizer({ count: items.length, getScrollElement: () => container.current, estimateSize: () => 70, overscan: 8, rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...selection, ...(focused === null ? [] : [focused])])].filter(index => index >= 0 && index < items.length).sort((a, b) => a - b), getItemKey: index => `${revision}:${items[index].sequence}:${items[index].id}` });
-  const virtualItems = virtualizer.getVirtualItems();
-  useEffect(() => {
-    if ((virtualItems.at(-1)?.index ?? -1) < items.length - 8 || !trace.hasNextPage || trace.isFetching) return;
-    const timer = window.setTimeout(() => void trace.fetchNextPage(), 100);
-    return () => window.clearTimeout(timer);
-  }, [virtualItems, items.length, trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
-  useEffect(() => {
-    if (!trace.hasNextPage || trace.isFetching) return;
-    const timer = window.setTimeout(() => void trace.fetchNextPage(), 250);
-    return () => window.clearTimeout(timer);
-  }, [trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
-  return <Card>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading trace…</p>}
-    <h3 className="mt-4 text-lg font-semibold">Status</h3>
-    {latestAssistant ? <div className="mt-2 min-w-0 rounded-lg border border-stone-200 p-3 dark:border-slate-700"><EventBody event={latestAssistant} /></div> : <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">No assistant message yet.</p>}
-    <h3 className="mt-6 text-lg font-semibold">Full trace</h3>
-    {!trace.isPending && !items.length && <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">No trace events yet.</p>}
-    <div ref={container} onFocusCapture={e => { const row = (e.target as HTMLElement).closest<HTMLElement>("li[data-index]"); setFocused(row ? Number(row.dataset.index) : null); }} onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(null); }} tabIndex={0} role="region" aria-label="Full trace" className="mt-2 h-[65vh] min-w-0 max-w-full overflow-auto border p-3">
-      <ol className="relative" style={{ height: virtualizer.getTotalSize() }} aria-label="Trace events">{virtualItems.map(row => {
-        const event = items[row.index], key = `${revision}:${event.sequence}:${event.id}`;
-        return <li key={key} data-index={row.index} ref={virtualizer.measureElement} style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${row.start}px)` }} aria-posinset={row.index + 1} aria-setsize={items.length}>
-          <Disclosure className={traceClasses(event.type)} open={expanded.has(key)} onToggle={e => { const open = e.currentTarget.open; setExpanded(previous => { const next = new Set(previous); if (open) next.add(key); else next.delete(key); return next; }); }}><Summary>{event.title} · {event.type}</Summary><EventBody event={event} /></Disclosure>
-        </li>;
-      })}</ol>
-    </div><p role="status">{items.length} events loaded{trace.isFetching ? " · Updating…" : ""}</p>
-    {trace.hasNextPage && <Button disabled={trace.isFetching} onClick={() => void trace.fetchNextPage()}>Load more trace events</Button>}
+  useEffect(() => { if (!anchor.current || trace.isFetching) return; const previous = anchor.current; anchor.current = null; window.scrollTo({ top: previous.top + document.documentElement.scrollHeight - previous.height, behavior: "auto" }); }, [items.length, trace.isFetching]);
+  useEffect(() => { if (atBottom && live.data?.items.length) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" }); }, [atBottom, live.data]);
+  useEffect(() => { if (trace.data && !trace.isFetching && pages.length === 1 && items.length) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" }); }, [trace.data, trace.isFetching]);
+  const grouped = conversation(items);
+  return <Card className="border-0 p-0 shadow-none">{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
+    {!trace.isPending && !grouped.length && <p className="text-sm text-slate-600 dark:text-slate-400">No assistant messages yet.</p>}
+    <div data-run-trace className="min-w-0 space-y-4" aria-live={active ? "polite" : undefined}>{grouped.map((item, index) => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={item.events[0]?.id + ":" + index} className={traceClasses("tool_call")} open={expanded.has(item.events[0]?.id + ":" + index)} onToggle={event => { const key = item.events[0]?.id + ":" + index; setExpanded(previous => { const next = new Set(previous); event.currentTarget.open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary><div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div></Disclosure>)}</div>
+    {active && <p role="status" className="mt-5 text-sm font-medium"><span aria-hidden="true" className="mr-2 inline-block motion-safe:animate-pulse">●</span>Running…</p>}
   </Card>;
 }

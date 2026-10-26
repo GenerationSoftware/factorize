@@ -56,7 +56,7 @@ export class TraceRepository {
       FROM jsonb_to_recordset($3::jsonb) AS x(sequence bigint,id text,parent_id text,event_type text,role text,title text,preview_text text,display_data jsonb,occurred_at timestamptz)`, [this.tenantId, runId, JSON.stringify(items.map(item => ({ sequence: item.sequence, id: item.id, parent_id: item.parentId ?? null, event_type: item.type, role: item.role ?? null, title: item.title, preview_text: item.preview, display_data: item.display, occurred_at: item.occurredAt ?? null })))]);
   }
 
-  async revisionPage(runId: string, after: number, limit: number, expectedRevision?: string) {
+  async revisionPage(runId: string, after: number, limit: number, expectedRevision?: string, before?: number, recent = false) {
     const result = await this.database.pool.query<{ revision: string; reset: boolean; events: TraceRow[] }>(`
       WITH meta AS (
         SELECT ${traceRevisionSql} revision FROM app.runs r
@@ -66,13 +66,16 @@ export class TraceRepository {
       ), bound AS (SELECT revision,($5::text IS NOT NULL AND revision<>$5) reset FROM meta)
       SELECT revision,reset,coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.sequence) FROM (
         SELECT sequence,id,parent_id,event_type,role,title,preview_text,display_data,occurred_at
-        FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2 AND sequence>CASE WHEN reset THEN 0 ELSE $3 END
-        ORDER BY sequence LIMIT $4
-      ) e),'[]'::jsonb) events FROM bound`, [this.tenantId, runId, after, limit + 1, expectedRevision ?? null]);
+        FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2
+          AND (CASE WHEN $6::boolean OR $7::bigint IS NOT NULL THEN sequence < COALESCE($7::bigint, (SELECT max(sequence) + 1 FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2)) ELSE sequence > CASE WHEN reset THEN 0 ELSE $3 END END)
+        ORDER BY CASE WHEN $6::boolean OR $7::bigint IS NOT NULL THEN sequence END DESC, CASE WHEN NOT ($6::boolean OR $7::bigint IS NOT NULL) THEN sequence END ASC LIMIT $4
+      ) e),'[]'::jsonb) events FROM bound`, [this.tenantId, runId, after, limit + 1, expectedRevision ?? null, recent, before ?? null]);
     const row = result.rows[0];
     if (!row) return null;
-    const events = row.events.slice(0, limit).map(event => mapped({ ...event, occurred_at: event.occurred_at ? new Date(event.occurred_at) : null }));
-    return { items: events, revision: row.revision, reset: row.reset, nextCursor: row.events.length > limit ? events.at(-1)!.sequence : null };
+    const raw = row.events.slice(0, limit);
+    if (before !== undefined || recent) raw.reverse();
+    const events = raw.map(event => mapped({ ...event, occurred_at: event.occurred_at ? new Date(event.occurred_at) : null }));
+    return { items: events, revision: row.revision, reset: row.reset, nextCursor: before === undefined && !recent && row.events.length > limit ? events.at(-1)!.sequence : null, ...((before !== undefined || recent) ? { previousCursor: row.events.length > limit ? events[0]?.sequence ?? null : null } : {}) };
   }
   async page(runId: string, after = 0, limit = 100): Promise<TracePage> {
     const size = Math.max(1, Math.min(200, Math.trunc(limit)));
