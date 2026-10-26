@@ -135,6 +135,11 @@ test("run trace uses pull-to-load history, preserves the anchor, and never crash
   });
   await page.goto(origin + "/job-runs/" + runId); const scroller = page.locator("[data-run-trace-scroll]");
   await page.getByText("Trace 24", { exact: true }).waitFor();
+  const tracePanel = page.locator("#run-panel-trace");
+  assert.equal(await tracePanel.locator(":scope > section").count(), 0, "trace should not contain a redundant nested section");
+  assert.equal(await tracePanel.locator(":scope > [data-run-trace-scroll]").count(), 1, "trace viewport should belong directly to the tab panel");
+  const presentation = await scroller.evaluate(element => { const style = getComputedStyle(element); return { border: style.borderWidth, radius: style.borderRadius, padding: style.padding }; });
+  assert.equal(presentation.border, "0px"); assert.equal(presentation.radius, "0px"); assert.equal(presentation.padding, "0px");
   await page.getByText("1 Tool Call", { exact: true }).click();
   assert.equal(await page.getByText("Cannot read properties of null", { exact: false }).count(), 0);
   const initial = await scroller.evaluate(element => ({ top: element.scrollTop, height: element.scrollHeight, client: element.clientHeight }));
@@ -150,5 +155,8 @@ test("run trace uses pull-to-load history, preserves the anchor, and never crash
   await page.setViewportSize({ width: 900, height: 700 }); const shortHeight = await scroller.evaluate(element => element.clientHeight);
   await page.setViewportSize({ width: 900, height: 900 }); const tallHeight = await scroller.evaluate(element => element.clientHeight);
   assert.ok(tallHeight > shortHeight, "trace viewport should resize with the window");
+  await page.setViewportSize({ width: 390, height: 700 });
+  const mobilePresentation = await scroller.evaluate(element => { const style = getComputedStyle(element); return { border: style.borderWidth, radius: style.borderRadius, padding: style.padding }; });
+  assert.equal(mobilePresentation.border, "0px"); assert.equal(mobilePresentation.radius, "0px"); assert.equal(mobilePresentation.padding, "0px");
   await context.close();
 });
