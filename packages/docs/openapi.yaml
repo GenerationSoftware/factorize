@@ -9565,6 +9565,12 @@ paths:
                         minimum: -9007199254740991
                         maximum: 9007199254740991
                       - type: "null"
+                  previousCursor:
+                    anyOf:
+                      - type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      - type: "null"
                   revision:
                     type: string
                   reset:
@@ -9615,6 +9621,19 @@ paths:
             type: integer
             minimum: 0
             maximum: 9007199254740991
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+        - name: recent
+          in: query
+          required: false
+          schema:
+            default: false
+            type: boolean
         - name: limit
           in: query
           required: false

@@ -78,13 +78,12 @@ test("loading, search, error and no-result states are actionable", async ({ page
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("trace details, virtualization beyond the viewport and generation reset remain functional", async ({ page }) => {
+test("conversation trace renders assistant messages and uses document scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockApi(page, { long: true });
   await page.goto(origin + "/job-runs/" + "00000000-0000-4000-8000-000000000002");
-  await expect(page.getByText("User · user_message", { exact: true })).toBeVisible();
-  const details = page.locator("main ol details");
-  await details.first().locator("summary").click();
-  await expect(details.first()).toHaveAttribute("open", "");
-  expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true);
+  await expect(page.getByText("Release ready", { exact: true })).toBeVisible();
+  await expect(page.getByText("Full trace", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("events loaded", { exact: false })).toHaveCount(0);
+  expect(await page.locator("[data-run-trace]").evaluate(element => getComputedStyle(element).overflow)).not.toBe("auto");
 });
