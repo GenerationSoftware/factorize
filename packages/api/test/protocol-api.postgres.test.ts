@@ -1,3 +1,4 @@
+import { SkillRepository } from "../src/postgres/skill-repository";
 import worker from "../src/worker";
 import { describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
@@ -6,7 +7,8 @@ import { deviceAuthorization } from "../src/device-oauth";
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 const url = process.env.AUTH_TEST_DATABASE_URL;
-describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", () => {
+// Each test creates and migrates an isolated database before exercising the API.
+describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", { timeout: 30_000 }, () => {
   it("lists skills and their usage through an existing browser session", async () => {
     const f = await loadingFixture(url!);
     try {
@@ -32,6 +34,41 @@ describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", () => {
       expect(page.items[0]).toMatchObject({ id: skill.id, key: "review", revision: 1, usageCount: 1 });
       expect(page.items[0]).not.toHaveProperty("body");
       expect(page.nextCursor).toBeNull();
+    } finally { await f.cleanup(); }
+  });
+
+  it("reads, previews and attaches persisted skills through the API", async () => {
+    const f = await loadingFixture(url!);
+    try {
+      const request = (path: string, method = "GET", body?: unknown) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1" + path, {
+        method, headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }), f.env, {} as ExecutionContext);
+      const body = "Literal skill {{notATemplate}}";
+      const created = await request("/skills", "POST", { key: "integration-context", body });
+      expect(created.status).toBe(201);
+      const skill = await created.json() as { id: string };
+      const read = await request(`/skills/${skill.id}`);
+      expect(read.status).toBe(200);
+      expect(await read.json()).toMatchObject({ id: skill.id, body });
+      const repository = new SkillRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+      expect(await repository.get("integration-context")).toMatchObject({ id: skill.id, body });
+      expect(await repository.get("missing-key")).toBeNull();
+      expect(await repository.get(crypto.randomUUID())).toBeNull();
+      const other = new SkillRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY);
+      expect(await other.get(skill.id)).toBeNull();
+      expect(await other.get("integration-context")).toBeNull();
+      const preview = await request("/skills/preview", "POST", { skillIds: [skill.id], jobContext: "Job task" });
+      expect(preview.status).toBe(200);
+      expect(await preview.json()).toMatchObject({ prompt: body + "\n\nJob task" });
+      const saved = await request(`/jobs/${f.jobIds[0]}`, "PUT", {
+        name: "Skill job", slug: "skill-job", promptTemplate: "Job task", executionConfigId: "local",
+        concurrencyLimit: 2, triggers: [], skillIds: [skill.id],
+      });
+      expect(saved.status).toBe(200);
+      const job = await f.request(`/api/v1/jobs/${f.jobIds[0]}`);
+      expect(job.status).toBe(200);
+      expect(await job.json()).toMatchObject({ promptTemplate: "Job task", skills: [{ id: skill.id, key: "integration-context", revision: 1, position: 0 }] });
     } finally { await f.cleanup(); }
   });
 
