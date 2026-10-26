@@ -1,6 +1,6 @@
 import { traceClasses, EventBody } from "./event-body";
 import { Disclosure, Summary, Card } from "../../shared/ui";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, type InfiniteData } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf } from "../auth/session";
@@ -27,9 +27,12 @@ function conversation(events: Event[]): ConversationItem[] {
 
 export function ContinuousTrace({ runId, revision, active, onReset }: { runId: string; revision: string; active: boolean; onReset: (revision: string) => void }) {
   const [liveItems, setLiveItems] = useState<Event[]>([]);
-  const [atBottom, setAtBottom] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const anchor = useRef<{ height: number; top: number } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+  const historyLoadingRef = useRef(false);
+  const prependAnchor = useRef<{ height: number; top: number } | null>(null);
+  const initialAlignedRevision = useRef<string | null>(null);
   const trace = useInfiniteQuery<TracePage, Error, InfiniteData<TracePage>, string[], PageParam>({
     queryKey: ["runs", runId, "conversation-trace", revision],
     initialPageParam: { mode: "recent" } as PageParam,
@@ -57,17 +60,68 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   useEffect(() => { const changed = live.data?.reset ? live.data : pages.find(page => page.reset || page.revision !== revision); if (changed) onReset(changed.revision); }, [live.data, pages, revision, onReset]);
   useEffect(() => { if (live.data && !live.data.reset && live.data.revision === revision) setLiveItems(previous => [...previous, ...live.data!.items]); }, [live.data, revision]);
   useEffect(() => { setLiveItems([]); setExpanded(new Set()); }, [revision]);
+  useEffect(() => { initialAlignedRevision.current = null; followRef.current = true; }, [revision]);
+  const updateScrollState = () => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const bottom = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
+    followRef.current = bottom;
+  };
+  const loadHistory = () => {
+    const element = scrollRef.current;
+    if (!element || !trace.hasNextPage || trace.isFetching || historyLoadingRef.current) return;
+    historyLoadingRef.current = true;
+    prependAnchor.current = { height: element.scrollHeight, top: element.scrollTop };
+    void trace.fetchNextPage().finally(() => { historyLoadingRef.current = false; });
+  };
   useEffect(() => {
-    const onScroll = () => { const bottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 48; setAtBottom(bottom); if (window.scrollY < 160 && trace.hasNextPage && !trace.isFetching) { anchor.current = { height: document.documentElement.scrollHeight, top: window.scrollY }; void trace.fetchNextPage(); } };
-    window.addEventListener("scroll", onScroll, { passive: true }); return () => window.removeEventListener("scroll", onScroll);
-  }, [trace.hasNextPage, trace.isFetching, trace.fetchNextPage]);
-  useEffect(() => { if (!anchor.current || trace.isFetching) return; const previous = anchor.current; anchor.current = null; window.scrollTo({ top: previous.top + document.documentElement.scrollHeight - previous.height, behavior: "auto" }); }, [items.length, trace.isFetching]);
-  useEffect(() => { if (atBottom && live.data?.items.length) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" }); }, [atBottom, live.data]);
-  useEffect(() => { if (trace.data && !trace.isFetching && pages.length === 1 && items.length) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" }); }, [trace.data, trace.isFetching]);
+    const element = scrollRef.current;
+    if (!element) return;
+    const onScroll = () => { updateScrollState(); if (element.scrollTop <= 160) loadHistory(); };
+    element.addEventListener("scroll", onScroll, { passive: true });
+    return () => element.removeEventListener("scroll", onScroll);
+  });
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    const previous = prependAnchor.current;
+    if (!element || !previous) return;
+    prependAnchor.current = null;
+    requestAnimationFrame(() => {
+      const current = scrollRef.current;
+      if (current) current.scrollTop = previous.top + current.scrollHeight - previous.height;
+    });
+  }, [pages.length, items.length]);
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element || !trace.data || trace.isFetching || !items.length) return;
+    if (pages.length === 1 && !prependAnchor.current && initialAlignedRevision.current !== revision) {
+      initialAlignedRevision.current = revision;
+      element.scrollTop = element.scrollHeight;
+    }
+  }, [trace.data, trace.isFetching, pages.length, items.length, revision]);
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element || !live.data?.items.length || !followRef.current) return;
+    element.scrollTop = element.scrollHeight;
+  }, [live.data, items.length]);
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const resize = () => {
+      if (followRef.current) element.scrollTop = element.scrollHeight;
+      else updateScrollState();
+    };
+    window.addEventListener("resize", resize);
+    const observer = new ResizeObserver(resize);
+    observer.observe(element);
+    return () => { window.removeEventListener("resize", resize); observer.disconnect(); };
+  }, []);
   const grouped = conversation(items);
   return <Card className="border-0 p-0 shadow-none">{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
-    {!trace.isPending && !grouped.length && <p className="text-sm text-slate-600 dark:text-slate-400">No assistant messages yet.</p>}
-    <div data-run-trace className="min-w-0 space-y-4" aria-live={active ? "polite" : undefined}>{grouped.map((item, index) => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={item.events[0]?.id + ":" + index} className={traceClasses("tool_call")} open={expanded.has(item.events[0]?.id + ":" + index)} onToggle={event => { const key = item.events[0]?.id + ":" + index; setExpanded(previous => { const next = new Set(previous); event.currentTarget.open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary><div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div></Disclosure>)}</div>
+    <div ref={scrollRef} data-run-trace-scroll aria-label="Run trace" className="h-[min(60rem,calc(100dvh-18rem))] min-h-64 min-w-0 overflow-y-auto overscroll-contain rounded-lg border border-stone-200 p-4 dark:border-slate-800" onScroll={updateScrollState}>
+      {!trace.isPending && !grouped.length && <p className="text-sm text-slate-600 dark:text-slate-400">No assistant messages yet.</p>}
+      <div data-run-trace className="flex min-h-full min-w-0 flex-col justify-end space-y-4" aria-live={active ? "polite" : undefined}>{grouped.map((item, index) => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={item.events[0]?.id + ":" + index} className={traceClasses("tool_call")} open={expanded.has(item.events[0]?.id + ":" + index)} onToggle={event => { const key = item.events[0]?.id + ":" + index; const open = event.currentTarget.open; setExpanded(previous => { const next = new Set(previous); open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary><div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div></Disclosure>)}</div>
+    </div>
     {active && <p role="status" className="mt-5 text-sm font-medium"><span aria-hidden="true" className="mr-2 inline-block motion-safe:animate-pulse">●</span>Running…</p>}
   </Card>;
 }
