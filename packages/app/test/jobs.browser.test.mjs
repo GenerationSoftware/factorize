@@ -79,7 +79,7 @@ test("project details can rename and describe a project", async () => {
   assert.equal(saved.length, 1);
   await context.close();
 });
-test("projects and job pages keep a stable breadcrumb row", async () => {
+test("project and job detail pages omit redundant collection labels", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
@@ -88,11 +88,13 @@ test("projects and job pages keep a stable breadcrumb row", async () => {
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 1);
   await page.goto(origin + `/projects/${projectId}`);
   await page.getByRole("heading", { name: "Release project", exact: true }).waitFor();
-  assert.deepEqual(await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link").allTextContents(), ["Projects"]);
+  assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
   assert.equal(await page.getByText("Project", { exact: true }).count(), 1);
   await page.goto(origin + `/jobs/${jobId}`);
   await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
-  assert.deepEqual(await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link").allTextContents(), ["Release project"]);
+  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
+  assert.deepEqual(await breadcrumb.getByRole("link").allTextContents(), ["Release project"]);
+  assert.equal(await breadcrumb.getByText("Jobs", { exact: true }).count(), 0);
   assert.equal(await page.getByText("Job", { exact: true }).count(), 1);
   await context.close();
 });
