@@ -40,6 +40,19 @@ describe.skipIf(!url)("lightweight status and revision-bound traces", () => {
     expect(await new TraceRepository(f.db, f.otherTenant).revisionPage(f.runId, 0, 2)).toBeNull();
     expect((await new ApiService(f.env, f.auth).getRunStatus(f.runId)).trace_revision).toBe(reset.revision);
   });
+  it("returns real recent and before pages without dropping or repeating boundaries", async () => {
+    const traces = new TraceRepository(f.db, f.tenantId);
+    await traces.replace(f.runId, Array.from({ length: 162 }, (_, i) => ({ id: `page-${i + 1}`, sequence: i + 1, type: "assistant_message" as const, title: `Event ${i + 1}`, preview: "Text", display: {} })));
+
+    const recent = (await traces.revisionPage(f.runId, 0, 100, undefined, undefined, true))!;
+    expect(recent.items.map(event => event.sequence)).toEqual(Array.from({ length: 100 }, (_, i) => i + 63));
+    expect(recent.previousCursor).toBe(63);
+
+    const older = (await traces.revisionPage(f.runId, 0, 100, recent.revision, recent.previousCursor!))!;
+    expect(older.items.map(event => event.sequence)).toEqual(Array.from({ length: 62 }, (_, i) => i + 1));
+    expect(older.previousCursor).toBeNull();
+    expect(new Set([...recent.items, ...older.items].map(event => event.sequence)).size).toBe(162);
+  });
   it("distinguishes terminal execution from finalization and accepts legacy done filters", async () => {
     await f.db.pool.query("UPDATE app.job_runs SET state='succeeded' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     await f.db.pool.query("UPDATE app.runs SET state='succeeded',artifact_state='collecting',vm_cleanup_complete=false WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);

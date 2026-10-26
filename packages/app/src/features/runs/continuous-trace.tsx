@@ -69,6 +69,7 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
     if (!element) return;
     const bottom = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
     followRef.current = bottom;
+    if (element.scrollTop <= 8 && trace.hasNextPage && !trace.isFetching && !historyLoadingRef.current) void loadHistory(3);
   };
   const loadHistory = async (pageCount = 1) => {
     const element = scrollRef.current;

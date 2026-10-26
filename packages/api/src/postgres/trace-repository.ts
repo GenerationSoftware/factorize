@@ -64,10 +64,12 @@ export class TraceRepository {
         LEFT JOIN app.run_trace_projections p ON p.tenant_id=r.tenant_id AND p.run_id=r.id
         WHERE r.tenant_id=$1 AND r.id=$2
       ), bound AS (SELECT revision,($5::text IS NOT NULL AND revision<>$5) reset FROM meta)
-      SELECT revision,reset,coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.sequence) FROM (
+      SELECT revision,reset,coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY CASE WHEN $6::boolean OR $7::bigint IS NOT NULL THEN -e.sequence ELSE e.sequence END) FROM (
         SELECT sequence,id,parent_id,event_type,role,title,preview_text,display_data,occurred_at
         FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2
-          AND (CASE WHEN $6::boolean OR $7::bigint IS NOT NULL THEN sequence < COALESCE($7::bigint, (SELECT max(sequence) + 1 FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2)) ELSE sequence > CASE WHEN reset THEN 0 ELSE $3 END END)
+          AND (CASE WHEN $6::boolean THEN sequence <= COALESCE((SELECT max(sequence) FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2), 0)
+            WHEN $7::bigint IS NOT NULL THEN sequence < $7::bigint
+            ELSE sequence > CASE WHEN reset THEN 0 ELSE $3 END END)
         ORDER BY CASE WHEN $6::boolean OR $7::bigint IS NOT NULL THEN sequence END DESC, CASE WHEN NOT ($6::boolean OR $7::bigint IS NOT NULL) THEN sequence END ASC LIMIT $4
       ) e),'[]'::jsonb) events FROM bound`, [this.tenantId, runId, after, limit + 1, expectedRevision ?? null, recent, before ?? null]);
     const row = result.rows[0];
