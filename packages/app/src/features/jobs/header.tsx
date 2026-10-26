@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { Button } from "../../shared/ui";
+import { Button, ResourceHeader } from "../../shared/ui";
 import { messageOf } from "../auth/session";
 import { InvokeJob } from "./invoke";
 import { JobTabs } from "./tabs";
@@ -27,10 +27,9 @@ export function JobHeader({ job }: JobHeaderProps) {
   });
 
   return <>
-    <div className="mt-5 flex min-w-0 flex-wrap items-start gap-x-4 gap-y-2"><h1 className={`min-w-0 flex-1 break-words text-3xl font-semibold ${job.enabled ? "" : "text-slate-500 dark:text-slate-400"}`}>{job.name}</h1><div className="flex max-w-full shrink-0 flex-wrap items-center gap-2"><InvokeJob jobId={job.id} enabled={job.enabled} />
+    <ResourceHeader type="Job" title={job.name} description={<>{job.agentKind} · {job.model || "Default model"} · {job.runningCount}/{job.concurrencyLimit} running</>}><div className="flex max-w-full shrink-0 flex-wrap items-center gap-2"><InvokeJob jobId={job.id} enabled={job.enabled} />
       <Button className="min-h-9 px-2.5 py-1.5 text-xs" disabled={enabled.isPending} onClick={() => enabled.mutate(!job.enabled)}>{job.enabled ? "Disable job" : "Enable job"}</Button>
-    </div></div>
-    <p className="mb-4 mt-2 text-sm text-slate-600 dark:text-slate-400">{job.agentKind} · {job.model || "Default model"} · {job.runningCount}/{job.concurrencyLimit} running</p>
+    </div></ResourceHeader>
     <JobTabs jobId={job.id} />
     {enabled.error && <p role="alert">{enabled.error.message}</p>}
   </>;

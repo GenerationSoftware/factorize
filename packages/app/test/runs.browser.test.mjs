@@ -91,7 +91,7 @@ test("prompt/provenance and diagnostics are lazy, terminal replay retries reuse 
   assert.equal(await page.locator('a[href^="javascript:"]').count(), 0); assert.equal(await page.locator("main script").count(), 0);
   assert.equal(await page.getByRole("tab", { name: "Trace", exact: true }).getAttribute("aria-selected"), "true");
   const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
-  assert.equal(await breadcrumbs.getByRole("link", { name: "Projects", exact: true }).getAttribute("href"), "/projects");
+  assert.equal(await breadcrumbs.getByRole("link", { name: "Job", exact: true }).count(), 1);
   assert.equal(await breadcrumbs.getByRole("link", { name: "Job", exact: true }).getAttribute("href"), "/jobs/" + jobId);
   await page.getByRole("tab", { name: "Info", exact: true }).click();
   await page.getByText("Created", { exact: true }).waitFor(); await page.getByText("Started", { exact: true }).waitFor(); await page.getByText("Queue time", { exact: true }).waitFor(); await page.getByText("Runtime", { exact: true }).waitFor(); await page.getByText("Execution destination", { exact: true }).waitFor();
