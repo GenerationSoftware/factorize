@@ -1,7 +1,7 @@
 import Mustache from "mustache";
 import { renderTextTemplate } from "./text-template";
 
-export type TriggerKind = "manual" | "schedule" | "webhook" | "jobLifecycle";
+export type TriggerKind = "manual" | "schedule" | "webhook" | "jobLifecycle" | "jobIdle";
 export type InvocationSource = "manual" | TriggerKind;
 export type JobRunState = "queued" | "reserved" | "running" | "succeeded" | "failed" | "stopped";
 
@@ -129,7 +129,7 @@ export class InvocationService {
 
   async invoke(jobId: string, input: InvocationRequest): Promise<InvocationResult> {
     if (!input.claimKey?.trim()) throw new InvocationError("invalid_invocation", "An invocation claim key is required.");
-    if (!(["manual", "schedule", "webhook", "jobLifecycle"] as const).includes(input.source)) throw new InvocationError("invalid_invocation", "Invocation source is invalid.");
+    if (!(["manual", "schedule", "webhook", "jobLifecycle", "jobIdle"] as const).includes(input.source)) throw new InvocationError("invalid_invocation", "Invocation source is invalid.");
     const job = await this.repository.getJob(jobId);
     if (!job) throw new InvocationError("job_not_found", "Job not found.");
     if (!job.enabled) throw new InvocationError("job_disabled", "Job is disabled.");

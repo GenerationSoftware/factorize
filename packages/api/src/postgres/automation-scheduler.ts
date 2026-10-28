@@ -15,7 +15,7 @@ function skipFullQueue(error: unknown): void {
 /** Claims durable automatic signals in PostgreSQL. The alarm DO is only its clock. */
 export class AutomationScheduler {
   constructor(private database: Database, private env: Env) {}
-  async process(): Promise<void> { await this.githubVerifications(); await this.schedules(); await this.jobEdits(); await this.lifecycle(); }
+  async process(): Promise<void> { await this.githubVerifications(); await this.schedules(); await this.jobEdits(); await this.lifecycle(); await this.jobIdle(); }
   private repository(tenantId: string) { return new PostgresJobRepository(this.database, tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
   private async schedules() {
     for (let count = 0; count < 50; count++) {
@@ -70,6 +70,33 @@ export class AutomationScheduler {
       // an invocation commits but its delivery acknowledgement fails.
       await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.job_id, { source: "jobLifecycle", triggerId: row.trigger_id, claimKey: `lifecycle:${row.trigger_id}:${row.source_run_id}:${row.state}`, context: { [row.slug]: context }, occurrence }).catch(skipFullQueue);
       await this.database.pool.query("INSERT INTO app.lifecycle_deliveries(tenant_id,trigger_id,source_run_id,terminal_state) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING", [row.tenant_id, row.trigger_id, row.source_run_id, row.state]);
+    }
+  }
+
+  private async jobIdle() {
+    const rows = await this.database.pool.query<any>(`SELECT t.tenant_id,t.id trigger_id,t.job_id,t.slug,r.id source_run_id,r.job_id source_job_id,r.updated_at
+      FROM app.triggers t JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
+      CROSS JOIN LATERAL jsonb_array_elements_text(t.config->'sourceJobIds') source_job(value)
+      JOIN LATERAL (SELECT id,job_id,updated_at FROM app.runs WHERE tenant_id=t.tenant_id AND job_id=source_job.value::uuid AND state IN ('succeeded','failed','stopped') ORDER BY updated_at DESC,id DESC LIMIT 1) r ON true
+      WHERE t.kind='jobIdle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
+        AND r.updated_at > t.updated_at
+        AND NOT EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(t.config->'sourceJobIds') watched(value)
+          JOIN app.runs active ON active.tenant_id=t.tenant_id AND active.job_id=watched.value::uuid
+          WHERE active.state IN ('queued','reserved','starting','running','blocked','stopping')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(t.config->'sourceJobIds') watched(value)
+          JOIN app.runs newer ON newer.tenant_id=t.tenant_id AND newer.job_id=watched.value::uuid
+          WHERE newer.state IN ('succeeded','failed','stopped')
+            AND (newer.updated_at,newer.id) > (r.updated_at,r.id)
+        )
+        AND NOT EXISTS (SELECT 1 FROM app.lifecycle_deliveries d WHERE d.tenant_id=t.tenant_id AND d.trigger_id=t.id AND d.source_run_id=r.id AND d.terminal_state='runsZero')
+        ORDER BY r.updated_at LIMIT 100`);
+    for (const row of rows.rows) {
+      const completedAt = row.updated_at.toISOString(), context = { source_job_id: row.source_job_id, event: "runsZero", completed_at: completedAt };
+      await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.job_id, { source: "jobIdle", triggerId: row.trigger_id, claimKey: `job-idle:${row.trigger_id}:${row.source_run_id}`, context: { [row.slug]: context }, occurrence: { occurredAt: completedAt, externalId: row.source_run_id, metadata: context } }).catch(skipFullQueue);
+      await this.database.pool.query("INSERT INTO app.lifecycle_deliveries(tenant_id,trigger_id,source_run_id,terminal_state) VALUES ($1,$2,$3,'runsZero') ON CONFLICT DO NOTHING", [row.tenant_id, row.trigger_id, row.source_run_id]);
     }
   }
 

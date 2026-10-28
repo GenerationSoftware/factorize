@@ -1107,6 +1107,36 @@ components:
                   - kind
                   - config
                 additionalProperties: false
+              - type: object
+                properties:
+                  id:
+                    type: string
+                    minLength: 1
+                  slug:
+                    type: string
+                    pattern: ^trigger-[1-9][0-9]*$
+                  kind:
+                    type: string
+                    const: jobIdle
+                  enabled:
+                    default: true
+                    type: boolean
+                  config:
+                    type: object
+                    properties:
+                      sourceJobIds:
+                        minItems: 1
+                        type: array
+                        items:
+                          type: string
+                          minLength: 1
+                    required:
+                      - sourceJobIds
+                    additionalProperties: false
+                required:
+                  - kind
+                  - config
+                additionalProperties: false
         skillIds:
           maxItems: 50
           type: array
@@ -6239,6 +6269,50 @@ paths:
                             - createdAt
                             - updatedAt
                           additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: jobIdle
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                sourceJobIds:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                              required:
+                                - sourceJobIds
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
                   skills:
                     type: array
                     items:
@@ -6762,6 +6836,50 @@ paths:
                               - createdAt
                               - updatedAt
                             additionalProperties: false
+                          - type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              slug:
+                                type: string
+                              kind:
+                                type: string
+                                const: jobIdle
+                              enabled:
+                                default: true
+                                type: boolean
+                              config:
+                                type: object
+                                properties:
+                                  sourceJobIds:
+                                    minItems: 1
+                                    type: array
+                                    items:
+                                      type: string
+                                      minLength: 1
+                                required:
+                                  - sourceJobIds
+                                additionalProperties: false
+                              jobId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              createdAt:
+                                type: string
+                              updatedAt:
+                                type: string
+                            required:
+                              - id
+                              - slug
+                              - kind
+                              - enabled
+                              - config
+                              - jobId
+                              - createdAt
+                              - updatedAt
+                            additionalProperties: false
                     skills:
                       type: array
                       items:
@@ -7237,6 +7355,50 @@ paths:
                               required:
                                 - sourceJobIds
                                 - states
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: jobIdle
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                sourceJobIds:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                              required:
+                                - sourceJobIds
                               additionalProperties: false
                             jobId:
                               type: string
@@ -8040,6 +8202,50 @@ paths:
                             - createdAt
                             - updatedAt
                           additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: jobIdle
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                sourceJobIds:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                              required:
+                                - sourceJobIds
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
                   skills:
                     type: array
                     items:
@@ -8547,6 +8753,50 @@ paths:
                             - createdAt
                             - updatedAt
                           additionalProperties: false
+                        - type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            slug:
+                              type: string
+                            kind:
+                              type: string
+                              const: jobIdle
+                            enabled:
+                              default: true
+                              type: boolean
+                            config:
+                              type: object
+                              properties:
+                                sourceJobIds:
+                                  minItems: 1
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                              required:
+                                - sourceJobIds
+                              additionalProperties: false
+                            jobId:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            createdAt:
+                              type: string
+                            updatedAt:
+                              type: string
+                          required:
+                            - id
+                            - slug
+                            - kind
+                            - enabled
+                            - config
+                            - jobId
+                            - createdAt
+                            - updatedAt
+                          additionalProperties: false
                   skills:
                     type: array
                     items:
@@ -8932,6 +9182,36 @@ paths:
                             required:
                               - sourceJobIds
                               - states
+                            additionalProperties: false
+                        required:
+                          - kind
+                          - config
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                            minLength: 1
+                          slug:
+                            type: string
+                            pattern: ^trigger-[1-9][0-9]*$
+                          kind:
+                            type: string
+                            const: jobIdle
+                          enabled:
+                            default: true
+                            type: boolean
+                          config:
+                            type: object
+                            properties:
+                              sourceJobIds:
+                                minItems: 1
+                                type: array
+                                items:
+                                  type: string
+                                  minLength: 1
+                            required:
+                              - sourceJobIds
                             additionalProperties: false
                         required:
                           - kind

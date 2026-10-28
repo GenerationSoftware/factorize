@@ -11,6 +11,7 @@ const defaults: Record<Trigger["kind"], Trigger> = {
   manual: { kind: "manual", enabled: true, config: {} },
   schedule: { kind: "schedule", enabled: true, config: { cron: "0 * * * *", timezone: "UTC" } },
   jobLifecycle: { kind: "jobLifecycle", enabled: true, config: { sourceJobIds: [], states: ["succeeded"] } },
+  jobIdle: { kind: "jobIdle", enabled: true, config: { sourceJobIds: [] } },
   webhook: { kind: "webhook", enabled: true, config: { provider: "linear", projectId: "", matchRules: [] } },
 };
 function ScheduleFields({ trigger, onChange }: { trigger: Extract<Trigger, { kind: "schedule" }>; onChange: (value: Trigger) => void }) {
@@ -34,9 +35,10 @@ export function TriggerEditor({ triggers, onChange, onValidityChange }: { trigge
       {trigger.kind === "webhook" && <ProviderFields config={trigger.config} onChange={config => replace(index, { ...trigger, config })} onValidityChange={onValidityChange} />}
       {trigger.kind === "jobLifecycle" && <><LifecycleSelector selected={trigger.config.sourceJobIds} onChange={sourceJobIds => replace(index, { ...trigger, config: { ...trigger.config, sourceJobIds } })} />
         <fieldset><legend>Lifecycle states</legend>{(["succeeded", "failed", "stopped", "edited"] as const).map(state => <Label key={state}><Input type="checkbox" checked={trigger.config.states.includes(state)} onChange={e => replace(index, { ...trigger, config: { ...trigger.config, states: e.target.checked ? [...trigger.config.states, state] : trigger.config.states.filter(s => s !== state) } })} />{state} </Label>)}</fieldset></>}
+      {trigger.kind === "jobIdle" && <><LifecycleSelector selected={trigger.config.sourceJobIds} onChange={sourceJobIds => replace(index, { ...trigger, config: { ...trigger.config, sourceJobIds } })} /><p>Starts when the selected job has no queued or active runs.</p></>}
       {trigger.kind !== "manual" && <Button type="button" onClick={() => onChange(triggers.filter((_, i) => i !== index))}>Remove trigger</Button>}
     </fieldset>)}
-    <Label>New trigger kind <Select value={kind} onChange={e => setKind(e.target.value as Trigger["kind"])}><option value="schedule">Schedule</option><option value="jobLifecycle">Job lifecycle</option><option value="webhook">Provider webhook</option></Select></Label>
+    <Label>New trigger kind <Select value={kind} onChange={e => setKind(e.target.value as Trigger["kind"])}><option value="schedule">Schedule</option><option value="jobLifecycle">Job lifecycle</option><option value="jobIdle">All runs complete</option><option value="webhook">Provider webhook</option></Select></Label>
     <Button type="button" disabled={triggers.length >= 50} onClick={() => (() => { const used = new Set(triggers.map(t => t.slug)); let next = 1; while (used.has(`trigger-${next}`)) next++; onChange([...triggers, { ...structuredClone(defaults[kind]), slug: `trigger-${next}` }]); })()}>Add trigger</Button>
   </Card>;
 }

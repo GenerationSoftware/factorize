@@ -1993,6 +1993,16 @@ export interface components {
                     sourceJobIds: string[];
                     states: ("succeeded" | "failed" | "stopped" | "edited")[];
                 };
+            } | {
+                id?: string;
+                slug?: string;
+                /** @constant */
+                kind: "jobIdle";
+                /** @default true */
+                enabled: boolean;
+                config: {
+                    sourceJobIds: string[];
+                };
             })[];
             skillIds?: string[];
         };
@@ -4729,6 +4739,21 @@ export interface operations {
                             jobId: string;
                             createdAt: string;
                             updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "jobIdle";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                sourceJobIds: string[];
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
                         })[];
                         skills?: {
                             /** Format: uuid */
@@ -4899,6 +4924,21 @@ export interface operations {
                             config: {
                                 sourceJobIds: string[];
                                 states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "jobIdle";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                sourceJobIds: string[];
                             };
                             /** Format: uuid */
                             jobId: string;
@@ -5077,6 +5117,21 @@ export interface operations {
                             config: {
                                 sourceJobIds: string[];
                                 states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "jobIdle";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                sourceJobIds: string[];
                             };
                             /** Format: uuid */
                             jobId: string;
@@ -5432,6 +5487,21 @@ export interface operations {
                             jobId: string;
                             createdAt: string;
                             updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "jobIdle";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                sourceJobIds: string[];
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
                         })[];
                         skills?: {
                             /** Format: uuid */
@@ -5564,6 +5634,16 @@ export interface operations {
                         config: {
                             sourceJobIds: string[];
                             states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                        };
+                    } | {
+                        id?: string;
+                        slug?: string;
+                        /** @constant */
+                        kind: "jobIdle";
+                        /** @default true */
+                        enabled?: boolean;
+                        config: {
+                            sourceJobIds: string[];
                         };
                     })[];
                     skillIds?: string[];
@@ -5710,6 +5790,21 @@ export interface operations {
                             config: {
                                 sourceJobIds: string[];
                                 states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                            };
+                            /** Format: uuid */
+                            jobId: string;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | {
+                            /** Format: uuid */
+                            id: string;
+                            slug: string;
+                            /** @constant */
+                            kind: "jobIdle";
+                            /** @default true */
+                            enabled: boolean;
+                            config: {
+                                sourceJobIds: string[];
                             };
                             /** Format: uuid */
                             jobId: string;

@@ -26,14 +26,15 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
   const tenants: string[] = [];
   const repository = (tenantId: string) => new PostgresJobRepository(database, tenantId, value => encrypt(value, key), value => decrypt(value, key));
   const deliver = () => (new AutomationScheduler(database, { CREDENTIAL_ENCRYPTION_KEY: key } as any) as any).lifecycle();
+  const deliverIdle = () => (new AutomationScheduler(database, { CREDENTIAL_ENCRYPTION_KEY: key } as any) as any).jobIdle();
   async function tenant() {
     const id = crypto.randomUUID(); tenants.push(id);
     await database.pool.query("INSERT INTO app.tenants(id) VALUES ($1)", [id]);
     return id;
   }
-  async function job(tenantId: string, config?: Record<string, unknown>, enabled = true) {
+  async function job(tenantId: string, config?: Record<string, unknown>, enabled = true, kind: Trigger["kind"] = "jobLifecycle") {
     const id = crypto.randomUUID(), timestamp = new Date().toISOString();
-    const trigger: Trigger = { id: crypto.randomUUID(), jobId: id, kind: config ? "jobLifecycle" : "manual", slug: "trigger-1", enabled, config: config ?? {}, createdAt: timestamp, updatedAt: timestamp };
+    const trigger: Trigger = { id: crypto.randomUUID(), jobId: id, kind: config ? kind : "manual", slug: "trigger-1", enabled, config: config ?? {}, createdAt: timestamp, updatedAt: timestamp };
     return repository(tenantId).create({ id, name: "Job", slug: "job-" + id, promptTemplate: "{{trigger-1.state}}", runNameTemplate: "", model: "", executionConfig: { connectionId: "test", workspace: "", cwd: "", agentKind: "codex" }, concurrencyLimit: 1, enabled: true, triggers: [trigger], createdAt: timestamp, updatedAt: timestamp } as Job);
   }
   async function complete(tenantId: string, source: Job, state: "succeeded" | "failed" | "stopped" = "succeeded") {
@@ -69,6 +70,39 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect(await invocations(a, target.id)).toMatchObject([{ context: { "trigger-1": { sourceRunId: runId, sourceJobId: source.id, state: "succeeded" } } }]);
     expect(await invocations(a, target.id)).toHaveLength(1);
     expect(await deliveries()).toHaveLength(1);
+  });
+
+  it("fires job-idle only for a completion after the trigger exists", async () => {
+    const a = await tenant(), source = await job(a);
+    await complete(a, source);
+    const target = await job(a, { sourceJobIds: [source.id] }, true, "jobIdle");
+    await deliverIdle();
+    expect(await invocations(a, target.id)).toHaveLength(0);
+
+    const runId = await complete(a, source);
+    await deliverIdle();
+    await deliverIdle();
+    expect(await invocations(a, target.id)).toMatchObject([{ source: "jobIdle", context: { "trigger-1": { source_job_id: source.id, event: "runsZero" } } }]);
+    expect((await database.pool.query("SELECT * FROM app.lifecycle_deliveries WHERE tenant_id=$1 AND trigger_id=$2 AND source_run_id=$3 AND terminal_state='runsZero'", [a, target.triggers[0]!.id, runId])).rows).toHaveLength(1);
+  });
+
+  it("waits until every selected job has no queued or active runs", async () => {
+    const a = await tenant(), first = await job(a), second = await job(a);
+    const target = await job(a, { sourceJobIds: [first.id, second.id] }, true, "jobIdle");
+    await complete(a, second);
+    const queued = await new InvocationService(repository(a), value => encrypt(value, key)).invoke(first.id, {
+      source: "manual", triggerId: first.triggers[0]!.id, claimKey: crypto.randomUUID(), context: {},
+    });
+    const activeRun = await runs.claimNext();
+    expect(activeRun?.id).toBe(queued.run.id);
+    await deliverIdle();
+    expect(await invocations(a, target.id)).toHaveLength(0);
+
+    await runs.consumeWakeHint();
+    await runs.terminal(activeRun!, "succeeded", "stored", undefined, true);
+    await deliverIdle();
+    expect(await invocations(a, target.id)).toHaveLength(1);
+    expect(await invocations(a, target.id)).toMatchObject([{ source: "jobIdle" }]);
   });
 
   it("matches each of multiple source IDs and legacy singular config with terminalStates", async () => {

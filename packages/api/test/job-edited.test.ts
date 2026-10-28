@@ -12,6 +12,12 @@ it("accepts edited alongside terminal events and rejects unknown lifecycle event
   expect(triggerSchema.safeParse({ ...trigger, config: { ...trigger.config, states: ["unknown"] } }).success).toBe(false);
 });
 
+it("accepts an all-runs-complete trigger with one or more source jobs", () => {
+  const trigger = { kind: "jobIdle", config: { sourceJobIds: ["source"] } };
+  expect(triggerSchema.parse(trigger).config).toEqual(trigger.config);
+  expect(triggerSchema.safeParse({ ...trigger, config: { sourceJobIds: [] } }).success).toBe(false);
+});
+
 // Use a dedicated migrated database; never a shared application database.
 describe.skipIf(!process.env.TEST_DATABASE_URL)("job edit delivery (PostgreSQL)", () => {
   const database = new Database({ connectionString: process.env.TEST_DATABASE_URL });

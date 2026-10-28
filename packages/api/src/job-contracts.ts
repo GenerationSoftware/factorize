@@ -31,6 +31,7 @@ export const triggerResponse = z.discriminatedUnion("kind", [
   triggerSchema.options[1].extend(triggerIdentity),
   triggerSchema.options[2].extend({ ...triggerIdentity, config: webhookResponse }),
   triggerSchema.options[3].extend(triggerIdentity),
+  triggerSchema.options[4].extend(triggerIdentity),
 ]);
 export const jobResponse = z.object({
   id: z.guid(), projectId: z.guid().optional(), name: z.string(), slug: z.string(), enabled: z.boolean(),
