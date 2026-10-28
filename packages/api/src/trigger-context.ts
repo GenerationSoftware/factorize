@@ -59,6 +59,11 @@ export const triggerContextCatalog: Record<string, ContextPath[]> = {
     { path: "logs", type: "array", description: "Sanitized console log records." },
     { path: "exceptions", type: "array", description: "Sanitized exception records." },
   ],
+  jobIdle: [
+    { path: "source_job_id", type: "string", description: "Job whose runs have all completed." },
+    { path: "event", type: "string", description: "Event name: runsZero." },
+    { path: "completed_at", type: "string", description: "Completion timestamp of the last run (ISO 8601)." },
+  ],
   jobLifecycle: [
     { path: "event", type: "string", description: "Event name: edited for a job edit." },
     { path: "edited_at", type: "string", description: "Job save timestamp for an edited event (ISO 8601)." },

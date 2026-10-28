@@ -39,6 +39,7 @@ export function validateJobInput(input: JobInput): string | undefined {
     if (!trigger.slug || !/^trigger-[1-9][0-9]*$/.test(trigger.slug)) return "Each trigger needs a valid stable identifier.";
     if (trigger.kind === "schedule" && (!trigger.config.cron.trim() || !trigger.config.timezone.trim())) return "Schedule triggers require a cron expression and timezone.";
     if (trigger.kind === "jobLifecycle" && (!trigger.config.sourceJobIds.length || !trigger.config.states.length)) return "Lifecycle triggers require a source job and state.";
+    if (trigger.kind === "jobIdle" && !trigger.config.sourceJobIds.length) return "All runs complete triggers require a source job.";
     if (trigger.kind === "webhook" && (trigger.config.provider === "linear" || trigger.config.provider === "clickup") && !trigger.config.matchRules?.length) return "Provider triggers require at least one matching rule.";
   }
   return undefined;
