@@ -36,8 +36,15 @@ describe("versioned API contract", () => {
   it("accepts public image references and publishes tenant-scoped verification operations", () => {
     const job = { name: "Image job", slug: "image-job", promptTemplate: "Run", executionConfigId: "exe", vmImage: "ghcr.io/org/image:tag", triggers: [] };
     expect(jobInputSchema.safeParse(job).success).toBe(true);
-    expect(jobInputSchema.safeParse({ ...job, vmImage: "https://private.example/image" }).success).toBe(false);
-    expect(vmImageVerificationInput.safeParse({ connectionId: "exe", image: "ghcr.io/org/image:tag", tags: [], agentKind: "codex" }).success).toBe(true);
+    expect(jobInputSchema.parse({ ...job, vmImage: "ghcr.io/GenerationSoftware/anarack:ReleaseA" }).vmImage).toBe("ghcr.io/generationsoftware/anarack:ReleaseA");
+    expect(jobInputSchema.parse({ ...job, vmImage: "" }).vmImage).toBe("");
+    const digest = `ghcr.io/GenerationSoftware/anarack:ReleaseA@sha256:${"a".repeat(64)}`;
+    expect(jobInputSchema.parse({ ...job, vmImage: digest }).vmImage).toBe(`ghcr.io/generationsoftware/anarack:ReleaseA@sha256:${"a".repeat(64)}`);
+    const invalid = jobInputSchema.safeParse({ ...job, vmImage: "https://private.example/image" });
+    expect(invalid.success).toBe(false);
+    if (!invalid.success) expect(invalid.error.issues[0].message).toContain("without a URL scheme");
+    expect(vmImageVerificationInput.parse({ connectionId: "exe", image: "ghcr.io/GenerationSoftware/anarack:ReleaseA", tags: [], agentKind: "codex" }).image).toBe("ghcr.io/generationsoftware/anarack:ReleaseA");
+    expect(vmImageVerificationInput.safeParse({ connectionId: "exe", image: "bad image", tags: [], agentKind: "codex" }).success).toBe(false);
     const post = API_ROUTES.find(route => route.path === "/api/v1/vm-image-verifications" && route.method === "POST");
     const get = API_ROUTES.find(route => route.path === "/api/v1/vm-image-verifications/{verificationId}" && route.method === "GET");
     expect(post?.scope).toBe("jobs:write"); expect(get?.scope).toBe("jobs:read");

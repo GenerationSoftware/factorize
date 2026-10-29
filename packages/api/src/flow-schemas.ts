@@ -34,6 +34,25 @@ export const triggerSchema = z.discriminatedUnion("kind", [
   }).strict() }).strict(),
   z.object({ id: z.string().min(1).optional(), slug: z.string().regex(/^trigger-[1-9][0-9]*$/).optional(), kind: z.literal("jobIdle"), enabled: z.boolean().default(true), config: z.object({ sourceJobIds: z.array(z.string().min(1)).min(1) }).strict() }).strict(),
 ]);
+
+/** Lower registry and repository names while keeping the case-sensitive tag. */
+export function canonicalizeVmImage(value: string): string {
+  const trimmed = value.trim();
+  const digestAt = trimmed.indexOf("@");
+  const reference = digestAt < 0 ? trimmed : trimmed.slice(0, digestAt);
+  const digest = digestAt < 0 ? "" : trimmed.slice(digestAt);
+  const slash = reference.lastIndexOf("/");
+  const colon = reference.lastIndexOf(":");
+  const tag = colon > slash ? reference.slice(colon) : "";
+  const name = tag ? reference.slice(0, -tag.length) : reference;
+  return `${name.toLowerCase()}${tag}${digest}`;
+}
+
+const imageReferencePattern = String.raw`(?:(?:[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\/)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?)`;
+const publicVmImage = (allowBlank: boolean) => (allowBlank ? z.string().trim().max(512) : z.string().trim().min(1).max(512))
+  .regex(new RegExp(allowBlank ? `^(?:${imageReferencePattern})?$` : `^${imageReferencePattern}$`),
+    "Enter a public Docker/OCI image reference without a URL scheme (for example, ghcr.io/owner/image:tag).")
+  .transform(canonicalizeVmImage);
 export const jobInputSchema = z.object({
   projectId: z.guid().optional(),
   name: z.string().trim().min(1).max(120),
@@ -43,7 +62,7 @@ export const jobInputSchema = z.object({
   concurrencyLimit: z.number().int().min(1).max(50).default(1),
   executionConfigId: z.string().min(1),
   tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).optional(),
-  vmImage: z.string().trim().max(512).regex(/^(?:(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?)?$/, "Enter a public Docker/OCI image reference.").optional(),
+  vmImage: publicVmImage(true).optional(),
   model: z.string().trim().max(120).optional(),
   effort: z.string().trim().max(40).optional(),
   triggers: z.array(triggerSchema).max(50).default([]),
@@ -51,7 +70,7 @@ export const jobInputSchema = z.object({
 }).strict();
 export const vmImageVerificationInput = z.object({
   connectionId: z.string().min(1).max(200),
-  image: z.string().trim().min(1).max(512).regex(/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$/),
+  image: publicVmImage(false),
   tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20),
   agentKind: z.enum(["codex", "claude", "pi"]),
 }).strict();
