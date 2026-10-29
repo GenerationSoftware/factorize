@@ -43,12 +43,12 @@ export function tagsFromInventory(inventory: unknown): string[] {
   return [...tags].sort((a, b) => a.localeCompare(b));
 }
 
-function inventoryHasOwnedVm(body: string, vm: string): boolean {
+function inventoryHasOwnedVm(body: string, vm: string): boolean | null {
   try {
     const value: unknown = JSON.parse(body);
     const visit = (item: unknown): boolean => Array.isArray(item) ? item.some(visit) : !!item && typeof item === "object" && ((item as any).name === vm || (item as any).vm_name === vm) && (item as any).comment === `Factorize VM ${vm}` || !!item && typeof item === "object" && Object.values(item as Record<string, unknown>).some(visit);
     return visit(value);
-  } catch { return false; }
+  } catch { return null; }
 }
 
 export class ExeVmBackend implements ExecutionBackend {
@@ -110,26 +110,26 @@ export class ExeVmBackend implements ExecutionBackend {
     const vm = vmNameFor(`verify-${verificationId}`);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const command = `new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)}${tags ? ` ${tags}` : ""} --image=${shellAtom(image)}`;
-    let created: BackendCommandResult | undefined, vmMayExist = false;
+    let created: BackendCommandResult | undefined, createError: Error | undefined;
     try { created = await this.api(command); }
     catch {
       // The HTTPS API has a 30-second timeout. Reconcile by the deterministic
       // Factorize name and ownership marker before reporting an ambiguous create.
       const inventory = await this.api("ls --json").catch(() => null);
-      vmMayExist = Boolean(inventory?.ok && inventoryHasOwnedVm(inventory.body, vm));
-      if (!vmMayExist) throw new ExeImageVerificationError("timeout", "Image creation timed out and no owned VM was found during reconciliation. Retry verification after checking exe.dev.");
+      const owned = inventory?.ok ? inventoryHasOwnedVm(inventory.body, vm) : null;
+      if (owned !== true) createError = new ExeImageVerificationError("timeout", owned === false ? "Image creation timed out and no owned VM was found during reconciliation. Retry verification after checking exe.dev." : "Image creation timed out and VM inventory could not reconcile the result. Verification will try ownership-safe cleanup and report if the VM remains.");
     }
-    if (created?.ok) vmMayExist = true;
-    else if (created && !created.ok) {
+    if (created && !created.ok) {
       const inventory = await this.api("ls --json").catch(() => null);
-      vmMayExist = Boolean(inventory?.ok && inventoryHasOwnedVm(inventory.body, vm));
-      if (!vmMayExist) {
+      const owned = inventory?.ok ? inventoryHasOwnedVm(inventory.body, vm) : null;
+      if (owned !== true) {
         const kind = created.status === 403 ? "permission" : [429, 507].includes(created.status) ? "capacity" : [408, 504].includes(created.status) ? "timeout" : created.status === 503 && /capacity/i.test(created.body) ? "capacity" : "image_pull";
         const detail = this.validationFailure("Image creation or pull failed. Check that the image is public, its reference is correct, and exe.dev has VM capacity and new permission", created);
-        throw new ExeImageVerificationError(kind, detail.message);
+        createError = owned === false ? new ExeImageVerificationError(kind, detail.message) : new ExeImageVerificationError("timeout", `${detail.message}. VM inventory was unavailable or invalid; verifying ownership-safe cleanup.`);
       }
     }
     try {
+      if (createError) throw createError;
       await progress("checking_ssh");
       let ssh = await this.api(`ssh ${shellAtom(vm)} ${shellAtom("true")}`).catch(() => null);
       for (let attempt = 1; (!ssh || !ssh.ok) && attempt < 6; attempt++) ssh = await this.api(`ssh ${shellAtom(vm)} ${shellAtom("true")}`).catch(() => null);
@@ -249,25 +249,24 @@ export class ExeVmBackend implements ExecutionBackend {
 
   private async deleteVm(vm: string): Promise<BackendCommandResult> {
     if (!isOwnedVmName(vm)) throw new Error("Refusing to delete a VM that is not owned by Factorize");
-    const listed = await this.api("ls --json");
-    if (!listed.ok) return listed;
+    let listed: BackendCommandResult | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      listed = await this.api("ls --json").catch(error => ({ body: String(error), status: 0, exitCode: null, ok: false, requestBody: "ls --json" }));
+      if (listed.ok) break;
+    }
+    if (!listed?.ok) return listed ?? { body: "VM inventory is unavailable", status: 503, exitCode: null, ok: false, requestBody: "ls --json" };
     let inventory: unknown;
     try { inventory = JSON.parse(listed.body); }
     catch { return { ...listed, ok: false, status: 502, body: "exe.dev returned an invalid VM inventory" }; }
     const objects: Record<string, unknown>[] = [];
-    const visit = (value: unknown): void => {
-      if (Array.isArray(value)) return value.forEach(visit);
-      if (!value || typeof value !== "object") return;
-      objects.push(value as Record<string, unknown>);
-      Object.values(value).forEach(visit);
-    };
+    const visit = (value: unknown): void => { if (Array.isArray(value)) return value.forEach(visit); if (!value || typeof value !== "object") return; objects.push(value as Record<string, unknown>); Object.values(value).forEach(visit); };
     visit(inventory);
     const found = objects.find(item => item.name === vm || item.vm_name === vm);
     if (!found) return { ...listed, ok: true, status: 404, body: "VM is already absent" };
     if (found.comment !== `Factorize VM ${vm}`) return { ...listed, ok: false, status: 409, body: "VM ownership marker does not match" };
     let result: BackendCommandResult | undefined;
     for (let attempt = 0; attempt < 3; attempt++) {
-      result = await this.api(`rm ${shellAtom(vm)}`);
+      result = await this.api(`rm ${shellAtom(vm)}`).catch(error => ({ body: String(error), status: 0, exitCode: null, ok: false, requestBody: `rm ${vm}` }));
       if (result.ok || result.status === 404) return { ...result, ok: true };
     }
     return result!;
