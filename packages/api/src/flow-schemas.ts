@@ -43,11 +43,19 @@ export const jobInputSchema = z.object({
   concurrencyLimit: z.number().int().min(1).max(50).default(1),
   executionConfigId: z.string().min(1),
   tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).optional(),
+  vmImage: z.string().trim().max(512).regex(/^(?:(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?)?$/, "Enter a public Docker/OCI image reference.").optional(),
   model: z.string().trim().max(120).optional(),
   effort: z.string().trim().max(40).optional(),
   triggers: z.array(triggerSchema).max(50).default([]),
   skillIds: z.array(z.guid()).max(50).optional(),
 }).strict();
+export const vmImageVerificationInput = z.object({
+  connectionId: z.string().min(1).max(200),
+  image: z.string().trim().min(1).max(512).regex(/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$/),
+  tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20),
+  agentKind: z.enum(["codex", "claude", "pi"]),
+}).strict();
+export const vmImageVerificationResponse = z.object({ id: z.guid(), status: z.enum(["queued", "creating", "checking_ssh", "checking_agent", "cleaning_up", "succeeded", "failed", "cleanup_failed"]), phase: z.string(), errorKind: z.string().nullable(), error: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
 export const jobIdSchema = z.object({ jobId: z.string().min(1) });
 export const manualInvocationSchema = z.object({
   prompt: z.string().max(50_000).default(""),

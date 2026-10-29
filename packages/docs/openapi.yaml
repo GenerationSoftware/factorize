@@ -839,6 +839,10 @@ components:
           items:
             type: string
             pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+        vmImage:
+          type: string
+          maxLength: 512
+          pattern: ^(?:(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?)?$
         model:
           type: string
           maxLength: 120
@@ -5899,6 +5903,8 @@ paths:
                         type: string
                       agentKind:
                         type: string
+                      image:
+                        type: string
                     required:
                       - connectionId
                       - agentKind
@@ -6416,6 +6422,205 @@ paths:
                   pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
               required:
                 - projectId
+  /api/v1/vm-image-verifications:
+    post:
+      summary: Verify a public VM image
+      description: |-
+        Starts a tenant-scoped background verification. It creates a temporary Factorize-owned VM, checks SSH and the selected harness prerequisites, then deletes the VM. It never executes a job prompt.
+
+        Requires the jobs:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      responses:
+        "200":
+          description: Verification operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  status:
+                    type: string
+                    enum:
+                      - queued
+                      - creating
+                      - checking_ssh
+                      - checking_agent
+                      - cleaning_up
+                      - succeeded
+                      - failed
+                      - cleanup_failed
+                  phase:
+                    type: string
+                  errorKind:
+                    type:
+                      - string
+                      - "null"
+                  error:
+                    type:
+                      - string
+                      - "null"
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - status
+                  - phase
+                  - errorKind
+                  - error
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_vm_image_verifications
+      tags:
+        - vm-image-verifications
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: jobs:write
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                connectionId:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                image:
+                  type: string
+                  minLength: 1
+                  maxLength: 512
+                  pattern: ^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$
+                tags:
+                  maxItems: 20
+                  type: array
+                  items:
+                    type: string
+                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                agentKind:
+                  type: string
+                  enum:
+                    - codex
+                    - claude
+                    - pi
+              required:
+                - connectionId
+                - image
+                - tags
+                - agentKind
+              additionalProperties: false
+  /api/v1/vm-image-verifications/{verificationId}:
+    get:
+      summary: Get VM image verification progress
+      responses:
+        "200":
+          description: Verification operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  status:
+                    type: string
+                    enum:
+                      - queued
+                      - creating
+                      - checking_ssh
+                      - checking_agent
+                      - cleaning_up
+                      - succeeded
+                      - failed
+                      - cleanup_failed
+                  phase:
+                    type: string
+                  errorKind:
+                    type:
+                      - string
+                      - "null"
+                  error:
+                    type:
+                      - string
+                      - "null"
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - status
+                  - phase
+                  - errorKind
+                  - error
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the jobs:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_vm_image_verifications_verificationId
+      tags:
+        - vm-image-verifications
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: jobs:read
+      x-owner-session-required: false
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /api/v1/jobs:
     get:
       summary: List jobs
@@ -6465,6 +6670,8 @@ paths:
                         cwd:
                           type: string
                         agentKind:
+                          type: string
+                        image:
                           type: string
                       required:
                         - connectionId
@@ -7003,6 +7210,8 @@ paths:
                       cwd:
                         type: string
                       agentKind:
+                        type: string
+                      image:
                         type: string
                     required:
                       - connectionId
@@ -7832,6 +8041,8 @@ paths:
                         type: string
                       agentKind:
                         type: string
+                      image:
+                        type: string
                     required:
                       - connectionId
                       - agentKind
@@ -8383,6 +8594,8 @@ paths:
                         type: string
                       agentKind:
                         type: string
+                      image:
+                        type: string
                     required:
                       - connectionId
                       - agentKind
@@ -8919,6 +9132,10 @@ paths:
                   items:
                     type: string
                     pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                vmImage:
+                  type: string
+                  maxLength: 512
+                  pattern: ^(?:(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?)?$
                 model:
                   type: string
                   maxLength: 120

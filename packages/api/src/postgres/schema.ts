@@ -48,6 +48,9 @@ export const projects = app.table("projects", { tenantId: uuid("tenant_id").notN
 export const jobs = app.table("jobs", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), projectId: uuid("project_id").notNull(), name: text("name").notNull(), slug: text("slug").notNull(), encryptedPromptTemplate: text("encrypted_prompt_template").notNull(), encryptedRunNameTemplate: text("encrypted_run_name_template").notNull().default(""), executionConfig: jsonb("execution_config").$type<ExecutionConfig>().notNull(), tags: jsonb("tags").$type<string[]>().notNull().default([]), model: text("model").notNull().default(""), effort: text("effort").notNull().default(""), concurrencyLimit: integer("concurrency_limit").notNull(), enabled: boolean("enabled").notNull().default(true), createdAt: createdAt(), updatedAt: updatedAt(),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.slug), foreignKey({ columns: [t.tenantId, t.projectId], foreignColumns: [projects.tenantId, projects.id] }).onDelete("restrict"), index("jobs_tenant_project_updated").on(t.tenantId, t.projectId, t.updatedAt), check("jobs_concurrency_limit_check", sql`${t.concurrencyLimit} >= 1`)]);
+export const vmImageVerifications = app.table("vm_image_verifications", {
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), jobId: uuid("job_id"), status: text("status").notNull(), phase: text("phase").notNull(), config: jsonb("config").$type<Record<string, unknown>>().notNull(), errorKind: text("error_kind"), error: text("error"), vmName: text("vm_name"), createdAt: createdAt(), updatedAt: updatedAt(),
+}, t => [primaryKey({ columns: [t.tenantId, t.id] }), check("vm_image_verifications_status_check", sql`${t.status} IN ('queued','creating','checking_ssh','checking_agent','cleaning_up','succeeded','failed','cleanup_failed')`), index("vm_image_verifications_status_idx").on(t.status, t.updatedAt)]);
 export const skills = app.table("skills", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), key: text("key").notNull(), encryptedBody: text("encrypted_body").notNull(), revision: integer("revision").notNull().default(1), createdAt: createdAt(), updatedAt: updatedAt(),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.key)]);
@@ -130,7 +133,7 @@ export const runRelations = relations(runs, ({ one, many }) => ({
 
 export const databaseSchema = {
   schemaMigrations, tenants, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
-  connections, linearWorkspaces, githubInstallations, githubSetupStates, projects, jobs, skills, jobSkills, triggers, webhookConditionsCutover, invocations, jobRuns, runs, runArtifacts,
+  connections, linearWorkspaces, githubInstallations, githubSetupStates, projects, jobs, vmImageVerifications, skills, jobSkills, triggers, webhookConditionsCutover, invocations, jobRuns, runs, runArtifacts,
   runTraceEvents, runActivity, activeClaims, scheduleState, automaticWakes, lifecycleDeliveries, jobEditDeliveries, jobEvents,
   webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints, runTraceCursors, runTraceChunks,
   runTraceProjections, traceReplayLimits, traceReplayOperations,

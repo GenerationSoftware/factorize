@@ -65,6 +65,7 @@ The inventory is validated against every registered implementation tool. All req
 | `slug` | Required string matching `^[a-z][a-z0-9_-]{0,29}$`; unique within workspace |
 | `promptTemplate` | Required string, 1–50,000 characters |
 | `executionConfigId` | Required non-empty ID from target discovery |
+| `vmImage` | Optional public Docker/OCI image reference for exe.dev jobs. Omit or send an empty value to use the exe.dev default. Verification is available in the browser job editor. |
 | `runNameTemplate` | Optional string, max 500; defaults to empty |
 | `concurrencyLimit` | Optional integer 1–50; defaults to 1 |
 | `model` | Optional trimmed string, max 120; defaults to empty/provider default |

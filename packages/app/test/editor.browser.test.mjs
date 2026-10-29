@@ -51,6 +51,28 @@ test("create uses bounded lifecycle selector, lazy provider reads, schedule prev
   await page.getByRole("button", { name: "Create job", exact: true }).click(); await page.waitForURL(`**/jobs/${id}`);
   assert.equal(body.name, "Created job"); assert.equal(body.projectId, projectId); assert.deepEqual(body.triggers[2].config.sourceJobIds, [id]); assert.equal(body.expectedUpdatedAt, undefined); await context.close();
 });
+test("image verification is explicit, autosave never provisions, and stale verification results are ignored", async () => {
+  const { context, page } = await setup(); let current = { ...initial, executionConfig: { ...initial.executionConfig, image: "ghcr.io/acme/base:old" } }, createCount = 0, releaseCreate;
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { exeConnections: [{ connectionId: "vm", agentKind: "codex", accountTags: ["github"], models: ["gpt-6"] }], ampConnections: [] } }));
+  await page.route(`**/api/v1/jobs/${id}`, route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: current });
+    const body = route.request().postDataJSON(); current = { ...current, ...body, executionConfig: { ...current.executionConfig, image: body.vmImage || undefined } }; return route.fulfill({ json: current });
+  });
+  await page.route("**/api/v1/vm-image-verifications", async route => {
+    createCount++;
+    if (createCount === 1) { await new Promise(resolve => { releaseCreate = resolve; }); return route.fulfill({ json: { id: "00000000-0000-4000-8000-000000000111", status: "queued", phase: "queued", errorKind: null, error: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }); }
+    return route.fulfill({ json: { id: "00000000-0000-4000-8000-000000000112", status: "queued", phase: "queued", errorKind: null, error: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } });
+  });
+  await page.route("**/api/v1/vm-image-verifications/*", route => route.fulfill({ json: { id: "00000000-0000-4000-8000-000000000112", status: "succeeded", phase: "Verification passed. Image pull, SSH, and agent prerequisites worked at this time.", errorKind: null, error: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }));
+  await page.goto(origin + `/jobs/${id}/edit`); await page.getByLabel("VM image").fill("ghcr.io/acme/base:one");
+  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor(); assert.equal(createCount, 0);
+  await page.getByRole("button", { name: "Verify image" }).click(); await page.getByText("Starting verification…").waitFor(); await page.getByLabel("VM image").fill("ghcr.io/acme/base:two"); releaseCreate();
+  await page.getByRole("status").filter({ hasText: "Not verified" }).waitFor(); assert.equal(createCount, 1);
+  await page.getByRole("button", { name: "Verify image" }).click();
+  await page.getByRole("status").filter({ hasText: "Verification passed" }).waitFor(); assert.equal(createCount, 2);
+  await page.getByLabel("VM tags").selectOption(["github"]);
+  await page.getByRole("status").filter({ hasText: "Not verified" }).waitFor(); await context.close();
+});
 test("template insertion escapes values and navigation protects unsaved work", async () => {
   const { context, page } = await setup(); await page.route(`**/api/v1/jobs/${id}`, route => route.fulfill({ json: initial }));
   await page.goto(origin + `/jobs/${id}/edit`); await page.getByText("Insert a prompt template variable", { exact: true }).click(); await page.getByLabel("Prompt template", { exact: true }).focus(); await page.getByLabel("Prompt template", { exact: true }).press("End"); await page.getByRole("button", { name: "trigger-1.prompt", exact: true }).click();

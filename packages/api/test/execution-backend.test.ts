@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ExeVmBackend, isOwnedVmName, tagsFromInventory, vmNameFor } from "../src/exe-vm-backend";
+import { ExeImageVerificationError, ExeVmBackend, isOwnedVmName, tagsFromInventory, vmNameFor } from "../src/exe-vm-backend";
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
 import { effortOptions, selectableExeTags, type ExeRunConnection } from "../src/exe";
 import { agentDriver } from "../src/agent-driver";
@@ -90,6 +90,60 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).not.toContain("nohup");
     expect(requests[1]).toContain("; echo started");
     expect(requests[1]).toContain("systemctl show");
+  });
+
+  it("quotes a snapshotted public image in the exe.dev VM creation command", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => { requests.push(String(init.body)); return new Response(requests.length === 1 ? "{}" : "started", { headers: { "X-Exe-Exit": "0" } }); }));
+    await new ExeVmBackend({ ...connection, image: "ghcr.io/acme/base:release'candidate" }).launch({ runId: "run-1", prompt: "work", harness: agentDriver("codex").launch("run-1", {}) });
+    expect(requests[0]).toContain("--image='ghcr.io/acme/base:release'\"'\"'candidate'");
+  });
+
+  it("verifies an image over SSH and deletes only its marked temporary VM", async () => {
+    const commands: string[] = [], phases: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const command = String(init.body); commands.push(command);
+      if (command.startsWith("new ")) return new Response("created", { headers: { "X-Exe-Exit": "0" } });
+      if (command.startsWith("ls ")) return new Response('{"vms":[{"name":"factorize-verify-verification-1","comment":"Factorize VM factorize-verify-verification-1"}]}', { headers: { "X-Exe-Exit": "0" } });
+      return new Response("ok", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    await new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable", "codex", async phase => { phases.push(phase); });
+    expect(commands[0]).toContain("--image='ghcr.io/acme/agent:stable'");
+    expect(commands.some(command => command.includes("factorize-prompt"))).toBe(false);
+    expect(commands.at(-1)).toBe("rm 'factorize-verify-verification-1'");
+    expect(phases).toEqual(["checking_ssh", "checking_agent", "cleaning_up"]);
+  });
+
+  it.each([[403, "permission"], [429, "capacity"], [404, "image_pull"]] as const)("classifies image creation failure %s as %s", async (status, kind) => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => String(init.body) === "ls --json" ? new Response('{"vms":[]}') : new Response("failed", { status })));
+    await expect(new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:bad", "codex")).rejects.toMatchObject({ kind });
+  });
+
+  it("reconciles an ambiguous create timeout by the Factorize ownership marker", async () => {
+    const commands: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const command = String(init.body); commands.push(command);
+      if (command.startsWith("new ")) throw new Error("timeout");
+      if (command === "ls --json") return new Response('{"vms":[{"name":"factorize-verify-verification-1","comment":"Factorize VM factorize-verify-verification-1"}]}', { headers: { "X-Exe-Exit": "0" } });
+      return new Response("ok", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    await new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable", "codex");
+    expect(commands.filter(command => command.startsWith("new "))).toHaveLength(1);
+    expect(commands.at(-1)).toBe("rm 'factorize-verify-verification-1'");
+  });
+
+  it.each(["ssh", "agent"] as const)("distinguishes %s prerequisite failure and still cleans up", async failedCheck => {
+    const commands: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const command = String(init.body); commands.push(command);
+      if (command.startsWith("new ")) return new Response("created", { headers: { "X-Exe-Exit": "0" } });
+      if (command === "ls --json") return new Response('{"vms":[{"name":"factorize-verify-verification-1","comment":"Factorize VM factorize-verify-verification-1"}]}', { headers: { "X-Exe-Exit": "0" } });
+      if (failedCheck === "ssh" && command.startsWith("ssh ")) return new Response("no ssh", { status: 503 });
+      if (failedCheck === "agent" && command.includes("command -v")) return new Response("missing", { headers: { "X-Exe-Exit": "1" } });
+      return new Response("ok", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    await expect(new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable", "codex")).rejects.toThrow(failedCheck === "ssh" ? "ssh:" : "agent:");
+    expect(commands.at(-1)).toBe("rm 'factorize-verify-verification-1'");
   });
 
   it("routes Codex JSON stdout exclusively to its stream and records the guest CLI version", async () => {
