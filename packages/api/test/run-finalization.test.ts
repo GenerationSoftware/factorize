@@ -145,6 +145,7 @@ describe("durable run finalization", () => {
     f.run.state = "stopping";
     f.run.traceSources = { primary: { kind: "execution_stream", path: "/tmp/codex-exec.jsonl", provider: "codex" } };
     f.run.executionConfig.agentKind = "codex";
+    vi.spyOn(RunRepository.prototype, "recordStopAttempt").mockResolvedValue();
     const terminate = vi.spyOn(f.backend, "terminate").mockImplementation(async () => { f.events.push("terminate"); return { state: "stopped" }; });
     vi.spyOn(f.scheduler, "finalizePrimary").mockResolvedValue([]);
     await f.scheduler.poll(f.run);
