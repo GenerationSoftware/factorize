@@ -47,8 +47,13 @@ export class RunScheduler {
   }
 
   private async poll(run: PersistedRun) {
+    if (!run.executionHandle && run.state === "stopping") return this.runs.schedulePoll(run, "stopping");
     const backend = await this.backend(run); if (!run.executionHandle) throw new Error("Execution handle is missing");
-    const observation = run.executionDiagnostics ?? (run.state === "stopping" && backend instanceof ExeVmBackend ? await backend.terminate(run.executionHandle) : await backend.inspect(run.executionHandle));
+    const cancellationBackend = backend instanceof ExeVmBackend || backend instanceof AmpBackend;
+    if (run.state === "stopping" && cancellationBackend && !run.executionDiagnostics) await this.runs.recordStopAttempt(run);
+    const observation = run.executionDiagnostics ?? (run.state === "stopping" && cancellationBackend
+      ? backend instanceof ExeVmBackend ? await backend.terminate(run.executionHandle) : await backend.stop(run.executionHandle)
+      : await backend.inspect(run.executionHandle));
     if (["running", "blocked", "stopping"].includes(observation.state)) {
       if (backend instanceof ExeVmBackend) await this.collectTraceChunk(run, backend).catch(() => { traceMetric("chunk_collection_failure", run.tenantId, run.id); });
       return this.runs.schedulePoll(run, observation.state as "running" | "blocked" | "stopping");

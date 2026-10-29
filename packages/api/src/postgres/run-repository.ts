@@ -53,16 +53,18 @@ export class RunRepository {
 
   async markLaunched(run: PersistedRun, handle: RunHandle, destinationUrl: string, capabilities: readonly string[], traceSources?: TraceSources): Promise<void> {
     await this.database.transaction(async client => {
-      await client.query("UPDATE app.job_runs SET state='running',started_at=COALESCE(started_at,now()),launch_lease_expires_at=NULL,next_poll_at=now()+interval '3 seconds',updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id]);
-      await client.query("UPDATE app.runs SET state='running',execution_handle=$3,execution_backend_kind=$4,execution_capabilities=$5,destination_url=$6,trace_sources=$7,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, handle, handle.backendKind, JSON.stringify(capabilities), destinationUrl, traceSources ? JSON.stringify(traceSources) : null]);
+      const result = await client.query<{ state: ExecutionState }>("UPDATE app.job_runs SET state=CASE WHEN state='stopping' THEN 'stopping' ELSE 'running' END,started_at=COALESCE(started_at,now()),launch_lease_expires_at=NULL,next_poll_at=now()+interval '3 seconds',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','stopping') RETURNING state", [run.tenantId, run.id]);
+      const state = result.rows[0]?.state;
+      if (!state) return;
+      await client.query("UPDATE app.runs SET state=$3,execution_handle=$4,execution_backend_kind=$5,execution_capabilities=$6,destination_url=$7,trace_sources=$8,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state, handle, handle.backendKind, JSON.stringify(capabilities), destinationUrl, traceSources ? JSON.stringify(traceSources) : null]);
     });
     run.traceSources = traceSources ?? null;
   }
 
   async schedulePoll(run: PersistedRun, state: Extract<ExecutionState, "running" | "blocked" | "stopping">, seconds = 3): Promise<void> {
     await this.database.transaction(async client => {
-      await client.query("UPDATE app.job_runs SET state=$3,next_poll_at=now()+make_interval(secs=>$4),updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state, seconds]);
-      await client.query("UPDATE app.runs SET state=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state]);
+      const result = await client.query<{ state: ExecutionState }>("UPDATE app.job_runs SET state=CASE WHEN state='stopping' THEN 'stopping' ELSE $3 END,next_poll_at=now()+make_interval(secs=>$4),updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('running','blocked','stopping') RETURNING state", [run.tenantId, run.id, state, seconds]);
+      if (result.rows[0]) await client.query("UPDATE app.runs SET state=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, result.rows[0].state]);
     });
   }
 
@@ -74,10 +76,15 @@ export class RunRepository {
     return result.rows[0].execution_diagnostics;
   }
 
+  async recordStopAttempt(run: PersistedRun): Promise<void> {
+    await this.database.pool.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'stop_attempt','Scheduler attempted agent termination')", [run.tenantId, crypto.randomUUID(), run.id]);
+  }
+
   async terminal(run: PersistedRun, state: "succeeded" | "failed" | "stopped", artifactState: "stored" | "partial" | "failed", error?: string, cleanupComplete = false): Promise<void> {
     await this.database.transaction(async client => {
-      await client.query("UPDATE app.job_runs SET state=$3,next_poll_at=NULL,launch_lease_expires_at=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state]);
-      await client.query("UPDATE app.runs SET state=$3,artifact_state=$4,artifact_error=$5,claim_released=true,vm_cleanup_complete=$6,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state, artifactState, error ? safeDiagnosticText(error) : null, cleanupComplete]);
+      const result = await client.query<{ state: ExecutionState }>("UPDATE app.job_runs SET state=CASE WHEN state='stopping' THEN 'stopped' ELSE $3 END,next_poll_at=NULL,launch_lease_expires_at=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked','stopping') RETURNING state", [run.tenantId, run.id, state]);
+      if (!result.rows[0]) return;
+      await client.query("UPDATE app.runs SET state=$3,artifact_state=$4,artifact_error=$5,claim_released=true,vm_cleanup_complete=$6,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, result.rows[0].state, artifactState, error ? safeDiagnosticText(error) : null, cleanupComplete]);
       await client.query("DELETE FROM app.active_claims WHERE tenant_id=$1 AND run_id=$2", [run.tenantId, run.id]);
       // Automation runs before polling, so terminal events need another pass.
       await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");
@@ -88,7 +95,8 @@ export class RunRepository {
     await this.database.transaction(async client => {
       const attempt = (await client.query<{ vm_cleanup_attempt: number }>("UPDATE app.runs SET artifact_state=$3,artifact_error=$4,vm_cleanup_attempt=vm_cleanup_attempt+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING vm_cleanup_attempt", [run.tenantId, run.id, artifactState, safeDiagnosticText(error)])).rows[0]?.vm_cleanup_attempt ?? 1;
       const seconds = Math.min(60, 2 ** Math.min(attempt, 6));
-      await client.query("UPDATE app.job_runs SET state='running',next_poll_at=now()+make_interval(secs=>$3),updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, seconds]);
+      const state = (await client.query<{ state: ExecutionState }>("UPDATE app.job_runs SET state=CASE WHEN state='stopping' THEN 'stopping' ELSE 'running' END,next_poll_at=now()+make_interval(secs=>$3),updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked','stopping') RETURNING state", [run.tenantId, run.id, seconds])).rows[0]?.state;
+      if (state) await client.query("UPDATE app.runs SET state=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, state]);
       await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'finalization_retry',$4)", [run.tenantId, crypto.randomUUID(), run.id, `Attempt ${attempt}: ${safeDiagnosticText(error)}`]);
     });
   }

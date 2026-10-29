@@ -4,6 +4,7 @@ import { Database } from "../src/postgres/database";
 import { PostgresJobRepository } from "../src/postgres/job-repository";
 import { AutomationScheduler } from "../src/postgres/automation-scheduler";
 import { RunRepository } from "../src/postgres/run-repository";
+import { RunQueryRepository } from "../src/postgres/run-query-repository";
 import { InvocationService, type Job, type Trigger } from "../src/job-domain";
 import { decrypt, encrypt } from "../src/crypto";
 
@@ -70,6 +71,41 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect(await invocations(a, target.id)).toMatchObject([{ context: { "trigger-1": { sourceRunId: runId, sourceJobId: source.id, state: "succeeded" } } }]);
     expect(await invocations(a, target.id)).toHaveLength(1);
     expect(await deliveries()).toHaveLength(1);
+  });
+
+  it("preserves one accepted stop across a stale poll and late launch completion", async () => {
+    const a = await tenant(), source = await job(a);
+    const create = (claimKey: string) => new InvocationService(repository(a), value => encrypt(value, key)).invoke(source.id, {
+      source: "manual", triggerId: source.triggers[0]!.id, claimKey, context: {},
+    });
+
+    // Poll race: retain the pre-stop running snapshot, accept stop, then save
+    // the stale running observation as if backend inspection just completed.
+    const first = await create(crypto.randomUUID());
+    let run = await runs.claimNext();
+    await runs.markLaunched(run!, { backendKind: "exe-vm", id: "factorize-running" }, "https://vm", []);
+    const stalePoll = { ...run!, state: "running" as const, executionHandle: { backendKind: "exe-vm", id: "factorize-running" } };
+    const stops = new RunQueryRepository(database, a);
+    expect(await stops.stop(first.run.id)).toMatchObject({ state: "stopping" });
+    expect(await stops.stop(first.run.id)).toMatchObject({ state: "stopping" });
+    await runs.schedulePoll(stalePoll, "running");
+    await runs.retryFinalization(stalePoll, "partial", "temporary artifact issue");
+    let states = await database.pool.query("SELECT jr.state job_state,r.state run_state FROM app.job_runs jr JOIN app.runs r USING(tenant_id,id) WHERE jr.tenant_id=$1 AND jr.id=$2", [a, first.run.id]);
+    expect(states.rows[0]).toEqual({ job_state: "stopping", run_state: "stopping" });
+    await runs.terminal(stalePoll, "stopped", "stored", undefined, true);
+
+    // Launch race: stop while the backend launch is paused, then let its
+    // completion persist the newly available handle.
+    const second = await create(crypto.randomUUID());
+    run = await runs.claimNext();
+    expect(run?.id).toBe(second.run.id);
+    expect(await stops.stop(second.run.id)).toMatchObject({ state: "stopping" });
+    await runs.markLaunched(run!, { backendKind: "exe-vm", id: "factorize-late" }, "https://vm", []);
+    states = await database.pool.query("SELECT jr.state job_state,r.state run_state,r.execution_handle FROM app.job_runs jr JOIN app.runs r USING(tenant_id,id) WHERE jr.tenant_id=$1 AND jr.id=$2", [a, second.run.id]);
+    expect(states.rows[0]).toMatchObject({ job_state: "stopping", run_state: "stopping", execution_handle: { id: "factorize-late" } });
+    await runs.terminal({ ...run!, id: second.run.id }, "succeeded", "stored", undefined, true);
+    states = await database.pool.query("SELECT jr.state job_state,r.state run_state FROM app.job_runs jr JOIN app.runs r USING(tenant_id,id) WHERE jr.tenant_id=$1 AND jr.id=$2", [a, second.run.id]);
+    expect(states.rows[0]).toEqual({ job_state: "stopped", run_state: "stopped" });
   });
 
   it("fires job-idle only for a completion after the trigger exists", async () => {
