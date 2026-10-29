@@ -132,6 +132,19 @@ describe("ExeVmBackend", () => {
     expect(commands.at(-1)).toBe("rm 'factorize-verify-verification-1'");
   });
 
+  it("attempts ownership-safe cleanup when failed creation cannot be reconciled immediately", async () => {
+    const commands: string[] = []; let inventoryReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const command = String(init.body); commands.push(command);
+      if (command.startsWith("new ")) return new Response("create failed", { status: 500 });
+      if (command === "ls --json" && inventoryReads++ === 0) return new Response("unavailable", { status: 503 });
+      if (command === "ls --json") return new Response('{"vms":[{"name":"factorize-verify-verification-1","comment":"Factorize VM factorize-verify-verification-1"}]}', { headers: { "X-Exe-Exit": "0" } });
+      return new Response("removed", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    await expect(new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable", "codex")).rejects.toThrow("inventory was unavailable");
+    expect(commands.at(-1)).toBe("rm 'factorize-verify-verification-1'");
+  });
+
   it.each(["ssh", "agent"] as const)("distinguishes %s prerequisite failure and still cleans up", async failedCheck => {
     const commands: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
