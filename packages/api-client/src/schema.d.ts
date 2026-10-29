@@ -1158,6 +1158,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vm-image-verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify a public VM image
+         * @description Starts a tenant-scoped background verification. It creates a temporary Factorize-owned VM, checks SSH and the selected harness prerequisites, then deletes the VM. It never executes a job prompt.
+         *
+         *     Requires the jobs:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_vm_image_verifications"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vm-image-verifications/{verificationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get VM image verification progress
+         * @description Requires the jobs:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_vm_image_verifications_verificationId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs": {
         parameters: {
             query?: never;
@@ -1905,6 +1951,7 @@ export interface components {
             concurrencyLimit: number;
             executionConfigId: string;
             tags?: string[];
+            vmImage?: string;
             model?: string;
             effort?: string;
             /** @default [] */
@@ -4621,6 +4668,7 @@ export interface operations {
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
+                            image?: string;
                         };
                         executionConfigId: string;
                         agentKind: string;
@@ -4778,6 +4826,95 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    post_api_v1_vm_image_verifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    connectionId: string;
+                    image: string;
+                    tags: string[];
+                    /** @enum {string} */
+                    agentKind: "codex" | "claude" | "pi";
+                };
+            };
+        };
+        responses: {
+            /** @description Verification operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** @enum {string} */
+                        status: "queued" | "creating" | "checking_ssh" | "checking_agent" | "cleaning_up" | "succeeded" | "failed" | "cleanup_failed";
+                        phase: string;
+                        errorKind: string | null;
+                        error: string | null;
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_vm_image_verifications_verificationId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                verificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verification operation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** @enum {string} */
+                        status: "queued" | "creating" | "checking_ssh" | "checking_agent" | "cleaning_up" | "succeeded" | "failed" | "cleanup_failed";
+                        phase: string;
+                        errorKind: string | null;
+                        error: string | null;
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_jobs: {
         parameters: {
             query?: never;
@@ -4811,6 +4948,7 @@ export interface operations {
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
+                            image?: string;
                         };
                         executionConfigId: string;
                         agentKind: string;
@@ -5004,6 +5142,7 @@ export interface operations {
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
+                            image?: string;
                         };
                         executionConfigId: string;
                         agentKind: string;
@@ -5369,6 +5508,7 @@ export interface operations {
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
+                            image?: string;
                         };
                         executionConfigId: string;
                         agentKind: string;
@@ -5547,6 +5687,7 @@ export interface operations {
                     concurrencyLimit?: number;
                     executionConfigId: string;
                     tags?: string[];
+                    vmImage?: string;
                     model?: string;
                     effort?: string;
                     /** @default [] */
@@ -5677,6 +5818,7 @@ export interface operations {
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
+                            image?: string;
                         };
                         executionConfigId: string;
                         agentKind: string;

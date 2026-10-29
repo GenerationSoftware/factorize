@@ -86,7 +86,7 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
         body = route.body.parse(body);
       }
       if (route.authOperation) return timed(await executeAuth(route.authOperation, request, env, body as Record<string, unknown>));
-      service = new ApiService(env, auth!);
+      service = new ApiService(env, auth!, ctx);
       const query = route.query?.parse(queryInput(url));
       return timed(Response.json(await route.execute(service, { params: route.parameters.parse(params) as Record<string, string>, body, query, url }), { status: route.status }));
     } catch (error) { return timed(errorResponse(error)); }

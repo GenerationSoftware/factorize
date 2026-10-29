@@ -8,7 +8,7 @@ import {
   isDeclaredApiOperation,
   matchApiOperation,
 } from "../src/api-contract";
-import { listRunsSchema } from "../src/flow-schemas";
+import { listRunsSchema, jobInputSchema, vmImageVerificationInput } from "../src/flow-schemas";
 
 export const openapi = parse(
   readFileSync(new URL("../../docs/openapi.yaml", import.meta.url), "utf8"),
@@ -32,6 +32,16 @@ describe("versioned API contract", () => {
     expect(listRunsSchema.safeParse({ direction: "asc" }).success).toBe(false);
     expect(listRunsSchema.safeParse({ state: ["failed", "stopped"] }).success).toBe(true);
     expect(listRunsSchema.safeParse({ state: ["failed", "not-a-state"] }).success).toBe(false);
+  });
+  it("accepts public image references and publishes tenant-scoped verification operations", () => {
+    const job = { name: "Image job", slug: "image-job", promptTemplate: "Run", executionConfigId: "exe", vmImage: "ghcr.io/org/image:tag", triggers: [] };
+    expect(jobInputSchema.safeParse(job).success).toBe(true);
+    expect(jobInputSchema.safeParse({ ...job, vmImage: "https://private.example/image" }).success).toBe(false);
+    expect(vmImageVerificationInput.safeParse({ connectionId: "exe", image: "ghcr.io/org/image:tag", tags: [], agentKind: "codex" }).success).toBe(true);
+    const post = API_ROUTES.find(route => route.path === "/api/v1/vm-image-verifications" && route.method === "POST");
+    const get = API_ROUTES.find(route => route.path === "/api/v1/vm-image-verifications/{verificationId}" && route.method === "GET");
+    expect(post?.scope).toBe("jobs:write"); expect(get?.scope).toBe("jobs:read");
+    expect(openapi.paths["/api/v1/vm-image-verifications"].post.requestBody).toBeDefined();
   });
   it("has full bidirectional method/path equality with the executable catalog", () => {
     const documented = Object.entries(openapi.paths).flatMap(([path, item]) =>

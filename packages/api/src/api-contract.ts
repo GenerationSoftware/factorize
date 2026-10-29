@@ -14,6 +14,8 @@ import {
   jobConditionsTestSchema,
   listRunsSchema,
   scopeSchema,
+  vmImageVerificationInput,
+  vmImageVerificationResponse,
 } from "./flow-schemas";
 import { traceReplaySchema } from "./trace-replay-schemas";
 import document from "./api-document.json";
@@ -661,6 +663,8 @@ export const API_ROUTES: RouteContract[] = [
   route("DELETE", "/api/v1/skills/{skillId}", "skills:write", { summary: "Delete an unused global skill", responses: { "200": { description: "Deleted" } } }, (service, { params, query }) => service.deleteSkill(params.skillId, query.expectedRevision), { query: z.object({ expectedRevision: z.coerce.number().int().positive() }) }),
   route("GET", "/api/v1/skills/{skillId}/jobs", "skills:read", { summary: "List jobs using a skill", responses: { "200": { description: "Jobs", content: { "application/json": { schema: jsonSchema(skillJobsResponse, "output") } } } } }, (service, { params }) => service.listSkillJobs(params.skillId)),
   route("POST", "/api/v1/jobs/{jobId}/project", "flows:write", { summary: "Move a job to a project", responses: { "200": { description: "Moved", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } } } }, (service, { params, body }) => service.moveJob(params.jobId, body.projectId, body.expectedUpdatedAt), { body: z.object({ projectId: z.guid(), expectedUpdatedAt: z.iso.datetime().optional() }) }),
+  route("POST", "/api/v1/vm-image-verifications", "flows:write", { summary: "Verify a public VM image", description: "Starts a tenant-scoped background verification. It creates a temporary Factorize-owned VM, checks SSH and the selected harness prerequisites, then deletes the VM. It never executes a job prompt.", responses: { "200": { description: "Verification operation", content: { "application/json": { schema: jsonSchema(vmImageVerificationResponse, "output") } } } } }, (service, { body }) => service.startVmImageVerification(body), { body: vmImageVerificationInput }),
+  route("GET", "/api/v1/vm-image-verifications/{verificationId}", "flows:read", { summary: "Get VM image verification progress", responses: { "200": { description: "Verification operation", content: { "application/json": { schema: jsonSchema(vmImageVerificationResponse, "output") } } } } }, (service, { params }) => service.getVmImageVerification(params.verificationId)),
   route(
     "GET",
     "/api/v1/jobs",

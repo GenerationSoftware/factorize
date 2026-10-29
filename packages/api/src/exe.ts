@@ -33,6 +33,7 @@ export interface ExeRunConnection extends ExeConnection {
   model?: string;
   effort?: string;
   efforts?: string[];
+  image?: string;
 }
 
 /** Single shell atom; prevents user-controlled values from becoming syntax. */

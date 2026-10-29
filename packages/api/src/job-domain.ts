@@ -12,6 +12,7 @@ export interface ExecutionConfig {
   cwd: string;
   agentKind: string;
   tags?: string[];
+  image?: string;
 }
 
 export interface Trigger {

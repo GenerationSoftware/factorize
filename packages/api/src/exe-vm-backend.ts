@@ -24,6 +24,9 @@ function harnessCommand(harness: NonNullable<LaunchRequest["harness"]>): string 
 }
 
 export class ExeIntegrationError extends Error {}
+export class ExeImageVerificationError extends ExeIntegrationError {
+  constructor(public kind: "image_pull" | "permission" | "capacity" | "timeout", message: string) { super(message); }
+}
 
 export interface ExePermissionTest { ok: boolean; missingPermissions: string[]; tags: string[]; checks: BackendCommandResult[] }
 export interface ExeAgentValidation { models: string[]; command: BackendCommandResult }
@@ -40,11 +43,19 @@ export function tagsFromInventory(inventory: unknown): string[] {
   return [...tags].sort((a, b) => a.localeCompare(b));
 }
 
+function inventoryHasOwnedVm(body: string, vm: string): boolean {
+  try {
+    const value: unknown = JSON.parse(body);
+    const visit = (item: unknown): boolean => Array.isArray(item) ? item.some(visit) : !!item && typeof item === "object" && ((item as any).name === vm || (item as any).vm_name === vm) && (item as any).comment === `Factorize VM ${vm}` || !!item && typeof item === "object" && Object.values(item as Record<string, unknown>).some(visit);
+    return visit(value);
+  } catch { return false; }
+}
+
 export class ExeVmBackend implements ExecutionBackend {
   readonly kind = "exe-vm";
   readonly capabilities = capabilities;
 
-  constructor(private readonly connection: Pick<ExeConnection, "apiToken" | "tags"> | ExeRunConnection) {}
+  constructor(private readonly connection: Pick<ExeConnection, "apiToken" | "tags"> & { image?: string } | ExeRunConnection) {}
 
   private async api(command: string): Promise<BackendCommandResult> {
     const response = await fetch(API, { method: "POST", headers: { Authorization: `Bearer ${this.connection.apiToken}`, "Content-Type": "text/plain" }, body: command });
@@ -95,6 +106,45 @@ export class ExeVmBackend implements ExecutionBackend {
     }
   }
 
+  async verifyImage(verificationId: string, image: string, agentKind: "codex" | "claude" | "pi", progress: (phase: string) => Promise<void> = async () => {}): Promise<void> {
+    const vm = vmNameFor(`verify-${verificationId}`);
+    const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
+    const command = `new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)}${tags ? ` ${tags}` : ""} --image=${shellAtom(image)}`;
+    let created: BackendCommandResult | undefined, vmMayExist = false;
+    try { created = await this.api(command); }
+    catch {
+      // The HTTPS API has a 30-second timeout. Reconcile by the deterministic
+      // Factorize name and ownership marker before reporting an ambiguous create.
+      const inventory = await this.api("ls --json").catch(() => null);
+      vmMayExist = Boolean(inventory?.ok && inventoryHasOwnedVm(inventory.body, vm));
+      if (!vmMayExist) throw new ExeImageVerificationError("timeout", "Image creation timed out and no owned VM was found during reconciliation. Retry verification after checking exe.dev.");
+    }
+    if (created?.ok) vmMayExist = true;
+    else if (created && !created.ok) {
+      const inventory = await this.api("ls --json").catch(() => null);
+      vmMayExist = Boolean(inventory?.ok && inventoryHasOwnedVm(inventory.body, vm));
+      if (!vmMayExist) {
+        const kind = created.status === 403 ? "permission" : [429, 507].includes(created.status) ? "capacity" : [408, 504].includes(created.status) ? "timeout" : created.status === 503 && /capacity/i.test(created.body) ? "capacity" : "image_pull";
+        const detail = this.validationFailure("Image creation or pull failed. Check that the image is public, its reference is correct, and exe.dev has VM capacity and new permission", created);
+        throw new ExeImageVerificationError(kind, detail.message);
+      }
+    }
+    try {
+      await progress("checking_ssh");
+      let ssh = await this.api(`ssh ${shellAtom(vm)} ${shellAtom("true")}`).catch(() => null);
+      for (let attempt = 1; (!ssh || !ssh.ok) && attempt < 6; attempt++) ssh = await this.api(`ssh ${shellAtom(vm)} ${shellAtom("true")}`).catch(() => null);
+      if (!ssh?.ok) throw new ExeIntegrationError(`ssh: VM was created from the image, but SSH access failed (${ssh?.status ?? "timeout"}). Ensure the image boots an exe.dev-compatible system with SSH enabled.`);
+      await progress("checking_agent");
+      const check = `command -v ${shellAtom(agentKind)} >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1`;
+      const agent = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(check)}`).catch(() => null);
+      if (!agent?.ok) throw new ExeIntegrationError(`agent: SSH works, but the selected ${agentKind} harness prerequisites are missing. Use an image with ${agentKind}, curl, and jq installed.`);
+    } finally {
+      await progress("cleaning_up");
+      const removed = await this.deleteVm(vm);
+      if (!removed.ok) throw new ExeIntegrationError(`cleanup: Temporary VM ${vm} could not be deleted. It will be retried; remove it in exe.dev if it remains.`);
+    }
+  }
+
   async launch(request: LaunchRequest): Promise<LaunchReceipt> {
     const connection = this.connection as ExeRunConnection;
     if (!connection.agentKind) throw new Error("The job is missing its agent configuration");
@@ -102,7 +152,8 @@ export class ExeVmBackend implements ExecutionBackend {
     if (request.traceSources) validateTraceSources(request.traceSources);
     const vm = vmNameFor(request.runId);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
-    const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
+    const image = connection.image;
+    const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}${image ? ` --image=${shellAtom(image)}` : ""}`.trim());
     if (!created.ok) {
       await this.deleteVm(vm).catch(() => undefined);
       throw new Error(`exe.dev VM creation failed (${created.status}): ${created.body.slice(0, 500)}`);

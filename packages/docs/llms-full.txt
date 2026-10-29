@@ -133,6 +133,8 @@ Ask: “List execution integrations and jobs, then create a review job for this 
 
 `update_job` **replaces configuration**, rather than patching one field. Always call `get_job` first. Build a write object containing `jobId`, `name`, `slug`, `promptTemplate`, `executionConfigId`, `runNameTemplate`, `concurrencyLimit`, `model`, optional `effort`, and the full intended `triggers` array. Preserve each existing trigger's `id`, `slug`, `kind`, `enabled`, and writable `config`. Strip read-only response fields (`jobId` inside triggers, timestamps, reflection, secretConfigured and destination). Do not pass the entire read response unchanged.
 
+Jobs using exe.dev may set optional `vmImage` to a public Docker/OCI image reference such as `ghcr.io/org/image:tag`. Leaving it blank uses exe.dev's default image. In the job editor, **Verify image** creates a temporary owned VM, checks SSH and the selected agent prerequisites, and deletes the VM; it never runs the job prompt. Verification is explicit and autosaving does not create VMs. Private images and registry credentials are not supported. Verification records what worked at that time; mutable tags may later resolve to a different image.
+
 Supply `expectedUpdatedAt` from the fetched job's `updatedAt` to protect against concurrent edits. On `stale_job`, fetch again and reapply the desired changes. Omitting it retains last-writer-wins behavior. Omitted optional configuration resets to defaults; omitted triggers remove the configured automatic triggers. Preserve all triggers you want to keep.
 
 After saving, call `get_job` and compare prompt, target and triggers. `enable_job` and `disable_job` change enabled state without rebuilding configuration. Disabling automation does not stop an existing run. Job saves can trigger `edited` lifecycle subscribers. Deleting a job removes its execution history/artifacts; inspect and retain anything needed first.
@@ -457,6 +459,7 @@ The inventory is validated against every registered implementation tool. All req
 | `slug` | Required string matching `^[a-z][a-z0-9_-]{0,29}$`; unique within workspace |
 | `promptTemplate` | Required string, 1–50,000 characters |
 | `executionConfigId` | Required non-empty ID from target discovery |
+| `vmImage` | Optional public Docker/OCI image reference for exe.dev jobs. Omit or send an empty value to use the exe.dev default. Verification is available in the browser job editor. |
 | `runNameTemplate` | Optional string, max 500; defaults to empty |
 | `concurrencyLimit` | Optional integer 1–50; defaults to 1 |
 | `model` | Optional trimmed string, max 120; defaults to empty/provider default |
