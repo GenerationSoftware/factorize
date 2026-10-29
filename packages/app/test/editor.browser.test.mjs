@@ -70,6 +70,9 @@ test("image verification is explicit, autosave never provisions, and stale verif
   await page.getByRole("status").filter({ hasText: "Not verified" }).waitFor(); assert.equal(createCount, 1);
   await page.getByRole("button", { name: "Verify image" }).click();
   await page.getByRole("status").filter({ hasText: "Verification passed" }).waitFor(); assert.equal(createCount, 2);
+  await page.getByLabel("VM image").fill("GHCR.IO/ACME/base:two");
+  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
+  await page.getByRole("status").filter({ hasText: "Verified: Verification passed" }).waitFor();
   await page.getByLabel("VM tags").selectOption(["github"]);
   await page.getByRole("status").filter({ hasText: "Not verified" }).waitFor(); await context.close();
 });

@@ -80,9 +80,10 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
   it("creates a job with a deterministic migrated execution integration UUID", async () => {
     const target = "local";
     try {
-      const job = await new ApiService(env, auth).createJob({ name: "Migrated target job", slug: "migrated-target-job", promptTemplate: "Do work", executionConfigId: target, concurrencyLimit: 1, triggers: [{ kind: "manual", enabled: true, config: {} }] });
+      const job = await new ApiService(env, auth).createJob({ name: "Migrated target job", slug: "migrated-target-job", promptTemplate: "Do work", executionConfigId: target, vmImage: "ghcr.io/GenerationSoftware/anarack:ReleaseA", concurrencyLimit: 1, triggers: [{ kind: "manual", enabled: true, config: {} }] });
       expect(job.executionConfigId).toBe(target);
       expect(job.executionConfig).toMatchObject({ connectionId: "local", agentKind: "codex" });
+      expect(job.executionConfig.image).toBe("ghcr.io/generationsoftware/anarack:ReleaseA");
     } finally {
       await db.pool.query("DELETE FROM app.jobs WHERE execution_config->>'targetId'=$1", [target]);
     }

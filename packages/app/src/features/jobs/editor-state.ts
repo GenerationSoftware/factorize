@@ -3,6 +3,11 @@ export type JobInput = components["schemas"]["JobInput"];
 export type Job = operations["get_api_v1_jobs_jobId"]["responses"][200]["content"]["application/json"];
 export type Trigger = JobInput["triggers"][number];
 export const emptyJob = (): JobInput => ({ name: "", slug: "", promptTemplate: "", runNameTemplate: "", executionConfigId: "", concurrencyLimit: 1, tags: [], vmImage: "", model: "", effort: "", skillIds: [], triggers: [{ kind: "manual", slug: "trigger-1", enabled: true, config: {} }] });
+export function canonicalizeVmImage(value: string): string {
+  const trimmed = value.trim(), digestAt = trimmed.indexOf("@"), reference = digestAt < 0 ? trimmed : trimmed.slice(0, digestAt), digest = digestAt < 0 ? "" : trimmed.slice(digestAt);
+  const slash = reference.lastIndexOf("/"), colon = reference.lastIndexOf(":"), tag = colon > slash ? reference.slice(colon) : "", name = tag ? reference.slice(0, -tag.length) : reference;
+  return `${name.toLowerCase()}${tag}${digest}`;
+}
 export function editableJob(job: Job): JobInput {
   return { projectId: job.projectId, name: job.name, slug: job.slug, promptTemplate: job.promptTemplate, runNameTemplate: job.runNameTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], vmImage: job.executionConfig?.image ?? "", model: job.model, effort: job.effort ?? "", skillIds: job.skills?.map(skill => skill.id) ?? [], triggers: job.triggers.map(trigger => {
     const { id, slug, kind, enabled } = trigger;
@@ -34,7 +39,7 @@ export function validateJobInput(input: JobInput): string | undefined {
   if (!Number.isInteger(input.concurrencyLimit) || input.concurrencyLimit < 1 || input.concurrencyLimit > 50) return "Concurrency limit must be between 1 and 50.";
   if (!input.executionConfigId) return "Choose an execution integration.";
   if ((input.tags?.length ?? 0) > 20 || input.tags?.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) return "VM tags are invalid.";
-  if (input.vmImage && !/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$/.test(input.vmImage.trim())) return "Enter a public Docker/OCI image reference.";
+  if (input.vmImage && !/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$/.test(canonicalizeVmImage(input.vmImage))) return input.vmImage.trim().startsWith("https://") ? "Enter an image reference without a URL scheme." : "Enter a public Docker/OCI image reference.";
   if (input.triggers.length > 50) return "A job can have at most 50 triggers.";
   for (const trigger of input.triggers) {
     if (!trigger.slug || !/^trigger-[1-9][0-9]*$/.test(trigger.slug)) return "Each trigger needs a valid stable identifier.";

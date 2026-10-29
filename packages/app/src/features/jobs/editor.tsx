@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { jobQuery } from "./queries";
 import { metadataQuery, targetsQuery } from "./editor-queries";
-import { editableJob, emptyJob, reconcile, validateJobInput, writeInput, type Job, type JobInput } from "./editor-state";
+import { canonicalizeVmImage, editableJob, emptyJob, reconcile, validateJobInput, writeInput, type Job, type JobInput } from "./editor-state";
 import { TemplateField } from "./template-field";
 import { TriggerEditor } from "./trigger-editor";
 import { messageOf } from "../auth/session";
@@ -37,7 +37,7 @@ function EditorForm({ initial }: { initial?: Job }) {
   const project = useQuery({ ...projectQuery(initial?.projectId ?? ""), enabled: !!initial?.projectId });
   const projects = useQuery({ ...projectsQuery, enabled: !initial });
   const target = targets.data?.find(t => t.id === draft.executionConfigId);
-  const verificationFingerprint = JSON.stringify([draft.executionConfigId, draft.vmImage?.trim() ?? "", draft.tags ?? [], target?.agentKind ?? ""]);
+  const verificationFingerprint = JSON.stringify([draft.executionConfigId, canonicalizeVmImage(draft.vmImage ?? ""), draft.tags ?? [], target?.agentKind ?? ""]);
   const verificationKey = `factorize-vm-image-verification:${initial?.id ?? "new"}`;
   const [verificationRef, setVerificationRef] = useState<{ fingerprint: string; id: string } | null>(() => { try { return JSON.parse(localStorage.getItem(verificationKey) ?? "null"); } catch { return null; } });
   const currentVerificationFingerprint = useRef(verificationFingerprint); currentVerificationFingerprint.current = verificationFingerprint;
@@ -50,7 +50,7 @@ function EditorForm({ initial }: { initial?: Job }) {
   const [projectDialog, setProjectDialog] = useState(false);
   const onlyProject = projects.data?.length === 1 ? projects.data[0] : undefined;
   useEffect(() => { if (!initial && !draft.projectId && !projectId && onlyProject) setDraft(previous => ({ ...previous, projectId: onlyProject.id })); }, [initial, draft.projectId, projectId, onlyProject]);
-  const update = <K extends keyof JobInput>(key: K, value: JobInput[K]) => { setSaved(false); if (["vmImage", "executionConfigId", "tags"].includes(key)) { verificationGeneration.current++; setVerificationRef(null); localStorage.removeItem(verificationKey); } setDraft(previous => ({ ...previous, [key]: value })); };
+  const update = <K extends keyof JobInput>(key: K, value: JobInput[K]) => { setSaved(false); const sameImage = key === "vmImage" && canonicalizeVmImage(draft.vmImage ?? "") === canonicalizeVmImage(typeof value === "string" ? value : ""); if (["executionConfigId", "tags"].includes(key) || (key === "vmImage" && !sameImage)) { verificationGeneration.current++; setVerificationRef(null); localStorage.removeItem(verificationKey); } setDraft(previous => ({ ...previous, [key]: value })); };
   const refreshConflict = useMutation({ retry: false, mutationFn: async () => {
     if (!initial) throw new Error("No job selected");
     const { data, error } = await api.GET("/api/v1/jobs/{jobId}", { params: { path: { jobId: initial.id } } });

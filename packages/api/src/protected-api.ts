@@ -17,7 +17,12 @@ function errorResponse(error: unknown): Response {
   if (error instanceof ExeIntegrationError) return Response.json({ error: { code: "invalid_request", message: error.message } }, { status: 400 });
   if (error instanceof URIError) return Response.json({ error: { code: "invalid_request", message: "Invalid path encoding" } }, { status: 400 });
   if (error instanceof InvocationError && error.code === "queue_full") return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
-  if (error instanceof z.ZodError) return Response.json({ error: { code: "invalid_request", message: "Request validation failed", details: error.issues } }, { status: 400 });
+  if (error instanceof z.ZodError) {
+    const imageIssue = error.issues.find(issue => issue.path.at(-1) === "vmImage" || issue.path.at(-1) === "image");
+    const field = imageIssue?.path.join(".");
+    const message = imageIssue && field ? `Invalid ${field}: ${imageIssue.message}` : "Request validation failed";
+    return Response.json({ error: { code: "invalid_request", message, details: error.issues } }, { status: 400 });
+  }
   if (error instanceof ServiceError) {
     const headers = error.code === "insufficient_scope" ? { "WWW-Authenticate": `Bearer error="insufficient_scope"` } : undefined;
     return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status, headers });
