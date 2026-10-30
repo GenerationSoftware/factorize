@@ -53,7 +53,11 @@ export class AutomationScheduler {
   }
 
   private async lifecycle() {
-    const rows = await this.database.pool.query<any>(`SELECT t.tenant_id,t.id trigger_id,t.job_id,t.slug,t.config,r.id source_run_id,r.job_id source_job_id,r.state,r.updated_at
+    // Drain the backlog before checking idle triggers. The idle query below
+    // also guards against eligible unacknowledged deliveries so concurrent
+    // scheduler passes cannot cross this ordering boundary.
+    for (;;) {
+      const rows = await this.database.pool.query<any>(`SELECT t.tenant_id,t.id trigger_id,t.job_id,t.slug,t.config,r.id source_run_id,r.job_id source_job_id,r.state,r.updated_at
       FROM app.triggers t
       JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
       JOIN app.runs r ON r.tenant_id=t.tenant_id
@@ -63,13 +67,17 @@ export class AutomationScheduler {
         AND r.state IN ('succeeded','failed','stopped')
         AND COALESCE(t.config->'states',t.config->'terminalStates','["succeeded","failed","stopped"]'::jsonb) ? r.state
         AND d.source_run_id IS NULL ORDER BY r.updated_at LIMIT 100`);
-    for (const row of rows.rows) {
-      const context = { sourceRunId: row.source_run_id, sourceJobId: row.source_job_id, state: row.state, completedAt: row.updated_at.toISOString() }, occurrence = { occurredAt: context.completedAt, externalId: `${row.source_run_id}:${row.state}`, metadata: context };
-      // Acknowledge after invocation so transient failures remain retryable.
-      // The stable claim key deduplicates concurrent passes and retries after
-      // an invocation commits but its delivery acknowledgement fails.
-      await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.job_id, { source: "jobLifecycle", triggerId: row.trigger_id, claimKey: `lifecycle:${row.trigger_id}:${row.source_run_id}:${row.state}`, context: { [row.slug]: context }, occurrence }).catch(skipFullQueue);
-      await this.database.pool.query("INSERT INTO app.lifecycle_deliveries(tenant_id,trigger_id,source_run_id,terminal_state) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING", [row.tenant_id, row.trigger_id, row.source_run_id, row.state]);
+      if (!rows.rows.length) break;
+      for (const row of rows.rows) {
+        const context = { sourceRunId: row.source_run_id, sourceJobId: row.source_job_id, state: row.state, completedAt: row.updated_at.toISOString() }, occurrence = { occurredAt: context.completedAt, externalId: `${row.source_run_id}:${row.state}`, metadata: context };
+        // Acknowledge after invocation so transient failures remain retryable.
+        // Queue-full is an intentional terminal outcome: no run is queued, so
+        // acknowledging it permits idle triggers to proceed.
+        // The stable claim key deduplicates retries after an invocation commits
+        // but its delivery acknowledgement fails.
+        await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.job_id, { source: "jobLifecycle", triggerId: row.trigger_id, claimKey: `lifecycle:${row.trigger_id}:${row.source_run_id}:${row.state}`, context: { [row.slug]: context }, occurrence }).catch(skipFullQueue);
+        await this.database.pool.query("INSERT INTO app.lifecycle_deliveries(tenant_id,trigger_id,source_run_id,terminal_state) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING", [row.tenant_id, row.trigger_id, row.source_run_id, row.state]);
+      }
     }
   }
 
@@ -90,6 +98,27 @@ export class AutomationScheduler {
           JOIN app.runs newer ON newer.tenant_id=t.tenant_id AND newer.job_id=watched.value::uuid
           WHERE newer.state IN ('succeeded','failed','stopped')
             AND (newer.updated_at,newer.id) > (r.updated_at,r.id)
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements_text(t.config->'sourceJobIds') watched(value)
+          JOIN app.runs pending_source ON pending_source.tenant_id=t.tenant_id
+            AND pending_source.job_id=watched.value::uuid
+            AND pending_source.state IN ('succeeded','failed','stopped')
+          JOIN app.triggers lifecycle_trigger ON lifecycle_trigger.tenant_id=pending_source.tenant_id
+            AND lifecycle_trigger.kind='jobLifecycle' AND lifecycle_trigger.enabled
+            AND lifecycle_trigger.removed_at IS NULL
+            AND COALESCE(lifecycle_trigger.config->'sourceJobIds',jsonb_build_array(lifecycle_trigger.config->>'sourceJobId')) ? pending_source.job_id::text
+            AND COALESCE(lifecycle_trigger.config->'states',lifecycle_trigger.config->'terminalStates','["succeeded","failed","stopped"]'::jsonb) ? pending_source.state
+          JOIN app.jobs lifecycle_job ON lifecycle_job.tenant_id=lifecycle_trigger.tenant_id
+            AND lifecycle_job.id=lifecycle_trigger.job_id AND lifecycle_job.enabled
+          WHERE NOT EXISTS (
+            SELECT 1 FROM app.lifecycle_deliveries pending_delivery
+            WHERE pending_delivery.tenant_id=lifecycle_trigger.tenant_id
+              AND pending_delivery.trigger_id=lifecycle_trigger.id
+              AND pending_delivery.source_run_id=pending_source.id
+              AND pending_delivery.terminal_state=pending_source.state
+          )
         )
         AND NOT EXISTS (SELECT 1 FROM app.lifecycle_deliveries d WHERE d.tenant_id=t.tenant_id AND d.trigger_id=t.id AND d.source_run_id=r.id AND d.terminal_state='runsZero')
         ORDER BY r.updated_at LIMIT 100`);
