@@ -17,7 +17,7 @@ import { IdentityRepository } from "./postgres/identity-repository";
 const scopes = [...ACCESS_SCOPES];
 // Keep accepting grants issued by the pre-resource-scope protocol. New
 // consent screens and metadata advertise only the canonical scopes above.
-const oauthScopes = [...scopes, "flows:read", "flows:write", "runs:write"];
+const oauthScopes = [...new Set([...scopes, "flows:read", "flows:write", "runs:write"])];
 async function currentOwner(request: Request, env: Env) {
   const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
   if (!session) return null;
