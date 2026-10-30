@@ -36,7 +36,7 @@ Start Claude Code, enter `/mcp`, choose Factorize and authenticate when prompted
 
 The client opens Factorize authorization in your browser. Sign in with your verified Factorize email/password and approve the requested scopes. For the full workflow, grant `flows:read`, `flows:write`, `runs:read`, and `runs:write`. Read-only access cannot create or invoke jobs. Return to your client after consent.
 
-Consent lists nine independent permissions: `projects:read`, `projects:write`, `jobs:read`, `jobs:write`, `runs:read`, `runs:invoke`, `runs:cancel`, `integrations:read`, and `integrations:write`. Write does not imply read. If you need to create an account or verify your email, finish those steps and restart client authorization; do not assume the signup screen will automatically resume the original request. No Linear or execution token belongs in the MCP client.
+Consent lists 12 permissions, including `runs:write` for renaming runs. Run write grants also retain invocation and cancellation access for compatibility. Write does not imply read. If you need to create an account or verify your email, finish those steps and restart client authorization; do not assume the signup screen will automatically resume the original request. No Linear or execution token belongs in the MCP client.
 
 Ask **“List my Factorize jobs.”** The agent should call `list_jobs({})`. An empty `items` list is a successful connection to a workspace with no jobs. Next ask it to list execution integrations and follow the [first-job walkthrough](/quickstart).
 

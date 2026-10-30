@@ -5,7 +5,7 @@ import { z } from "zod";
 import { runPageResponse, fullRunResponse } from "./run-read-contracts";
 import { triggerContextCatalog } from "./trigger-context";
 import type { Env, OAuthProps } from "./types";
-import { canonicalizeVmImage, vmImageVerificationInput, type JobInput, type ManualInvocationInput } from "./flow-schemas";
+import { canonicalizeVmImage, renameRunSchema, vmImageVerificationInput, type JobInput, type ManualInvocationInput } from "./flow-schemas";
 import { nextOccurrence, validateScheduleConfig } from "./schedule";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
@@ -51,7 +51,7 @@ export function publicValue<T extends z.ZodType>(schema: T, value: unknown): z.o
   return result.data;
 }
 
-type Scope = "projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
+type Scope = "projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
 
 export class ApiService {
   authorizationDuration = 0;
@@ -157,6 +157,14 @@ export class ApiService {
   async search(query: string) { await this.authorize("jobs:read"); await this.authorize("runs:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
   async triggerContextMetadata() { await this.authorize("jobs:read"); return triggerContextCatalog; }
   async getRunStatus(runId: string) { await this.authorize("runs:read"); const status = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).status(runId); if (!status) throw new ServiceError(404, "not_found", "Run not found"); return status; }
+  async renameRun(runId: string, input: unknown) {
+    await this.authorize("runs:write");
+    const parsed = renameRunSchema.parse(input);
+    const result = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).rename(runId, parsed.name, parsed.expectedName);
+    if (result === "missing") throw new ServiceError(404, "not_found", "Run not found");
+    if (result === "stale") throw new ServiceError(409, "stale_run_name", "This run was renamed. Reload it before saving.");
+    return result;
+  }
   async getRevisionTrace(runId: string, after: number, limit: number, revision?: string, before?: number, recent = false) { await this.authorize("runs:read"); const page = await new TraceRepository(databaseFor(this.env), this.auth.tenantId).revisionPage(runId, after, limit, revision, before, recent); if (!page) throw new ServiceError(404, "not_found", "Run not found"); return page; }
   async getRun(runId: string) {
     await this.authorize("runs:read");
@@ -349,6 +357,6 @@ export class ApiService {
   }
   async revokeAuthorizedClient(clientId: string) { await this.authorizeOwnerSession("jobs:write"); if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503, "operation_failed", "OAuth management unavailable"); const grants: any[] = []; let cursor: string | undefined; do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => grant.clientId === clientId)); cursor = page.cursor; } while (cursor); await Promise.all(grants.map(grant => this.env.OAUTH_PROVIDER!.revokeGrant(grant.id, this.auth.userId))); return { revoked: grants.length }; }
   async listAccessTokens() { await this.authorizeOwnerSession("jobs:read"); return publicValue(z.array(accessToken), (await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).list()).map(token => ({ ...token, created_at: new Date(token.created_at).toISOString(), expires_at: new Date(token.expires_at).toISOString(), last_used_at: token.last_used_at ? new Date(token.last_used_at).toISOString() : null, revoked_at: token.revoked_at ? new Date(token.revoked_at).toISOString() : null, scopes: normalizeScopes(token.scopes) }))); }
-  async createAccessToken(input: any) { await this.authorizeOwnerSession("jobs:write"); const name = typeof input?.name === "string" ? input.name.trim() : "", requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], legacy = new Set(["flows:read", "flows:write", "runs:write"]), scopes = normalizeScopes(requested), expiryDays = Number(input?.expiryDays); if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any) && !legacy.has(scope)) || !scopes.length || ![7, 30, 90].includes(expiryDays)) throw new ServiceError(400, "invalid_request", "A name, supported scopes, and expiryDays of 7, 30, or 90 are required."); const token = issueAccessToken(this.auth.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString(); const metadata = await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).create({ name, scopes, expiresAt, digest: await accessTokenDigest(token), userId: this.auth.userId, sessionVersion: this.auth.sessionVersion }); if (!metadata) throw new ServiceError(401, "invalid_token", "The owner session is no longer active."); return publicValue(createdAccessToken, JSON.parse(JSON.stringify({ ...metadata, token }))); }
+  async createAccessToken(input: any) { await this.authorizeOwnerSession("jobs:write"); const name = typeof input?.name === "string" ? input.name.trim() : "", requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], legacy = new Set(["flows:read", "flows:write"]), scopes = normalizeScopes(requested), expiryDays = Number(input?.expiryDays); if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any) && !legacy.has(scope)) || !scopes.length || ![7, 30, 90].includes(expiryDays)) throw new ServiceError(400, "invalid_request", "A name, supported scopes, and expiryDays of 7, 30, or 90 are required."); const token = issueAccessToken(this.auth.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString(); const metadata = await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).create({ name, scopes, expiresAt, digest: await accessTokenDigest(token), userId: this.auth.userId, sessionVersion: this.auth.sessionVersion }); if (!metadata) throw new ServiceError(401, "invalid_token", "The owner session is no longer active."); return publicValue(createdAccessToken, JSON.parse(JSON.stringify({ ...metadata, token }))); }
   async revokeAccessToken(id: string) { await this.authorizeOwnerSession("jobs:write"); if (!await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).revoke(id)) throw new ServiceError(404, "not_found", "Access token not found"); return { revoked: true }; }
 }

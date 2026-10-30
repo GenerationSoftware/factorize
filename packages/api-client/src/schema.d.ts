@@ -1539,7 +1539,15 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename run
+         * @description Changes only the run display name. Supply expectedName for optimistic concurrency; omission supports last-writer-wins clients.
+         *
+         *     Requires the runs:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        patch: operations["patch_api_v1_runs_runId"];
         trace?: never;
     };
     "/api/v1/runs/{runId}/trace": {
@@ -2304,7 +2312,7 @@ export interface operations {
                             /** @constant */
                             role: "owner";
                         };
-                        capabilities: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        capabilities: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         /** Format: date-time */
                         expiresAt: string;
                     };
@@ -3606,7 +3614,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -3635,7 +3643,7 @@ export interface operations {
             content: {
                 "application/json": {
                     name: string;
-                    scopes: (("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write") | ("flows:read" | "flows:write" | "runs:write"))[];
+                    scopes: (("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write") | ("flows:read" | "flows:write"))[];
                     expiryDays: 7 | 30 | 90;
                 };
             };
@@ -3650,7 +3658,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -6291,6 +6299,48 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    patch_api_v1_runs_runId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    expectedName?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved run display name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        run_name: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            /** @description Run not found within the tenant */
+            404: components["responses"]["Error404"];
+            /** @description stale_run_name: reload before retrying */
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];

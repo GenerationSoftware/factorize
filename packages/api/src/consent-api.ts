@@ -47,7 +47,7 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
   const client = await env.OAUTH_PROVIDER.lookupClient(parsed.clientId);
   if (!client || !client.redirectUris.includes(parsed.redirectUri)) return null;
   const allowed = new Set(normalizeScopes(parsed.scope.filter(scope => supported.includes(scope))));
-  const legacyRequest = parsed.scope.some(scope => scope === "flows:read" || scope === "flows:write" || scope === "runs:write");
+  const legacyRequest = parsed.scope.some(scope => scope === "flows:read" || scope === "flows:write");
   const selected = normalizeScopes(input.scopes);
   const issuedScopes = legacyRequest ? input.scopes : selected;
   if (input.scopes.some(scope => !allowed.has(scope) && !allowed.has(normalizeScopes([scope])[0] ?? "") ) || selected.some(scope => !ACCESS_SCOPES.includes(scope as typeof ACCESS_SCOPES[number]))) return null;

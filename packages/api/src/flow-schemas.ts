@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { conditionsSchema, preparedWebhookSchema } from "./webhook-conditions";
 
-export const scopeSchema = z.enum(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
+export const scopeSchema = z.enum(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "runs:write", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
 export const runStateSchema = z.enum(["queued", "reserved", "starting", "running", "done", "blocked", "failed", "ignored", "succeeded", "stopping", "stopped"]);
 export const matchRuleSchema = z.object({
   type: z.enum(["owner", "creator", "status", "label", "assignee"]),
@@ -15,6 +15,7 @@ export const listRunsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().min(1).optional(),
 }).refine(value => !value.direction || value.sort, { message: "direction requires sort" });
 export const runIdSchema = z.object({ runId: z.string().min(1) });
+export const renameRunSchema = z.object({ name: z.string().trim().min(1).max(120), expectedName: z.string().max(120).optional() }).strict();
 
 const webhookCommonSchema = z.object({ conditions: conditionsSchema.optional() });
 export const webhookTriggerConfigSchema = z.discriminatedUnion("provider", [

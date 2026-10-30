@@ -121,6 +121,19 @@ test("stopping a run submits once, observes stopping state and keeps terminal fi
   await page.getByText("stopped · Finalizing trace and artifacts", { exact: true }).waitFor(); assert.equal(await page.getByRole("button", { name: "Stop run", exact: true }).count(), 0);
   await context.close();
 });
+test("run rename supports keyboard save and cancel, validates names, and preserves drafts during polling", async () => {
+  const { context, page } = await setup(); let name = "Original run", saves = [];
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Job", run_name: name, state: "running", finalizing: false, trace_revision: "rev", artifact_state: "pending", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [], nextCursor: null, revision: "rev", reset: false } }));
+  await page.route(`**/api/v1/runs/${runId}`, route => route.request().method() === "PATCH" ? (saves.push(route.request().postDataJSON()), name = saves.at(-1).name, route.fulfill({ json: { run_name: name } })) : route.fulfill({ json: {} }));
+  await page.goto(origin + "/job-runs/" + runId); await page.getByRole("heading", { name: "Original run", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Rename", exact: true }).click(); const input = page.getByRole("textbox", { name: "Run name" }); await input.fill("Draft survives polling"); await page.waitForTimeout(2200); assert.equal(await input.inputValue(), "Draft survives polling");
+  await input.fill("   "); await page.keyboard.press("Enter"); await page.getByRole("alert").filter({ hasText: "between 1 and 120" }).waitFor(); assert.equal(saves.length, 0);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click(); await page.getByRole("heading", { name: "Original run", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Rename", exact: true }).click(); await page.getByRole("textbox", { name: "Run name" }).fill("Escape cancel"); await page.keyboard.press("Escape"); await page.getByRole("heading", { name: "Original run", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Rename", exact: true }).click(); await page.getByRole("textbox", { name: "Run name" }).fill("Saved name"); await page.keyboard.press("Enter"); await page.getByRole("heading", { name: "Saved name", exact: true }).waitFor(); assert.deepEqual(saves, [{ name: "Saved name", expectedName: "Original run" }]);
+  await page.reload(); await page.getByRole("heading", { name: "Saved name", exact: true }).waitFor(); await context.close();
+});
 test("run trace uses pull-to-load history, preserves the anchor, and never crashes on disclosure toggles", async () => {
   const { context, page } = await setup(); const requests = [];
   const event = (sequence, type = "assistant_message") => ({ id: `trace-${sequence}`, sequence, type, title: `Trace ${sequence}`, preview: `Trace ${sequence}`, display: {} });

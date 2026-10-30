@@ -15,6 +15,7 @@ export function RunDetail() {
   const tabPath = (name: "trace" | "info"): "/job-runs/$runId" | "/job-runs/$runId/info" => name === "trace" ? "/job-runs/$runId" : "/job-runs/$runId/info";
   const status = useQuery(runStatusQuery(runId!));
   const [revision, setRevision] = useState("");
+  const [renaming, setRenaming] = useState(false), [nameDraft, setNameDraft] = useState(""), [nameExpected, setNameExpected] = useState(""), [nameError, setNameError] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const active = !status.data || !["succeeded", "failed", "stopped"].includes(status.data.state) || status.data.finalizing;
   useEffect(() => {
@@ -40,11 +41,24 @@ export function RunDetail() {
     const { error } = await api.POST("/api/v1/runs/{runId}/stop", { params: { path: { runId: runId! } } });
     if (error) throw new Error(messageOf(error));
   }, onSuccess: () => cache.invalidateQueries({ queryKey: ["runs", runId] }) });
+  const rename = useMutation({ retry: false, mutationFn: async () => {
+    const name = nameDraft.trim();
+    if (!name || name.length > 120) throw new Error("Run name must be between 1 and 120 characters.");
+    const { data, error } = await api.PATCH("/api/v1/runs/{runId}", { params: { path: { runId: runId! } }, body: { name, expectedName: nameExpected } });
+    if (!data || error) throw new Error(messageOf(error));
+    return data.run_name;
+  }, onSuccess: async savedName => {
+    cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, run_name: savedName } : previous);
+    setNameDraft(savedName); setNameError(""); setRenaming(false);
+    await Promise.all([cache.invalidateQueries({ queryKey: ["runs"] }), cache.invalidateQueries({ queryKey: ["search"] })]);
+  }, onError: error => setNameError(error.message) });
+  const startRename = () => { const currentName = status.data?.run_name ?? ""; setNameExpected(currentName); setNameDraft(currentName); setNameError(""); rename.reset(); setRenaming(true); };
+  const cancelRename = () => { setRenaming(false); setNameError(""); rename.reset(); };
   return <Page className="max-w-6xl">
     {status.isPending && <p role="status">Loading run…</p>}{status.error && <p role="alert">{status.error.message}</p>}
     <Breadcrumb>{status.data ? <Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: status.data.job_id }}>{status.data.job_name}</Link> : <Link to="/projects">Projects</Link>}</Breadcrumb>
     {status.data && <>
-      <ResourceHeader type="Run" title={status.data.run_name || "Run"} description={<p role="status"><Badge active={active}>{status.data.state}</Badge>{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}</p>}>{["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button className="shrink-0" disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}</ResourceHeader>
+      <ResourceHeader type="Run" title={status.data.run_name || "Run"} titleActions={renaming ? <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); setNameError(""); rename.mutate(); }}><label className="sr-only" htmlFor="run-name">Run name</label><input autoFocus id="run-name" className="w-64 rounded-lg border border-stone-300 bg-white px-3 py-2 text-base font-normal dark:border-slate-700 dark:bg-slate-950" value={nameDraft} maxLength={120} aria-invalid={!!nameError} aria-describedby={nameError ? "run-name-error" : undefined} onChange={event => { setNameDraft(event.target.value); setNameError(""); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); cancelRename(); } }} /><Button type="submit" disabled={rename.isPending}>Save</Button><Button type="button" disabled={rename.isPending} onClick={cancelRename}>Cancel</Button>{nameError && <span id="run-name-error" role="alert" className="basis-full text-sm text-red-700 dark:text-red-300">{nameError}</span>}</form> : <Button type="button" onClick={startRename}>Rename</Button>} description={<p role="status"><Badge active={active}>{status.data.state}</Badge>{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}</p>}>{["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button className="shrink-0" disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}</ResourceHeader>
     </>}
     {!status.data && <ResourceHeader type="Run" title="Run" />}
     {stop.error && <p role="alert">{stop.error.message}</p>}

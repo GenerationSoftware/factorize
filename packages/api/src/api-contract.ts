@@ -11,6 +11,7 @@ import type { ApiService } from "./flow-service";
 import {
   jobInputSchema,
   manualInvocationSchema,
+  renameRunSchema,
   jobConditionsTestSchema,
   listRunsSchema,
   scopeSchema,
@@ -108,7 +109,7 @@ const accessTokenBody = z.object({
   name: z.string().trim().min(1).max(100),
   // Legacy names remain accepted at this boundary for migration; the service
   // immediately stores their canonical resource-scope expansion.
-  scopes: z.array(z.union([scopeSchema, z.enum(["flows:read", "flows:write", "runs:write"])] )).min(1),
+  scopes: z.array(z.union([scopeSchema, z.enum(["flows:read", "flows:write"])] )).min(1),
   expiryDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
 });
 
@@ -154,6 +155,7 @@ function route(
 // Legacy route labels are translated by resource and effect; they are never
 // accepted as newly issued scopes.
 function scopeForRoute(path: string, legacy: string): string | string[] {
+  if (legacy === "runs:write" && path === "/api/v1/runs/{runId}" ) return "runs:write";
   if (legacy === "runs:read" && path === "/api/v1/search") return "jobs:read+runs:read";
   if (legacy === "flows:read") {
     if (path.startsWith("/api/v1/projects") || path.includes("/jobs/") && path.endsWith("/project")) return "projects:read";
@@ -887,6 +889,11 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service, { params }) => service.getRun(params.runId),
   ),
+  route("PATCH", "/api/v1/runs/{runId}", "runs:write", {
+    summary: "Rename run",
+    description: "Changes only the run display name. Supply expectedName for optimistic concurrency; omission supports last-writer-wins clients.",
+    responses: { "200": { description: "Saved run display name", content: { "application/json": { schema: { type: "object", required: ["run_name"], properties: { run_name: { type: "string" } }, additionalProperties: false } } } }, "404": { description: "Run not found within the tenant" }, "409": { description: "stale_run_name: reload before retrying" } },
+  }, (service, { params, body }) => service.renameRun(params.runId, body), { body: renameRunSchema, parameters: z.object({ runId: z.uuid() }) }),
   route(
     "GET",
     "/api/v1/runs/{runId}/trace",

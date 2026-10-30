@@ -71,7 +71,7 @@ describe("versioned API contract", () => {
     for (const route of API_ROUTES) {
       const path = route.path.replace(/\{[^}]+\}/g, "42");
       expect(matchApiOperation(route.method, path)?.route).toBe(route);
-      expect(isDeclaredApiOperation("PATCH", path)).toBe(false);
+      expect(isDeclaredApiOperation("PATCH", path)).toBe(route.path === "/api/v1/runs/{runId}");
       expect(
         isDeclaredApiOperation(route.method, path + "/extra/extra/extra"),
       ).toBe(false);
