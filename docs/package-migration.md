@@ -182,6 +182,10 @@ window may need a deliberate reload. Small root HTML is never restored from an o
 
 ## Rollback
 
+If a current Worker startup failure blocks the live API prerequisite for a fix,
+follow [production startup recovery](production-startup-recovery.md) to restore
+a compatible working version before rerunning the normal deployment workflow.
+
 Use **`ff4b51b`**, which retains all new APIs while restoring legacy page ownership.
 Never revert database state or rename/recreate a Worker to roll back the frontend.
 In an isolated anchor checkout, build legacy CSS; restore the last current/retained
