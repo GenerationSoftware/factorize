@@ -14,7 +14,7 @@ export const availabilityQuery = queryOptions({ queryKey: ["editor", "availabili
   const { data, error } = await api.GET("/api/v1/job-trigger-availability", { signal });
   if (!data || error) throw new Error(messageOf(error)); return data;
 }, staleTime: 60_000 });
-export const selectorQuery = (q: string, cursor?: string) => queryOptions({ queryKey: ["jobs", "selector", q, cursor], queryFn: async ({ signal }) => {
-  const { data, error } = await api.GET("/api/v1/job-selector", { signal, params: { query: { q, cursor, limit: 30 } } });
+export const selectorQuery = (q: string, cursor?: string, projectId?: string) => queryOptions({ queryKey: ["jobs", "selector", projectId, q, cursor], queryFn: async ({ signal }) => {
+  const { data, error } = await api.GET("/api/v1/job-selector", { signal, params: { query: { q, cursor, limit: 30, projectId } } });
   if (!data || error) throw new Error(messageOf(error)); return data;
 }, staleTime: 30_000 });
