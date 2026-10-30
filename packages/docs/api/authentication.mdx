@@ -30,12 +30,13 @@ An expired or completed request cannot be extended by resending email or recover
 | `runs:read` | Inspect runs, context, traces, and diagnostics |
 | `runs:invoke` | Invoke jobs |
 | `runs:cancel` | Stop or cancel runs, including `kill` |
+| `runs:write` | Rename runs; legacy grants also retain invocation and cancellation access |
 | `integrations:read` | View integration metadata and provider resources |
 | `integrations:write` | Create, configure, test, and remove integrations |
 
 Scopes are independent: write does not imply read. Job configuration can cause future execution through schedules, webhooks, and lifecycle triggers; deleting a job can remove its execution history and artifacts. Key and OAuth grant administration and trace replay always require an interactive owner session.
 
-Legacy `flows:read`, `flows:write`, and `runs:write` grants remain usable during migration and are normalized at authentication (`flows:read` → all three read domains, `flows:write` → all three write domains, and `runs:write` → `runs:invoke` plus `runs:cancel`). New API keys, OAuth consent, and discovery expose only the nine scopes. Existing clients should reauthorize before legacy support is removed; no new legacy grant is issued.
+Legacy `flows:read` and `flows:write` grants remain usable during migration and are normalized at authentication (`flows:read` → all three read domains, `flows:write` → all three write domains). `runs:write` is now an available scope for run renaming; grants using that name also retain invocation and cancellation access. New API keys, OAuth consent, and discovery expose 12 scopes. No new legacy `flows:*` grant is issued.
 
 Authorization-code clients must use PKCE S256. Implicit and plain PKCE are disabled. Access tokens last 1 hour; refresh tokens can last 30 days. RFC 7009 revocation is advertised by discovery.
 

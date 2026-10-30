@@ -16,6 +16,7 @@ const scopeDescriptions: Record<AccessScope, string> = {
   "runs:read": "View runs, traces, context, and diagnostics",
   "runs:invoke": "Start jobs",
   "runs:cancel": "Stop or cancel runs",
+  "runs:write": "Rename runs (includes legacy run access)",
   "integrations:read": "View integrations and provider resources",
   "integrations:write": "Create, configure, test, and remove integrations",
   "skills:read": "View shared skills and the jobs using them",

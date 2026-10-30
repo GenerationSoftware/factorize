@@ -79,6 +79,20 @@ export class RunQueryRepository {
     if (!row) return null;
     return { ...row, created_at: row.created_at.toISOString(), updated_at: row.updated_at.toISOString(), started_at: row.started_at?.toISOString() ?? null };
   }
+  async rename(runId: string, name: string, expectedName?: string): Promise<"missing" | "stale" | { run_name: string }> {
+    return this.database.transaction(async client => {
+      // Lifecycle writers lock job_runs before runs, so use the same order to
+      // avoid deadlocks while renames race state transitions.
+      const jobRun = (await client.query("SELECT id FROM app.job_runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, runId])).rows[0];
+      if (!jobRun) return "missing";
+      const current = (await client.query<{ run_name: string }>("SELECT run_name FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, runId])).rows[0];
+      if (!current) return "missing";
+      if (expectedName !== undefined && current.run_name !== expectedName) return "stale";
+      await client.query("UPDATE app.runs SET run_name=$3 WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId, name]);
+      await client.query("UPDATE app.job_runs SET run_name=$3 WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId, name]);
+      return { run_name: name };
+    });
+  }
   async activity(runId: string) { return (await this.database.pool.query("SELECT action,detail,created_at FROM app.run_activity WHERE tenant_id=$1 AND run_id=$2 ORDER BY created_at,id", [this.tenantId, runId])).rows; }
   async stop(runId: string) {
     return this.database.transaction(async client => {

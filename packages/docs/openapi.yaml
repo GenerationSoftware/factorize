@@ -1498,6 +1498,7 @@ paths:
                             - runs:read
                             - runs:invoke
                             - runs:cancel
+                            - runs:write
                             - integrations:read
                             - integrations:write
                             - skills:read
@@ -3855,6 +3856,7 @@ paths:
                           - runs:read
                           - runs:invoke
                           - runs:cancel
+                          - runs:write
                           - integrations:read
                           - integrations:write
                           - skills:read
@@ -3932,6 +3934,7 @@ paths:
                         - runs:read
                         - runs:invoke
                         - runs:cancel
+                        - runs:write
                         - integrations:read
                         - integrations:write
                         - skills:read
@@ -4013,6 +4016,7 @@ paths:
                           - runs:read
                           - runs:invoke
                           - runs:cancel
+                          - runs:write
                           - integrations:read
                           - integrations:write
                           - skills:read
@@ -4021,7 +4025,6 @@ paths:
                         enum:
                           - flows:read
                           - flows:write
-                          - runs:write
                 expiryDays:
                   anyOf:
                     - type: number
@@ -10208,6 +10211,80 @@ paths:
           schema:
             type: string
             minLength: 1
+    patch:
+      summary: Rename run
+      description: |-
+        Changes only the run display name. Supply expectedName for optimistic concurrency; omission supports last-writer-wins clients.
+
+        Requires the runs:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      responses:
+        "200":
+          description: Saved run display name
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - run_name
+                properties:
+                  run_name:
+                    type: string
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+          description: Run not found within the tenant
+        "409":
+          $ref: "#/components/responses/Error409"
+          description: "stale_run_name: reload before retrying"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: patch_api_v1_runs_runId
+      tags:
+        - runs
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: runs:write
+      x-owner-session-required: false
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                expectedName:
+                  type: string
+                  maxLength: 120
+              required:
+                - name
+              additionalProperties: false
   /api/v1/runs/{runId}/trace:
     get:
       summary: Get paginated run trace events

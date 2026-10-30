@@ -7,7 +7,7 @@ Connect to `https://app.factorize.sh/mcp` using [client authorization](/mcp/over
 
 ## Inventory
 
-The required scope inventory below is authoritative. Legacy `flows:*` and `runs:write` grants are accepted only during migration and are mapped to the nine scopes at authentication.
+The required scope inventory below is authoritative. Legacy `flows:*` and `runs:write` grants expand at authentication; `runs:write` also authorizes renaming runs.
 
 | Tool | Required scope | Input contract |
 | --- | --- | --- |
@@ -30,6 +30,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `move_job` | projects:write | Required `jobId` and destination `projectId`; optional `expectedUpdatedAt` |
 | `list_runs` | runs:read | Optional `jobId`, `state`, `contextQuery`, `limit`, `cursor` |
 | `get_run` | runs:read | Required string `runId` |
+| `rename_run` | runs:write | Required `runId` and `name`; optional `expectedName` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
 | `stop_run` | runs:cancel | Required string `runId` |
@@ -145,6 +146,8 @@ Allowed state filters: `queued`, `starting`, `running`, `done`, `blocked`, `fail
 ```
 
 Retain the submitted key for retries. Current `get_run` returns only internal `invocation.claim_key`, not `invocation.idempotency_key`; never pass that internal field back. `get_run_diagnostics({"runId":"RUN_ID"})` returns a diagnostic object with `runId`, `jobId`, `state`, `execution`, `trace`, `artifact`, `harnessLog`, `activity` and timestamps. These cover launch/prompt/output/cleanup and trace evidence, not credentials. Missing runs return `not_found`.
+
+`rename_run({"runId":"RUN_ID","name":"Release review","expectedName":"First review"})` → `{"run_name":"Release review"}`. Names are trimmed and must contain 1–120 characters. `expectedName` is optional; when supplied, a changed current name returns `stale_run_name` so the caller can reload and reconcile. Missing or cross-tenant runs return `not_found`.
 
 `stop_run({"runId":"RUN_ID"})` → `{"id":"RUN_ID","state":"stopping"}`. Current `kill_run({"runId":"RUN_ID"})` returns the same result and uses the same operation. Both accept starting/running/blocked runs; queued or terminal runs return `operation_failed`. Neither guarantees immediate termination/slot release. Poll `get_run` and inspect cleanup. See [stop/retry](/work/stop-retry).
 

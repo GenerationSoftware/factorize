@@ -8,7 +8,7 @@ description: Recover authorization, scopes, and execution integrations.
 | Browser consent fails or is cancelled | Sign in to the correct verified Factorize owner account, restart authorization from the client, and approve the requested scopes. Finish signup/email verification separately before restarting. |
 | Client never connects | Confirm the exact URL `https://app.factorize.sh/mcp`, remote Streamable HTTP and OAuth support. Open the client's MCP status view and authenticate; use [client-specific instructions](/mcp/overview). |
 | `invalid_token` or access disappears | Reauthorize the client. Password resets/changes and sign-out invalidate delegated credentials. An expired access token needs client refresh or renewed login. |
-| `insufficient_scope` | Reconnect and grant `flows:read` for discovery, `flows:write` for job edits/diagnosis, `runs:read` for inspection and `runs:write` for invocation/stop. |
+| `insufficient_scope` | Reconnect and grant `flows:read` for discovery, `flows:write` for job edits/diagnosis, `runs:read` for inspection and `runs:write` for renaming, invocation, or stop. |
 | `list_execution_configs` returns no items | In browser Settings, test and save an exe.dev or Amp integration in the same workspace. MCP cannot create credential-bearing connections. |
 | Target exists but repository/model access fails | Test the saved execution integration and check execution-account repository/model access and VM tags. For exe.dev, `diagnose_exe_integration` uses the saved connection ID and creates/deletes a temporary VM. |
 

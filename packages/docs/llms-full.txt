@@ -61,7 +61,7 @@ Start Claude Code, enter `/mcp`, choose Factorize and authenticate when prompted
 
 The client opens Factorize authorization in your browser. Sign in with your verified Factorize email/password and approve the requested scopes. For the full workflow, grant `flows:read`, `flows:write`, `runs:read`, and `runs:write`. Read-only access cannot create or invoke jobs. Return to your client after consent.
 
-Consent lists nine independent permissions: `projects:read`, `projects:write`, `jobs:read`, `jobs:write`, `runs:read`, `runs:invoke`, `runs:cancel`, `integrations:read`, and `integrations:write`. Write does not imply read. If you need to create an account or verify your email, finish those steps and restart client authorization; do not assume the signup screen will automatically resume the original request. No Linear or execution token belongs in the MCP client.
+Consent lists 12 permissions, including `runs:write` for renaming runs. Run write grants also retain invocation and cancellation access for compatibility. Write does not imply read. If you need to create an account or verify your email, finish those steps and restart client authorization; do not assume the signup screen will automatically resume the original request. No Linear or execution token belongs in the MCP client.
 
 Ask **“List my Factorize jobs.”** The agent should call `list_jobs({})`. An empty `items` list is a successful connection to a workspace with no jobs. Next ask it to list execution integrations and follow the [first-job walkthrough](https://docs.factorize.sh/quickstart).
 
@@ -356,7 +356,7 @@ Source: https://docs.factorize.sh/troubleshooting/connection
 | Browser consent fails or is cancelled | Sign in to the correct verified Factorize owner account, restart authorization from the client, and approve the requested scopes. Finish signup/email verification separately before restarting. |
 | Client never connects | Confirm the exact URL `https://app.factorize.sh/mcp`, remote Streamable HTTP and OAuth support. Open the client's MCP status view and authenticate; use [client-specific instructions](https://docs.factorize.sh/mcp/overview). |
 | `invalid_token` or access disappears | Reauthorize the client. Password resets/changes and sign-out invalidate delegated credentials. An expired access token needs client refresh or renewed login. |
-| `insufficient_scope` | Reconnect and grant `flows:read` for discovery, `flows:write` for job edits/diagnosis, `runs:read` for inspection and `runs:write` for invocation/stop. |
+| `insufficient_scope` | Reconnect and grant `flows:read` for discovery, `flows:write` for job edits/diagnosis, `runs:read` for inspection and `runs:write` for renaming, invocation, or stop. |
 | `list_execution_configs` returns no items | In browser Settings, test and save an exe.dev or Amp integration in the same workspace. MCP cannot create credential-bearing connections. |
 | Target exists but repository/model access fails | Test the saved execution integration and check execution-account repository/model access and VM tags. For exe.dev, `diagnose_exe_integration` uses the saved connection ID and creates/deletes a temporary VM. |
 
@@ -401,7 +401,7 @@ Connect to `https://app.factorize.sh/mcp` using [client authorization](https://d
 
 ## Inventory
 
-The required scope inventory below is authoritative. Legacy `flows:*` and `runs:write` grants are accepted only during migration and are mapped to the nine scopes at authentication.
+The required scope inventory below is authoritative. Legacy `flows:*` and `runs:write` grants expand at authentication; `runs:write` also authorizes renaming runs.
 
 | Tool | Required scope | Input contract |
 | --- | --- | --- |
@@ -424,6 +424,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `move_job` | projects:write | Required `jobId` and destination `projectId`; optional `expectedUpdatedAt` |
 | `list_runs` | runs:read | Optional `jobId`, `state`, `contextQuery`, `limit`, `cursor` |
 | `get_run` | runs:read | Required string `runId` |
+| `rename_run` | runs:write | Required `runId` and `name`; optional `expectedName` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
 | `stop_run` | runs:cancel | Required string `runId` |
@@ -540,6 +541,8 @@ Allowed state filters: `queued`, `starting`, `running`, `done`, `blocked`, `fail
 
 Retain the submitted key for retries. Current `get_run` returns only internal `invocation.claim_key`, not `invocation.idempotency_key`; never pass that internal field back. `get_run_diagnostics({"runId":"RUN_ID"})` returns a diagnostic object with `runId`, `jobId`, `state`, `execution`, `trace`, `artifact`, `harnessLog`, `activity` and timestamps. These cover launch/prompt/output/cleanup and trace evidence, not credentials. Missing runs return `not_found`.
 
+`rename_run({"runId":"RUN_ID","name":"Release review","expectedName":"First review"})` → `{"run_name":"Release review"}`. Names are trimmed and must contain 1–120 characters. `expectedName` is optional; when supplied, a changed current name returns `stale_run_name` so the caller can reload and reconcile. Missing or cross-tenant runs return `not_found`.
+
 `stop_run({"runId":"RUN_ID"})` → `{"id":"RUN_ID","state":"stopping"}`. Current `kill_run({"runId":"RUN_ID"})` returns the same result and uses the same operation. Both accept starting/running/blocked runs; queued or terminal runs return `operation_failed`. Neither guarantees immediate termination/slot release. Poll `get_run` and inspect cleanup. See [stop/retry](https://docs.factorize.sh/work/stop-retry).
 
 ## Webhook investigation and conditions
@@ -629,12 +632,13 @@ An expired or completed request cannot be extended by resending email or recover
 | `runs:read` | Inspect runs, context, traces, and diagnostics |
 | `runs:invoke` | Invoke jobs |
 | `runs:cancel` | Stop or cancel runs, including `kill` |
+| `runs:write` | Rename runs; legacy grants also retain invocation and cancellation access |
 | `integrations:read` | View integration metadata and provider resources |
 | `integrations:write` | Create, configure, test, and remove integrations |
 
 Scopes are independent: write does not imply read. Job configuration can cause future execution through schedules, webhooks, and lifecycle triggers; deleting a job can remove its execution history and artifacts. Key and OAuth grant administration and trace replay always require an interactive owner session.
 
-Legacy `flows:read`, `flows:write`, and `runs:write` grants remain usable during migration and are normalized at authentication (`flows:read` → all three read domains, `flows:write` → all three write domains, and `runs:write` → `runs:invoke` plus `runs:cancel`). New API keys, OAuth consent, and discovery expose only the nine scopes. Existing clients should reauthorize before legacy support is removed; no new legacy grant is issued.
+Legacy `flows:read` and `flows:write` grants remain usable during migration and are normalized at authentication (`flows:read` → all three read domains, `flows:write` → all three write domains). `runs:write` is now an available scope for run renaming; grants using that name also retain invocation and cancellation access. New API keys, OAuth consent, and discovery expose 12 scopes. No new legacy `flows:*` grant is issued.
 
 Authorization-code clients must use PKCE S256. Implicit and plain PKCE are disabled. Access tokens last 1 hour; refresh tokens can last 30 days. RFC 7009 revocation is advertised by discovery.
 

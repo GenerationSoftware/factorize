@@ -7,7 +7,7 @@ import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
 import { ApiService, ServiceError } from "./flow-service";
-import { jobConditionsTestSchema, jobIdSchema, jobInputSchema, listRunsSchema, manualInvocationSchema, runIdSchema } from "./flow-schemas";
+import { jobConditionsTestSchema, jobIdSchema, jobInputSchema, listRunsSchema, manualInvocationSchema, renameRunSchema, runIdSchema } from "./flow-schemas";
 import type { Env, OAuthProps } from "./types";
 import { executeAuth, validBrowserOrigin } from "./auth-api";
 import { matchApiOperation } from "./api-contract";
@@ -109,6 +109,7 @@ function createMcpServer(service: ApiService): McpServer {
     tool("list_github_installations", "List connected GitHub App installations, including the installation IDs needed by GitHub Job triggers. Credentials are never returned.", z.object({}), () => service.listGitHubInstallations());
     tool("list_runs", "List authoritative job runs by job ID, state, an optional case-insensitive literal substring of triggered context, and validated sort field/direction. Sorting is applied before cursor pagination with deterministic ID tie-breaking. Automatic webhook, schedule, and lifecycle signals coalesce, so query runs and the provider API for authoritative work. Context matches include only a bounded excerpt.", listRunsSchema, (input: any) => service.listRuns(queryOf(input)));
     tool("get_run", "Get a run with its rendered prompt, full triggered context, invocation metadata, execution metadata, output, and activity. For manual invocations, invocation.idempotency_key is the client-reusable value; invocation.claim_key is internal.", runIdSchema, ({ runId }: any) => service.getRun(runId));
+    tool("rename_run", "Rename a run without changing its execution. Supply expectedName to reject stale edits; names are trimmed and must contain 1 to 120 characters.", runIdSchema.extend(renameRunSchema.shape), ({ runId, ...input }: any) => service.renameRun(runId, input));
     tool("get_run_diagnostics", "Get credential-safe launch, prompt delivery, output capture, claim release, cleanup, and activity diagnostics for a run.", runIdSchema, ({ runId }: any) => service.getRunDiagnostics(runId));
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
     tool("kill_run", "Force a run in any non-terminal state to stop immediately, release its concurrency slot, and clean up its backend asynchronously.", runIdSchema, ({ runId }: any) => service.killRun(runId));
