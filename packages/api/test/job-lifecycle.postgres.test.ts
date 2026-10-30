@@ -141,6 +141,73 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect(await invocations(a, target.id)).toMatchObject([{ source: "jobIdle" }]);
   });
 
+  it("holds an all-runs-complete trigger behind a pending lifecycle delivery", async () => {
+    const a = await tenant(), source = await job(a), downstream = await job(a, { sourceJobIds: [source.id], states: ["succeeded"] });
+    const idle = await job(a, { sourceJobIds: [source.id, downstream.id] }, true, "jobIdle");
+    await complete(a, source);
+
+    // The database guard must work even when an idle pass races ahead of the
+    // lifecycle pass (or a previous lifecycle pass has been delayed).
+    await deliverIdle();
+    expect(await invocations(a, idle.id)).toHaveLength(0);
+    await deliver();
+    await deliverIdle();
+    expect(await invocations(a, downstream.id)).toHaveLength(1);
+    expect(await invocations(a, idle.id)).toHaveLength(0);
+
+    const downstreamRun = await runs.claimNext();
+    expect(downstreamRun?.jobId).toBe(downstream.id);
+    await runs.consumeWakeHint();
+    await runs.terminal(downstreamRun!, "succeeded", "stored", undefined, true);
+    await deliverIdle();
+    expect(await invocations(a, idle.id)).toHaveLength(1);
+  });
+
+  it("drains lifecycle deliveries beyond the first 100 before firing all-runs-complete", async () => {
+    const a = await tenant(), source = await job(a), downstream = await job(a, { sourceJobIds: [source.id], states: ["succeeded"] });
+    const idle = await job(a, { sourceJobIds: [source.id, downstream.id] }, true, "jobIdle");
+    for (let index = 0; index < 101; index++) await complete(a, source);
+
+    await deliver();
+    expect((await database.pool.query("SELECT * FROM app.lifecycle_deliveries WHERE tenant_id=$1 AND trigger_id=$2", [a, downstream.triggers[0]!.id])).rows).toHaveLength(101);
+    expect(await invocations(a, downstream.id)).toHaveLength(2);
+    await deliverIdle();
+    expect(await invocations(a, idle.id)).toHaveLength(0);
+
+    let downstreamRun = await runs.claimNext();
+    expect(downstreamRun?.jobId).toBe(downstream.id);
+    await runs.consumeWakeHint();
+    await runs.terminal(downstreamRun!, "succeeded", "stored", undefined, true);
+    downstreamRun = await runs.claimNext();
+    expect(downstreamRun?.jobId).toBe(downstream.id);
+    await runs.consumeWakeHint();
+    await runs.terminal(downstreamRun!, "succeeded", "stored", undefined, true);
+    await deliverIdle();
+    expect(await invocations(a, idle.id)).toHaveLength(1);
+  }, 20_000);
+
+  it("acknowledges a queue-full lifecycle delivery and lets idle proceed after existing work ends", async () => {
+    const a = await tenant(), source = await job(a), downstream = await job(a, { sourceJobIds: [source.id], states: ["succeeded"] });
+    const idle = await job(a, { sourceJobIds: [source.id, downstream.id] }, true, "jobIdle");
+    const invoker = new InvocationService(repository(a), value => encrypt(value, key));
+    const occupied = await invoker.invoke(downstream.id, { source: "manual", triggerId: downstream.triggers[0]!.id, claimKey: crypto.randomUUID(), context: {} });
+    const waiter = await invoker.invoke(downstream.id, { source: "manual", triggerId: downstream.triggers[0]!.id, claimKey: crypto.randomUUID(), context: {} });
+    const occupiedRun = await runs.claimNext();
+    expect(occupiedRun?.id).toBe(occupied.run.id);
+    await complete(a, source);
+    await deliver();
+    expect(await invocations(a, downstream.id)).toHaveLength(2);
+    expect(await deliveries()).toHaveLength(1);
+    await runs.consumeWakeHint();
+    await runs.terminal(occupiedRun!, "succeeded", "stored", undefined, true);
+    const waitingRun = await runs.claimNext();
+    expect(waitingRun?.id).toBe(waiter.run.id);
+    await runs.consumeWakeHint();
+    await runs.terminal(waitingRun!, "succeeded", "stored", undefined, true);
+    await deliverIdle();
+    expect(await invocations(a, idle.id)).toHaveLength(1);
+  });
+
   it("matches each of multiple source IDs and legacy singular config with terminalStates", async () => {
     const a = await tenant(), first = await job(a), second = await job(a);
     const target = await job(a, { sourceJobIds: [first.id, second.id], states: ["succeeded", "stopped"] });
