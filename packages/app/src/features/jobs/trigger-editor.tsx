@@ -24,7 +24,7 @@ function ScheduleFields({ trigger, onChange }: { trigger: Extract<Trigger, { kin
     <Button type="button" disabled={preview.isPending} onClick={() => preview.mutate()}>Preview schedule</Button>
     {preview.data && <p role="status">Next run: {preview.data.nextRunAt}</p>}{preview.error && <p role="alert">{preview.error.message}</p>}</>;
 }
-export function TriggerEditor({ triggers, onChange, onValidityChange }: { triggers: Trigger[]; onChange: (value: Trigger[]) => void; onValidityChange?: (invalid: boolean) => void }) {
+export function TriggerEditor({ triggers, onChange, onValidityChange, projectId }: { triggers: Trigger[]; onChange: (value: Trigger[]) => void; onValidityChange?: (invalid: boolean) => void; projectId?: string }) {
   const availability = useQuery(availabilityQuery), [kind, setKind] = useState<Trigger["kind"]>("schedule");
   const replace = (index: number, value: Trigger) => onChange(triggers.map((item, i) => i === index ? value : item));
   return <Card>
@@ -35,7 +35,7 @@ export function TriggerEditor({ triggers, onChange, onValidityChange }: { trigge
       {trigger.kind === "webhook" && <ProviderFields config={trigger.config} onChange={config => replace(index, { ...trigger, config })} onValidityChange={onValidityChange} />}
       {trigger.kind === "jobLifecycle" && <><LifecycleSelector selected={trigger.config.sourceJobIds} onChange={sourceJobIds => replace(index, { ...trigger, config: { ...trigger.config, sourceJobIds } })} />
         <fieldset><legend>Lifecycle states</legend>{(["succeeded", "failed", "stopped", "edited"] as const).map(state => <Label key={state}><Input type="checkbox" checked={trigger.config.states.includes(state)} onChange={e => replace(index, { ...trigger, config: { ...trigger.config, states: e.target.checked ? [...trigger.config.states, state] : trigger.config.states.filter(s => s !== state) } })} />{state} </Label>)}</fieldset></>}
-      {trigger.kind === "jobIdle" && <><LifecycleSelector selected={trigger.config.sourceJobIds} onChange={sourceJobIds => replace(index, { ...trigger, config: { ...trigger.config, sourceJobIds } })} /><p>Starts when the selected job has no queued or active runs.</p></>}
+      {trigger.kind === "jobIdle" && <><LifecycleSelector selected={trigger.config.sourceJobIds} projectId={projectId} onChange={sourceJobIds => replace(index, { ...trigger, config: { ...trigger.config, sourceJobIds } })} /><p>Starts when the selected job has no queued or active runs.</p></>}
       {trigger.kind !== "manual" && <Button type="button" onClick={() => onChange(triggers.filter((_, i) => i !== index))}>Remove trigger</Button>}
     </fieldset>)}
     <Label>New trigger kind <Select value={kind} onChange={e => setKind(e.target.value as Trigger["kind"])}><option value="schedule">Schedule</option><option value="jobLifecycle">Job lifecycle</option><option value="jobIdle">All runs complete</option><option value="webhook">Provider webhook</option></Select></Label>

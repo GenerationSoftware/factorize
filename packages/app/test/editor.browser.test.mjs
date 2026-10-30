@@ -35,6 +35,37 @@ test("stale editor reconciles non-overlapping fields, requires explicit conflict
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   assert.equal(writes[0].expectedUpdatedAt, initial.updatedAt); assert.equal(writes[1].expectedUpdatedAt, "2026-10-09T13:00:00.000Z"); assert.equal(writes[1].triggers[0].id, triggerId); assert.equal(writes[1].triggers[0].slug, "trigger-1"); assert.equal(writes[1].promptTemplate, "My prompt"); await context.close();
 });
+test("All runs complete source jobs stay within the edited job project during search and save", async () => {
+  const { context, page } = await setup();
+  const projectA = "00000000-0000-4000-8000-000000000020", projectB = "00000000-0000-4000-8000-000000000021";
+  const sameProjectJob = "00000000-0000-4000-8000-000000000022", otherProjectJob = "00000000-0000-4000-8000-000000000023";
+  let current = { ...structuredClone(initial), projectId: projectA, triggers: [{ ...initial.triggers[0], kind: "jobIdle", config: { sourceJobIds: [] } }] }, saved;
+  const selectorRequests = [];
+  await page.route(`**/api/v1/jobs/${id}`, route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: current });
+    saved = route.request().postDataJSON(); current = { ...current, ...saved }; return route.fulfill({ json: current });
+  });
+  await page.route("**/api/v1/job-selector?**", route => {
+    const url = new URL(route.request().url()); selectorRequests.push(url);
+    const projectId = url.searchParams.get("projectId"), q = url.searchParams.get("q") ?? "";
+    const allJobs = [
+      { id: sameProjectJob, projectId: projectA, name: "Alpha source", slug: "alpha-source", enabled: true },
+      { id: otherProjectJob, projectId: projectB, name: "Alpha other", slug: "alpha-other", enabled: true },
+    ];
+    return route.fulfill({ json: { items: allJobs.filter(job => job.projectId === projectId && job.name.toLowerCase().includes(q.toLowerCase())).map(({ projectId: _projectId, ...job }) => job), nextCursor: null } });
+  });
+  await page.goto(origin + `/jobs/${id}/edit`);
+  await page.getByLabel("Search source jobs").fill("Alpha");
+  await page.getByLabel("Alpha source", { exact: true }).check();
+  assert.equal(await page.getByLabel("Alpha other", { exact: true }).count(), 0);
+  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
+  assert.ok(selectorRequests.length > 0);
+  assert.ok(selectorRequests.every(url => url.searchParams.get("projectId") === projectA));
+  assert.ok(selectorRequests.some(url => url.searchParams.get("q") === "Alpha"));
+  assert.deepEqual(saved.triggers[0].config.sourceJobIds, [sameProjectJob]);
+  assert.equal(projectA, current.projectId); assert.notEqual(projectA, projectB);
+  await context.close();
+});
 test("create uses bounded lifecycle selector, lazy provider reads, schedule preview and typed form submission on mobile", async () => {
   const { context, page } = await setup({ viewport: { width: 390, height: 844 } }); let body, providerReads = 0; const selectors = [];
   const projectId = "00000000-0000-4000-8000-000000000010";
