@@ -31,6 +31,16 @@ workflow with every release gate enabled.
    prerequisite, asset retention, migrations, Worker deployment, and final public
    verification. Verify the live version and anonymous browser loading again
    after completion. Do not leave a temporary rollback as the final release.
+   If a pre-deploy secret update fails with Cloudflare error `10215`, the active
+   rollback version is older than the latest uploaded version. Do not reactivate
+   the broken version to satisfy this restriction. Use a version-aware secret
+   update or deploy the reviewed fix with the documented
+   [Worker upload API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/update/).
+   An emergency upload must preserve existing assets, bindings, secrets, runtime
+   settings, and the Durable Object migration tag. Use strict binding inheritance
+   and verify the resulting configuration against the prior version. For a
+   surgical change to a downloaded bundle, establish that it exactly implements
+   the merged source change and that all other bundle bytes are unchanged.
 6. Delete the temporary Worker tail and preserve the recovery evidence in a PR.
 
 ## 2026-10-30 OAuth scope incident
@@ -52,3 +62,19 @@ pre-deploy secret update. Recovery deployment
 page load passed, with no JavaScript page errors. The normal
 [deployment workflow](https://github.com/GenerationSoftware/factorize/actions/runs/40984395531)
 was then rerun for merged commit `24cf99c`.
+
+The second workflow attempt passed the API gate but failed at `secrets-bulk`
+with Cloudflare error `10215` because the rollback version was active. At
+01:19 UTC, a direct Worker upload applied the exact one-line scope deduplication
+from #317 to the downloaded production bundle. All other bundle bytes were
+unchanged. The upload retained assets, strictly inherited all 20 bindings, and
+preserved the runtime configuration and `v6-postgres-cutover` migration tag.
+The resulting version was `1cfba848-c4cd-48fa-a8de-0b4ee5078096`, activated by
+deployment `42e5e2ae-72a0-4099-8dab-0817a22b78cf`. Public routing/security/cache,
+health, and session checks passed. The normal workflow was rerun a third time
+with the corrected version now also the latest uploaded version.
+
+After the direct fix, an authenticated jobs request through the attached
+Factorize integration returned `200`. Fresh Chromium visits to the home and
+sign-in pages had no page errors. A 15-second Cloudflare tail sample contained
+33 events and zero exceptions; the temporary tail was deleted afterward.
