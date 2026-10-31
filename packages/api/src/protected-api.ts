@@ -7,7 +7,7 @@ import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
 import { ApiService, ServiceError } from "./flow-service";
-import { jobConditionsTestSchema, jobIdSchema, jobInputSchema, listRunsSchema, manualInvocationSchema, renameRunSchema, runIdSchema } from "./flow-schemas";
+import { jobConditionsTestSchema, jobIdSchema, jobInputSchema, listRunsSchema, manualInvocationSchema, renameRunSchema, reportRunErrorSchema, runIdSchema } from "./flow-schemas";
 import type { Env, OAuthProps } from "./types";
 import { executeAuth, validBrowserOrigin } from "./auth-api";
 import { matchApiOperation } from "./api-contract";
@@ -111,6 +111,7 @@ function createMcpServer(service: ApiService): McpServer {
     tool("get_run", "Get a run with its rendered prompt, full triggered context, invocation metadata, execution metadata, output, and activity. For manual invocations, invocation.idempotency_key is the client-reusable value; invocation.claim_key is internal.", runIdSchema, ({ runId }: any) => service.getRun(runId));
     tool("rename_run", "Rename a run without changing its execution. Supply expectedName to reject stale edits; names are trimmed and must contain 1 to 120 characters.", runIdSchema.extend(renameRunSchema.shape), ({ runId, ...input }: any) => service.renameRun(runId, input));
     tool("get_run_diagnostics", "Get credential-safe launch, prompt delivery, output capture, claim release, cleanup, and activity diagnostics for a run.", runIdSchema, ({ runId }: any) => service.getRunDiagnostics(runId));
+    tool("report_run_error", "Record an error reason for an active run and continue execution. Identical retries are idempotent; a different reason conflicts. Finish remaining work, then exit normally. Terminal runs reject reports.", runIdSchema.extend(reportRunErrorSchema.shape).strict(), ({ runId, reason }: any) => service.reportRunError(runId, { reason }));
     tool("stop_run", "Stop an active run", runIdSchema, ({ runId }: any) => service.stopRun(runId));
     tool("kill_run", "Force a run in any non-terminal state to stop immediately, release its concurrency slot, and clean up its backend asynchronously.", runIdSchema, ({ runId }: any) => service.killRun(runId));
     tool("list_jobs", "List jobs with their current run count and maximum concurrency", z.object({}), () => service.listJobs());
@@ -169,5 +170,19 @@ async function mcp(request: Request, service: ApiService, env: Env, ctx: Executi
   }
 
 export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
-  fetch(request: Request): Promise<Response> { return protectedApiFetch(request, this.env, this.ctx.props, this.ctx); }
+  async fetch(request: Request): Promise<Response> {
+    let auth = this.ctx.props;
+    const isReportRequest = new URL(request.url).pathname.endsWith("/report-error")
+      || new URL(request.url).pathname === "/mcp" && await request.clone().json().then(body => (body as any)?.params?.name === "report_run_error").catch(() => false);
+    if (isReportRequest && auth.authMethod === "oauth" && (!auth.oauthGrantId || !auth.oauthClientId)) {
+      const authorization = request.headers.get("Authorization"), credential = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
+      if (credential && this.env.OAUTH_PROVIDER) {
+        // The SDK validates the bearer before dispatch. Unwrap only for stable grant/client IDs;
+        // the credential itself is never logged, returned, or persisted.
+        const token = await this.env.OAUTH_PROVIDER.unwrapToken<OAuthProps>(credential);
+        if (token?.userId === auth.userId && token.grant?.clientId) auth = { ...auth, oauthGrantId: token.grantId, oauthClientId: token.grant.clientId };
+      }
+    }
+    return protectedApiFetch(request, this.env, auth, this.ctx);
+  }
 }

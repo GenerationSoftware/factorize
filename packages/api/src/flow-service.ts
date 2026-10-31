@@ -5,7 +5,7 @@ import { z } from "zod";
 import { runPageResponse, fullRunResponse } from "./run-read-contracts";
 import { triggerContextCatalog } from "./trigger-context";
 import type { Env, OAuthProps } from "./types";
-import { canonicalizeVmImage, renameRunSchema, vmImageVerificationInput, type JobInput, type ManualInvocationInput } from "./flow-schemas";
+import { canonicalizeVmImage, renameRunSchema, reportRunErrorSchema, vmImageVerificationInput, type JobInput, type ManualInvocationInput } from "./flow-schemas";
 import { nextOccurrence, validateScheduleConfig } from "./schedule";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
@@ -35,6 +35,8 @@ import { ProjectRepository } from "./postgres/project-repository";
 import { effortOptions, selectableExeTags, type ExeConnection } from "./exe";
 import { ExeImageVerificationError, ExeVmBackend } from "./exe-vm-backend";
 import { SkillRepository, SkillConflict, SkillReferenced } from "./postgres/skill-repository";
+import { RunRepository } from "./postgres/run-repository";
+import { safeDiagnosticText } from "./harness-diagnostics";
 import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput, composePrompt } from "./skills";
 
 export class ServiceError extends Error {
@@ -157,6 +159,19 @@ export class ApiService {
   async search(query: string) { await this.authorize("jobs:read"); await this.authorize("runs:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
   async triggerContextMetadata() { await this.authorize("jobs:read"); return triggerContextCatalog; }
   async getRunStatus(runId: string) { await this.authorize("runs:read"); const status = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).status(runId); if (!status) throw new ServiceError(404, "not_found", "Run not found"); return status; }
+  async reportRunError(runId: string, input: unknown) {
+    await this.authorize("runs:write");
+    const parsed = reportRunErrorSchema.parse(input), reason = safeDiagnosticText(parsed.reason, 1000);
+    if (!reason.trim()) throw new ServiceError(400, "invalid_request", "Reason must contain safe text.");
+    const reporterKind = this.auth.authMethod === "oauth" ? "oauth" : this.auth.authMethod === "access_token" ? "api_key" : "session";
+    const reporterId = reporterKind === "oauth" ? this.auth.oauthGrantId && this.auth.oauthClientId ? `${this.auth.oauthClientId}:${this.auth.oauthGrantId}` : undefined : reporterKind === "api_key" ? this.auth.accessTokenId : this.auth.userId;
+    if (!reporterId) throw new ServiceError(403, "invalid_token", "Authenticated reporter identity is unavailable.");
+    const result = await new RunRepository(databaseFor(this.env)).reportAgentError({ tenantId: this.auth.tenantId, runId, reason, userId: this.auth.userId, reporterKind, reporterId });
+    if (result === "missing") throw new ServiceError(404, "not_found", "Run not found");
+    if (result === "terminal") throw new ServiceError(409, "terminal_run", "Run is already terminal and cannot accept an error report.");
+    if (result === "conflict") throw new ServiceError(409, "error_already_reported", "A different error reason was already reported for this run.");
+    return { reported: true, reason, retry: result === "identical" };
+  }
   async renameRun(runId: string, input: unknown) {
     await this.authorize("runs:write");
     const parsed = renameRunSchema.parse(input);
@@ -183,11 +198,12 @@ export class ApiService {
     run.trace_projection = projection.rows[0] ?? null; run.trace_generation = cursor.rows[0]?.generation ?? null;
     run.harness_log = artifacts.find(item => item.kind === "terminal_log") ?? null;
     // Enumerate public fields rather than publishing future database columns.
+    const agentError = run.agent_error_reason ? { reason: run.agent_error_reason, reported_at: run.agent_error_reported_at, reporter: { user_id: run.agent_error_reporter_user_id, kind: run.agent_error_reporter_kind, id: run.agent_error_reporter_id } } : null;
     return publicValue(fullRunResponse, JSON.parse(JSON.stringify({ id: run.id, tenant_id: run.tenant_id, job_id: run.job_id, invocation_id: run.invocation_id,
       execution_handle: run.execution_handle ? { backendKind: run.execution_handle.backendKind, id: run.execution_handle.id } : null,
       provider: run.provider, issue_id: run.issue_id, issue_url: run.issue_url, issue_title: run.issue_title,
       run_name: run.run_name, agent_name: run.agent_name, workspace_name: run.workspace_name, agent_kind: run.agent_kind,
-      state: run.state, execution_backend_kind: run.execution_backend_kind, backend_kind: run.backend_kind,
+      state: run.state, failure_source: run.failure_source ?? null, agent_error: agentError, execution_backend_kind: run.execution_backend_kind, backend_kind: run.backend_kind,
       execution_capabilities: run.execution_capabilities, capabilities: run.capabilities, destination_url: run.destination_url,
       artifact_state: run.artifact_state, artifact_error: run.artifact_error,
       claim_released: run.claim_released, vm_cleanup_attempt: run.vm_cleanup_attempt, cleanup_next_at: run.cleanup_next_at, vm_cleanup_complete: run.vm_cleanup_complete,
@@ -205,7 +221,7 @@ export class ApiService {
       new ArtifactRepository(database, this.auth.tenantId).list(runId),
     ]);
     const primary = run.trace_sources?.primary ?? null;
-    return { runId: run.id, jobId: run.job_id, state: run.state, provider: run.provider, backendKind: run.execution_backend_kind,
+    return { runId: run.id, jobId: run.job_id, state: run.state, failureSource: run.failure_source, agentError: run.agent_error, provider: run.provider, backendKind: run.execution_backend_kind,
       execution: run.execution_diagnostics, traceSources: run.trace_sources,
       trace: { ...evidence, provider: primary?.provider ?? artifacts.find(item => item.kind === "native_session")?.provider ?? run.agent_kind ?? null, primarySource: primary?.kind ?? "native_session", sourceVersion: primary?.formatVersion ?? null,
         artifacts: artifacts.filter(item => ["execution_stream", "native_session"].includes(item.kind)),

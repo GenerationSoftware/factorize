@@ -9,4 +9,6 @@ Ask: “Inspect this run, stop it if it is still active, and verify its final st
 
 For a timed-out manual submission, repeat `invoke_job` with the **same** `idempotencyKey`. The response contains the original `invocationId`, `runId`, and `duplicate: true`. Retain the key you submitted: current `get_run` does not return `invocation.idempotency_key`. Never send its internal `invocation.claim_key` or a `manual:` prefix back as the key. If the key was lost, inspect existing runs before requesting another.
 
+To report a problem without stopping the agent, call `report_run_error` (or `POST /api/v1/runs/{runId}/report-error`) with a reason, continue any useful remaining work, and then exit normally. The first reason is retained: identical retries are safe, while a different replacement reason returns a conflict. Terminal runs reject reports. A report never changes polling, evidence collection, cleanup, or slot accounting.
+
 An intentional new run after failure needs a new key. First verify that the prior run is terminal, inspect whether it made external changes, and fix the cause. A retry may repeat those external effects: invocation deduplication is not transactional rollback of the agent's work. For `queue_full`, wait for capacity and reuse the key for the intended request. See [failed runs](/troubleshooting/runs).

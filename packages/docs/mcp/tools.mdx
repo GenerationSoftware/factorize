@@ -32,6 +32,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `get_run` | runs:read | Required string `runId` |
 | `rename_run` | runs:write | Required `runId` and `name`; optional `expectedName` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
+| `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
 | `stop_run` | runs:cancel | Required string `runId` |
 | `kill_run` | runs:cancel | Required string `runId`; currently the same stop operation |
@@ -146,6 +147,8 @@ Allowed state filters: `queued`, `starting`, `running`, `done`, `blocked`, `fail
 ```
 
 Retain the submitted key for retries. Current `get_run` returns only internal `invocation.claim_key`, not `invocation.idempotency_key`; never pass that internal field back. `get_run_diagnostics({"runId":"RUN_ID"})` returns a diagnostic object with `runId`, `jobId`, `state`, `execution`, `trace`, `artifact`, `harnessLog`, `activity` and timestamps. These cover launch/prompt/output/cleanup and trace evidence, not credentials. Missing runs return `not_found`.
+
+`report_run_error({"runId":"RUN_ID","reason":"The deployment check found a regression."})` records a bounded, sanitized reason and the authenticated reporter while the run remains active. It does not stop execution or release concurrency. Report the problem, finish any remaining work, then exit normally so Factorize can collect evidence and clean up. An identical retry is idempotent; a different reason returns `error_already_reported`, and a terminal run returns `terminal_run`. Reporter identity comes from the authenticated API key or OAuth grant; credentials are never accepted in the input or returned. A report followed by observer success makes the final run `failed` with source `agent`; observer failure remains a `system` failure and its diagnostics are retained alongside the report. Stopping takes precedence and keeps the run `stopped`.
 
 `rename_run({"runId":"RUN_ID","name":"Release review","expectedName":"First review"})` → `{"run_name":"Release review"}`. Names are trimmed and must contain 1–120 characters. `expectedName` is optional; when supplied, a changed current name returns `stale_run_name` so the caller can reload and reconcile. Missing or cross-tenant runs return `not_found`.
 

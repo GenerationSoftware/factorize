@@ -10,3 +10,5 @@ Run pages return `items` and `nextCursor`; send that cursor for the next page. O
 Check that the intended trigger fired, the repository/task appears in the rendered prompt, and the browser/REST trace supports the reported result. A queued submission is not a successful execution. Browser run pages are at `https://app.factorize.sh/job-runs/RUN_ID`. Agent output stays in Factorize and is not automatically copied into Linear.
 
 For missing output or execution failures, call `get_run_diagnostics` and follow [failed-run troubleshooting](/troubleshooting/runs).
+
+Failed runs keep the existing `failed` state filter and expose `failure_source` as `system` or `agent`. Historical failed runs read as system failures. An agent-reported reason appears in run detail and history; execution observer diagnostics remain available separately, and artifact/cleanup errors are separate diagnostics.

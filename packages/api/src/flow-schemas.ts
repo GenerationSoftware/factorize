@@ -16,6 +16,8 @@ export const listRunsSchema = z.object({
 }).refine(value => !value.direction || value.sort, { message: "direction requires sort" });
 export const runIdSchema = z.object({ runId: z.string().min(1) });
 export const renameRunSchema = z.object({ name: z.string().trim().min(1).max(120), expectedName: z.string().max(120).optional() }).strict();
+export const reportRunErrorSchema = z.object({ reason: z.string().trim().min(1).max(2000) }).strict();
+export const reportRunErrorResponse = z.object({ reported: z.literal(true), reason: z.string(), retry: z.boolean() });
 
 const webhookCommonSchema = z.object({ conditions: conditionsSchema.optional() });
 export const webhookTriggerConfigSchema = z.discriminatedUnion("provider", [

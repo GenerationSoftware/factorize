@@ -12,6 +12,8 @@ import {
   jobInputSchema,
   manualInvocationSchema,
   renameRunSchema,
+  reportRunErrorSchema,
+  reportRunErrorResponse,
   jobConditionsTestSchema,
   listRunsSchema,
   scopeSchema,
@@ -155,6 +157,7 @@ function route(
 // Legacy route labels are translated by resource and effect; they are never
 // accepted as newly issued scopes.
 function scopeForRoute(path: string, legacy: string): string | string[] {
+  if (legacy === "runs:write" && path.endsWith("/report-error")) return "runs:write";
   if (legacy === "runs:write" && path === "/api/v1/runs/{runId}" ) return "runs:write";
   if (legacy === "runs:read" && path === "/api/v1/search") return "jobs:read+runs:read";
   if (legacy === "flows:read") {
@@ -894,6 +897,17 @@ export const API_ROUTES: RouteContract[] = [
     description: "Changes only the run display name. Supply expectedName for optimistic concurrency; omission supports last-writer-wins clients.",
     responses: { "200": { description: "Saved run display name", content: { "application/json": { schema: { type: "object", required: ["run_name"], properties: { run_name: { type: "string" } }, additionalProperties: false } } } }, "404": { description: "Run not found within the tenant" }, "409": { description: "stale_run_name: reload before retrying" } },
   }, (service, { params, body }) => service.renameRun(params.runId, body), { body: renameRunSchema, parameters: z.object({ runId: z.uuid() }) }),
+  route("POST", "/api/v1/runs/{runId}/report-error", "runs:write", {
+    summary: "Report an error for an active run",
+    description: "Records a sanitized reason and authenticated reporter without changing run execution or releasing its concurrency slot. The agent may continue work and should then exit normally. An identical retry succeeds; a different replacement reason returns 409. Terminal runs reject reports.",
+    responses: {
+      "200": { description: "Report saved or identical retry acknowledged", content: { "application/json": { schema: jsonSchema(reportRunErrorResponse, "output") } } },
+      "400": { description: "Invalid reason or request body" },
+      "403": { description: "Missing runs:write authorization" },
+      "404": { description: "Run not found within the tenant" },
+      "409": { description: "Run is terminal or a different reason was already reported" },
+    },
+  }, (service, { params, body }) => service.reportRunError(params.runId, body), { body: reportRunErrorSchema, maxBodyBytes: 4096, parameters: z.object({ runId: z.uuid() }) }),
   route(
     "GET",
     "/api/v1/runs/{runId}/trace",

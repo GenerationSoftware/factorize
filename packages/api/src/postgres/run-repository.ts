@@ -80,11 +80,32 @@ export class RunRepository {
     await this.database.pool.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'stop_attempt','Scheduler attempted agent termination')", [run.tenantId, crypto.randomUUID(), run.id]);
   }
 
+  async reportAgentError(input: { tenantId: string; runId: string; reason: string; userId: string; reporterKind: string; reporterId: string }): Promise<"missing" | "terminal" | "conflict" | "reported" | "identical"> {
+    return this.database.transaction(async client => {
+      // Keep the lifecycle lock order used by terminal(), stop(), and rename().
+      const jobRun = (await client.query<{ state: ExecutionState }>("SELECT state FROM app.job_runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [input.tenantId, input.runId])).rows[0];
+      if (!jobRun) return "missing";
+      const run = (await client.query<{ agent_error_reason: string | null }>("SELECT agent_error_reason FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [input.tenantId, input.runId])).rows[0];
+      if (!run) return "missing";
+      if (!["reserved", "starting", "running", "blocked", "stopping"].includes(jobRun.state)) return "terminal";
+      if (run.agent_error_reason !== null) return run.agent_error_reason === input.reason ? "identical" : "conflict";
+      await client.query(`UPDATE app.runs SET agent_error_reason=$3,agent_error_reported_at=now(),agent_error_reporter_user_id=$4,
+        agent_error_reporter_kind=$5,agent_error_reporter_id=$6,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+      [input.tenantId, input.runId, input.reason, input.userId, input.reporterKind, input.reporterId]);
+      await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'agent_error_reported',$4)", [input.tenantId, crypto.randomUUID(), input.runId, input.reason]);
+      return "reported";
+    });
+  }
+
   async terminal(run: PersistedRun, state: "succeeded" | "failed" | "stopped", artifactState: "stored" | "partial" | "failed", error?: string, cleanupComplete = false): Promise<void> {
     await this.database.transaction(async client => {
-      const result = await client.query<{ state: ExecutionState }>("UPDATE app.job_runs SET state=CASE WHEN state='stopping' THEN 'stopped' ELSE $3 END,next_poll_at=NULL,launch_lease_expires_at=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked','stopping') RETURNING state", [run.tenantId, run.id, state]);
-      if (!result.rows[0]) return;
-      await client.query("UPDATE app.runs SET state=$3,artifact_state=$4,artifact_error=$5,claim_released=true,vm_cleanup_complete=$6,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, result.rows[0].state, artifactState, error ? safeDiagnosticText(error) : null, cleanupComplete]);
+      const current = (await client.query<{ state: ExecutionState }>("SELECT state FROM app.job_runs WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked','stopping') FOR UPDATE", [run.tenantId, run.id])).rows[0];
+      if (!current) return;
+      const saved = (await client.query<{ agent_error_reason: string | null }>("SELECT agent_error_reason FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [run.tenantId, run.id])).rows[0];
+      const terminalState = current.state === "stopping" ? "stopped" : state === "succeeded" && saved?.agent_error_reason ? "failed" : state;
+      const failureSource = terminalState === "failed" ? state === "failed" ? "system" : "agent" : null;
+      await client.query("UPDATE app.job_runs SET state=$3,next_poll_at=NULL,launch_lease_expires_at=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, terminalState]);
+      await client.query("UPDATE app.runs SET state=$3,failure_source=$4,artifact_state=$5,artifact_error=$6,claim_released=true,vm_cleanup_complete=$7,updated_at=now() WHERE tenant_id=$1 AND id=$2", [run.tenantId, run.id, terminalState, failureSource, artifactState, error ? safeDiagnosticText(error) : null, cleanupComplete]);
       await client.query("DELETE FROM app.active_claims WHERE tenant_id=$1 AND run_id=$2", [run.tenantId, run.id]);
       // Automation runs before polling, so terminal events need another pass.
       await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");
