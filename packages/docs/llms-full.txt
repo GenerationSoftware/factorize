@@ -168,6 +168,8 @@ Check that the intended trigger fired, the repository/task appears in the render
 
 For missing output or execution failures, call `get_run_diagnostics` and follow [failed-run troubleshooting](https://docs.factorize.sh/troubleshooting/runs).
 
+Failed runs keep the existing `failed` state filter and expose `failure_source` as `system` or `agent`. Historical failed runs read as system failures. An agent-reported reason appears in run detail and history; execution observer diagnostics remain available separately, and artifact/cleanup errors are separate diagnostics.
+
 ## Stop and retry runs
 Source: https://docs.factorize.sh/work/stop-retry
 
@@ -176,6 +178,8 @@ Ask: “Inspect this run, stop it if it is still active, and verify its final st
 **Current behavior:** `kill_run` calls the same stop operation as `stop_run`. It does not force a queued run to terminate or release its slot immediately. Both return `operation_failed` when the run is not active. Do not treat kill as stronger recovery; contact the hosted operator if a run remains stuck.
 
 For a timed-out manual submission, repeat `invoke_job` with the **same** `idempotencyKey`. The response contains the original `invocationId`, `runId`, and `duplicate: true`. Retain the key you submitted: current `get_run` does not return `invocation.idempotency_key`. Never send its internal `invocation.claim_key` or a `manual:` prefix back as the key. If the key was lost, inspect existing runs before requesting another.
+
+To report a problem without stopping the agent, call `report_run_error` (or `POST /api/v1/runs/{runId}/report-error`) with a reason, continue any useful remaining work, and then exit normally. The first reason is retained: identical retries are safe, while a different replacement reason returns a conflict. Terminal runs reject reports. A report never changes polling, evidence collection, cleanup, or slot accounting.
 
 An intentional new run after failure needs a new key. First verify that the prior run is terminal, inspect whether it made external changes, and fix the cause. A retry may repeat those external effects: invocation deduplication is not transactional rollback of the agent's work. For `queue_full`, wait for capacity and reuse the key for the intended request. See [failed runs](https://docs.factorize.sh/troubleshooting/runs).
 
@@ -426,6 +430,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `get_run` | runs:read | Required string `runId` |
 | `rename_run` | runs:write | Required `runId` and `name`; optional `expectedName` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
+| `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
 | `stop_run` | runs:cancel | Required string `runId` |
 | `kill_run` | runs:cancel | Required string `runId`; currently the same stop operation |
@@ -540,6 +545,8 @@ Allowed state filters: `queued`, `starting`, `running`, `done`, `blocked`, `fail
 ```
 
 Retain the submitted key for retries. Current `get_run` returns only internal `invocation.claim_key`, not `invocation.idempotency_key`; never pass that internal field back. `get_run_diagnostics({"runId":"RUN_ID"})` returns a diagnostic object with `runId`, `jobId`, `state`, `execution`, `trace`, `artifact`, `harnessLog`, `activity` and timestamps. These cover launch/prompt/output/cleanup and trace evidence, not credentials. Missing runs return `not_found`.
+
+`report_run_error({"runId":"RUN_ID","reason":"The deployment check found a regression."})` records a bounded, sanitized reason and the authenticated reporter while the run remains active. It does not stop execution or release concurrency. Report the problem, finish any remaining work, then exit normally so Factorize can collect evidence and clean up. An identical retry is idempotent; a different reason returns `error_already_reported`, and a terminal run returns `terminal_run`. Reporter identity comes from the authenticated API key or OAuth grant; credentials are never accepted in the input or returned. A report followed by observer success makes the final run `failed` with source `agent`; observer failure remains a `system` failure and its diagnostics are retained alongside the report. Stopping takes precedence and keeps the run `stopped`.
 
 `rename_run({"runId":"RUN_ID","name":"Release review","expectedName":"First review"})` → `{"run_name":"Release review"}`. Names are trimmed and must contain 1–120 characters. `expectedName` is optional; when supplied, a changed current name returns `stale_run_name` so the caller can reload and reconcile. Missing or cross-tenant runs return `not_found`.
 

@@ -110,6 +110,45 @@ components:
           type:
             - string
             - "null"
+        failure_source:
+          anyOf:
+            - type: string
+              enum:
+                - system
+                - agent
+            - type: "null"
+        agent_error:
+          anyOf:
+            - type: object
+              properties:
+                reason:
+                  type: string
+                reported_at:
+                  type: string
+                reporter:
+                  type: object
+                  properties:
+                    user_id:
+                      type: string
+                    kind:
+                      type: string
+                      enum:
+                        - api_key
+                        - oauth
+                        - session
+                    id:
+                      type: string
+                  required:
+                    - user_id
+                    - kind
+                    - id
+                  additionalProperties: false
+              required:
+                - reason
+                - reported_at
+                - reporter
+              additionalProperties: false
+            - type: "null"
         elapsed_time:
           anyOf:
             - anyOf:
@@ -152,6 +191,8 @@ components:
         - created_at
         - updated_at
         - started_at
+        - failure_source
+        - agent_error
       additionalProperties: true
     RunPage:
       type: object
@@ -233,6 +274,45 @@ components:
                 type:
                   - string
                   - "null"
+              failure_source:
+                anyOf:
+                  - type: string
+                    enum:
+                      - system
+                      - agent
+                  - type: "null"
+              agent_error:
+                anyOf:
+                  - type: object
+                    properties:
+                      reason:
+                        type: string
+                      reported_at:
+                        type: string
+                      reporter:
+                        type: object
+                        properties:
+                          user_id:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - api_key
+                              - oauth
+                              - session
+                          id:
+                            type: string
+                        required:
+                          - user_id
+                          - kind
+                          - id
+                        additionalProperties: false
+                    required:
+                      - reason
+                      - reported_at
+                      - reporter
+                    additionalProperties: false
+                  - type: "null"
               elapsed_time:
                 anyOf:
                   - anyOf:
@@ -275,6 +355,8 @@ components:
               - created_at
               - updated_at
               - started_at
+              - failure_source
+              - agent_error
             additionalProperties: false
         nextCursor:
           type:
@@ -9964,6 +10046,45 @@ paths:
                     type: boolean
                   trace_revision:
                     type: string
+                  failure_source:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - system
+                          - agent
+                      - type: "null"
+                  agent_error:
+                    anyOf:
+                      - type: object
+                        properties:
+                          reason:
+                            type: string
+                          reported_at:
+                            type: string
+                          reporter:
+                            type: object
+                            properties:
+                              user_id:
+                                type: string
+                              kind:
+                                type: string
+                                enum:
+                                  - api_key
+                                  - oauth
+                                  - session
+                              id:
+                                type: string
+                            required:
+                              - user_id
+                              - kind
+                              - id
+                            additionalProperties: false
+                        required:
+                          - reason
+                          - reported_at
+                          - reporter
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - id
                   - job_id
@@ -9977,6 +10098,8 @@ paths:
                   - artifact_state
                   - finalizing
                   - trace_revision
+                  - failure_source
+                  - agent_error
                 additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -10284,6 +10407,87 @@ paths:
                   maxLength: 120
               required:
                 - name
+              additionalProperties: false
+  /api/v1/runs/{runId}/report-error:
+    post:
+      summary: Report an error for an active run
+      description: |-
+        Records a sanitized reason and authenticated reporter without changing run execution or releasing its concurrency slot. The agent may continue work and should then exit normally. An identical retry succeeds; a different replacement reason returns 409. Terminal runs reject reports.
+
+        Requires the runs:write scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      responses:
+        "200":
+          description: Report saved or identical retry acknowledged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reported:
+                    type: boolean
+                    const: true
+                  reason:
+                    type: string
+                  retry:
+                    type: boolean
+                required:
+                  - reported
+                  - reason
+                  - retry
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+          description: Invalid reason or request body
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+          description: Missing runs:write authorization
+        "404":
+          $ref: "#/components/responses/Error404"
+          description: Run not found within the tenant
+        "409":
+          $ref: "#/components/responses/Error409"
+          description: Run is terminal or a different reason was already reported
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_runs_runId_report_error
+      tags:
+        - runs
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: runs:write
+      x-owner-session-required: false
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+              required:
+                - reason
               additionalProperties: false
   /api/v1/runs/{runId}/trace:
     get:

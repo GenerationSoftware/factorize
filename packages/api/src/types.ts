@@ -40,6 +40,9 @@ export type OAuthProps = {
   sessionVersion: number;
   scopes: string[];
   accessTokenId?: string;
+  /** Stable identifier for the OAuth authorization grant; never a bearer token. */
+  oauthGrantId?: string;
+  oauthClientId?: string;
   authMethod?: "session" | "oauth" | "access_token";
 };
 

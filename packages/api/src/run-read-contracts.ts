@@ -1,11 +1,12 @@
 import { z } from "zod";
 export const executionState = z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped"]);
+export const agentErrorResponse = z.object({ reason: z.string(), reported_at: z.string(), reporter: z.object({ user_id: z.string(), kind: z.enum(["api_key", "oauth", "session"]), id: z.string() }) });
 export const runStatusResponse = z.object({
   id: z.string(), job_id: z.string(), project_id: z.string().optional(), project_name: z.string().optional(), state: executionState,
   run_name: z.string(), job_name: z.string(), destination_url: z.string().nullable(),
   created_at: z.string(), updated_at: z.string(), started_at: z.string().nullable(),
   artifact_state: z.enum(["pending", "collecting", "stored", "partial", "failed"]),
-  finalizing: z.boolean(), trace_revision: z.string(),
+  finalizing: z.boolean(), trace_revision: z.string(), failure_source: z.enum(["system", "agent"]).nullable(), agent_error: agentErrorResponse.nullable(),
 });
 export const traceEventResponse = z.object({
   sequence: z.number().int(), id: z.string(), parentId: z.string().optional(),
@@ -18,6 +19,7 @@ export const revisionTracePage = z.object({ items: z.array(traceEventResponse), 
 export const traceRevisionSql = "jsonb_build_array(c.generation,p.source_kind,p.artifact_sha256,p.parser_version,p.updated_at)::text";
 export const runSummaryResponse = z.object({
   id: z.string(), job_id: z.string(), project_id: z.string().optional(), project_name: z.string().optional(), job_name: z.string(), issue_id: z.string(), issue_url: z.string().nullable(), issue_title: z.string(), run_name: z.string(), agent_name: z.string(), workspace_name: z.string(), agent_kind: z.string(), state: z.enum([...executionState.options, "done", "ignored"]), provider: z.string(), backend_kind: z.string(), capabilities: z.array(z.string()), destination_url: z.string().nullable(), artifact_state: z.enum(["pending", "collecting", "stored", "partial", "failed"]), artifact_error: z.string().nullable(), created_at: z.string(), updated_at: z.string(), started_at: z.string().nullable(),
+  failure_source: z.enum(["system", "agent"]).nullable(), agent_error: agentErrorResponse.nullable(),
   elapsed_time: z.union([
     z.object({ duration: z.number() }),
     z.object({ low: z.number(), high: z.number() }),

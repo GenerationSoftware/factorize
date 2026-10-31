@@ -34,7 +34,9 @@ export class RunQueryRepository {
     }
     values.push(limit + 1);
     const order = sort ? `CASE WHEN ${sortExpressions[sort]} IS NULL THEN 1 ELSE 0 END ASC, ${sortExpressions[sort]} ${direction} NULLS LAST, r.id ${direction}` : "r.created_at DESC,r.id DESC";
-    const result = await this.database.pool.query<any>(`SELECT r.id,r.job_id,j.project_id,j.name job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at,
+    const result = await this.database.pool.query<any>(`SELECT r.id,r.job_id,j.project_id,j.name job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,r.state,r.failure_source,
+      CASE WHEN r.agent_error_reason IS NULL THEN NULL ELSE jsonb_build_object('reason',r.agent_error_reason,'reported_at',r.agent_error_reported_at,'reporter',jsonb_build_object('user_id',r.agent_error_reporter_user_id,'kind',r.agent_error_reporter_kind,'id',r.agent_error_reporter_id)) END agent_error,
+      r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at,
       CASE WHEN r.state IN ('succeeded','failed','stopped') AND jr.started_at IS NOT NULL AND jr.updated_at >= jr.started_at
         THEN json_build_object('duration', round(EXTRACT(EPOCH FROM (jr.updated_at - jr.started_at))))
         WHEN r.state NOT IN ('succeeded','failed','stopped') THEN e.elapsed_time
@@ -66,7 +68,8 @@ export class RunQueryRepository {
       FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id WHERE r.tenant_id=$1 AND r.id=$2`, [this.tenantId, runId])).rows[0] ?? null;
   }
   async status(runId: string) {
-    const row = (await this.database.pool.query(`SELECT r.id,r.job_id,j.project_id,pr.name project_name,jr.state,r.run_name,j.name job_name,r.destination_url,
+    const row = (await this.database.pool.query(`SELECT r.id,r.job_id,j.project_id,pr.name project_name,jr.state,r.run_name,j.name job_name,r.destination_url,r.failure_source,
+      CASE WHEN r.agent_error_reason IS NULL THEN NULL ELSE jsonb_build_object('reason',r.agent_error_reason,'reported_at',r.agent_error_reported_at,'reporter',jsonb_build_object('user_id',r.agent_error_reporter_user_id,'kind',r.agent_error_reporter_kind,'id',r.agent_error_reporter_id)) END agent_error,
       r.created_at,greatest(r.updated_at,jr.updated_at) updated_at,jr.started_at,r.artifact_state,
       (jr.state IN ('succeeded','failed','stopped') AND (r.artifact_state IN ('pending','collecting') OR NOT r.vm_cleanup_complete)) finalizing,
       ${traceRevisionSql} trace_revision

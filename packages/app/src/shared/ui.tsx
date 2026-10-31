@@ -60,8 +60,9 @@ const runStatusStyles: Record<string, { label: string; color: string; pulse?: bo
   blocked: { label: "Blocked", color: "bg-amber-500" }, stopping: { label: "Stopping", color: "bg-amber-500" }, succeeded: { label: "Succeeded", color: "bg-emerald-500" }, done: { label: "Done", color: "bg-emerald-500" },
   failed: { label: "Failed", color: "bg-red-500" }, stopped: { label: "Stopped", color: "bg-slate-500" }, ignored: { label: "Ignored", color: "bg-slate-400" },
 };
-export function RunStatusDot({ state, decorative = false }: { state: string; decorative?: boolean }) {
-  const status = runStatusStyles[state] ?? { label: state || "Unknown", color: "bg-slate-400" };
+export function RunStatusDot({ state, failureSource, decorative = false }: { state: string; failureSource?: string | null; decorative?: boolean }) {
+  const base = runStatusStyles[state] ?? { label: state || "Unknown", color: "bg-slate-400" };
+  const status = state === "failed" && failureSource ? { ...base, label: failureSource === "agent" ? "Agent failed" : "System failed" } : base;
   return <span role={decorative ? undefined : "img"} aria-label={decorative ? undefined : `Status: ${status.label}`} aria-hidden={decorative || undefined} title={status.label} className={`inline-block size-2.5 rounded-full ${status.color} ${status.pulse ? "motion-safe:animate-pulse" : ""}`} />;
 }
 export function Button({ variant = "secondary", className = "", ...props }: ComponentProps<"button"> & { variant?: keyof typeof buttonClasses }) {

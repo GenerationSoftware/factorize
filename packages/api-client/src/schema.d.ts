@@ -1550,6 +1550,30 @@ export interface paths {
         patch: operations["patch_api_v1_runs_runId"];
         trace?: never;
     };
+    "/api/v1/runs/{runId}/report-error": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report an error for an active run
+         * @description Records a sanitized reason and authenticated reporter without changing run execution or releasing its concurrency slot. The agent may continue work and should then exit normally. An identical retry succeeds; a different replacement reason returns 409. Terminal runs reject reports.
+         *
+         *     Requires the runs:write scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        post: operations["post_api_v1_runs_runId_report_error"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{runId}/trace": {
         parameters: {
             query?: never;
@@ -1697,6 +1721,17 @@ export interface components {
             created_at: string;
             updated_at: string;
             started_at: string | null;
+            failure_source: ("system" | "agent") | null;
+            agent_error: {
+                reason: string;
+                reported_at: string;
+                reporter: {
+                    user_id: string;
+                    /** @enum {string} */
+                    kind: "api_key" | "oauth" | "session";
+                    id: string;
+                };
+            } | null;
             elapsed_time?: ({
                 duration: number;
             } | {
@@ -1732,6 +1767,17 @@ export interface components {
                 created_at: string;
                 updated_at: string;
                 started_at: string | null;
+                failure_source: ("system" | "agent") | null;
+                agent_error: {
+                    reason: string;
+                    reported_at: string;
+                    reporter: {
+                        user_id: string;
+                        /** @enum {string} */
+                        kind: "api_key" | "oauth" | "session";
+                        id: string;
+                    };
+                } | null;
                 elapsed_time?: ({
                     duration: number;
                 } | {
@@ -6206,6 +6252,17 @@ export interface operations {
                         artifact_state: "pending" | "collecting" | "stored" | "partial" | "failed";
                         finalizing: boolean;
                         trace_revision: string;
+                        failure_source: ("system" | "agent") | null;
+                        agent_error: {
+                            reason: string;
+                            reported_at: string;
+                            reporter: {
+                                user_id: string;
+                                /** @enum {string} */
+                                kind: "api_key" | "oauth" | "session";
+                                id: string;
+                            };
+                        } | null;
                     };
                 };
             };
@@ -6339,6 +6396,52 @@ export interface operations {
             /** @description Run not found within the tenant */
             404: components["responses"]["Error404"];
             /** @description stale_run_name: reload before retrying */
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_runs_runId_report_error: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Report saved or identical retry acknowledged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        reported: true;
+                        reason: string;
+                        retry: boolean;
+                    };
+                };
+            };
+            /** @description Invalid reason or request body */
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            /** @description Missing runs:write authorization */
+            403: components["responses"]["Error403"];
+            /** @description Run not found within the tenant */
+            404: components["responses"]["Error404"];
+            /** @description Run is terminal or a different reason was already reported */
             409: components["responses"]["Error409"];
             415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
