@@ -11,4 +11,14 @@ Run the app Worker locally with `npm run dev`. To preview the marketing package'
 
 The Pages custom domain is `factorize.sh`. Cloudflare manages HTTPS and redirects HTTP to HTTPS. The apex DNS record is proxied to Pages; the existing proxied `app.factorize.sh` record is retained unchanged.
 
+Cloudflare Browser Integrity Check is disabled for `app.factorize.sh` so API and MCP clients can access the application without browser header checks. The zone-wide default remains enabled. This is a live Cloudflare configuration rule, managed separately from Worker deployments:
+
+- Phase: `http_config_settings`; action: `set_config`.
+- Expression: `(http.host eq "app.factorize.sh")`.
+- Action parameters: `{ "bic": false }`.
+- Rule reference: `factorize_app_disable_bic`.
+- Ruleset ID: `fd04dea88688456d94a5fdea17caac8a`; rule ID: `b416dcd4bf1f48f2990d893c75c919b0`.
+
+Only Browser Integrity Check is overridden; application authentication and other security settings remain in effect. To roll back, disable this configuration rule to inherit the zone default. See [Cloudflare's Browser Integrity Check documentation](https://developers.cloudflare.com/waf/tools/browser-integrity-check/).
+
 Configure the Linear OAuth callback and provider webhooks against the app origin, never the marketing origin. Existing `/jobs/*`, `/api/*`, `/mcp`, `/authorize`, and webhook URLs remain app routes.
