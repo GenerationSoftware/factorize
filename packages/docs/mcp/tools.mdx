@@ -36,7 +36,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
 | `get_runtime_context` | runs:read | `{}`; verified authentication kind, effective scopes, and source run/job IDs, without credentials |
 | `get_job_invocation_permissions` | jobs:read | Required string `jobId` |
-| `set_job_invocation_permissions` | jobs:write (owner session) | Required `jobId` and `destinationJobIds` UUID array |
+| `set_job_invocation_permissions` | jobs:write | Required `jobId` and `destinationJobIds` UUID array; owner session, scoped API key, or authorized OAuth client |
 | `stop_run` | runs:cancel | Required string `runId` |
 | `kill_run` | runs:cancel | Required string `runId`; currently the same stop operation |
 | `list_job_webhook_activity` | runs:read | Required `jobId`; optional integer `limit` (1–100, default 50) |

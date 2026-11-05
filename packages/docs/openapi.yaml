@@ -8383,11 +8383,11 @@ paths:
     put:
       summary: Replace a source job's manual invocation destinations
       description: |-
-        Owner session only. Destinations must exist in the same tenant. Lifecycle subscriptions do not create permissions.
+        Requires an owner session, scoped API key, or authorized OAuth client with jobs:write. Destinations must exist in the same tenant. Lifecycle subscriptions do not create permissions.
 
         Requires the jobs:write scope.
 
-        An interactive owner session is required; bearer tokens cannot call this operation.
+        Accepts a scoped bearer token or interactive owner session.
       responses:
         "200":
           description: Saved manual invocation permissions
@@ -8435,7 +8435,7 @@ paths:
         - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:write
-      x-owner-session-required: true
+      x-owner-session-required: false
       parameters:
         - name: jobId
           in: path

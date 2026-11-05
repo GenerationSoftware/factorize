@@ -1,9 +1,9 @@
 ---
 title: Manual job invocation permissions
-description: Authorize jobs to start other jobs with run-scoped credentials.
+description: Authorize jobs to start other jobs with run-scoped credentials and manage destination permissions.
 ---
 
-Manual invocation permissions are separate from lifecycle subscriptions. Configure the allowed destination jobs in a source job's editor. The public API can read them with `GET /api/v1/jobs/{jobId}/invocation-permissions` and replace them with an owner-session-only `PUT` containing `{"destinationJobIds":["..."]}`. Destinations must exist in the same tenant. Deleting either job removes its permission edges. Revocation takes effect on the next invocation request.
+Manual invocation permissions are separate from lifecycle subscriptions. Configure the allowed destination jobs in a source job's editor. The public API can read them with `GET /api/v1/jobs/{jobId}/invocation-permissions` and replace them with a `PUT` containing `{"destinationJobIds":["..."]}`. The write requires `jobs:write` and accepts a browser owner session, scoped API key, or authorized OAuth client. Destinations must exist in the same tenant. Deleting either job removes its permission edges. Revocation takes effect on the next invocation request.
 
 Permissions are tenant-local. A destination may be in another project in the same tenant; graph consumers should render that as a cross-project edge. Existing lifecycle, edited, idle, schedule, and webhook triggers remain independent and do not grant manual invocation.
 

@@ -29,7 +29,7 @@ Current MCP does not return execution output; inspect browser traces or REST tra
 - [Automate from GitHub](https://docs.factorize.sh/integrations/github): Select an installation, repository, and event.
 - [Automate from ClickUp](https://docs.factorize.sh/integrations/clickup): Connect a workspace and select matching tasks.
 - [Chain jobs](https://docs.factorize.sh/recipes/chaining): Start a follow-up after another job finishes or is edited.
-- [Manual job invocation permissions](https://docs.factorize.sh/work/manual-invocation-permissions): Authorize jobs to start other jobs with run-scoped credentials.
+- [Manual job invocation permissions](https://docs.factorize.sh/work/manual-invocation-permissions): Authorize jobs to start other jobs with run-scoped credentials and manage destination permissions.
 - [Connect your accounts](https://docs.factorize.sh/integrations/oauth): Browser setup, resource access, and delivery verification.
 - [Trigger configuration](https://docs.factorize.sh/integrations/triggers): Configure schedules, provider webhooks, and lifecycle triggers.
 
