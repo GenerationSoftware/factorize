@@ -1496,6 +1496,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{runId}/artifacts/{artifactId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a retained run artifact
+         * @description Requires the runs:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_runs_runId_artifacts_artifactId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{runId}/trace-pages": {
         parameters: {
             query?: never;
@@ -1918,21 +1940,85 @@ export interface components {
         };
         RunDetail: {
             id: string;
-            state: string;
-            /** @description Live file generation; clients reset trace pagination when it changes. */
-            trace_generation?: string | null;
-            trace_projection?: components["schemas"]["TraceProjection"];
-            trace_sources?: components["schemas"]["TraceSources"];
-            execution_diagnostics: components["schemas"]["ExecutionDiagnostics"];
-            harness_log: components["schemas"]["HarnessLog"];
-            /** @description Secondary artifact or cleanup error; does not replace execution_diagnostics */
-            artifact_error?: string | null;
-            /** @description Current job name, included so run content does not require a separate job request. */
+            job_id: string;
+            project_id?: string;
+            project_name?: string;
             job_name: string;
+            issue_id: string;
+            issue_url: string | null;
+            issue_title: string;
+            run_name: string;
+            agent_name: string;
+            workspace_name: string;
+            agent_kind: string;
+            /** @enum {string} */
+            state: "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored";
+            provider: string;
+            backend_kind: string;
+            capabilities: string[];
+            destination_url: string | null;
+            /** @enum {string} */
+            artifact_state: "pending" | "collecting" | "stored" | "partial" | "failed";
+            artifact_error: string | null;
+            created_at: string;
+            updated_at: string;
+            started_at: string | null;
+            failure_source: ("system" | "agent") | null;
+            agent_error: {
+                reason: string;
+                reported_at: string;
+                reporter: {
+                    user_id: string;
+                    /** @enum {string} */
+                    kind: "api_key" | "oauth" | "session";
+                    id: string;
+                };
+            } | null;
+            elapsed_time?: ({
+                duration: number;
+            } | {
+                low: number;
+                high: number;
+            }) | null;
+            job_result: {
+                /** @enum {string} */
+                status: "succeeded" | "failed";
+                summary?: string;
+                reason?: string;
+                outputs?: {
+                    [key: string]: unknown;
+                };
+            } | null;
+            run_artifacts: {
+                id: string;
+                kind: string;
+                provider: string;
+                format: string;
+                byte_size: number;
+                sha256: string;
+                state: string;
+                media_type: string | null;
+                created_at: string;
+            }[];
+            tenant_id: string;
+            invocation_id: string;
+            execution_handle: {
+                backendKind: string;
+                id: string;
+            } | null;
+            execution_backend_kind: string;
+            execution_capabilities: string[];
+            claim_released: boolean;
+            vm_cleanup_attempt: number;
+            cleanup_next_at: string | null;
+            vm_cleanup_complete: boolean;
             prompt: string;
             context: {
                 [key: string]: unknown;
             };
+            occurrence: {
+                [key: string]: unknown;
+            } | null;
             invocation: {
                 id: string;
                 source: string;
@@ -1946,33 +2032,54 @@ export interface components {
                 } | null;
                 created_at: string;
             };
+            invocation_source: string;
+            invocation_claim_key: string;
+            invocation_trigger_id: string | null;
+            invocation_created_at: string;
             activity: {
                 action: string;
                 detail: string;
                 created_at: string;
             }[];
-            tenant_id?: string;
-            invocation_id?: string;
-            execution_handle?: {
-                backendKind: string;
-                id: string;
-            } | null;
-            execution_backend_kind?: string;
-            execution_capabilities?: string[];
-            claim_released?: boolean;
-            vm_cleanup_attempt?: number;
-            vm_cleanup_complete?: boolean;
-            /** Format: date-time */
-            cleanup_next_at?: string | null;
-            occurrence?: {
+            execution_diagnostics: {
                 [key: string]: unknown;
             } | null;
-            invocation_source?: string;
-            invocation_claim_key?: string;
-            invocation_trigger_id?: string | null;
-            /** Format: date-time */
-            invocation_created_at?: string;
-        } & WithRequired<components["schemas"]["Run"], "id" | "state" | "job_name">;
+            trace_sources: {
+                primary: {
+                    /** @enum {string} */
+                    kind: "execution_stream" | "native_session";
+                    path: string;
+                    /** @constant */
+                    mediaType: "application/x-ndjson";
+                    /** @enum {string} */
+                    provider: "codex" | "claude" | "pi";
+                    formatVersion?: string;
+                    cliVersion?: string;
+                    harnessVersion?: string;
+                    discoverCommand?: string;
+                };
+                nativeSession?: {
+                    /** @enum {string} */
+                    kind: "execution_stream" | "native_session";
+                    path: string;
+                    /** @constant */
+                    mediaType: "application/x-ndjson";
+                    /** @enum {string} */
+                    provider: "codex" | "claude" | "pi";
+                    formatVersion?: string;
+                    cliVersion?: string;
+                    harnessVersion?: string;
+                    discoverCommand?: string;
+                };
+            } | null;
+            trace_projection: {
+                [key: string]: unknown;
+            } | null;
+            trace_generation: string | null;
+            harness_log: {
+                [key: string]: unknown;
+            } | null;
+        };
         RunDiagnostics: {
             runId: string;
             jobId: string;
@@ -6276,6 +6383,37 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_runs_runId_artifacts_artifactId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+                artifactId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized artifact bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_runs_runId_trace_pages: {
         parameters: {
             query?: {
@@ -6618,6 +6756,3 @@ export interface operations {
         };
     };
 }
-type WithRequired<T, K extends keyof T> = T & {
-    [P in K]-?: T[P];
-};

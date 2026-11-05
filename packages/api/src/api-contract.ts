@@ -3,7 +3,7 @@ import { searchResponse } from "./search-contracts";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
 import { exeConnection, integrationStatus, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
 import { triggerAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
-import { runSummaryResponse, runPageResponse, runStatusResponse, revisionTracePage, revisionTraceQuery } from "./run-read-contracts";
+import { runSummaryResponse, runPageResponse, runStatusResponse, fullRunResponse, revisionTracePage, revisionTraceQuery } from "./run-read-contracts";
 import { jobPageQuery, jobSummaryPage, jobSelectorPage, jobResponse, jobUpdateInput } from "./job-contracts";
 import { projectInput, projectListQuery, projectResponse } from "./project-contracts";
 import { z } from "zod";
@@ -867,6 +867,10 @@ export const API_ROUTES: RouteContract[] = [
     description: "No prompt decryption, invocation context, artifacts, activity or diagnostics assembly. Continue polling terminal runs while finalizing is true. trace_revision changes on generation transition or canonical projection/replay; live appends retain the revision. Full detail remains available at GET /runs/{runId}.",
     responses: { "200": { description: "Status", content: { "application/json": { schema: jsonSchema(runStatusResponse, "output") } } } },
   }, (service, { params }) => service.getRunStatus(params.runId), { parameters: z.object({ runId: z.guid() }) }),
+  route("GET", "/api/v1/runs/{runId}/artifacts/{artifactId}", "runs:read", {
+    summary: "Download a retained run artifact",
+    responses: { "200": { description: "Authorized artifact bytes", content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } } } },
+  }, (service, { params }) => service.downloadRunArtifact(params.runId, params.artifactId), { parameters: z.object({ runId: z.guid(), artifactId: z.guid() }) }),
   route("GET", "/api/v1/runs/{runId}/trace-pages", "runs:read", {
     summary: "Get revision-bound trace page",
     description: "First request omits revision and uses after=0. Subsequent requests supply the returned revision. A changed generation or canonical projection returns reset=true and events from zero in the new revision, from one database snapshot. Discard all cached old pages before merging the response. nextCursor=null means caught up, not finalized; poll after the last sequence while active/finalizing. Legacy GET /trace remains unchanged.",
@@ -1099,6 +1103,7 @@ export function generateOpenApi() {
     ...document.components.schemas,
     Run: { ...jsonSchema(runSummaryResponse, "output"), additionalProperties: true },
     RunPage: jsonSchema(runPageResponse, "output"),
+    RunDetail: jsonSchema(fullRunResponse, "output"),
     ...Object.fromEntries(
       Object.entries(namedBodies).map(([name, schema]) => [
         name,

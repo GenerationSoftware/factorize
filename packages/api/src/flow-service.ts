@@ -211,9 +211,19 @@ export class ApiService {
       job_name: run.job_name, prompt: run.prompt, context: run.context, occurrence: run.occurrence, invocation: run.invocation,
       invocation_source: run.invocation_source, invocation_claim_key: run.invocation_claim_key, invocation_trigger_id: run.invocation_trigger_id, invocation_created_at: run.invocation_created_at,
       activity: run.activity, execution_diagnostics: run.execution_diagnostics, trace_sources: run.trace_sources,
-      trace_projection: run.trace_projection, trace_generation: run.trace_generation, harness_log: run.harness_log })));
+      trace_projection: run.trace_projection, trace_generation: run.trace_generation, harness_log: run.harness_log,
+      job_result: run.job_result ?? null,
+      run_artifacts: artifacts.filter(item => !["execution_stream", "native_session"].includes(item.kind)).map(item => ({ id: item.id, kind: item.kind, provider: String(item.provider ?? ""), format: String(item.format ?? ""), byte_size: Number(item.byte_size), sha256: String(item.sha256 ?? ""), state: String(item.state ?? ""), media_type: item.media_type ?? null, created_at: item.created_at instanceof Date ? item.created_at.toISOString() : String(item.created_at ?? "") })), })));
   }
   async getRunTrace(runId: string, after: number, limit: number) { await this.authorize("runs:read"); return new TraceRepository(databaseFor(this.env), this.auth.tenantId).page(runId, after, limit); }
+  async downloadRunArtifact(runId: string, artifactId: string): Promise<Response> {
+    await this.authorize("runs:read");
+    const row = (await databaseFor(this.env).pool.query<{ object_key: string; format: string; id: string }>("SELECT a.object_key,a.format,a.id FROM app.run_artifacts a JOIN app.runs r ON r.tenant_id=a.tenant_id AND r.id=a.run_id WHERE a.tenant_id=$1 AND a.run_id=$2 AND a.id=$3 AND a.state='stored'", [this.auth.tenantId, runId, artifactId])).rows[0];
+    if (!row) throw new ServiceError(404, "not_found", "Artifact not found");
+    const object = await this.env.RUN_ARTIFACTS?.get(row.object_key);
+    if (!object) throw new ServiceError(404, "not_found", "Artifact bytes are unavailable");
+    return new Response(object.body, { headers: { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="run-artifact-${row.id}"`, "Cache-Control": "private, no-store" } });
+  }
   async getRunDiagnostics(runId: string) {
     const run = await this.getRun(runId), database = databaseFor(this.env);
     const [evidence, artifacts] = await Promise.all([

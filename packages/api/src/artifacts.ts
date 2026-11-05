@@ -1,4 +1,4 @@
-export type ArtifactKind = "execution_stream" | "native_session" | "related_session" | "terminal_log" | "manifest";
+export type ArtifactKind = "execution_stream" | "native_session" | "related_session" | "terminal_log" | "manifest" | "job_file";
 export type ArtifactState = "pending" | "collecting" | "stored" | "partial" | "failed";
 
 export interface RunArtifact {

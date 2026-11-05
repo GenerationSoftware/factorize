@@ -12,7 +12,8 @@ export interface ArtifactUploadGrant {
   path: string;
   contentType: string;
   provider: "codex" | "claude" | "pi";
-  format: "jsonl";
+  format: "jsonl" | "file";
+  artifactType?: "job_file";
   nativeSessionId?: string;
   sourceKind?: "execution_stream" | "native_session";
   sourcePath?: string;
@@ -47,6 +48,7 @@ export async function readArtifactUploadGrant(token: string, secret: string, now
     const value = JSON.parse(fromB64url(payload)) as ArtifactUploadGrant;
     if (!value.tenantId || !value.runId || !value.path || !value.contentType || !Number.isSafeInteger(value.expiresAt) || value.expiresAt < now) return null;
     if (value.sourceKind && !["execution_stream", "native_session"].includes(value.sourceKind)) return null;
+    if (value.artifactType === "job_file" && (!value.path || value.path.startsWith("/") || value.path.split("/").some(part => !part || part === "." || part === "..") || /[\\\\\r\n\0]/.test(value.path))) return null;
     artifactKey(value.tenantId, value.runId, value.path);
     return value;
   } catch { return null; }
@@ -62,20 +64,25 @@ export async function artifactUpload(request: Request, env: Env, token: string):
   const sha256 = request.headers.get("X-Artifact-SHA256")?.toLowerCase() ?? "", size = Number(request.headers.get("Content-Length") ?? NaN);
   if (!/^[0-9a-f]{64}$/.test(sha256) || !Number.isSafeInteger(size) || size < 0) return new Response("Artifact checksum and size are required", { status: 400 });
   if (!request.body && size !== 0) return new Response("Artifact body is required", { status: 400 });
-  if (size > 256 * 1024 * 1024) return new Response("Artifact exceeds the 256 MiB limit", { status: 413 });
+  if (grant.artifactType === "job_file" ? size > 10 * 1024 * 1024 : size > 256 * 1024 * 1024) return new Response(grant.artifactType === "job_file" ? "Job file exceeds the 10 MiB limit" : "Artifact exceeds the 256 MiB limit", { status: 413 });
   const suppliedType = request.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (suppliedType !== grant.contentType.toLowerCase()) return new Response("Artifact content type does not match the grant", { status: 400 });
   if ((grant.sourceKind === "execution_stream" || grant.primary === true) && grant.traceGeneration === undefined) return new Response("Terminal trace generation is required", { status: 400 });
   // Content-addressed stream keys preserve the exact terminal snapshot across retries.
-  const key = artifactKey(grant.tenantId, grant.runId, grant.sourceKind === "execution_stream" ? `trace/${sha256}.jsonl` : `native/${sha256}.jsonl`);
+  const key = artifactKey(grant.tenantId, grant.runId, grant.artifactType === "job_file" ? `job/${grant.path}` : grant.sourceKind === "execution_stream" ? `trace/${sha256}.jsonl` : `native/${sha256}.jsonl`);
   const repository = new ArtifactRepository(databaseFor(env), grant.tenantId);
   const existing = await repository.list(grant.runId);
+  if (grant.artifactType === "job_file") {
+    const total = existing.filter(item => item.kind === "job_file" && item.state === "stored").reduce((sum, item) => sum + Number(item.byte_size), 0);
+    const prior = existing.find(item => item.kind === "job_file" && item.source_path === grant.path);
+    if (total - Number(prior?.byte_size ?? 0) + size > 50 * 1024 * 1024) return new Response("Job output directory exceeds the 50 MiB total limit", { status: 413 });
+  }
   const terminal = existing.find(item => item.kind === "execution_stream" && item.state === "stored");
   if (grant.sourceKind === "execution_stream" && terminal && terminal.sha256 !== sha256) return new Response("Terminal trace stream is immutable", { status: 409 });
   const retainedStream = grant.sourceKind === "execution_stream" && terminal;
   if (retainedStream) await request.body?.cancel();
   const object = retainedStream ? null : await env.RUN_ARTIFACTS.put(key, request.body ?? new Uint8Array(), { httpMetadata: { contentType: grant.contentType }, customMetadata: { tenantId: grant.tenantId, runId: grant.runId, generation: grant.traceGeneration ?? "", sourcePath: grant.sourcePath ?? "" }, sha256 });
-  const record = (client: DatabaseClient) => repository.record({ runId: grant.runId, kind: grant.sourceKind ?? "native_session", sourceGeneration: grant.traceGeneration, sourcePath: grant.sourcePath, mediaType: grant.contentType, harnessVersion: grant.harnessVersion, formatVersion: grant.formatVersion, cliVersion: grant.cliVersion, objectKey: key, provider: grant.provider, format: grant.format, nativeSessionId: grant.nativeSessionId, byteSize: size, sha256 }, client);
+  const record = (client: DatabaseClient) => repository.record({ runId: grant.runId, kind: grant.artifactType ?? grant.sourceKind ?? "native_session", sourceGeneration: grant.traceGeneration, sourcePath: grant.artifactType === "job_file" ? grant.path : grant.sourcePath, mediaType: grant.contentType, harnessVersion: grant.harnessVersion, formatVersion: grant.formatVersion, cliVersion: grant.cliVersion, objectKey: key, provider: grant.provider, format: grant.format, nativeSessionId: grant.nativeSessionId, byteSize: size, sha256 }, client);
   const stored = await env.RUN_ARTIFACTS.get(key);
   if (!stored) return new Response("Artifact disappeared after upload", { status: 502 });
   if (stored.size !== size) { await stored.body.cancel(); return new Response("Retained artifact size does not match upload receipt", { status: 422 }); }
@@ -84,7 +91,7 @@ export async function artifactUpload(request: Request, env: Env, token: string):
     // Shares the lock with incremental ingestion: terminal projection wins atomically.
     const run = (await client.query("SELECT id,trace_sources FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [grant.tenantId, grant.runId])).rows[0];
     if (!run) return "Run not found";
-    if (grant.sourceKind === "execution_stream" || grant.primary === true) {
+    if (grant.artifactType !== "job_file" && (grant.sourceKind === "execution_stream" || grant.primary === true)) {
       const primary = run.trace_sources?.primary;
       if (primary && (primary.kind !== (grant.sourceKind ?? "native_session") || (primary.provider && primary.provider !== grant.provider) || (primary.path && primary.path !== grant.sourcePath))) return "Terminal trace source mismatch";
       const cursor = (await client.query("SELECT generation FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2", [grant.tenantId, grant.runId])).rows[0];
@@ -94,8 +101,8 @@ export async function artifactUpload(request: Request, env: Env, token: string):
     const terminal = artifacts.find(item => item.kind === "execution_stream" && item.state === "stored");
     if (grant.sourceKind === "execution_stream" && terminal && terminal.sha256 !== sha256) return "Terminal trace stream is immutable";
     const native = artifacts.find(item => item.kind === "native_session" && item.state === "stored");
-    if (grant.sourceKind !== "execution_stream" && native && native.sha256 !== sha256) return "Terminal native session is immutable";
-    const primary = grant.sourceKind === "execution_stream" || (grant.primary !== false && !terminal && run?.trace_sources?.primary?.kind !== "execution_stream");
+    if (grant.artifactType !== "job_file" && grant.sourceKind !== "execution_stream" && native && native.sha256 !== sha256) return "Terminal native session is immutable";
+    const primary = grant.artifactType !== "job_file" && (grant.sourceKind === "execution_stream" || (grant.primary !== false && !terminal && run?.trace_sources?.primary?.kind !== "execution_stream"));
     const projection = (await client.query("SELECT source_kind,artifact_sha256,parser_version FROM app.run_trace_projections WHERE tenant_id=$1 AND run_id=$2", [grant.tenantId, grant.runId])).rows[0];
     await record(client);
     // Keep the immutable receipt even when projection fails. A retry projects

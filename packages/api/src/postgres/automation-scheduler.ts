@@ -58,6 +58,7 @@ export class AutomationScheduler {
     // scheduler passes cannot cross this ordering boundary.
     for (;;) {
       const rows = await this.database.pool.query<any>(`SELECT t.tenant_id,t.id trigger_id,t.job_id,t.slug,t.config,r.id source_run_id,r.job_id source_job_id,r.state,r.updated_at
+      ,r.job_result
       FROM app.triggers t
       JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
       JOIN app.runs r ON r.tenant_id=t.tenant_id
@@ -69,7 +70,7 @@ export class AutomationScheduler {
         AND d.source_run_id IS NULL ORDER BY r.updated_at LIMIT 100`);
       if (!rows.rows.length) break;
       for (const row of rows.rows) {
-        const context = { sourceRunId: row.source_run_id, sourceJobId: row.source_job_id, state: row.state, completedAt: row.updated_at.toISOString() }, occurrence = { occurredAt: context.completedAt, externalId: `${row.source_run_id}:${row.state}`, metadata: context };
+        const context = { sourceRunId: row.source_run_id, sourceJobId: row.source_job_id, state: row.state, completedAt: row.updated_at.toISOString(), outputs: row.job_result?.outputs ?? null }, occurrence = { occurredAt: context.completedAt, externalId: `${row.source_run_id}:${row.state}`, metadata: context };
         // Acknowledge after invocation so transient failures remain retryable.
         // Queue-full is an intentional terminal outcome: no run is queued, so
         // acknowledging it permits idle triggers to proceed.

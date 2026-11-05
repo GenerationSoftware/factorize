@@ -41,6 +41,7 @@ export interface PromptDeliveryReceipt {
   command?: BackendCommandResult;
 }
 export interface ArtifactCollectionRequest { uploadUrl: string; contentType: string; source?: TraceSource; discoverCommand?: string; }
+export interface JobFileCollectionRequest { path: string; uploadUrl: string; }
 export interface TraceChunkCollectionRequest { uploadUrl: string; source?: TraceSource; discoverCommand?: string; generation: string | null; offset: number; previousHash: string; }
 export interface ArtifactCollectionReceipt { ok: boolean; detail?: string; command?: BackendCommandResult; }
 

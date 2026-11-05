@@ -154,11 +154,11 @@ export class PostgresJobRepository implements JobRepository {
       if (!inserted.rowCount) return false;
       await reserveExecutionSlot(client, this.tenantId, invocation.jobId, run, concurrencyLimit);
       await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,encrypted_skill_snapshot,run_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.encryptedSkillSnapshot ?? null, run.runName ?? "", run.createdAt, run.updatedAt]);
-      await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_config,execution_capabilities,created_at,updated_at)
+      await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_config,execution_capabilities,result_protocol_version,created_at,updated_at)
         SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_config->>'agentKind',$7,
           CASE WHEN j.execution_config->>'agentKind'='Amp' THEN 'amp' ELSE 'exe-vm' END,
           j.execution_config || jsonb_build_object('model',j.model,'effort',j.effort,'tags',j.tags),
-          CASE WHEN j.execution_config->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,$9,$10
+          CASE WHEN j.execution_config->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,1,$9,$10
         FROM app.jobs j
         WHERE j.tenant_id=$1 AND j.id=$3`, [this.tenantId, run.id, run.jobId, run.invocationId, invocation.source, invocation.claimKey, run.state, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");

@@ -17,6 +17,7 @@ import { traceMetric } from "../trace-observability";
 import { rolloutTraceSources } from "../trace-source";
 import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./trace-projection-repository";
 import { LiveTraceRepository } from "./live-trace-repository";
+import { JOB_RESULT_INSTRUCTIONS, parseJobResult } from "../job-result";
 
 export class RunScheduler {
   private runs: RunRepository;
@@ -38,10 +39,12 @@ export class RunScheduler {
   }
 
   private async launch(run: PersistedRun) {
+    if (run.executionConfig.agentKind === "Amp") throw new Error("Amp execution is unavailable for new runs because it cannot deliver the required structured result file. Choose an exe.dev agent integration.");
     const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, { model: run.executionConfig.model, effort: run.executionConfig.effort });
     const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
     validateTraceSources(sources);
-    const launched = await backend.launch({ runId: run.id, prompt: await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY), traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
+    const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    const launched = await backend.launch({ runId: run.id, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}`, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
     if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
   }
@@ -64,6 +67,22 @@ export class RunScheduler {
     run.executionDiagnostics = diagnostics;
     let artifactState: "stored" | "partial" | "failed" = "stored";
     const errors: string[] = [];
+    let finalState = diagnostics.state;
+    let resultFailure: string | undefined;
+    if (run.resultProtocolVersion === 1 && diagnostics.state !== "failed" && diagnostics.state !== "stopped") {
+      if (!(backend instanceof ExeVmBackend)) throw new Error("This execution backend cannot collect structured job results");
+      let raw: string | null;
+      try { raw = await backend.readJobResult(run.executionHandle!); }
+      catch (error) { throw error; } // Collection errors are transient and retried by finalization.
+      if (raw === null) { finalState = "failed"; resultFailure = "Required structured job result is missing"; }
+      else {
+        try {
+          const result = parseJobResult(raw);
+          await this.runs.recordJobResult(run, result);
+          if (result.status === "failed") { finalState = "failed"; resultFailure = result.reason; }
+        } catch (error) { finalState = "failed"; resultFailure = `Invalid structured job result: ${error instanceof Error ? error.message : "validation failed"}`; }
+      }
+    }
     if (backend instanceof ExeVmBackend) {
       const artifacts = new ArtifactRepository(this.database, run.tenantId);
       const stored = await artifacts.list(run.id);
@@ -89,6 +108,18 @@ export class RunScheduler {
         try { errors.push(...await this.finalizePrimary(run, sources.primary)); }
         catch { errors.push("Retained primary trace projection failed"); }
       }
+      if (run.resultProtocolVersion === 1) {
+        try {
+          const current = await artifacts.list(run.id);
+          const retained = new Set(current.filter(item => item.kind === "job_file" && item.state === "stored").map(item => item.source_path));
+          for (const path of await backend.listJobFiles(run.executionHandle!)) {
+            if (retained.has(path)) continue;
+            const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path, artifactType: "job_file", contentType: "application/octet-stream", provider: run.executionConfig.agentKind, format: "file", expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
+            const uploaded = await backend.collectJobFile(run.executionHandle!, { path, uploadUrl: `${this.env.APP_ORIGIN}/internal/run-artifacts/${encodeURIComponent(token)}` });
+            if (!uploaded.ok) throw new Error(uploaded.detail ?? "Job file upload failed");
+          }
+        } catch { errors.push("Job output file collection or storage failed"); }
+      }
       // Retry collection, but do not keep a VM forever for an absent session/log.
       if (errors.length && (run.finalizationAttempt ?? 0) < 2) {
         await this.runs.retryFinalization(run, "partial", errors.join("; "));
@@ -103,7 +134,7 @@ export class RunScheduler {
         return;
       }
     }
-    await this.runs.terminal(run, diagnostics.state, artifactState, errors.join("; ") || undefined, true);
+    await this.runs.terminal(run, finalState, artifactState, [resultFailure, ...errors].filter(Boolean).join("; ") || undefined, true);
   }
 
   /** Retry projection from retained bytes, without relying on a surviving VM. */
