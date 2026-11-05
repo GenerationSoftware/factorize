@@ -70,6 +70,13 @@ describe("manual invocation API and shared service", () => {
     await expect(invoke({ sourceJobId: "forged", sourceRunId: "other-run" }, undefined, transport, identity)).rejects.toThrow();
   });
 
+  it("allows an active run to invoke its own job only while its self-permission exists", async () => {
+    const self = { runId: "run-self", runJobId: "job-1", allowed: true };
+    const accepted = await invoke({ idempotencyKey: "successor-1" }, undefined, "REST", self);
+    expect(accepted.persisted.invocation).toMatchObject({ jobId: "job-1", sourceJobId: "job-1", sourceRunId: "run-self" });
+    await expect(invoke({}, undefined, "REST", { ...self, allowed: false })).rejects.toThrow();
+  });
+
   it.each(["", "{{trigger-1.data.missing}}", "{{#invalid}}"])("falls back to the Job name for template %j", async template => {
     expect((await invoke({}, template)).persisted.run.runName).toBe("dev");
   });

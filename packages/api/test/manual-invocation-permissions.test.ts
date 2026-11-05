@@ -17,7 +17,7 @@ function fixture(options: { member?: boolean; activeToken?: boolean } = {}) {
     if (sql.includes("SELECT 1 FROM app.access_tokens")) return { rows: options.activeToken === false ? [] : [{ ok: 1 }], rowCount: options.activeToken === false ? 0 : 1 };
     if (sql.includes("SELECT 1 FROM app.jobs")) return { rows: values[1] === sourceId ? [{ ok: 1 }] : [], rowCount: values[1] === sourceId ? 1 : 0 };
     if (sql.includes("SELECT id FROM app.jobs")) {
-      const ids = (values[1] as string[]).filter(id => id === destinationId);
+      const ids = (values[1] as string[]).filter(id => id === destinationId || id === sourceId);
       return { rows: ids.map(id => ({ id })), rowCount: ids.length };
     }
     if (sql.includes("DELETE FROM app.manual_invocation_permissions")) { persisted.length = 0; return { rows: [], rowCount: 1 }; }
@@ -56,17 +56,19 @@ async function mcpMessage(response: Response) {
 describe("manual invocation permission management", () => {
   it.each(["session", "access_token", "oauth"] as const)("accepts %s credentials at the REST route and MCP tool", async method => {
     for (const transport of ["REST", "MCP"] as const) {
-      const { response, f } = await request(transport, auth(method, ["jobs:write"], method === "access_token" ? "token-id" : undefined));
+      const { response, f } = await request(transport, auth(method, ["jobs:write"], method === "access_token" ? "token-id" : undefined), undefined, [sourceId, destinationId]);
       expect(response.status).toBe(200);
-      if (transport === "REST") expect(await response.json()).toEqual({ sourceJobId: sourceId, destinationJobIds: [destinationId] });
-      else expect((await mcpMessage(response)).result.structuredContent).toEqual({ sourceJobId: sourceId, destinationJobIds: [destinationId] });
-      expect(f.persisted).toEqual([destinationId]);
+      if (transport === "REST") expect(await response.json()).toEqual({ sourceJobId: sourceId, destinationJobIds: [sourceId, destinationId] });
+      else expect((await mcpMessage(response)).result.structuredContent).toEqual({ sourceJobId: sourceId, destinationJobIds: [sourceId, destinationId] });
+      expect(f.persisted).toEqual([sourceId, destinationId]);
     }
   });
 
   it.each(["session", "access_token", "oauth"] as const)("authorizes %s at the service and preserves tenant-local destination checks", async method => {
     const f = fixture();
     const service = new ApiService(f.env, auth(method, ["jobs:write"], method === "access_token" ? "token-id" : undefined));
+    await expect(service.setInvocationPermissions(sourceId, [sourceId, destinationId])).resolves.toEqual({ sourceJobId: sourceId, destinationJobIds: [sourceId, destinationId] });
+    expect(f.persisted).toEqual([sourceId, destinationId]);
     await expect(service.setInvocationPermissions(sourceId, [destinationId])).resolves.toEqual({ sourceJobId: sourceId, destinationJobIds: [destinationId] });
     expect(f.persisted).toEqual([destinationId]);
     await expect(service.setInvocationPermissions(sourceId, [foreignId])).rejects.toMatchObject({ status: 400, code: "invalid_request" });
