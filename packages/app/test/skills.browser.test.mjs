@@ -18,7 +18,9 @@ test("skills link to detail pages and edit from the detail page", async () => {
   await page.getByRole("link", { name: "review", exact: true }).click();
   await page.getByRole("heading", { name: "review", exact: true }).waitFor();
   assert.equal(new URL(page.url()).pathname, `/skills/${skill.id}`);
-  assert.equal(await page.getByRole("button", { name: "Edit", exact: true }).count(), 1);
+  const editButton = page.getByRole("button", { name: "Edit", exact: true });
+  await editButton.waitFor({ state: "visible" });
+  assert.equal(await editButton.count(), 1);
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByLabel("Key", { exact: true }).fill("review-updated");
   await page.locator("textarea").fill("Updated instructions");
