@@ -57,7 +57,6 @@ describe("versioned API contract", () => {
     expect(openapi.paths["/api/v1/projects/{projectId}/graph"].get["x-required-scope"]).toBe("projects:read");
   });
   it("accepts code jobs without agent prompts or models and rejects missing scripts", () => {
-  it("accepts code jobs without agent prompts or models and rejects missing scripts", () => {
     const code = { name: "Export", slug: "export", executionType: "code", script: "#!/bin/sh\nprintf '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"", executionConfigId: "exe", triggers: [] };
     expect(jobInputSchema.safeParse(code).success).toBe(true);
     expect(jobInputSchema.safeParse({ ...code, script: " " }).success).toBe(false);
