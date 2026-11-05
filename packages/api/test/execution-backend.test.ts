@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
 import { ExeImageVerificationError, ExeVmBackend, isOwnedVmName, tagsFromInventory, vmNameFor } from "../src/exe-vm-backend";
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
 import { effortOptions, selectableExeTags, type ExeRunConnection } from "../src/exe";
@@ -101,6 +102,29 @@ describe("ExeVmBackend", () => {
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => { requests.push(String(init.body)); return new Response(requests.length === 1 ? "{}" : "started", { headers: { "X-Exe-Exit": "0" } }); }));
     await new ExeVmBackend({ ...connection, image: "ghcr.io/acme/base:release'candidate" }).launch({ runId: "run-1", prompt: "work", harness: agentDriver("codex").launch("run-1", {}) });
     expect(requests[0]).toContain("--image='ghcr.io/acme/base:release'\"'\"'candidate'");
+  });
+
+  it.each(["codex", "claude", "pi"] as const)("passes %s harness environment as systemd options instead of an executable", async kind => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      requests.push(String(init.body));
+      return new Response(requests.length === 1 ? "{}" : "started", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    const harness = agentDriver(kind).launch("run-env", {});
+    const literal = "space 'quote' \"double\" $HOME $(exit 99); trailing";
+    harness.env.FACTORIZE_TEST_LITERAL = literal;
+    await new ExeVmBackend({ ...connection, agentKind: kind }).launch({ runId: "run-env", prompt: "work", harness });
+
+    // Decode the actual SSH and remote shell quoting, without executing provisioning.
+    const split = (command: string) => execFileSync("/bin/sh", ["-c", `set -- ${command}; printf '%s\\0' "$@"`], { encoding: "utf8" }).split("\0").slice(0, -1);
+    const remote = split(requests.find(command => command.includes("sudo systemd-run"))!)[2];
+    const command = remote.slice(remote.indexOf("sudo systemd-run"), remote.lastIndexOf("; fi"));
+    const argv = split(command).slice(2);
+    expect(argv).toContain("--setenv=FACTORIZE_RESULT_PATH=/home/exedev/.factorize-job/results.json");
+    expect(argv).toContain(`--setenv=FACTORIZE_TEST_LITERAL=${literal}`);
+    // The first non-option argument must remain the harness executable for all agents.
+    const executable = argv.findIndex(value => !value.startsWith("--"));
+    expect(argv.slice(executable)).toEqual([harness.executable, ...harness.args]);
   });
 
   it("verifies an image over SSH and deletes only its marked temporary VM", async () => {
