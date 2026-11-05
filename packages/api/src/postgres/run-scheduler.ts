@@ -18,6 +18,7 @@ import { rolloutTraceSources } from "../trace-source";
 import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./trace-projection-repository";
 import { LiveTraceRepository } from "./live-trace-repository";
 import { JOB_RESULT_INSTRUCTIONS, parseJobResult } from "../job-result";
+import { issueRunCredential } from "../run-credentials";
 
 export class RunScheduler {
   private runs: RunRepository;
@@ -43,6 +44,8 @@ export class RunScheduler {
     const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, { model: run.executionConfig.model, effort: run.executionConfig.effort });
     const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
     validateTraceSources(sources);
+    const runToken = await issueRunCredential(this.env, run.tenantId, run.id);
+    Object.assign(harness.env, { FACTORIZE_API_URL: `${this.env.APP_ORIGIN}/api/v1`, FACTORIZE_RUN_TOKEN: runToken });
     const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const launched = await backend.launch({ runId: run.id, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}`, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);

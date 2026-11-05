@@ -38,7 +38,7 @@ export const fullRunResponse = runSummaryResponse.extend({
   execution_backend_kind: z.string(), execution_capabilities: z.array(z.string()),
   claim_released: z.boolean(), vm_cleanup_attempt: z.number().int(), cleanup_next_at: z.string().nullable(), vm_cleanup_complete: z.boolean(),
   job_name: z.string(), prompt: z.string(), context: record, occurrence: record.nullable(),
-  invocation: z.object({ id: z.string(), source: z.string(), claim_key: z.string(), trigger_id: z.string().nullable(), context: record, occurrence: record.nullable(), created_at: z.string() }),
+  invocation: z.object({ id: z.string(), source: z.string(), claim_key: z.string(), trigger_id: z.string().nullable(), context: record, occurrence: record.nullable(), source_job_id: z.string().nullable(), source_run_id: z.string().nullable(), created_at: z.string() }),
   invocation_source: z.string(), invocation_claim_key: z.string(), invocation_trigger_id: z.string().nullable(), invocation_created_at: z.string(),
   activity: z.array(z.object({ action: z.string(), detail: z.string(), created_at: z.string() })),
   execution_diagnostics: record.nullable(), trace_sources: z.object({ primary: traceSource, nativeSession: traceSource.optional() }).nullable(), trace_projection: record.nullable(), trace_generation: z.string().nullable(), harness_log: record.nullable(),

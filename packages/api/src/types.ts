@@ -40,10 +40,14 @@ export type OAuthProps = {
   sessionVersion: number;
   scopes: string[];
   accessTokenId?: string;
+  /** Set only by a verified, active execution credential. */
+  runId?: string;
+  runJobId?: string;
+  runCredentialDigest?: string;
   /** Stable identifier for the OAuth authorization grant; never a bearer token. */
   oauthGrantId?: string;
   oauthClientId?: string;
-  authMethod?: "session" | "oauth" | "access_token";
+  authMethod?: "session" | "oauth" | "access_token" | "run_token";
 };
 
 export interface WorkItem {

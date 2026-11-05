@@ -60,10 +60,29 @@ test("All runs complete source jobs stay within the edited job project during se
   assert.equal(await page.getByLabel("Alpha other", { exact: true }).count(), 0);
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   assert.ok(selectorRequests.length > 0);
-  assert.ok(selectorRequests.every(url => url.searchParams.get("projectId") === projectA));
+  assert.ok(selectorRequests.filter(url => url.searchParams.has("projectId")).every(url => url.searchParams.get("projectId") === projectA));
+  assert.ok(selectorRequests.some(url => !url.searchParams.has("projectId")), "manual permission selector lists tenant jobs across projects");
   assert.ok(selectorRequests.some(url => url.searchParams.get("q") === "Alpha"));
   assert.deepEqual(saved.triggers[0].config.sourceJobIds, [sameProjectJob]);
   assert.equal(projectA, current.projectId); assert.notEqual(projectA, projectB);
+  await context.close();
+});
+test("manual invocation permissions include tenant jobs from other projects and save selected destinations", async () => {
+  const { context, page } = await setup();
+  const projectA = "00000000-0000-4000-8000-000000000020", destination = "00000000-0000-4000-8000-000000000024";
+  let saved, selectorUrl;
+  await page.route(`**/api/v1/jobs/${id}`, route => route.fulfill({ json: { ...initial, projectId: projectA } }));
+  await page.route(`**/api/v1/jobs/${id}/invocation-permissions`, route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { sourceJobId: id, destinationJobIds: [] } });
+    saved = route.request().postDataJSON(); return route.fulfill({ json: { sourceJobId: id, ...saved } });
+  });
+  await page.route("**/api/v1/job-selector?**", route => { selectorUrl = new URL(route.request().url()); return route.fulfill({ json: { items: [{ id: destination, name: "Cross project destination", slug: "cross-project", enabled: true }], nextCursor: null } }); });
+  await page.goto(origin + `/jobs/${id}/edit`);
+  await page.getByLabel("Cross project destination", { exact: true }).check();
+  await page.getByRole("button", { name: "Save permissions" }).click();
+  await page.getByRole("status").filter({ hasText: "Manual invocation permissions saved." }).waitFor();
+  assert.deepEqual(saved, { destinationJobIds: [destination] });
+  assert.equal(selectorUrl.searchParams.has("projectId"), false);
   await context.close();
 });
 test("create uses bounded lifecycle selector, lazy provider reads, schedule preview and typed form submission on mobile", async () => {
