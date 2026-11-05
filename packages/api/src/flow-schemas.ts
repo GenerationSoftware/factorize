@@ -62,7 +62,9 @@ export const jobInputSchema = z.object({
   projectId: z.guid().optional(),
   name: z.string().trim().min(1).max(120),
   slug: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/),
-  promptTemplate: z.string().min(1).max(50_000),
+  executionType: z.enum(["agent", "code"]).optional(),
+  promptTemplate: z.string().max(50_000).default(""),
+  script: z.string().max(50_000).optional(),
   runNameTemplate: z.string().max(500).optional(),
   concurrencyLimit: z.number().int().min(1).max(50).default(1),
   executionConfigId: z.string().min(1),
@@ -72,12 +74,15 @@ export const jobInputSchema = z.object({
   effort: z.string().trim().max(40).optional(),
   triggers: z.array(triggerSchema).max(50).default([]),
   skillIds: z.array(z.guid()).max(50).optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.executionType !== "code" && !value.promptTemplate?.trim()) context.addIssue({ code: "custom", path: ["promptTemplate"], message: "Agent jobs require a prompt template." });
+  if (value.executionType === "code" && !value.script?.trim()) context.addIssue({ code: "custom", path: ["script"], message: "Code jobs require a script." });
+});
 export const vmImageVerificationInput = z.object({
   connectionId: z.string().min(1).max(200),
   image: publicVmImage(false),
   tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20),
-  agentKind: z.enum(["codex", "claude", "pi"]),
+  agentKind: z.enum(["codex", "claude", "pi"]), executionType: z.enum(["agent", "code"]).optional(),
 }).strict();
 export const vmImageVerificationResponse = z.object({ id: z.guid(), status: z.enum(["queued", "creating", "checking_ssh", "checking_agent", "cleaning_up", "succeeded", "failed", "cleanup_failed"]), phase: z.string(), errorKind: z.string().nullable(), error: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
 export const jobIdSchema = z.object({ jobId: z.string().min(1) });

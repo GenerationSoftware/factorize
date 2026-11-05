@@ -1810,6 +1810,8 @@ export interface components {
             workspace_name: string;
             agent_kind: string;
             /** @enum {string} */
+            execution_type: "agent" | "code";
+            /** @enum {string} */
             state: "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored";
             provider: string;
             backend_kind: string;
@@ -1855,6 +1857,8 @@ export interface components {
                 agent_name: string;
                 workspace_name: string;
                 agent_kind: string;
+                /** @enum {string} */
+                execution_type: "agent" | "code";
                 /** @enum {string} */
                 state: "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored";
                 provider: string;
@@ -2029,6 +2033,11 @@ export interface components {
             agent_name: string;
             workspace_name: string;
             agent_kind: string;
+            /**
+             * @default agent
+             * @enum {string}
+             */
+            execution_type: "agent" | "code";
             /** @enum {string} */
             state: "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored";
             provider: string;
@@ -2090,6 +2099,11 @@ export interface components {
             vm_cleanup_attempt: number;
             cleanup_next_at: string | null;
             vm_cleanup_complete: boolean;
+            /** @default null */
+            execution_script: string | null;
+            execution_configuration: {
+                [key: string]: unknown;
+            };
             prompt: string;
             context: {
                 [key: string]: unknown;
@@ -2186,7 +2200,11 @@ export interface components {
             projectId?: string;
             name: string;
             slug: string;
+            /** @enum {string} */
+            executionType?: "agent" | "code";
+            /** @default  */
             promptTemplate: string;
+            script?: string;
             runNameTemplate?: string;
             /** @default 1 */
             concurrencyLimit: number;
@@ -4316,6 +4334,8 @@ export interface operations {
                             model: string;
                             effort: string;
                             agentKind: string;
+                            /** @enum {string} */
+                            executionType: "agent" | "code";
                             concurrencyLimit: number;
                             runningCount: number;
                             lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
@@ -4950,7 +4970,10 @@ export interface operations {
                         name: string;
                         slug: string;
                         enabled: boolean;
+                        /** @enum {string} */
+                        executionType?: "agent" | "code";
                         promptTemplate: string;
+                        script?: string;
                         runNameTemplate: string;
                         tags?: string[];
                         model: string;
@@ -4961,6 +4984,9 @@ export interface operations {
                             cwd?: string;
                             agentKind: string;
                             image?: string;
+                            /** @enum {string} */
+                            executionType?: "agent" | "code";
+                            script?: string;
                         };
                         executionConfigId: string;
                         agentKind: string;
@@ -5133,6 +5159,8 @@ export interface operations {
                     tags: string[];
                     /** @enum {string} */
                     agentKind: "codex" | "claude" | "pi";
+                    /** @enum {string} */
+                    executionType?: "agent" | "code";
                 };
             };
         };
@@ -5230,7 +5258,10 @@ export interface operations {
                         name: string;
                         slug: string;
                         enabled: boolean;
+                        /** @enum {string} */
+                        executionType?: "agent" | "code";
                         promptTemplate: string;
+                        script?: string;
                         runNameTemplate: string;
                         tags?: string[];
                         model: string;
@@ -5241,6 +5272,9 @@ export interface operations {
                             cwd?: string;
                             agentKind: string;
                             image?: string;
+                            /** @enum {string} */
+                            executionType?: "agent" | "code";
+                            script?: string;
                         };
                         executionConfigId: string;
                         agentKind: string;
@@ -5424,7 +5458,10 @@ export interface operations {
                         name: string;
                         slug: string;
                         enabled: boolean;
+                        /** @enum {string} */
+                        executionType?: "agent" | "code";
                         promptTemplate: string;
+                        script?: string;
                         runNameTemplate: string;
                         tags?: string[];
                         model: string;
@@ -5435,6 +5472,9 @@ export interface operations {
                             cwd?: string;
                             agentKind: string;
                             image?: string;
+                            /** @enum {string} */
+                            executionType?: "agent" | "code";
+                            script?: string;
                         };
                         executionConfigId: string;
                         agentKind: string;
@@ -5900,7 +5940,10 @@ export interface operations {
                         name: string;
                         slug: string;
                         enabled: boolean;
+                        /** @enum {string} */
+                        executionType?: "agent" | "code";
                         promptTemplate: string;
+                        script?: string;
                         runNameTemplate: string;
                         tags?: string[];
                         model: string;
@@ -5911,6 +5954,9 @@ export interface operations {
                             cwd?: string;
                             agentKind: string;
                             image?: string;
+                            /** @enum {string} */
+                            executionType?: "agent" | "code";
+                            script?: string;
                         };
                         executionConfigId: string;
                         agentKind: string;
@@ -6083,7 +6129,11 @@ export interface operations {
                     projectId?: string;
                     name: string;
                     slug: string;
-                    promptTemplate: string;
+                    /** @enum {string} */
+                    executionType?: "agent" | "code";
+                    /** @default  */
+                    promptTemplate?: string;
+                    script?: string;
                     runNameTemplate?: string;
                     /** @default 1 */
                     concurrencyLimit?: number;
@@ -6210,7 +6260,10 @@ export interface operations {
                         name: string;
                         slug: string;
                         enabled: boolean;
+                        /** @enum {string} */
+                        executionType?: "agent" | "code";
                         promptTemplate: string;
+                        script?: string;
                         runNameTemplate: string;
                         tags?: string[];
                         model: string;
@@ -6221,6 +6274,9 @@ export interface operations {
                             cwd?: string;
                             agentKind: string;
                             image?: string;
+                            /** @enum {string} */
+                            executionType?: "agent" | "code";
+                            script?: string;
                         };
                         executionConfigId: string;
                         agentKind: string;
@@ -6590,6 +6646,11 @@ export interface operations {
                         project_name?: string;
                         /** @enum {string} */
                         state: "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped";
+                        /**
+                         * @default agent
+                         * @enum {string}
+                         */
+                        execution_type: "agent" | "code";
                         run_name: string;
                         job_name: string;
                         destination_url: string | null;

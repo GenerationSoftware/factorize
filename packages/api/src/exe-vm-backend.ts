@@ -110,7 +110,7 @@ export class ExeVmBackend implements ExecutionBackend {
     }
   }
 
-  async verifyImage(verificationId: string, image: string, agentKind: "codex" | "claude" | "pi", progress: (phase: string) => Promise<void> = async () => {}): Promise<void> {
+  async verifyImage(verificationId: string, image: string, agentKind: "codex" | "claude" | "pi", progress: (phase: string) => Promise<void> = async () => {}, executionType: "agent" | "code" = "agent"): Promise<void> {
     const vm = vmNameFor(`verify-${verificationId}`);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const command = `new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)}${tags ? ` ${tags}` : ""} --image=${shellAtom(image)}`;
@@ -139,9 +139,9 @@ export class ExeVmBackend implements ExecutionBackend {
       for (let attempt = 1; (!ssh || !ssh.ok) && attempt < 6; attempt++) ssh = await this.api(`ssh ${shellAtom(vm)} ${shellAtom("true")}`).catch(() => null);
       if (!ssh?.ok) throw new ExeIntegrationError(`ssh: VM was created from the image, but SSH access failed (${ssh?.status ?? "timeout"}). Ensure the image boots an exe.dev-compatible system with SSH enabled.`);
       await progress("checking_agent");
-      const check = `command -v ${shellAtom(agentKind)} >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1`;
+      const check = executionType === "code" ? "command -v bash >/dev/null 2>&1 && command -v curl >/dev/null 2>&1" : `command -v ${shellAtom(agentKind)} >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1`;
       const agent = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(check)}`).catch(() => null);
-      if (!agent?.ok) throw new ExeIntegrationError(`agent: SSH works, but the selected ${agentKind} harness prerequisites are missing. Use an image with ${agentKind}, curl, and jq installed.`);
+      if (!agent?.ok) throw new ExeIntegrationError(executionType === "code" ? "agent: SSH works, but bash and curl prerequisites are missing. Use an exe.dev-compatible image with bash and curl installed." : `agent: SSH works, but the selected ${agentKind} harness prerequisites are missing. Use an image with ${agentKind}, curl, and jq installed.`);
     } finally {
       await progress("cleaning_up");
       const removed = await this.deleteVm(vm);
@@ -151,8 +151,7 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async launch(request: LaunchRequest): Promise<LaunchReceipt> {
     const connection = this.connection as ExeRunConnection;
-    if (!connection.agentKind) throw new Error("The job is missing its agent configuration");
-    if (!request.harness) throw new Error("The run is missing its agent harness launch plan");
+    if (!request.code && (!connection.agentKind || !request.harness)) throw new Error("The job is missing its agent harness launch plan");
     if (request.traceSources) validateTraceSources(request.traceSources);
     const vm = vmNameFor(request.runId);
     const handle: RunHandle = { backendKind: this.kind, id: vm };
@@ -189,15 +188,15 @@ export class ExeVmBackend implements ExecutionBackend {
       }
     }
 
-    const prompt = base64(request.prompt), output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
+    const prompt = base64(request.prompt), code = request.code, output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
     const work = [
       "set -eu",
       "mkdir -p /home/exedev/workspace",
       "cd /home/exedev/workspace",
       ...(request.traceSources?.primary.kind === "execution_stream" ? [`mkdir -p -- ${shellAtom(request.traceSources.primary.path.slice(0, request.traceSources.primary.path.lastIndexOf("/")) || "/")}`, `touch -- ${shellAtom(request.traceSources.primary.path)}`] : []),
-      `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
       "sudo install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job",
-      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=file:/tmp/factorize-prompt.md --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr ${harnessCommand(request.harness)}; fi`,
+      ...(code ? [`printf '%s' ${shellAtom(base64(code.script))} | base64 -d > /tmp/factorize-code-job.sh`, `printf '%s' ${shellAtom(base64(JSON.stringify(code.context)))} | base64 -d > /home/exedev/.factorize-job/input.json`, "sudo chown exedev:exedev /home/exedev/.factorize-job/input.json"] : [`printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`]),
+      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=${code ? "/dev/null" : "file:/tmp/factorize-prompt.md"} --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr ${code ? "env FACTORIZE_RESULT_PATH=/home/exedev/.factorize-job/results.json FACTORIZE_INPUT_PATH=/home/exedev/.factorize-job/input.json bash /tmp/factorize-code-job.sh" : harnessCommand(request.harness!)}; fi`,
       "echo started",
     ].join("; ");
     if (request.traceSources?.primary.formatVersion === "codex-exec-jsonl") {
