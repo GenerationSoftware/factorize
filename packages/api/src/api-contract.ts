@@ -13,6 +13,8 @@ import {
   manualInvocationSchema,
   renameRunSchema,
   reportRunErrorSchema,
+  invocationPermissionsInput,
+  invocationPermissionsResponse,
   reportRunErrorResponse,
   jobConditionsTestSchema,
   listRunsSchema,
@@ -712,7 +714,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "POST",
     "/api/v1/jobs/{jobId}/invocations",
-    "runs:write",
+    "runs:invoke",
     {
       summary: "Invoke job",
       responses: {
@@ -742,6 +744,8 @@ export const API_ROUTES: RouteContract[] = [
     (service, { params, body }) => service.invokeJob(params.jobId, body),
     { body: manualInvocationSchema },
   ),
+  route("GET", "/api/v1/jobs/{jobId}/invocation-permissions", "jobs:read", { summary: "List a source job's manual invocation destinations", responses: { "200": { description: "Configured tenant-local destination jobs", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params }) => service.getInvocationPermissions(params.jobId)),
+  route("PUT", "/api/v1/jobs/{jobId}/invocation-permissions", "jobs:write", { summary: "Replace a source job's manual invocation destinations", description: "Owner session only. Destinations must exist in the same tenant. Lifecycle subscriptions do not create permissions.", responses: { "200": { description: "Saved manual invocation permissions", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params, body }) => service.setInvocationPermissions(params.jobId, body.destinationJobIds), { body: invocationPermissionsInput, ownerSession: true }),
   route(
     "GET",
     "/api/v1/jobs/{jobId}/events",

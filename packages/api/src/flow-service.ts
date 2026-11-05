@@ -24,7 +24,7 @@ import { IntegrationService } from "./postgres/integration-service";
 import { OperationsRepository } from "./postgres/operations-repository";
 import { installedTriggerAvailability } from "./trigger-availability";
 import { evaluateWebhookConditions } from "./webhook-conditions";
-import { jobConditionsTestSchema } from "./flow-schemas";
+import { jobConditionsTestSchema, invocationPermissionsResponse } from "./flow-schemas";
 import { ProviderCatalog } from "./postgres/provider-catalog";
 import { ArtifactRepository } from "./postgres/artifact-repository";
 import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken, normalizeScopes } from "./access-tokens";
@@ -187,7 +187,7 @@ export class ApiService {
     const run = await repository.get(runId);
     if (!run) throw new ServiceError(404, "not_found", "Run not found");
     const prompt = await decrypt(run.encrypted_prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    delete run.encrypted_prompt; run.prompt = prompt; run.capabilities = run.execution_capabilities; run.backend_kind = run.execution_backend_kind; run.invocation = { id: run.invocation_id, source: run.invocation_source, claim_key: run.invocation_claim_key, trigger_id: run.invocation_trigger_id, context: run.context, occurrence: run.occurrence, created_at: run.invocation_created_at };
+    delete run.encrypted_prompt; run.prompt = prompt; run.capabilities = run.execution_capabilities; run.backend_kind = run.execution_backend_kind; run.invocation = { id: run.invocation_id, source: run.invocation_source, claim_key: run.invocation_claim_key, trigger_id: run.invocation_trigger_id, context: run.context, occurrence: run.occurrence, source_job_id: run.invocation_source_job_id ?? null, source_run_id: run.invocation_source_run_id ?? null, created_at: run.invocation_created_at };
     const [activity, projection, cursor, artifacts] = await Promise.all([
       repository.activity(runId),
       databaseFor(this.env).pool.query("SELECT source_kind,artifact_sha256,parser_version,updated_at FROM app.run_trace_projections WHERE tenant_id=$1 AND run_id=$2", [this.auth.tenantId, runId]),
@@ -333,12 +333,44 @@ export class ApiService {
   }
   async setJobEnabled(jobId: string, enabled: boolean) { await this.authorize("jobs:write"); const repository = this.jobs(); if (!await repository.setEnabled(jobId, enabled, new Date().toISOString())) throw new ServiceError(404, "not_found", "Job not found"); await this.wakeScheduler(); return { id: jobId, enabled }; }
   async invokeJob(jobId: string, input: ManualInvocationInput) {
-    await this.authorize("runs:cancel"); const repository = this.jobs(), job = await repository.getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found");
+    await this.authorize("runs:invoke"); const repository = this.jobs(), job = await repository.getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found");
+    if (this.auth.authMethod === "run_token") {
+      if (!this.auth.runId || !this.auth.runJobId) throw new ServiceError(401, "invalid_token", "A verified run identity is required.");
+      const permission = await databaseFor(this.env).pool.query(`SELECT 1 FROM app.run_credentials c
+        JOIN app.job_runs r ON r.tenant_id=c.tenant_id AND r.id=c.run_id
+        JOIN app.manual_invocation_permissions p ON p.tenant_id=c.tenant_id AND p.source_job_id=r.job_id AND p.destination_job_id=$3
+        WHERE c.tenant_id=$1 AND c.run_id=$2 AND c.digest=$4 AND c.expires_at>now() AND r.state IN ('reserved','starting','running','blocked','stopping')`, [this.auth.tenantId, this.auth.runId, jobId, this.auth.runCredentialDigest]);
+      if (!permission.rowCount) throw new ServiceError(403, "forbidden", "This run is no longer active or its source job is not authorized to invoke the destination.");
+    }
     const trigger = job.triggers.find(value => value.kind === "manual" && value.enabled); if (!trigger) throw new ServiceError(409, "operation_failed", "The manual trigger is disabled");
     const service = new InvocationService(repository, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY));
-    const result = await service.invoke(jobId, { source: "manual", name: input.name, triggerId: trigger.id, claimKey: input.idempotencyKey ? `manual:${input.idempotencyKey}` : `manual:${crypto.randomUUID()}`, context: { [trigger.slug]: { prompt: input.prompt, data: input.data ?? {} } } });
+    const claimKey = input.idempotencyKey ? `manual:${this.auth.authMethod === "run_token" ? `run:${this.auth.runId}:` : ""}${input.idempotencyKey}` : `manual:${crypto.randomUUID()}`;
+    const result = await service.invoke(jobId, { source: "manual", name: input.name, triggerId: trigger.id, claimKey, ...(this.auth.authMethod === "run_token" ? { sourceJobId: this.auth.runJobId, sourceRunId: this.auth.runId } : {}), context: { [trigger.slug]: { prompt: input.prompt, data: input.data ?? {} } } });
     if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" });
     return { invocationId: result.invocation.id, runId: result.run.id, state: result.run.state, duplicate: result.duplicate };
+  }
+  async getInvocationPermissions(sourceJobId: string) {
+    await this.authorize("jobs:read");
+    if (!await this.jobs().getJob(sourceJobId)) throw new ServiceError(404, "not_found", "Job not found");
+    const rows = await databaseFor(this.env).pool.query<{ destination_job_id: string }>("SELECT destination_job_id FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2 ORDER BY destination_job_id", [this.auth.tenantId, sourceJobId]);
+    return publicValue(invocationPermissionsResponse, { sourceJobId, destinationJobIds: rows.rows.map(row => row.destination_job_id) });
+  }
+  async setInvocationPermissions(sourceJobId: string, destinationJobIds: string[]) {
+    await this.authorizeOwnerSession("jobs:write");
+    const unique = [...new Set(destinationJobIds)];
+    if (unique.length !== destinationJobIds.length || unique.includes(sourceJobId)) throw new ServiceError(400, "invalid_request", "Destination jobs must be unique and cannot include the source job.");
+    const db = databaseFor(this.env);
+    await db.transaction(async client => {
+      const sources = await client.query("SELECT 1 FROM app.jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.auth.tenantId, sourceJobId]);
+      if (!sources.rowCount) throw new ServiceError(404, "not_found", "Source job not found");
+      if (unique.length) {
+        const found = await client.query("SELECT id FROM app.jobs WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [this.auth.tenantId, unique]);
+        if (found.rowCount !== unique.length) throw new ServiceError(400, "invalid_request", "Every destination must be an existing job in this tenant.");
+      }
+      await client.query("DELETE FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2", [this.auth.tenantId, sourceJobId]);
+      if (unique.length) await client.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_job_id,destination_job_id) SELECT $1,$2,unnest($3::uuid[])", [this.auth.tenantId, sourceJobId, unique]);
+    });
+    return publicValue(invocationPermissionsResponse, { sourceJobId, destinationJobIds: unique });
   }
   async diagnoseExeIntegration(connectionId: string) { await this.authorize("integrations:write"); const value = await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).diagnoseExe(connectionId); if (!value) throw new ServiceError(404,"not_found","Integration not found"); return value; }
   async listJobTriggerAvailability() { await this.authorize("jobs:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedTriggerAvailability(kinds.includes("linear"),kinds.includes("clickup"),states,kinds.filter(x=>x.startsWith("cloudflare-tail:")).length); }

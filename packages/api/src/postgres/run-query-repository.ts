@@ -64,7 +64,7 @@ export class RunQueryRepository {
     return { items: rows, nextCursor };
   }
   async get(runId: string) {
-    return (await this.database.pool.query<any>(`SELECT r.*,j.name job_name,jr.started_at,jr.encrypted_prompt,i.source invocation_source,i.claim_key invocation_claim_key,i.trigger_id invocation_trigger_id,i.context,i.occurrence,i.created_at invocation_created_at
+    return (await this.database.pool.query<any>(`SELECT r.*,j.name job_name,jr.started_at,jr.encrypted_prompt,i.source invocation_source,i.claim_key invocation_claim_key,i.trigger_id invocation_trigger_id,i.context,i.occurrence,i.source_job_id invocation_source_job_id,i.source_run_id invocation_source_run_id,i.created_at invocation_created_at
       FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id WHERE r.tenant_id=$1 AND r.id=$2`, [this.tenantId, runId])).rows[0] ?? null;
   }
   async status(runId: string) {

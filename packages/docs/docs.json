@@ -39,6 +39,7 @@
           "integrations/github",
           "integrations/clickup",
           "recipes/chaining",
+          "work/manual-invocation-permissions",
           "integrations/oauth",
           "integrations/triggers"
         ]

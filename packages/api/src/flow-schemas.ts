@@ -15,6 +15,8 @@ export const listRunsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().min(1).optional(),
 }).refine(value => !value.direction || value.sort, { message: "direction requires sort" });
 export const runIdSchema = z.object({ runId: z.string().min(1) });
+export const invocationPermissionsInput = z.object({ destinationJobIds: z.array(z.guid()).max(1000) }).strict();
+export const invocationPermissionsResponse = z.object({ sourceJobId: z.guid(), destinationJobIds: z.array(z.guid()) });
 export const renameRunSchema = z.object({ name: z.string().trim().min(1).max(120), expectedName: z.string().max(120).optional() }).strict();
 export const reportRunErrorSchema = z.object({ reason: z.string().trim().min(1).max(2000) }).strict();
 export const reportRunErrorResponse = z.object({ reported: z.literal(true), reason: z.string(), retry: z.boolean() });

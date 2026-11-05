@@ -66,7 +66,9 @@ describe("ExeVmBackend", () => {
       requests.push(String(init.body));
       return new Response(requests.length === 1 ? '{"name":"factorize-run-1"}' : "started", { headers: { "X-Exe-Exit": "0" } });
     }));
-    const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work", harness: agentDriver("codex").launch("run-1", {}), traceSources: { primary: { kind: "execution_stream", path: "/tmp/trace/events.jsonl", mediaType: "application/x-ndjson", provider: "codex" } } });
+    const harness = agentDriver("codex").launch("run-1", {});
+    harness.env = { FACTORIZE_API_URL: "https://app.test/api/v1", FACTORIZE_RUN_TOKEN: "secret-run-token" };
+    const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work", harness, traceSources: { primary: { kind: "execution_stream", path: "/tmp/trace/events.jsonl", mediaType: "application/x-ndjson", provider: "codex" } } });
     expect(launched.handle).toEqual({ backendKind: "exe-vm", id: "factorize-run-1" });
     expect(requests[0]).toContain("new --name='factorize-run-1'");
     expect(requests[0]).toContain("--tag='github'");
@@ -79,6 +81,8 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("model_provider=exe-llm");
     expect(requests[1]).toContain("model_providers.exe-llm.base_url=\"https://llm.int.exe.xyz/v1\"");
     expect(requests[1]).toContain("sudo systemd-run");
+    expect(requests[1]).toContain("'--setenv=FACTORIZE_API_URL=https://app.test/api/v1'");
+    expect(requests[1]).toContain("'--setenv=FACTORIZE_RUN_TOKEN=secret-run-token'");
     expect(requests[1]).toContain("--uid=exedev --gid=exedev");
     expect(requests[1]).toContain("--property=Type=exec");
     expect(requests[1]).toContain("--property=RemainAfterExit=yes");

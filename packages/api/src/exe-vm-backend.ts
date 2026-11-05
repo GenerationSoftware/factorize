@@ -19,7 +19,10 @@ export function isOwnedVmName(vm: string): boolean {
 }
 
 function harnessCommand(harness: NonNullable<LaunchRequest["harness"]>): string {
-  const environment = Object.entries(harness.env).map(([name, value]) => `${name}=${shellAtom(value)}`);
+  const environment = Object.entries(harness.env).map(([name, value]) => {
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) throw new Error("Invalid harness environment variable name");
+    return shellAtom(`--setenv=${name}=${value}`);
+  });
   return [...environment, harness.executable, ...harness.args].map((value, index) => index < environment.length ? value : shellAtom(value)).join(" ");
 }
 

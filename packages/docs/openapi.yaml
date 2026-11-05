@@ -8245,6 +8245,146 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ManualInvocation"
+  /api/v1/jobs/{jobId}/invocation-permissions:
+    get:
+      summary: List a source job's manual invocation destinations
+      responses:
+        "200":
+          description: Configured tenant-local destination jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sourceJobId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  destinationJobIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                required:
+                  - sourceJobId
+                  - destinationJobIds
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the jobs:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_jobs_jobId_invocation_permissions
+      tags:
+        - jobs
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: jobs:read
+      x-owner-session-required: false
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+    put:
+      summary: Replace a source job's manual invocation destinations
+      description: |-
+        Owner session only. Destinations must exist in the same tenant. Lifecycle subscriptions do not create permissions.
+
+        Requires the jobs:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Saved manual invocation permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sourceJobId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  destinationJobIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                required:
+                  - sourceJobId
+                  - destinationJobIds
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: put_api_v1_jobs_jobId_invocation_permissions
+      tags:
+        - jobs
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: jobs:write
+      x-owner-session-required: true
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                destinationJobIds:
+                  maxItems: 1000
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+              required:
+                - destinationJobIds
+              additionalProperties: false
   /api/v1/jobs/{jobId}/events:
     get:
       summary: List webhook activity

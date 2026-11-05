@@ -53,6 +53,8 @@ export interface InvocationRequest {
   context: Record<string, unknown>;
   /** Stable, source-owned key used to claim this occurrence exactly once. */
   claimKey: string;
+  sourceJobId?: string;
+  sourceRunId?: string;
   occurrence?: { occurredAt?: string; externalId?: string; metadata?: Record<string, unknown> };
 }
 
@@ -63,6 +65,8 @@ export interface Invocation {
   claimKey: string;
   triggerId: string;
   context: Record<string, unknown>;
+  sourceJobId?: string;
+  sourceRunId?: string;
   occurrence?: InvocationRequest["occurrence"];
   createdAt: string;
 }
@@ -140,7 +144,7 @@ export class InvocationService {
 
     if (!input.triggerId || !input.context || typeof input.context !== "object" || Array.isArray(input.context)) throw new InvocationError("invalid_invocation", "A trigger and structured context are required.");
     const createdAt = this.clock();
-    const invocation: Invocation = { id: this.makeId(), jobId, source: input.source, claimKey: input.claimKey, triggerId: input.triggerId, context: input.context, ...(input.occurrence ? { occurrence: input.occurrence } : {}), createdAt };
+    const invocation: Invocation = { id: this.makeId(), jobId, source: input.source, claimKey: input.claimKey, triggerId: input.triggerId, context: input.context, ...(input.sourceJobId ? { sourceJobId: input.sourceJobId } : {}), ...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}), ...(input.occurrence ? { occurrence: input.occurrence } : {}), createdAt };
     const selectedSkills = (job.selectedSkills ?? []).sort((a, b) => a.position - b.position);
     const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input.context)), encryptedSkillSnapshot: selectedSkills.length ? await this.encryptSnapshot(JSON.stringify(selectedSkills.map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision, body: skill.body, order: skill.position })))) : undefined, runName: (input.source === "manual" ? input.name?.trim() : undefined) || renderRunName(job.runNameTemplate ?? "", input.context, job.name), createdAt, updatedAt: createdAt };
     if (!await this.repository.insertInvocationAndRun(invocation, run)) {

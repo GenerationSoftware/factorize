@@ -10,7 +10,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("manual invocation API and shared service", () => {
   const name = "GEN-2106 — Issue title";
-  async function invoke(input: Record<string, unknown>, template = "{{trigger-1.data.identifier}} — {{trigger-1.data.title}}", transport = "REST") {
+  async function invoke(input: Record<string, unknown>, template = "{{trigger-1.data.identifier}} — {{trigger-1.data.title}}", transport = "REST", sourceAuth?: { runId: string; runJobId: string; allowed: boolean }) {
     const job: Job = {
       id: "job-1", name: "dev", slug: "dev", promptTemplate: "{{trigger-1.prompt}} {{trigger-1.data.identifier}}",
       runNameTemplate: template, model: "", executionConfig: { connectionId: "exe-1", workspace: "", cwd: "", agentKind: "codex" },
@@ -26,12 +26,12 @@ describe("manual invocation API and shared service", () => {
     vi.spyOn(ApiService.prototype as any, "authorize").mockResolvedValue(undefined);
     vi.spyOn(ApiService.prototype as any, "jobs").mockReturnValue(repository);
     const key = btoa("a".repeat(32));
-    const env = { CREDENTIAL_ENCRYPTION_KEY: key, APP_ORIGIN: "https://example.com" } as any;
+    const env = { CREDENTIAL_ENCRYPTION_KEY: key, APP_ORIGIN: "https://example.com", DATABASE: { pool: { query: async () => ({ rows: sourceAuth?.allowed ? [{ ok: 1 }] : [], rowCount: sourceAuth?.allowed ? 1 : 0 }) } } } as any;
     const request = async (body: Record<string, unknown>) => {
       const response = await protectedApiFetch(new Request("https://example.com" + (transport === "REST" ? "/api/v1/jobs/job-1/invocations" : "/mcp"), {
         method: "POST", headers: { Origin: env.APP_ORIGIN, Host: "example.com", "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
         body: JSON.stringify(transport === "REST" ? body : { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "invoke_job", arguments: { jobId: "job-1", ...body } } }),
-      }), env, { scopes: ["runs:write"], authMethod: "session" } as any, {} as any);
+      }), env, sourceAuth ? { scopes: ["runs:invoke"], authMethod: "run_token", runId: sourceAuth.runId, runJobId: sourceAuth.runJobId } as any : { scopes: ["runs:write"], authMethod: "session" } as any, {} as any);
       if (transport === "REST") return response;
       expect(response.status).toBe(200);
       const text = await response.text();
@@ -59,6 +59,15 @@ describe("manual invocation API and shared service", () => {
 
   it("renders the name from normalized manual trigger data", async () => {
     expect((await invoke({})).persisted.run.runName).toBe(name);
+  });
+
+  it.each(["REST", "MCP"]) ("derives job/run provenance and enforces permission through %s", async transport => {
+    const identity = { runId: "run-source", runJobId: "job-source", allowed: true };
+    const accepted = await invoke({ idempotencyKey: "retry-1" }, undefined, transport, identity);
+    expect(accepted.persisted.invocation).toMatchObject({ sourceJobId: "job-source", sourceRunId: "run-source" });
+    expect(await (await accepted.request({ idempotencyKey: "retry-1" })).json()).toEqual({ ...accepted.result, duplicate: true });
+    await expect(invoke({}, undefined, transport, { ...identity, allowed: false })).rejects.toThrow();
+    await expect(invoke({ sourceJobId: "forged", sourceRunId: "other-run" }, undefined, transport, identity)).rejects.toThrow();
   });
 
   it.each(["", "{{trigger-1.data.missing}}", "{{#invalid}}"])("falls back to the Job name for template %j", async template => {

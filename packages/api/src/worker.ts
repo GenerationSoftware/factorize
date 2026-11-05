@@ -9,6 +9,7 @@ import { consentDecision } from "./consent-api";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
 import { ACCESS_SCOPES, authenticateAccessToken } from "./access-tokens";
+import { authenticateRunCredential } from "./run-credentials";
 import { artifactUpload } from "./artifact-upload";
 import { traceChunkUpload } from "./trace-chunk-upload";
 import { databaseFor } from "./postgres/database";
@@ -102,6 +103,11 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     return protectedApiFetch(request, apiEnv, { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes, authMethod: "session" }, ctx);
   }
   if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1")) && request.headers.get("Authorization")?.startsWith("Bearer fzt_")) {
+    if (request.headers.get("Authorization")?.startsWith("Bearer fzt_run_")) {
+      const auth = await authenticateRunCredential(request, env);
+      if (!auth) return Response.json({ error: { code: "invalid_token", message: "The run credential is invalid, expired, revoked, or no longer active." } }, { status: 401, headers: { "WWW-Authenticate": "Bearer error=\"invalid_token\"" } });
+      return protectedApiFetch(request, apiEnv, auth, ctx);
+    }
     const auth = await authenticateAccessToken(request, env);
     if (!auth) return Response.json({ error: { code: "invalid_token", message: "The access token is invalid, expired, or revoked." } }, { status: 401, headers: { "WWW-Authenticate": "Bearer error=\"invalid_token\"" } });
     return protectedApiFetch(request, apiEnv, auth, ctx);
