@@ -26,14 +26,21 @@ test("integration settings tolerates legacy exe connections without tags", async
   await page.getByText("Account tags available", { exact: true }).waitFor();
   await context.close();
 });
-test("connection tests show contextual adjacent feedback without exposing transport results", async () => {
-  const { context, page } = await setup(); let succeed = false;
+test("connection tests require a successful result and show missing permissions without exposing transport results", async () => {
+  const { context, page } = await setup(); let response;
   await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
   await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [{ connectionId: "vm", accountTags: [] }], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
-  await page.route("**/api/v1/integrations/exe/test", route => succeed ? route.fulfill({ json: { ok: true, secret: "should-not-render" } }) : route.fulfill({ status: 502, json: { error: { code: "provider_unavailable", message: "Provider unavailable" } } }));
+  await page.route("**/api/v1/integrations/exe/test", route => response ? route.fulfill({ json: response }) : route.fulfill({ status: 502, json: { error: { code: "provider_unavailable", message: "Provider unavailable" } } }));
   await page.goto(origin + "/settings/integrations"); const card = page.getByText("exe.dev · vm", { exact: true }).locator("../../..");
   await card.getByRole("button", { name: "Test connection" }).click(); await page.getByRole("alert").filter({ hasText: "Provider unavailable" }).waitFor(); assert.equal(await card.getByText("Provider unavailable", { exact: true }).count(), 1);
-  succeed = true; await card.getByRole("button", { name: "Test connection" }).click(); await card.getByRole("status").filter({ hasText: "Connection verified." }).waitFor(); assert.equal(await page.getByText("should-not-render", { exact: true }).count(), 0); await context.close();
+  response = { ok: false, missingPermissions: ["integrations add", "integrations attach", "integrations remove"], checks: [{ output: "should-not-render" }] };
+  await card.getByRole("button", { name: "Test connection" }).click();
+  await card.getByRole("alert").filter({ hasText: "Missing exe.dev permissions: integrations add, integrations attach, integrations remove." }).waitFor();
+  assert.equal(await card.getByRole("status").count(), 0);
+  response = { ok: false };
+  await card.getByRole("button", { name: "Test connection" }).click(); await card.getByRole("alert").filter({ hasText: "Connection verification failed." }).waitFor();
+  assert.equal(await card.getByRole("status").count(), 0);
+  response = { ok: true, secret: "should-not-render" }; await card.getByRole("button", { name: "Test connection" }).click(); await card.getByRole("status").filter({ hasText: "Connection verified." }).waitFor(); assert.equal(await page.getByText("should-not-render", { exact: true }).count(), 0); await context.close();
 });
 test("API keys create on a dedicated page, show a secret once, support explicit revocation and survive deep-link refresh", async () => {
   const { context, page } = await setup(); let revoked = false, created = false, submittedScopes = []; const time = "2026-10-09T12:00:00Z";

@@ -41,7 +41,7 @@ describe("ExeVmBackend", () => {
     expect(result.ok).toBe(false);
     expect(result.missingPermissions).toEqual(["ssh"]);
     expect(result.tags).toEqual(["github", "llm"]);
-    expect(result.checks.map(check => check.requestBody)).toEqual(["ls --json", "integrations list --json", "new --help", "ssh --help", "rm --help", "integrations add --help", "integrations edit --help", "integrations attach --help", "integrations remove --help"]);
+    expect(result.checks.map(check => check.requestBody)).toEqual(["ls --json", "integrations list --json", "new --help", "ssh --help", "rm --help", "integrations add --help", "integrations attach --help", "integrations remove --help"]);
   });
 
   it("extracts tags only from tag arrays", () => {

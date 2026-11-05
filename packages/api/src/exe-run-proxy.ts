@@ -44,15 +44,17 @@ export class ExeRunProxy {
   async provision(plan: ProxyPlan, vm: string, targetOrigin: string, credential: string): Promise<void> {
     const target = new URL(targetOrigin);
     if (target.protocol !== "https:" || target.origin !== targetOrigin) throw new Error("Run proxy target must be an HTTPS origin");
-    const command = plan.exists
-      ? `integrations edit ${shellAtom(plan.name)} --target=${shellAtom(targetOrigin)} --bearer=${shellAtom(credential)}`
-      : `integrations add http-proxy --name=${shellAtom(plan.name)} --target=${shellAtom(targetOrigin)} --bearer=${shellAtom(credential)} --comment=${shellAtom(`Factorize run ${plan.runId}`)}`;
+    // Retry by replacing only our marked integration. Recheck ownership before
+    // deletion; the inventory may have changed since prepare. This uses the
+    // add/remove permissions exposed by exe.dev's token picker.
+    if (plan.exists) await this.remove(plan.name, plan.runId);
+    const command = `integrations add http-proxy --name=${shellAtom(plan.name)} --target=${shellAtom(targetOrigin)} --bearer=${shellAtom(credential)} --comment=${shellAtom(`Factorize run ${plan.runId}`)}`;
     // Never include provider responses, exception messages, or command text in
     // errors: an upstream error can echo the bearer credential being installed.
     let installed: BackendCommandResult;
     try { installed = await this.execute(command); }
     catch { throw new Error("Run proxy provisioning was interrupted; reconciliation and cleanup are required"); }
-    if (!installed.ok) throw new Error(`Run proxy provisioning failed (HTTP ${installed.status}); check exe.dev integrations ${plan.exists ? "edit" : "add"} permission`);
+    if (!installed.ok) throw new Error(`Run proxy provisioning failed (HTTP ${installed.status}); check exe.dev integrations add permission`);
     const attached = await this.execute(`integrations attach ${shellAtom(plan.name)} ${shellAtom(`vm:${vm}`)} --for=24h`);
     if (!attached.ok) throw new Error("Run proxy attachment failed; check the exe.dev integrations attach permission");
   }

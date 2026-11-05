@@ -13,7 +13,7 @@ Cloudflare Tail infrastructure is optional: use the [Tail relay deployment guide
 
 ## Per-run exe.dev proxies
 
-The account-level exe.dev token used by the Worker must allow `ls`, `new`, `ssh`, `rm`, `integrations list`, `integrations add`, `integrations edit`, `integrations attach`, and `integrations remove`. Test the saved connection in Settings; a missing permission must be fixed before launching jobs. The agent VM never receives this account token or its run-proxy bearer credential.
+The account-level exe.dev token used by the Worker must allow `ls`, `new`, `ssh`, `rm`, `integrations list`, `integrations add`, `integrations attach`, and `integrations remove`. Test the saved connection in Settings; a missing permission must be fixed before launching jobs. The agent VM never receives this account token or its run-proxy bearer credential.
 
 Keep shared Factorize integrations on operator-only attachments, such as a dedicated `human` tag that is never selected for jobs. Do not attach shared Factorize proxies to execution VMs, even when currently read-only, and do not use `auto:all`. Legacy `runs:write` expands to `runs:invoke` and is therefore not read-only. Provisioning checks the control-plane attachments for the configured Factorize origin and fails closed on shared access. Apply the same isolation to any alternate Factorize hostname or proxy alias.
 

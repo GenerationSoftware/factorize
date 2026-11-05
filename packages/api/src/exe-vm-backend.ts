@@ -74,7 +74,7 @@ export class ExeVmBackend implements ExecutionBackend {
   }
 
   async testPermissions(): Promise<ExePermissionTest> {
-    const commands = ["ls --json", "integrations list --json", "new --help", "ssh --help", "rm --help", "integrations add --help", "integrations edit --help", "integrations attach --help", "integrations remove --help"];
+    const commands = ["ls --json", "integrations list --json", "new --help", "ssh --help", "rm --help", "integrations add --help", "integrations attach --help", "integrations remove --help"];
     const checks = await Promise.all(commands.map(command => this.api(command)));
     let tags: string[] = [];
     for (const check of checks.slice(0, 2)) if (check.ok) try { tags.push(...tagsFromInventory(JSON.parse(check.body))); } catch { /* use the remaining tag source */ }

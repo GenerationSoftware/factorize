@@ -27,28 +27,53 @@ describe("exe.dev run proxy lifecycle", () => {
   });
 
   it("rotates an owned integration on retry and removes it idempotently", async () => {
-    let removed = false;
+    let installed = true;
     const commands: string[] = [];
     const proxy = new ExeRunProxy(async command => {
       commands.push(command);
-      if (command === "integrations list --json") return result(removed ? [] : [owned]);
-      if (command.startsWith("integrations remove")) removed = true;
+      if (command === "integrations list --json") return result(installed ? [owned] : []);
+      if (command.startsWith("integrations remove")) installed = false;
+      if (command.startsWith("integrations add")) installed = true;
       return result();
     });
     await proxy.provision(await proxy.prepare(runId), vm, "https://app.factorize.test", "replacement-token");
-    expect(commands[1]).toContain(`integrations edit '${name}'`);
+    expect(commands.slice(1, 3)).toEqual(["integrations list --json", `integrations remove '${name}'`]);
+    expect(commands[3]).toContain("integrations add http-proxy");
+    expect(commands[3]).toContain("--bearer='replacement-token'");
+    expect(commands.some(command => command.startsWith("integrations edit"))).toBe(false);
     await proxy.remove(name, runId);
     await proxy.remove(name, runId);
-    expect(commands.filter(command => command.startsWith("integrations remove"))).toHaveLength(1);
+    expect(commands.filter(command => command.startsWith("integrations remove"))).toHaveLength(2);
   });
 
-  it("refuses to edit or remove a colliding integration without its ownership marker", async () => {
+  it("refuses to replace or remove a colliding integration without its ownership marker", async () => {
     const commands: string[] = [];
     const proxy = new ExeRunProxy(async command => { commands.push(command); return result([{ ...owned, comment: "unrelated" }]); });
     await expect(proxy.prepare(runId)).rejects.toThrow("another integration");
     await expect(proxy.remove(name, runId)).rejects.toThrow("ownership marker");
     await expect(proxy.remove("production", runId)).rejects.toThrow("unrelated");
     expect(commands.every(command => command === "integrations list --json")).toBe(true);
+  });
+
+  it("rechecks ownership before replacing an existing proxy on retry", async () => {
+    const commands: string[] = [];
+    const proxy = new ExeRunProxy(async command => {
+      commands.push(command);
+      return result([{ ...owned, comment: commands.length === 1 ? owned.comment : "unrelated" }]);
+    });
+    const plan = await proxy.prepare(runId);
+    await expect(proxy.provision(plan, vm, target, "replacement-token")).rejects.toThrow("ownership marker");
+    expect(commands).toEqual(["integrations list --json", "integrations list --json"]);
+  });
+
+  it("does not install a replacement credential when removal fails", async () => {
+    const commands: string[] = [];
+    const proxy = new ExeRunProxy(async command => {
+      commands.push(command);
+      return command === "integrations list --json" ? result([owned]) : result("unavailable", false);
+    });
+    await expect(proxy.provision(await proxy.prepare(runId), vm, target, "replacement-token")).rejects.toThrow("cleanup failed");
+    expect(commands).toEqual(["integrations list --json", "integrations list --json", `integrations remove '${name}'`]);
   });
 
   it.each([false, true])("never exposes a credential echoed by provisioning failure (throws=%s)", async throws => {
