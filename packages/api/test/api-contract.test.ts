@@ -120,12 +120,14 @@ describe("versioned API contract", () => {
         const resolved = response.$ref
           ? openapi.components.responses[response.$ref.split("/").at(-1)]
           : response;
-        expect(resolved.content["application/json"].schema).toBeDefined();
+        if (!resolved.content) { expect(Number(status)).toBe(204); continue; }
+        const mediaType = resolved.content["application/json"] ? "application/json" : "application/octet-stream";
+        expect(resolved.content[mediaType].schema).toBeDefined();
         // Resolve every local reference, including nested references in trace diagnostics.
         ajv.compile({
           $id: `https://factorize.test/contract/${operation.operationId}/${status}`,
           components: openapi.components,
-          ...resolved.content["application/json"].schema,
+          ...resolved.content[mediaType].schema,
         });
       }
     }

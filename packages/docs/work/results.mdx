@@ -9,6 +9,8 @@ Run pages return `items` and `nextCursor`; send that cursor for the next page. O
 
 Check that the intended trigger fired, the repository/task appears in the rendered prompt, and the browser/REST trace supports the reported result. A queued submission is not a successful execution. Browser run pages are at `https://app.factorize.sh/job-runs/RUN_ID`. Agent output stays in Factorize and is not automatically copied into Linear.
 
+New agent runs must write a JSON result envelope to the absolute path in `FACTORIZE_RESULT_PATH` before exiting. The object requires `status` (`succeeded` or `failed`); it may include a `summary` and an `outputs` JSON object. Failed results require a non-empty `reason`. The file is limited to 64 KiB. A zero process exit without a valid `succeeded` result is a failed run. Put additional run files in `~/.factorize-job/`; regular files up to 10 MiB each (100 files, 50 MiB total) are retained. Symlinks and paths outside that directory are not collected. Run details show the result and authorized downloads.
+
 For missing output or execution failures, call `get_run_diagnostics` and follow [failed-run troubleshooting](/troubleshooting/runs).
 
 Failed runs keep the existing `failed` state filter and expose `failure_source` as `system` or `agent`. Historical failed runs read as system failures. An agent-reported reason appears in run detail and history; execution observer diagnostics remain available separately, and artifact/cleanup errors are separate diagnostics.

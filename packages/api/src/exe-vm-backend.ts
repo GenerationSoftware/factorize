@@ -1,5 +1,5 @@
 import { sourceCommand, validateTraceSources } from "./trace-source";
-import type { ArtifactCollectionRequest, TraceChunkCollectionRequest } from "./execution";
+import type { ArtifactCollectionRequest, JobFileCollectionRequest, TraceChunkCollectionRequest } from "./execution";
 import type { BackendCommandResult, ExecutionBackend, ExecutionObservation, LaunchReceipt, LaunchRequest, RunHandle } from "./execution";
 import { base64 } from "./crypto";
 import { shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
@@ -166,6 +166,7 @@ export class ExeVmBackend implements ExecutionBackend {
       "cd /home/exedev/workspace",
       ...(request.traceSources?.primary.kind === "execution_stream" ? [`mkdir -p -- ${shellAtom(request.traceSources.primary.path.slice(0, request.traceSources.primary.path.lastIndexOf("/")) || "/")}`, `touch -- ${shellAtom(request.traceSources.primary.path)}`] : []),
       `printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`,
+      "sudo install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job",
       `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=file:/tmp/factorize-prompt.md --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr ${harnessCommand(request.harness)}; fi`,
       "echo started",
     ].join("; ");
@@ -227,6 +228,43 @@ export class ExeVmBackend implements ExecutionBackend {
   async readOutput(handle: RunHandle): Promise<string | null> {
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom("cat /tmp/factorize.log")}`);
     return result.ok ? result.body : null;
+  }
+
+  /** null means the protocol file is confirmed absent; command errors remain retryable. */
+  async readJobResult(handle: RunHandle): Promise<string | null> {
+    const remote = "if [ -f /home/exedev/.factorize-job/results.json ]; then size=$(wc -c < /home/exedev/.factorize-job/results.json); if [ \"$size\" -gt 65536 ]; then printf OVERSIZE; else base64 -w0 /home/exedev/.factorize-job/results.json; fi; else printf MISSING; fi";
+    const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
+    if (!result.ok) throw new Error(`Structured job result collection failed (${result.status})`);
+    if (result.body.trim() === "MISSING") return null;
+    if (result.body.trim() === "OVERSIZE") return "OVERSIZE";
+    const encoded = result.body.trim();
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error("Structured job result transport returned invalid base64");
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(encoded), c => c.charCodeAt(0))); }
+    catch { throw new Error("Structured job result transport returned invalid UTF-8"); }
+  }
+
+  async listJobFiles(handle: RunHandle): Promise<string[]> {
+    const remote = "find /home/exedev/.factorize-job -mindepth 1 -type f ! -name results.json -printf '%P\\t%s\\n'";
+    const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
+    if (!result.ok) throw new Error(`Job output directory collection failed (${result.status})`);
+    const paths: string[] = []; let total = 0;
+    for (const line of result.body.split("\n").filter(Boolean)) {
+      const match = /^([^\t\r\0]+)\t(\d+)$/.exec(line);
+      if (!match || match[1].startsWith("/") || match[1].split("/").some(part => !part || part === "." || part === "..") || /[\\\\\r\n]/.test(match[1])) throw new Error("Job output directory contains an unsafe path");
+      const size = Number(match[2]);
+      if (!Number.isSafeInteger(size) || size > 10 * 1024 * 1024) throw new Error("A job output file exceeds the 10 MiB per-file limit");
+      total += size; if (total > 50 * 1024 * 1024) throw new Error("Job output directory exceeds the 50 MiB total limit");
+      paths.push(match[1]);
+    }
+    if (paths.length > 100) throw new Error("Job output directory exceeds the 100 file limit");
+    return paths;
+  }
+
+  async collectJobFile(handle: RunHandle, request: JobFileCollectionRequest) {
+    const file = `/home/exedev/.factorize-job/${request.path}`;
+    const remote = `set -eu; file=${shellAtom(file)}; test -f "$file"; test ! -L "$file"; real=$(realpath -- "$file"); case "$real" in /home/exedev/.factorize-job/*) ;; *) exit 41;; esac; size=$(wc -c < "$file" | tr -d ' '); test "$size" -le 10485760; sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H 'Content-Type: application/octet-stream' -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(request.uploadUrl)}`;
+    const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
+    return { ok: result.ok, detail: result.ok ? undefined : `Job file upload failed (${result.status})`, command: result };
   }
 
   async collectArtifact(handle: RunHandle, request: ArtifactCollectionRequest) {

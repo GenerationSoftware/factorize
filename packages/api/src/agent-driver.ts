@@ -1,6 +1,7 @@
 import { CLAUDE_STREAM_HARNESS } from "./claude-stream";
 import { PI_CLI_VERSION, PI_SESSION_VERSION } from "./pi-trace";
 import type { TraceSources } from "./trace-source";
+import { JOB_RESULT_PATH } from "./job-result";
 export type AgentKind = "codex" | "claude" | "pi";
 
 export interface AgentConfiguration { model?: string; effort?: string; }
@@ -70,7 +71,7 @@ class PiDriver implements AgentDriver {
 const drivers: Record<AgentKind, AgentDriver> = { codex: new CodexDriver(), claude: new ClaudeDriver(), pi: new PiDriver() };
 export function agentDriver(kind: AgentKind): AgentDriver {
   const driver = drivers[kind];
-  return { kind, launch(runId, config) { const spec = driver.launch(runId, config); return { ...spec, traceSources: driverTraceSources(kind, spec) }; } };
+  return { kind, launch(runId, config) { const spec = driver.launch(runId, config); return { ...spec, env: { ...spec.env, FACTORIZE_RESULT_PATH: JOB_RESULT_PATH }, traceSources: driverTraceSources(kind, spec) }; } };
 }
 
 /** Compatibility for drivers and historical runs that only declare native sessions. */

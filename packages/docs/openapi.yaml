@@ -698,60 +698,249 @@ components:
         reconciliation:
           type: object
     RunDetail:
-      allOf:
-        - $ref: "#/components/schemas/Run"
       type: object
-      required:
-        - id
-        - state
-        - execution_diagnostics
-        - harness_log
-        - prompt
-        - context
-        - invocation
-        - activity
-        - job_name
       properties:
         id:
           type: string
-        state:
+        job_id:
           type: string
-        trace_generation:
+        project_id:
+          type: string
+        project_name:
+          type: string
+        job_name:
+          type: string
+        issue_id:
+          type: string
+        issue_url:
           type:
             - string
             - "null"
-          description: Live file generation; clients reset trace pagination when it changes.
-        trace_projection:
-          $ref: "#/components/schemas/TraceProjection"
-        trace_sources:
-          $ref: "#/components/schemas/TraceSources"
-        execution_diagnostics:
-          $ref: "#/components/schemas/ExecutionDiagnostics"
-        harness_log:
-          $ref: "#/components/schemas/HarnessLog"
+        issue_title:
+          type: string
+        run_name:
+          type: string
+        agent_name:
+          type: string
+        workspace_name:
+          type: string
+        agent_kind:
+          type: string
+        state:
+          type: string
+          enum:
+            - queued
+            - reserved
+            - starting
+            - running
+            - blocked
+            - stopping
+            - succeeded
+            - failed
+            - stopped
+            - done
+            - ignored
+        provider:
+          type: string
+        backend_kind:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        destination_url:
+          type:
+            - string
+            - "null"
+        artifact_state:
+          type: string
+          enum:
+            - pending
+            - collecting
+            - stored
+            - partial
+            - failed
         artifact_error:
           type:
             - string
             - "null"
-          description: Secondary artifact or cleanup error; does not replace execution_diagnostics
-        job_name:
+        created_at:
           type: string
-          description: Current job name, included so run content does not require a separate job request.
+        updated_at:
+          type: string
+        started_at:
+          type:
+            - string
+            - "null"
+        failure_source:
+          anyOf:
+            - type: string
+              enum:
+                - system
+                - agent
+            - type: "null"
+        agent_error:
+          anyOf:
+            - type: object
+              properties:
+                reason:
+                  type: string
+                reported_at:
+                  type: string
+                reporter:
+                  type: object
+                  properties:
+                    user_id:
+                      type: string
+                    kind:
+                      type: string
+                      enum:
+                        - api_key
+                        - oauth
+                        - session
+                    id:
+                      type: string
+                  required:
+                    - user_id
+                    - kind
+                    - id
+                  additionalProperties: false
+              required:
+                - reason
+                - reported_at
+                - reporter
+              additionalProperties: false
+            - type: "null"
+        elapsed_time:
+          anyOf:
+            - anyOf:
+                - type: object
+                  properties:
+                    duration:
+                      type: number
+                  required:
+                    - duration
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    low:
+                      type: number
+                    high:
+                      type: number
+                  required:
+                    - low
+                    - high
+                  additionalProperties: false
+            - type: "null"
+        job_result:
+          anyOf:
+            - type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - succeeded
+                    - failed
+                summary:
+                  type: string
+                reason:
+                  type: string
+                outputs:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+              required:
+                - status
+              additionalProperties: false
+            - type: "null"
+        run_artifacts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              kind:
+                type: string
+              provider:
+                type: string
+              format:
+                type: string
+              byte_size:
+                type: number
+              sha256:
+                type: string
+              state:
+                type: string
+              media_type:
+                type:
+                  - string
+                  - "null"
+              created_at:
+                type: string
+            required:
+              - id
+              - kind
+              - provider
+              - format
+              - byte_size
+              - sha256
+              - state
+              - media_type
+              - created_at
+            additionalProperties: false
+        tenant_id:
+          type: string
+        invocation_id:
+          type: string
+        execution_handle:
+          anyOf:
+            - type: object
+              properties:
+                backendKind:
+                  type: string
+                id:
+                  type: string
+              required:
+                - backendKind
+                - id
+              additionalProperties: false
+            - type: "null"
+        execution_backend_kind:
+          type: string
+        execution_capabilities:
+          type: array
+          items:
+            type: string
+        claim_released:
+          type: boolean
+        vm_cleanup_attempt:
+          type: integer
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+        cleanup_next_at:
+          type:
+            - string
+            - "null"
+        vm_cleanup_complete:
+          type: boolean
         prompt:
           type: string
         context:
           type: object
-          additionalProperties: true
+          propertyNames:
+            type: string
+          additionalProperties: {}
+        occurrence:
+          anyOf:
+            - type: object
+              propertyNames:
+                type: string
+              additionalProperties: {}
+            - type: "null"
         invocation:
           type: object
-          required:
-            - id
-            - source
-            - claim_key
-            - trigger_id
-            - context
-            - occurrence
-            - created_at
           properties:
             id:
               type: string
@@ -765,67 +954,27 @@ components:
                 - "null"
             context:
               type: object
-              additionalProperties: true
+              propertyNames:
+                type: string
+              additionalProperties: {}
             occurrence:
-              type:
-                - object
-                - "null"
-              additionalProperties: true
+              anyOf:
+                - type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                - type: "null"
             created_at:
               type: string
-        activity:
-          type: array
-          items:
-            type: object
-            required:
-              - action
-              - detail
-              - created_at
-            properties:
-              action:
-                type: string
-              detail:
-                type: string
-              created_at:
-                type: string
-        tenant_id:
-          type: string
-        invocation_id:
-          type: string
-        execution_handle:
-          type:
-            - object
-            - "null"
           required:
-            - backendKind
             - id
-          properties:
-            backendKind:
-              type: string
-            id:
-              type: string
-        execution_backend_kind:
-          type: string
-        execution_capabilities:
-          type: array
-          items:
-            type: string
-        claim_released:
-          type: boolean
-        vm_cleanup_attempt:
-          type: integer
-        vm_cleanup_complete:
-          type: boolean
-        cleanup_next_at:
-          type:
-            - string
-            - "null"
-          format: date-time
-        occurrence:
-          type:
-            - object
-            - "null"
-          additionalProperties: true
+            - source
+            - claim_key
+            - trigger_id
+            - context
+            - occurrence
+            - created_at
+          additionalProperties: false
         invocation_source:
           type: string
         invocation_claim_key:
@@ -836,7 +985,170 @@ components:
             - "null"
         invocation_created_at:
           type: string
-          format: date-time
+        activity:
+          type: array
+          items:
+            type: object
+            properties:
+              action:
+                type: string
+              detail:
+                type: string
+              created_at:
+                type: string
+            required:
+              - action
+              - detail
+              - created_at
+            additionalProperties: false
+        execution_diagnostics:
+          anyOf:
+            - type: object
+              propertyNames:
+                type: string
+              additionalProperties: {}
+            - type: "null"
+        trace_sources:
+          anyOf:
+            - type: object
+              properties:
+                primary:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum:
+                        - execution_stream
+                        - native_session
+                    path:
+                      type: string
+                    mediaType:
+                      type: string
+                      const: application/x-ndjson
+                    provider:
+                      type: string
+                      enum:
+                        - codex
+                        - claude
+                        - pi
+                    formatVersion:
+                      type: string
+                    cliVersion:
+                      type: string
+                    harnessVersion:
+                      type: string
+                    discoverCommand:
+                      type: string
+                  required:
+                    - kind
+                    - path
+                    - mediaType
+                    - provider
+                  additionalProperties: false
+                nativeSession:
+                  type: object
+                  properties:
+                    kind:
+                      type: string
+                      enum:
+                        - execution_stream
+                        - native_session
+                    path:
+                      type: string
+                    mediaType:
+                      type: string
+                      const: application/x-ndjson
+                    provider:
+                      type: string
+                      enum:
+                        - codex
+                        - claude
+                        - pi
+                    formatVersion:
+                      type: string
+                    cliVersion:
+                      type: string
+                    harnessVersion:
+                      type: string
+                    discoverCommand:
+                      type: string
+                  required:
+                    - kind
+                    - path
+                    - mediaType
+                    - provider
+                  additionalProperties: false
+              required:
+                - primary
+              additionalProperties: false
+            - type: "null"
+        trace_projection:
+          anyOf:
+            - type: object
+              propertyNames:
+                type: string
+              additionalProperties: {}
+            - type: "null"
+        trace_generation:
+          type:
+            - string
+            - "null"
+        harness_log:
+          anyOf:
+            - type: object
+              propertyNames:
+                type: string
+              additionalProperties: {}
+            - type: "null"
+      required:
+        - id
+        - job_id
+        - job_name
+        - issue_id
+        - issue_url
+        - issue_title
+        - run_name
+        - agent_name
+        - workspace_name
+        - agent_kind
+        - state
+        - provider
+        - backend_kind
+        - capabilities
+        - destination_url
+        - artifact_state
+        - artifact_error
+        - created_at
+        - updated_at
+        - started_at
+        - failure_source
+        - agent_error
+        - job_result
+        - run_artifacts
+        - tenant_id
+        - invocation_id
+        - execution_handle
+        - execution_backend_kind
+        - execution_capabilities
+        - claim_released
+        - vm_cleanup_attempt
+        - cleanup_next_at
+        - vm_cleanup_complete
+        - prompt
+        - context
+        - occurrence
+        - invocation
+        - invocation_source
+        - invocation_claim_key
+        - invocation_trigger_id
+        - invocation_created_at
+        - activity
+        - execution_diagnostics
+        - trace_sources
+        - trace_projection
+        - trace_generation
+        - harness_log
+      additionalProperties: false
     RunDiagnostics:
       type: object
       required:
@@ -10127,6 +10439,60 @@ paths:
       x-owner-session-required: false
       parameters:
         - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+  /api/v1/runs/{runId}/artifacts/{artifactId}:
+    get:
+      summary: Download a retained run artifact
+      responses:
+        "200":
+          description: Authorized artifact bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the runs:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      operationId: get_api_v1_runs_runId_artifacts_artifactId
+      tags:
+        - runs
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: runs:read
+      x-owner-session-required: false
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        - name: artifactId
           in: path
           required: true
           schema:

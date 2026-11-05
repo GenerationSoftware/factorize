@@ -59,6 +59,39 @@ describe("durable run finalization", () => {
     expect(f.stop).toHaveBeenCalledOnce();
     expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "stored", undefined, true);
   });
+  it("requires and persists a valid structured result before marking a new run succeeded", async () => {
+    const f = fixture(0); f.run.resultProtocolVersion = 1;
+    vi.spyOn(f.backend, "readJobResult").mockResolvedValue('{"status":"succeeded","summary":"ready","outputs":{"count":3}}');
+    vi.spyOn(f.backend, "listJobFiles").mockResolvedValue([]);
+    const saved = vi.spyOn(RunRepository.prototype, "recordJobResult").mockImplementation(async () => { f.events.push("result"); });
+    f.terminal.mockImplementation(async () => { expect(f.events.indexOf("result")).toBeLessThan(f.events.indexOf("cleanup")); });
+    await f.scheduler.poll(f.run);
+    expect(saved).toHaveBeenCalledWith(f.run, { status: "succeeded", summary: "ready", outputs: { count: 3 } });
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "stored", undefined, true);
+  });
+  it("retains regular job files before VM cleanup", async () => {
+    const f = fixture(0); f.run.resultProtocolVersion = 1;
+    Object.assign(f.scheduler.env, { SESSION_SIGNING_SECRET: "signing-secret", APP_ORIGIN: "https://app.example.test" });
+    vi.spyOn(f.backend, "readJobResult").mockResolvedValue('{"status":"succeeded"}');
+    vi.spyOn(f.backend, "listJobFiles").mockResolvedValue(["reports/summary.txt"]);
+    vi.spyOn(f.backend, "collectJobFile").mockImplementation(async (_handle, request) => { f.events.push(`job-file:${request.path}`); f.artifacts.push({ kind: "job_file", state: "stored", source_path: request.path }); return { ok: true, detail: undefined, command: { ok: true, status: 200, exitCode: 0, body: "", requestBody: "" } }; });
+    vi.spyOn(RunRepository.prototype, "recordJobResult").mockResolvedValue();
+    await f.scheduler.poll(f.run);
+    expect(f.events.indexOf("job-file:reports/summary.txt")).toBeLessThan(f.events.indexOf("cleanup"));
+    expect(f.artifacts).toContainEqual(expect.objectContaining({ kind: "job_file", source_path: "reports/summary.txt", state: "stored" }));
+  });
+  it.each([
+    [null, "Required structured job result is missing"],
+    ['{"status":"succeeded","outputs":[]}', "Invalid structured job result"],
+    ['{"status":"failed","reason":"tests failed"}', "tests failed"],
+  ] as const)("settles absent, invalid, and failed structured results as failed", async (raw, reason) => {
+    const f = fixture(0); f.run.resultProtocolVersion = 1;
+    vi.spyOn(f.backend, "readJobResult").mockResolvedValue(raw);
+    vi.spyOn(f.backend, "listJobFiles").mockResolvedValue([]);
+    vi.spyOn(RunRepository.prototype, "recordJobResult").mockResolvedValue();
+    await f.scheduler.poll(f.run);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", expect.stringContaining(reason), true);
+  });
   it.each(["native", "put"] as const)("bounds %s upload retries without replacing the primary failure", async target => {
     const f = fixture();
     f[target].mockRejectedValue(new Error("Authorization: Bearer sensitive"));

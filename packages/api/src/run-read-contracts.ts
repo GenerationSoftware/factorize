@@ -31,6 +31,8 @@ export const runPageResponse = z.object({ items: z.array(runSummaryResponse), ne
 const record = z.record(z.string(), z.unknown());
 const traceSource = z.object({ kind: z.enum(["execution_stream", "native_session"]), path: z.string(), mediaType: z.literal("application/x-ndjson"), provider: z.enum(["codex", "claude", "pi"]), formatVersion: z.string().optional(), cliVersion: z.string().optional(), harnessVersion: z.string().optional(), discoverCommand: z.string().optional() });
 export const fullRunResponse = runSummaryResponse.extend({
+  job_result: z.object({ status: z.enum(["succeeded", "failed"]), summary: z.string().optional(), reason: z.string().optional(), outputs: z.record(z.string(), z.unknown()).optional() }).nullable(),
+  run_artifacts: z.array(z.object({ id: z.string(), kind: z.string(), provider: z.string(), format: z.string(), byte_size: z.number(), sha256: z.string(), state: z.string(), media_type: z.string().nullable(), created_at: z.string() })),
   tenant_id: z.string(), invocation_id: z.string(),
   execution_handle: z.object({ backendKind: z.string(), id: z.string() }).nullable(),
   execution_backend_kind: z.string(), execution_capabilities: z.array(z.string()),
