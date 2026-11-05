@@ -50,6 +50,12 @@ describe("versioned API contract", () => {
     expect(post?.scope).toBe("jobs:write"); expect(get?.scope).toBe("jobs:read");
     expect(openapi.paths["/api/v1/vm-image-verifications"].post.requestBody).toBeDefined();
   });
+  it("publishes the authorized complete project graph operation", () => {
+    const operation = API_ROUTES.find(route => route.method === "GET" && route.path === "/api/v1/projects/{projectId}/graph");
+    expect(operation?.scope).toBe("projects:read");
+    expect(operation?.parameters.shape.projectId).toBeDefined();
+    expect(openapi.paths["/api/v1/projects/{projectId}/graph"].get["x-required-scope"]).toBe("projects:read");
+  });
   it("has full bidirectional method/path equality with the executable catalog", () => {
     const documented = Object.entries(openapi.paths).flatMap(([path, item]) =>
       Object.keys(item as object)

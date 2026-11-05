@@ -79,6 +79,27 @@ test("project details can rename and describe a project", async () => {
   assert.equal(saved.length, 1);
   await context.close();
 });
+test("project graph preserves disabled and multiple connections and navigates to jobs", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+  const secondJob = "00000000-0000-4000-8000-000000000012";
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  await page.route(`**/api/v1/projects/${projectId}/graph`, route => route.fulfill({ json: {
+    nodes: [
+      { id: jobId, type: "job", label: "Build", jobKind: "Agent", enabled: true },
+      { id: secondJob, type: "job", label: "Deploy", jobKind: "Code", enabled: false },
+    ], edges: [
+      { id: "lifecycle-a", source: jobId, target: secondJob, label: "Failed, Stopped", kind: "lifecycle", enabled: false },
+      { id: "idle-a", source: jobId, target: secondJob, label: "Idle", kind: "idle", enabled: false },
+      { id: "manual-a", source: jobId, target: secondJob, label: "Manual", kind: "manual", enabled: false },
+    ],
+  } }));
+  await page.goto(origin + `/projects/${projectId}`);
+  await page.getByRole("button", { name: "Graph", exact: true }).click();
+  await page.getByRole("img", { name: /2 jobs and 3 connections/ }).waitFor();
+  await page.getByRole("link", { name: "Code: Deploy, disabled" }).click();
+  await page.waitForURL(new RegExp(`/jobs/${secondJob}`));
+  await context.close();
+});
 test("project and job detail pages use the appropriate breadcrumbs", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));

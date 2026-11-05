@@ -7,12 +7,14 @@ import { Dialog } from "../../shared/dialog";
 import { messageOf } from "../auth/session";
 import { projectQuery, projectsQuery } from "./queries";
 import { JobsTable } from "../jobs/list";
+import { ProjectGraph } from "./graph";
 
 export function ProjectDetail() {
   const { projectId } = useParams({ from: "/projects/$projectId" });
   const project = useQuery(projectQuery(projectId));
   const cache = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const [view, setView] = useState<"list" | "graph">("list");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [validationError, setValidationError] = useState("");
@@ -40,5 +42,5 @@ export function ProjectDetail() {
     setValidationError("");
     setEditing(true);
   };
-  return <Page className="max-w-6xl"><Breadcrumb><Link to="/projects">Projects</Link></Breadcrumb><ResourceHeader type="Project" title={project.data?.name ?? "Project"} description={project.data?.description}><div className="flex flex-wrap gap-2">{project.data && <><Button onClick={openEditor}>Edit</Button><Link to="/jobs/new" search={{ projectId }}><Button variant="primary">Create job</Button></Link></>}</div></ResourceHeader>{project.isPending && <p role="status">Loading project…</p>}{project.error && <p role="alert">{project.error.message}</p>}{project.data&&<><JobsTable projectId={projectId} />{editing&&<Dialog title="Edit project" close={() => { if (!edit.isPending) setEditing(false); }}><form className="space-y-5" onSubmit={event => { event.preventDefault(); edit.mutate(); }}><Label>Name<Input required maxLength={120} value={name} onChange={event => setName(event.target.value)} /></Label><Label>Description<Textarea maxLength={2000} value={description} onChange={event => setDescription(event.target.value)} /></Label>{validationError&&<p role="alert">{validationError}</p>}<div className="flex justify-end gap-2"><Button type="button" onClick={() => setEditing(false)} disabled={edit.isPending}>Cancel</Button><Button type="submit" variant="primary" disabled={edit.isPending}>{edit.isPending ? "Saving…" : "Save changes"}</Button></div></form></Dialog>}</>}</Page>;
+  return <Page className="max-w-6xl"><Breadcrumb><Link to="/projects">Projects</Link></Breadcrumb><ResourceHeader type="Project" title={project.data?.name ?? "Project"} description={project.data?.description}><div className="flex flex-wrap gap-2">{project.data && <><Button onClick={openEditor}>Edit</Button><Link to="/jobs/new" search={{ projectId }}><Button variant="primary">Create job</Button></Link></>}</div></ResourceHeader>{project.isPending && <p role="status">Loading project…</p>}{project.error && <p role="alert">{project.error.message}</p>}{project.data&&<><div className="mt-5 flex items-center justify-between gap-3"><h2 className="text-xl font-semibold">Jobs</h2><div role="group" aria-label="Project jobs view" className="flex gap-2"><Button aria-pressed={view === "list"} onClick={() => setView("list")}>List</Button><Button aria-pressed={view === "graph"} onClick={() => setView("graph")}>Graph</Button></div></div>{view === "list" ? <JobsTable projectId={projectId} /> : <ProjectGraph projectId={projectId} />}{editing&&<Dialog title="Edit project" close={() => { if (!edit.isPending) setEditing(false); }}><form className="space-y-5" onSubmit={event => { event.preventDefault(); edit.mutate(); }}><Label>Name<Input required maxLength={120} value={name} onChange={event => setName(event.target.value)} /></Label><Label>Description<Textarea maxLength={2000} value={description} onChange={event => setDescription(event.target.value)} /></Label>{validationError&&<p role="alert">{validationError}</p>}<div className="flex justify-end gap-2"><Button type="button" onClick={() => setEditing(false)} disabled={edit.isPending}>Cancel</Button><Button type="submit" variant="primary" disabled={edit.isPending}>{edit.isPending ? "Saving…" : "Save changes"}</Button></div></form></Dialog>}</>}</Page>;
 }
