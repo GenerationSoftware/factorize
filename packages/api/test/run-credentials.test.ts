@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authenticateRunCredential, issueRunCredential } from "../src/run-credentials";
+import { authenticateRunCredential, issueRunCredential, RUN_SCOPES } from "../src/run-credentials";
 
 describe("run-scoped execution credentials", () => {
   it("binds a short-lived bearer credential to its active tenant, job, and run", async () => {
@@ -14,7 +14,9 @@ describe("run-scoped execution credentials", () => {
     const token = await issueRunCredential(env, "tenant-1", "00000000-0000-4000-8000-000000000001");
     const request = (credential: string) => new Request("https://example.test/api/v1", { headers: { Authorization: `Bearer ${credential}` } });
     const auth = await authenticateRunCredential(request(token), env);
-    expect(auth).toMatchObject({ tenantId: "tenant-1", userId: "owner-1", scopes: ["runs:invoke"], authMethod: "run_token", runJobId: "job-1", runId: "00000000-0000-4000-8000-000000000001" });
+    expect(auth).toMatchObject({ tenantId: "tenant-1", userId: "owner-1", scopes: RUN_SCOPES, authMethod: "run_token", runJobId: "job-1", runId: "00000000-0000-4000-8000-000000000001" });
+    expect(auth?.scopes).toContain("runs:read");
+    expect(auth?.scopes.some(scope => scope.endsWith(":write") || scope === "runs:cancel")).toBe(false);
     expect(auth?.runCredentialDigest).toBe(storedDigest);
     expect(await authenticateRunCredential(request(token + "forged"), env)).toBeNull();
     active = false;

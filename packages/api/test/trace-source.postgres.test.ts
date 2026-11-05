@@ -12,6 +12,8 @@ import { RunRepository } from "../src/postgres/run-repository";
 import { RunScheduler } from "../src/postgres/run-scheduler";
 import { ExeVmBackend } from "../src/exe-vm-backend";
 import { agentDriver } from "../src/agent-driver";
+import { IdentityRepository } from "../src/postgres/identity-repository";
+import { authenticateRunCredential, issueRunCredential } from "../src/run-credentials";
 
 const url = process.env.TRACE_TEST_DATABASE_URL ?? process.env.AUTH_TEST_DATABASE_URL;
 const zero = "0".repeat(64), secret = "test-signing-secret";
@@ -52,6 +54,47 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     };
     return { tenantId, env, runId, upload, blobs, live: new LiveTraceRepository(database, tenantId), trace: new TraceRepository(database, tenantId), artifacts: new ArtifactRepository(database, tenantId) };
   }
+
+  it("rejects legacy guest credentials, expired credentials, and terminal-run proxy credentials", async () => {
+    const f = await fixture();
+    const userId = crypto.randomUUID();
+    await new IdentityRepository(database, f.tenantId).upsertOwner(userId, `${userId}@example.test`);
+    const { job_id: jobId, invocation_id: invocationId } = (await database.pool.query("SELECT job_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    await database.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'running','test')", [f.tenantId, f.runId, jobId, invocationId]);
+    const request = (token: string) => new Request("https://app.test/api/v1/runtime-context", { headers: { Authorization: `Bearer ${token}` } });
+    const token = await issueRunCredential(f.env, f.tenantId, f.runId);
+    expect(await authenticateRunCredential(request(token), f.env)).toMatchObject({ runId: f.runId, runJobId: jobId });
+    await database.pool.query("UPDATE app.run_credentials SET proxy_name=NULL WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
+    expect(await authenticateRunCredential(request(token), f.env)).toBeNull();
+    const replacement = await issueRunCredential(f.env, f.tenantId, f.runId);
+    expect(await authenticateRunCredential(request(token), f.env)).toBeNull();
+    expect(await authenticateRunCredential(request(replacement), f.env)).not.toBeNull();
+    await database.pool.query("UPDATE app.run_credentials SET expires_at=now()-interval '1 second' WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
+    expect(await authenticateRunCredential(request(replacement), f.env)).toBeNull();
+    const final = await issueRunCredential(f.env, f.tenantId, f.runId);
+    await new RunRepository(database).terminal({ tenantId: f.tenantId, id: f.runId } as any, "failed", "failed");
+    expect(await authenticateRunCredential(request(final), f.env)).toBeNull();
+  });
+
+  it("retains pre-provision cleanup ownership across an interrupted launch lease", async () => {
+    const f = await fixture();
+    const { job_id: jobId, invocation_id: invocationId } = (await database.pool.query("SELECT job_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    await database.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,launch_lease_expires_at) VALUES ($1,$2,$3,$4,'starting','test',now()+interval '5 minutes')", [f.tenantId, f.runId, jobId, invocationId]);
+    const repository = new RunRepository(database);
+    const run = { tenantId: f.tenantId, id: f.runId } as any;
+    const handle = { backendKind: "exe-vm", id: `factorize-${f.runId}`, runProxyName: `fz-run-${f.runId}` };
+    await repository.recordLaunchHandle(run, handle);
+    expect(run.executionHandle).toEqual(handle);
+    expect((await repository.dueForPoll()).some(item => item.id === f.runId)).toBe(false);
+    await database.pool.query("UPDATE app.job_runs SET launch_lease_expires_at=now()-interval '1 second' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    const recovered = await repository.claimNext();
+    expect(recovered?.id).toBe(f.runId);
+    expect(recovered?.executionHandle).toEqual(handle);
+    await (new RunScheduler(database, f.env) as any).fail(recovered, new Error("Provisioning interrupted"));
+    const saved = (await database.pool.query("SELECT state,execution_handle,execution_diagnostics FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    expect(saved).toMatchObject({ state: "running", execution_handle: handle, execution_diagnostics: { state: "failed", detail: "Provisioning interrupted" } });
+    await repository.terminal(recovered!, "failed", "failed");
+  });
 
   it.each([
     { state: "succeeded", completed: true, projectionFailure: false },

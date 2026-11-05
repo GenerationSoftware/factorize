@@ -5,6 +5,7 @@ import { base64 } from "./crypto";
 import { shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
 
 import { HARNESS_LOG_LIMIT, safeDiagnosticText } from "./harness-diagnostics";
+import { ExeRunProxy } from "./exe-run-proxy";
 
 const API = "https://exe.dev/exec";
 const capabilities = ["output", "recovery", "stop"] as const;
@@ -73,12 +74,12 @@ export class ExeVmBackend implements ExecutionBackend {
   }
 
   async testPermissions(): Promise<ExePermissionTest> {
-    const commands = ["ls --json", "integrations list --json", "new --help", "ssh --help", "rm --help"];
+    const commands = ["ls --json", "integrations list --json", "new --help", "ssh --help", "rm --help", "integrations add --help", "integrations edit --help", "integrations attach --help", "integrations remove --help"];
     const checks = await Promise.all(commands.map(command => this.api(command)));
     let tags: string[] = [];
     for (const check of checks.slice(0, 2)) if (check.ok) try { tags.push(...tagsFromInventory(JSON.parse(check.body))); } catch { /* use the remaining tag source */ }
     tags = [...new Set(tags)].sort((a, b) => a.localeCompare(b));
-    const missingPermissions = checks.filter(check => check.status === 403).map(check => String(check.requestBody).split(" ")[0]);
+    const missingPermissions = checks.filter(check => check.status === 403).map(check => String(check.requestBody).replace(/ --(?:help|json)$/, ""));
     // exe.dev uses 403 specifically for a command excluded by token permissions.
     // A help probe may return 422 when its command parser wants an argument; that
     // still proves the token was authorized to invoke that command.
@@ -154,12 +155,38 @@ export class ExeVmBackend implements ExecutionBackend {
     if (!request.harness) throw new Error("The run is missing its agent harness launch plan");
     if (request.traceSources) validateTraceSources(request.traceSources);
     const vm = vmNameFor(request.runId);
+    const handle: RunHandle = { backendKind: this.kind, id: vm };
+    let proxy: ExeRunProxy | undefined, plan: Awaited<ReturnType<ExeRunProxy["prepare"]>> | undefined;
+    if (request.runProxy) {
+      try {
+        proxy = new ExeRunProxy(command => this.api(command));
+        plan = await proxy.prepare(request.runId);
+        if (plan.exists) handle.runProxyName = plan.name;
+        // Check before VM creation: even image boot processes must not inherit
+        // a shared Factorize credential while provisioning is in progress.
+        await proxy.assertIsolated(vm, request.runId, request.runProxy.targetOrigin, this.connection.tags);
+      } catch (error) {
+        return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail: error instanceof Error ? error.message : "Run proxy preflight failed" } };
+      }
+    }
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const image = connection.image;
     const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}${image ? ` --image=${shellAtom(image)}` : ""}`.trim());
     if (!created.ok) {
       await this.deleteVm(vm).catch(() => undefined);
       throw new Error(`exe.dev VM creation failed (${created.status}): ${created.body.slice(0, 500)}`);
+    }
+
+    if (request.runProxy && proxy && plan) {
+      try {
+        handle.runProxyName = plan.name;
+        await proxy.provision(plan, vm, request.runProxy.targetOrigin, request.runProxy.credential);
+        await proxy.verify(vm, request.runId, request.runProxy.targetOrigin, this.connection.tags);
+      } catch (error) {
+        // Retain the handle even on a partial provision, so polling can retry
+        // ownership-safe proxy/VM cleanup before releasing the active slot.
+        return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail: error instanceof Error ? error.message : "Run proxy provisioning failed" } };
+      }
     }
 
     const prompt = base64(request.prompt), output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
@@ -182,9 +209,9 @@ export class ExeVmBackend implements ExecutionBackend {
     for (let attempt = 1; !accepted(started) && attempt < 5; attempt++) started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
     if (!accepted(started)) {
       const detail = `VM provisioning failed (${started.status}): ${safeDiagnosticText(started.body, 500)}`;
-      return { handle: { backendKind: this.kind, id: vm }, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail, command: started }, command: started };
+      return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail, command: started }, command: started };
     }
-    return { handle: { backendKind: this.kind, id: vm }, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "running", command: started }, command: started };
+    return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "running", command: started }, command: started };
   }
 
   async inspect(handle: RunHandle): Promise<ExecutionObservation> {
@@ -284,8 +311,14 @@ export class ExeVmBackend implements ExecutionBackend {
   }
 
   async stop(handle: RunHandle): Promise<ExecutionObservation> {
-    const result = await this.deleteVm(this.vm(handle));
-    return { state: result.ok ? "stopped" : "failed", detail: result.ok ? undefined : `VM deletion failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
+    const vm = this.vm(handle);
+    let proxyError: string | undefined;
+    if (handle.runProxyName) {
+      try { await new ExeRunProxy(command => this.api(command)).remove(handle.runProxyName, vm.slice("factorize-".length)); }
+      catch { proxyError = "Run proxy cleanup failed; retry required"; }
+    }
+    const result = await this.deleteVm(vm);
+    return { state: result.ok && !proxyError ? "stopped" : "failed", detail: proxyError ?? (result.ok ? undefined : `VM deletion failed (${result.status}): ${result.body.slice(0, 300)}`), command: result };
   }
 
   private async deleteVm(vm: string): Promise<BackendCommandResult> {

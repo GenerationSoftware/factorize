@@ -2,7 +2,7 @@ import { searchResponse } from "./search-contracts";
 import { integrationStatus, exeConnection, accessToken, createdAccessToken, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
-import { runPageResponse, fullRunResponse } from "./run-read-contracts";
+import { runPageResponse, fullRunResponse, runtimeContextResponse } from "./run-read-contracts";
 import { triggerContextCatalog } from "./trigger-context";
 import type { Env, OAuthProps } from "./types";
 import { canonicalizeVmImage, renameRunSchema, reportRunErrorSchema, vmImageVerificationInput, type JobInput, type ManualInvocationInput } from "./flow-schemas";
@@ -150,6 +150,11 @@ export class ApiService {
     } finally { this.authorizationDuration += performance.now() - started; }
   }
   private async authorizeOwnerSession(scope: Scope): Promise<void> { await this.authorize(scope); if (this.auth.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required."); }
+
+  async getRuntimeContext() {
+    await this.authorize("runs:read");
+    return publicValue(runtimeContextResponse, { kind: "factorize-runtime-context-v1", authMethod: this.auth.authMethod ?? "oauth", runId: this.auth.runId ?? null, jobId: this.auth.runJobId ?? null, scopes: normalizeScopes(this.auth.scopes) });
+  }
 
 
   async listExeConnections() { await this.authorize("integrations:read"); return publicValue(z.array(exeConnection), (await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).status()).exeConnections); }

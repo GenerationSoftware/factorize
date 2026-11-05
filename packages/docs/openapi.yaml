@@ -8255,6 +8255,71 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ManualInvocation"
+  /api/v1/runtime-context:
+    get:
+      summary: Inspect the current runtime identity and scopes
+      description: |-
+        Returns the verified calling identity and effective scopes without credentials. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.
+
+        Requires the runs:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      responses:
+        "200":
+          description: Verified runtime identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    const: factorize-runtime-context-v1
+                  authMethod:
+                    type: string
+                  runId:
+                    type:
+                      - string
+                      - "null"
+                  jobId:
+                    type:
+                      - string
+                      - "null"
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - kind
+                  - authMethod
+                  - runId
+                  - jobId
+                  - scopes
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_runtime_context
+      tags:
+        - runtime-context
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: runs:read
+      x-owner-session-required: false
   /api/v1/jobs/{jobId}/invocation-permissions:
     get:
       summary: List a source job's manual invocation destinations

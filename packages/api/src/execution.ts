@@ -14,12 +14,14 @@ export interface BackendCommandResult {
 export interface LaunchRequest {
   runId: string;
   prompt: string;
+  /** Control-plane only: provisioned into an exe.dev proxy, never the guest. */
+  runProxy?: { targetOrigin: string; credential: string };
   traceSources?: TraceSources;
   harness?: { executable: string; args: string[]; env: Record<string, string> };
 }
 
 /** Opaque to orchestration. Only the backend that created it may interpret id. */
-export interface RunHandle { backendKind: string; id: string; }
+export interface RunHandle { backendKind: string; id: string; runProxyName?: string; }
 
 export interface ExecutionObservation {
   systemd?: import("./harness-diagnostics").ExecutionDiagnostics["systemd"];

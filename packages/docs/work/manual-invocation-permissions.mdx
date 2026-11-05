@@ -7,15 +7,20 @@ Manual invocation permissions are separate from lifecycle subscriptions. Configu
 
 Permissions are tenant-local. A destination may be in another project in the same tenant; graph consumers should render that as a cross-project edge. Existing lifecycle, edited, idle, schedule, and webhook triggers remain independent and do not grant manual invocation.
 
-While an agent or code job is executing on an exe.dev VM, Factorize provides `FACTORIZE_API_URL` and `FACTORIZE_RUN_TOKEN` to its process environment. The token is bound to the actual source job and run, expires after 24 hours, and stops authorizing requests when that run is no longer active. Do not pass a source job or run ID: the service derives both from the credential.
+For each execution VM, Factorize creates an exe.dev HTTP proxy named `fz-run-<run UUID>`. Its credential is installed by the Factorize control plane and held by exe.dev; it is never placed in the guest environment, prompt, or files. The integration is attached only to that VM for at most 24 hours. Discover its URL through `https://reflection.int.exe.xyz/integrations`, using the name supplied in the run instructions. No API URL configuration or client-supplied Authorization header is needed.
+
+The credential is bound to the source job and run, expires after 24 hours, and stops authorizing requests when that run is no longer active. It permits tenant-scoped reads of projects, jobs, runs, safe integration metadata, and skills, plus manually invoking authorized destination jobs. It does not grant configuration writes, permission management, or cancellation. Do not pass a source job or run ID: the service derives both from the credential. `GET /api/v1/runtime-context` (MCP `get_runtime_context`) returns the verified source run/job identity without exposing the credential.
 
 Use the normal manual invocation endpoint, which is also the `invoke_job` MCP tool:
 
 ```sh
-curl --fail-with-body -X POST "$FACTORIZE_API_URL/jobs/DESTINATION_JOB_ID/invocations" \
-  -H "Authorization: Bearer $FACTORIZE_RUN_TOKEN" \
+curl --fail-with-body -X POST 'https://PROXY_HOST_FROM_REFLECTION/api/v1/jobs/DESTINATION_JOB_ID/invocations' \
   -H 'Content-Type: application/json' \
   --data '{"prompt":"Run the authorized follow-up","data":{"key":"value"},"idempotencyKey":"source-run-step-1"}'
 ```
 
 Only explicitly configured destinations may be invoked with a run token. Factorize checks the permission, active source run, destination enabled state, enabled manual trigger, and queue capacity at invocation time. Reuse the same `idempotencyKey` when retrying an uncertain request. Destination run details expose `invocation.source_job_id` and `invocation.source_run_id`; human and external invocations leave these values null.
+
+Before starting the agent, Factorize verifies the run proxy and checks the control-plane attachments of other HTTP proxies targeting the same Factorize origin. Any shared Factorize proxy attached to that VM blocks startup, regardless of its scopes. The dedicated run proxy already provides reads. Keep shared Factorize integrations on operator-only VM attachments. A public API credential with `runs:invoke` still supports ordinary external clients; do not attach that credential to execution VMs. Configure any alternate Factorize hostnames with the same isolation; never attach a broader proxy through an alias.
+
+Proxy removal is part of VM cleanup and is retried after failure. The credential's active-run and expiry checks remain effective even if external cleanup is temporarily unavailable. Installing credentials in a proxy prevents exporting the secret from the VM; it does not prevent an agent from misusing its permitted operations while running. Keep destination permissions narrow.

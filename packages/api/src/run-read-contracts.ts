@@ -1,4 +1,8 @@
 import { z } from "zod";
+export const runtimeContextResponse = z.object({
+  kind: z.literal("factorize-runtime-context-v1"),
+  authMethod: z.string(), runId: z.string().nullable(), jobId: z.string().nullable(), scopes: z.array(z.string()),
+});
 export const executionState = z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped"]);
 export const agentErrorResponse = z.object({ reason: z.string(), reported_at: z.string(), reporter: z.object({ user_id: z.string(), kind: z.enum(["api_key", "oauth", "session"]), id: z.string() }) });
 export const runStatusResponse = z.object({

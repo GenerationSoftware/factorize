@@ -52,6 +52,16 @@ export class RunRepository {
     return result.rows.map(mapped);
   }
 
+  /** Persist cleanup ownership before provisioning any external resources. */
+  async recordLaunchHandle(run: PersistedRun, handle: RunHandle): Promise<void> {
+    const result = await this.database.pool.query(`UPDATE app.runs x SET execution_handle=$3,updated_at=now()
+      WHERE x.tenant_id=$1 AND x.id=$2 AND EXISTS (
+        SELECT 1 FROM app.job_runs r WHERE r.tenant_id=x.tenant_id AND r.id=x.id AND r.state IN ('starting','stopping')
+      ) RETURNING x.id`, [run.tenantId, run.id, handle]);
+    if (!result.rowCount) throw new Error("The run is no longer eligible for provisioning");
+    run.executionHandle = handle;
+  }
+
   async markLaunched(run: PersistedRun, handle: RunHandle, destinationUrl: string, capabilities: readonly string[], traceSources?: TraceSources): Promise<void> {
     await this.database.transaction(async client => {
       const result = await client.query<{ state: ExecutionState }>("UPDATE app.job_runs SET state=CASE WHEN state='stopping' THEN 'stopping' ELSE 'running' END,started_at=COALESCE(started_at,now()),launch_lease_expires_at=NULL,next_poll_at=now()+interval '3 seconds',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','stopping') RETURNING state", [run.tenantId, run.id]);

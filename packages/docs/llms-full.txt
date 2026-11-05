@@ -277,18 +277,23 @@ Manual invocation permissions are separate from lifecycle subscriptions. Configu
 
 Permissions are tenant-local. A destination may be in another project in the same tenant; graph consumers should render that as a cross-project edge. Existing lifecycle, edited, idle, schedule, and webhook triggers remain independent and do not grant manual invocation.
 
-While an agent or code job is executing on an exe.dev VM, Factorize provides `FACTORIZE_API_URL` and `FACTORIZE_RUN_TOKEN` to its process environment. The token is bound to the actual source job and run, expires after 24 hours, and stops authorizing requests when that run is no longer active. Do not pass a source job or run ID: the service derives both from the credential.
+For each execution VM, Factorize creates an exe.dev HTTP proxy named `fz-run-<run UUID>`. Its credential is installed by the Factorize control plane and held by exe.dev; it is never placed in the guest environment, prompt, or files. The integration is attached only to that VM for at most 24 hours. Discover its URL through `https://reflection.int.exe.xyz/integrations`, using the name supplied in the run instructions. No API URL configuration or client-supplied Authorization header is needed.
+
+The credential is bound to the source job and run, expires after 24 hours, and stops authorizing requests when that run is no longer active. It permits tenant-scoped reads of projects, jobs, runs, safe integration metadata, and skills, plus manually invoking authorized destination jobs. It does not grant configuration writes, permission management, or cancellation. Do not pass a source job or run ID: the service derives both from the credential. `GET /api/v1/runtime-context` (MCP `get_runtime_context`) returns the verified source run/job identity without exposing the credential.
 
 Use the normal manual invocation endpoint, which is also the `invoke_job` MCP tool:
 
 ```sh
-curl --fail-with-body -X POST "$FACTORIZE_API_URL/jobs/DESTINATION_JOB_ID/invocations" \
-  -H "Authorization: Bearer $FACTORIZE_RUN_TOKEN" \
+curl --fail-with-body -X POST 'https://PROXY_HOST_FROM_REFLECTION/api/v1/jobs/DESTINATION_JOB_ID/invocations' \
   -H 'Content-Type: application/json' \
   --data '{"prompt":"Run the authorized follow-up","data":{"key":"value"},"idempotencyKey":"source-run-step-1"}'
 ```
 
 Only explicitly configured destinations may be invoked with a run token. Factorize checks the permission, active source run, destination enabled state, enabled manual trigger, and queue capacity at invocation time. Reuse the same `idempotencyKey` when retrying an uncertain request. Destination run details expose `invocation.source_job_id` and `invocation.source_run_id`; human and external invocations leave these values null.
+
+Before starting the agent, Factorize verifies the run proxy and checks the control-plane attachments of other HTTP proxies targeting the same Factorize origin. Any shared Factorize proxy attached to that VM blocks startup, regardless of its scopes. The dedicated run proxy already provides reads. Keep shared Factorize integrations on operator-only VM attachments. A public API credential with `runs:invoke` still supports ordinary external clients; do not attach that credential to execution VMs. Configure any alternate Factorize hostnames with the same isolation; never attach a broader proxy through an alias.
+
+Proxy removal is part of VM cleanup and is retried after failure. The credential's active-run and expiry checks remain effective even if external cleanup is temporarily unavailable. Installing credentials in a proxy prevents exporting the secret from the VM; it does not prevent an agent from misusing its permitted operations while running. Keep destination permissions narrow.
 
 ## Connect your accounts
 Source: https://docs.factorize.sh/integrations/oauth
@@ -297,7 +302,7 @@ Factorize accounts own dashboard identity. Sign up with an email and password, v
 
 | Account | Browser action and required access | Verification |
 | --- | --- | --- |
-| exe.dev | Add an account-level token, test credentials, and save. execution integrations select Codex/Claude/Pi; jobs select VM tags, model, and effort. Needs VM listing/creation/SSH/deletion and tagged repository/model integrations. | Test connection, then `list_execution_configs`; optionally diagnose the saved connection. |
+| exe.dev | Add an account-level token, test credentials, and save. Execution integrations select Codex/Claude/Pi; jobs select VM tags, model, and effort. Needs VM listing/creation/SSH/deletion, per-run proxy management, and tagged repository/model integrations; see [operations](https://docs.factorize.sh/self-hosting/operations). | Test connection, then `list_execution_configs`; optionally diagnose the saved connection. |
 | Amp | Add access token and project; ensure project/model/repository access. | Test and save, then discover the `amp:` target. |
 | Linear | Connect Linear and approve the workspace. Your account must access the selected project and issues; organization policies may require an administrator. | Select project/rules in the browser editor, send one matching event, inspect delivery/run. |
 | ClickUp | Connect ClickUp and approve the intended workspace/team with access to the list/tasks. | Select list/rules, change one matching task and inspect delivery/run. |
@@ -454,6 +459,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `get_run_diagnostics` | runs:read | Required string `runId` |
 | `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
+| `get_runtime_context` | runs:read | `{}`; verified authentication kind, effective scopes, and source run/job IDs, without credentials |
 | `get_job_invocation_permissions` | jobs:read | Required string `jobId` |
 | `set_job_invocation_permissions` | jobs:write (owner session) | Required `jobId` and `destinationJobIds` UUID array |
 | `stop_run` | runs:cancel | Required string `runId` |
@@ -801,3 +807,15 @@ Use the [deployment runbook](https://github.com/GenerationSoftware/factorize/blo
 Trace replay is REST-only and requires an interactive owner session with `runs:write`: `POST /api/v1/runs/{runId}/trace/replay` with a UUID `requestId` and `source` (`primary` or `native_session`). Reuse the request ID after interruption. Limit: ten requests per tenant per minute. Results distinguish projected, already projected, skipped and unrecoverable. Replay preserves artifacts; expired/deleted bytes cannot be recovered. Historical Codex tool calls require retained native session bytes.
 
 Cloudflare Tail infrastructure is optional: use the [Tail relay deployment guide](https://github.com/GenerationSoftware/factorize/blob/main/docs/cloudflare-tail.md). Hosted users still supply their own source Worker/relay integration.
+
+## Per-run exe.dev proxies
+
+The account-level exe.dev token used by the Worker must allow `ls`, `new`, `ssh`, `rm`, `integrations list`, `integrations add`, `integrations edit`, `integrations attach`, and `integrations remove`. Test the saved connection in Settings; a missing permission must be fixed before launching jobs. The agent VM never receives this account token or its run-proxy bearer credential.
+
+Keep shared Factorize integrations on operator-only attachments, such as a dedicated `human` tag that is never selected for jobs. Do not attach shared Factorize proxies to execution VMs, even when currently read-only, and do not use `auto:all`. Legacy `runs:write` expands to `runs:invoke` and is therefore not read-only. Provisioning checks the control-plane attachments for the configured Factorize origin and fails closed on shared access. Apply the same isolation to any alternate Factorize hostname or proxy alias.
+
+Each run creates a marked `fz-run-<UUID>` HTTP proxy targeting the Worker HTTPS origin, attaches it to that exact VM with `--for=24h`, and discovers it through Reflection. The first proxy preflight requires the deployed `/api/v1/runtime-context` operation. Deploy the API and scheduler together, then check the saved exe.dev token permissions and run a canary before resuming normal dispatch.
+
+Migration `0027_run_proxy_delivery.sql` distinguishes proxy-issued credentials from legacy credentials placed in VM environments. At the code cutover, legacy credentials stop authenticating; they never gain the proxy's read scopes. In-flight legacy agents can still write their result files, but must be restarted if they need Factorize API access. Rollback to the pre-proxy code restores the legacy credential behavior, so review that security implication before rolling back.
+
+Cleanup checks the integration's run ownership marker before removal and retries failures. The scheduler persists its execution handle before external provisioning, so interrupted and partial launches retain cleanup ownership when their launch lease is recovered. Inspect failed cleanup before removing a marked integration manually; never delete an unrelated name collision. VM attachments and credentials expire after at most 24 hours even when external cleanup is unavailable.

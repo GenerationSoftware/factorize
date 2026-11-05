@@ -5,7 +5,7 @@ import { artifactKey } from "../artifacts";
 import { ArtifactRepository } from "./artifact-repository";
 import { safeDiagnosticText } from "../harness-diagnostics";
 import { decrypt } from "../crypto";
-import { ExeVmBackend } from "../exe-vm-backend";
+import { ExeVmBackend, vmNameFor } from "../exe-vm-backend";
 import type { ExeRunConnection } from "../exe";
 import type { Env } from "../types";
 import { ConnectionRepository } from "./connection-repository";
@@ -18,7 +18,7 @@ import { rolloutTraceSources } from "../trace-source";
 import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./trace-projection-repository";
 import { LiveTraceRepository } from "./live-trace-repository";
 import { JOB_RESULT_INSTRUCTIONS, parseJobResult } from "../job-result";
-import { issueRunCredential } from "../run-credentials";
+import { issueRunCredential, runProxyInstructions, runProxyName } from "../run-credentials";
 
 export class RunScheduler {
   private runs: RunRepository;
@@ -45,9 +45,9 @@ export class RunScheduler {
     const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
     validateTraceSources(sources);
     const runToken = await issueRunCredential(this.env, run.tenantId, run.id);
-    Object.assign(harness.env, { FACTORIZE_API_URL: `${this.env.APP_ORIGIN}/api/v1`, FACTORIZE_RUN_TOKEN: runToken });
     const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    const launched = await backend.launch({ runId: run.id, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}`, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
+    await this.runs.recordLaunchHandle(run, { backendKind: backend.kind, id: vmNameFor(run.id), runProxyName: runProxyName(run.id) });
+    const launched = await backend.launch({ runId: run.id, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runProxyInstructions(run.id)}`, runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
     if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
   }
@@ -218,6 +218,11 @@ export class RunScheduler {
       return;
     }
     await this.runs.recordObservation(run, { state: "failed", detail: safeDiagnosticText(error instanceof Error ? error.message : "Run processing failed") });
+    if (run.executionHandle) {
+      if (run.state === "starting" || run.state === "stopping") await this.runs.markLaunched(run, run.executionHandle, `https://${run.executionHandle.id}.exe.xyz/`, run.capabilities ?? [], run.traceSources ?? undefined);
+      await this.runs.schedulePoll(run, run.state === "stopping" ? "stopping" : "running");
+      return;
+    }
     await this.runs.terminal(run, "failed", "failed");
   }
 }

@@ -3,7 +3,7 @@ import { searchResponse } from "./search-contracts";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
 import { exeConnection, integrationStatus, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
 import { triggerAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
-import { runSummaryResponse, runPageResponse, runStatusResponse, fullRunResponse, revisionTracePage, revisionTraceQuery } from "./run-read-contracts";
+import { runSummaryResponse, runPageResponse, runStatusResponse, fullRunResponse, revisionTracePage, revisionTraceQuery, runtimeContextResponse } from "./run-read-contracts";
 import { jobPageQuery, jobSummaryPage, jobSelectorPage, jobResponse, jobUpdateInput } from "./job-contracts";
 import { projectInput, projectListQuery, projectResponse } from "./project-contracts";
 import { z } from "zod";
@@ -744,6 +744,11 @@ export const API_ROUTES: RouteContract[] = [
     (service, { params, body }) => service.invokeJob(params.jobId, body),
     { body: manualInvocationSchema },
   ),
+  route("GET", "/api/v1/runtime-context", "runs:read", {
+    summary: "Inspect the current runtime identity and scopes",
+    description: "Returns the verified calling identity and effective scopes without credentials. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.",
+    responses: { "200": { description: "Verified runtime identity", content: { "application/json": { schema: jsonSchema(runtimeContextResponse, "output") } } } } },
+  service => service.getRuntimeContext()),
   route("GET", "/api/v1/jobs/{jobId}/invocation-permissions", "jobs:read", { summary: "List a source job's manual invocation destinations", responses: { "200": { description: "Configured tenant-local destination jobs", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params }) => service.getInvocationPermissions(params.jobId)),
   route("PUT", "/api/v1/jobs/{jobId}/invocation-permissions", "jobs:write", { summary: "Replace a source job's manual invocation destinations", description: "Owner session only. Destinations must exist in the same tenant. Lifecycle subscriptions do not create permissions.", responses: { "200": { description: "Saved manual invocation permissions", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params, body }) => service.setInvocationPermissions(params.jobId, body.destinationJobIds), { body: invocationPermissionsInput, ownerSession: true }),
   route(

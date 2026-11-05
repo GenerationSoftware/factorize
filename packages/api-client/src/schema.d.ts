@@ -1278,6 +1278,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runtime-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect the current runtime identity and scopes
+         * @description Returns the verified calling identity and effective scopes without credentials. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.
+         *
+         *     Requires the runs:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_runtime_context"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs/{jobId}/invocation-permissions": {
         parameters: {
             query?: never;
@@ -5569,6 +5593,41 @@ export interface operations {
             /** @description queue_full — all execution slots are reserved or occupied and one waiting run already exists. Duplicate idempotency keys return the original run. */
             409: components["responses"]["Error409"];
             415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_runtime_context: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verified runtime identity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        kind: "factorize-runtime-context-v1";
+                        authMethod: string;
+                        runId: string | null;
+                        jobId: string | null;
+                        scopes: string[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
