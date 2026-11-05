@@ -1030,6 +1030,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{projectId}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a project's workflow graph
+         * @description Returns every job in the project and configured lifecycle, idle, manual invocation permission, and external webhook source connections. Connections are derived from executable trigger configuration and current permission grants. Only safe webhook provider and resource metadata is returned.
+         *
+         *     Requires the projects:read scope.
+         *
+         *     Accepts a scoped bearer token or interactive owner session.
+         */
+        get: operations["get_api_v1_projects_projectId_graph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/skills": {
         parameters: {
             query?: never;
@@ -4541,6 +4565,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_projects_projectId_graph: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Complete project graph */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        nodes: {
+                            id: string;
+                            /** @enum {string} */
+                            type: "job" | "webhook";
+                            label: string;
+                            /** @enum {string} */
+                            jobKind?: "Agent" | "Code";
+                            enabled?: boolean;
+                            provider?: string;
+                            resource?: string;
+                        }[];
+                        edges: {
+                            id: string;
+                            source: string;
+                            target: string;
+                            label: string;
+                            /** @enum {string} */
+                            kind: "lifecycle" | "idle" | "manual" | "webhook";
+                            enabled: boolean;
+                        }[];
+                    };
                 };
             };
             400: components["responses"]["Error400"];

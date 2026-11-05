@@ -258,6 +258,36 @@ export class ApiService {
   async getJob(jobId: string) { await this.authorize("jobs:read"); const job = await this.jobs().getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found"); return this.presentJob(job); }
   async listProjects(options?: { limit?: number; sort?: "name" | "updated" }) { await this.authorize("projects:read"); return this.projects().list(options); }
   async getProject(projectId: string) { await this.authorize("projects:read"); const project = await this.projects().get(projectId); if (!project) throw new ServiceError(404, "not_found", "Project not found"); return project; }
+  async getProjectGraph(projectId: string) {
+    await this.authorize("projects:read");
+    if (!await this.projects().get(projectId)) throw new ServiceError(404, "not_found", "Project not found");
+    const db = databaseFor(this.env), tenantId = this.auth.tenantId;
+    const jobs = await db.pool.query<any>(`SELECT j.id,j.name,j.enabled,j.execution_config,
+      COALESCE(jsonb_agg(jsonb_build_object('id',t.id,'kind',t.kind,'enabled',t.enabled,'config',CASE
+        WHEN t.kind='jobLifecycle' THEN jsonb_build_object('sourceJobIds',t.config->'sourceJobIds','sourceJobId',t.config->'sourceJobId','states',t.config->'states')
+        WHEN t.kind='jobIdle' THEN jsonb_build_object('sourceJobIds',t.config->'sourceJobIds')
+        WHEN t.kind='webhook' THEN jsonb_build_object('provider',t.config->>'provider','projectId',t.config->>'projectId','listId',t.config->>'listId','repositoryId',t.config->>'repositoryId','event',t.config->>'event','integrationId',t.config->>'integrationId')
+        ELSE '{}'::jsonb END) ORDER BY t.position,t.id) FILTER (WHERE t.id IS NOT NULL),'[]'::jsonb) triggers
+      FROM app.jobs j LEFT JOIN app.triggers t ON t.tenant_id=j.tenant_id AND t.job_id=j.id AND t.removed_at IS NULL
+      WHERE j.tenant_id=$1 AND j.project_id=$2 GROUP BY j.tenant_id,j.id ORDER BY j.id`, [tenantId, projectId]);
+    const ids = new Set<string>(jobs.rows.map(row => row.id));
+    const nodes: any[] = jobs.rows.map(row => ({ id: row.id, type: "job", label: row.name, jobKind: row.execution_config?.executionType === "code" ? "Code" : "Agent", enabled: row.enabled }));
+    const edges: any[] = [];
+    for (const job of jobs.rows) for (const trigger of job.triggers) {
+      if (trigger.kind === "jobLifecycle") for (const source of trigger.config?.sourceJobIds ?? (trigger.config?.sourceJobId ? [trigger.config.sourceJobId] : [])) if (ids.has(source)) edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: (trigger.config?.states ?? []).map((state: string) => state === "succeeded" ? "Succeeded" : state === "failed" ? "Failed" : state === "stopped" ? "Stopped" : "Edited").join(", "), kind: "lifecycle", enabled: Boolean(job.enabled && trigger.enabled) });
+      if (trigger.kind === "jobIdle") for (const source of trigger.config?.sourceJobIds ?? []) if (ids.has(source)) edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: "Idle", kind: "idle", enabled: Boolean(job.enabled && trigger.enabled) });
+      if (trigger.kind === "webhook") {
+        const config = trigger.config ?? {}, provider = String(config.provider ?? "webhook").slice(0, 50);
+        const resource = (provider === "linear" ? String(config.projectId ?? "Project") : provider === "clickup" ? String(config.listId ?? "List") : provider === "github" ? String(config.repositoryId ? `Repository ${config.repositoryId}` : config.event ?? "Repository") : provider === "cloudflareTail" ? "Tail" : "External source").slice(0, 120);
+        const source = `webhook:${provider}:${resource}`;
+        if (!nodes.some(node => node.id === source)) nodes.push({ id: source, type: "webhook", label: `${provider} · ${resource}`, provider, resource });
+        edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: `${provider} · ${resource}`, kind: "webhook", enabled: Boolean(job.enabled && trigger.enabled) });
+      }
+    }
+    const grants = await db.pool.query<any>(`SELECT p.source_job_id,p.destination_job_id FROM app.manual_invocation_permissions p JOIN app.jobs s ON s.tenant_id=p.tenant_id AND s.id=p.source_job_id JOIN app.jobs d ON d.tenant_id=p.tenant_id AND d.id=p.destination_job_id WHERE p.tenant_id=$1 AND s.project_id=$2 AND d.project_id=$2 ORDER BY p.source_job_id,p.destination_job_id`, [tenantId, projectId]);
+    for (const grant of grants.rows) edges.push({ id: `manual:${grant.source_job_id}:${grant.destination_job_id}`, source: grant.source_job_id, target: grant.destination_job_id, label: "Manual", kind: "manual", enabled: Boolean(jobs.rows.find(row => row.id === grant.source_job_id)?.enabled && jobs.rows.find(row => row.id === grant.destination_job_id)?.enabled) });
+    return { nodes, edges };
+  }
   async createProject(input: { name: string; description?: string }) { await this.authorize("projects:write"); try { return await this.projects().create(input.name, input.description); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "A project with this name already exists"); throw error; } }
   async updateProject(projectId: string, input: { name: string; description?: string }) { await this.authorize("projects:write"); const result = await this.projects().update(projectId, input.name, input.description); if (!result) throw new ServiceError(404, "not_found", "Project not found"); return result; }
   async deleteProject(projectId: string) { await this.authorize("projects:write"); const result = await this.projects().remove(projectId); if (result === "missing") throw new ServiceError(404, "not_found", "Project not found"); if (result === "nonempty") throw new ServiceError(409, "conflict", "Move or delete the project's jobs before deleting it"); return { id: projectId, deleted: true }; }

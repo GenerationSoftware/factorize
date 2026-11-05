@@ -5706,6 +5706,118 @@ paths:
           schema:
             type: string
             minLength: 1
+  /api/v1/projects/{projectId}/graph:
+    get:
+      summary: Get a project's workflow graph
+      description: |-
+        Returns every job in the project and configured lifecycle, idle, manual invocation permission, and external webhook source connections. Connections are derived from executable trigger configuration and current permission grants. Only safe webhook provider and resource metadata is returned.
+
+        Requires the projects:read scope.
+
+        Accepts a scoped bearer token or interactive owner session.
+      responses:
+        "200":
+          description: Complete project graph
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                          enum:
+                            - job
+                            - webhook
+                        label:
+                          type: string
+                        jobKind:
+                          type: string
+                          enum:
+                            - Agent
+                            - Code
+                        enabled:
+                          type: boolean
+                        provider:
+                          type: string
+                        resource:
+                          type: string
+                      required:
+                        - id
+                        - type
+                        - label
+                      additionalProperties: false
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        source:
+                          type: string
+                        target:
+                          type: string
+                        label:
+                          type: string
+                        kind:
+                          type: string
+                          enum:
+                            - lifecycle
+                            - idle
+                            - manual
+                            - webhook
+                        enabled:
+                          type: boolean
+                      required:
+                        - id
+                        - source
+                        - target
+                        - label
+                        - kind
+                        - enabled
+                      additionalProperties: false
+                required:
+                  - nodes
+                  - edges
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_projects_projectId_graph
+      tags:
+        - projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: projects:read
+      x-owner-session-required: false
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
   /api/v1/skills:
     get:
       summary: Search global skills
