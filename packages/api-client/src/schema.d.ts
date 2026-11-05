@@ -2060,6 +2060,8 @@ export interface components {
                 occurrence: {
                     [key: string]: unknown;
                 } | null;
+                source_job_id: string | null;
+                source_run_id: string | null;
                 created_at: string;
             };
             invocation_source: string;
