@@ -1318,11 +1318,11 @@ export interface paths {
         get: operations["get_api_v1_jobs_jobId_invocation_permissions"];
         /**
          * Replace a source job's manual invocation destinations
-         * @description Owner session only. Destinations must exist in the same tenant. Lifecycle subscriptions do not create permissions.
+         * @description Requires an owner session, scoped API key, or authorized OAuth client with jobs:write. Destinations must exist in the same tenant. Lifecycle subscriptions do not create permissions.
          *
          *     Requires the jobs:write scope.
          *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         *     Accepts a scoped bearer token or interactive owner session.
          */
         put: operations["put_api_v1_jobs_jobId_invocation_permissions"];
         post?: never;

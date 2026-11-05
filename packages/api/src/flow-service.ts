@@ -361,7 +361,10 @@ export class ApiService {
     return publicValue(invocationPermissionsResponse, { sourceJobId, destinationJobIds: rows.rows.map(row => row.destination_job_id) });
   }
   async setInvocationPermissions(sourceJobId: string, destinationJobIds: string[]) {
-    await this.authorizeOwnerSession("jobs:write");
+    await this.authorize("jobs:write");
+    // Run credentials intentionally have a read/invoke-only scope set. Keep this
+    // service guard as defense in depth if a future run credential gains scopes.
+    if (this.auth.authMethod === "run_token") throw new ServiceError(403, "insufficient_scope", "Run credentials cannot change invocation permissions.");
     const unique = [...new Set(destinationJobIds)];
     if (unique.length !== destinationJobIds.length || unique.includes(sourceJobId)) throw new ServiceError(400, "invalid_request", "Destination jobs must be unique and cannot include the source job.");
     const db = databaseFor(this.env);
