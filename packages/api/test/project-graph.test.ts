@@ -10,8 +10,8 @@ describe("project graph", () => {
   const source = "00000000-0000-4000-8000-000000000003", destination = "00000000-0000-4000-8000-000000000004", other = "00000000-0000-4000-8000-000000000005";
   it("returns every project job and derives stable configured edges without secret config", async () => {
     const jobs = [
-      { id: source, name: "Build", enabled: true, execution_config: { agentKind: "codex" }, triggers: [] },
-      { id: destination, name: "Deploy", enabled: false, execution_config: { executionType: "code", agentKind: "codex" }, triggers: [
+      { id: source, name: "Build", enabled: true, concurrency_limit: 4, running_count: 2, execution_config: { agentKind: "codex" }, triggers: [] },
+      { id: destination, name: "Deploy", enabled: false, concurrency_limit: 1, running_count: 0, execution_config: { executionType: "code", agentKind: "codex" }, triggers: [
         { id: "lifecycle", kind: "jobLifecycle", enabled: true, config: { sourceJobIds: [source, other], states: ["failed", "stopped", "edited"] } },
         { id: "idle", kind: "jobIdle", enabled: false, config: { sourceJobIds: [source] } },
         { id: "manual", kind: "manual", enabled: true, config: {} },
@@ -31,7 +31,8 @@ describe("project graph", () => {
     const graph = await service.getProjectGraph(projectId);
     expect(projectGraphResponse.safeParse(graph).success).toBe(true);
     expect(graph.nodes).toHaveLength(3);
-    expect(graph.nodes.find(node => node.id === destination)).toMatchObject({ jobKind: "Code", enabled: false });
+    expect(graph.nodes.find(node => node.id === destination)).toMatchObject({ jobKind: "Code", enabled: false, runningCount: 0, concurrencyLimit: 1 });
+    expect(graph.nodes.find(node => node.id === source)).toMatchObject({ runningCount: 2, concurrencyLimit: 4 });
     expect(graph.edges.map(edge => [edge.kind, edge.label, edge.enabled])).toEqual([
       ["lifecycle", "Failed, Stopped, Edited", false], ["idle", "Idle", false],
       ["webhook", "github · Repository 42", false], ["manual", "Manual", false],

@@ -266,7 +266,8 @@ export class ApiService {
     await this.authorize("projects:read");
     if (!await this.projects().get(projectId)) throw new ServiceError(404, "not_found", "Project not found");
     const db = databaseFor(this.env), tenantId = this.auth.tenantId;
-    const jobs = await db.pool.query<any>(`SELECT j.id,j.name,j.enabled,j.execution_config,
+    const jobs = await db.pool.query<any>(`SELECT j.id,j.name,j.enabled,j.execution_config,j.concurrency_limit,
+      (SELECT count(*)::int FROM app.job_runs r WHERE r.tenant_id=j.tenant_id AND r.job_id=j.id AND r.state IN ('reserved','starting','running','blocked','stopping')) running_count,
       COALESCE(jsonb_agg(jsonb_build_object('id',t.id,'kind',t.kind,'enabled',t.enabled,'config',CASE
         WHEN t.kind='jobLifecycle' THEN jsonb_build_object('sourceJobIds',t.config->'sourceJobIds','sourceJobId',t.config->'sourceJobId','states',t.config->'states')
         WHEN t.kind='jobIdle' THEN jsonb_build_object('sourceJobIds',t.config->'sourceJobIds')
@@ -275,7 +276,7 @@ export class ApiService {
       FROM app.jobs j LEFT JOIN app.triggers t ON t.tenant_id=j.tenant_id AND t.job_id=j.id AND t.removed_at IS NULL
       WHERE j.tenant_id=$1 AND j.project_id=$2 GROUP BY j.tenant_id,j.id ORDER BY j.id`, [tenantId, projectId]);
     const ids = new Set<string>(jobs.rows.map(row => row.id));
-    const nodes: any[] = jobs.rows.map(row => ({ id: row.id, type: "job", label: row.name, jobKind: row.execution_config?.executionType === "code" ? "Code" : "Agent", enabled: row.enabled }));
+    const nodes: any[] = jobs.rows.map(row => ({ id: row.id, type: "job", label: row.name, jobKind: row.execution_config?.executionType === "code" ? "Code" : "Agent", enabled: row.enabled, runningCount: Number(row.running_count ?? 0), concurrencyLimit: row.concurrency_limit }));
     const edges: any[] = [];
     for (const job of jobs.rows) for (const trigger of job.triggers) {
       if (trigger.kind === "jobLifecycle") for (const source of trigger.config?.sourceJobIds ?? (trigger.config?.sourceJobId ? [trigger.config.sourceJobId] : [])) if (ids.has(source)) edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: (trigger.config?.states ?? []).map((state: string) => state === "succeeded" ? "Succeeded" : state === "failed" ? "Failed" : state === "stopped" ? "Stopped" : "Edited").join(", "), kind: "lifecycle", enabled: Boolean(job.enabled && trigger.enabled) });

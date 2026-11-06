@@ -4623,6 +4623,8 @@ export interface operations {
                             /** @enum {string} */
                             jobKind?: "Agent" | "Code";
                             enabled?: boolean;
+                            runningCount?: number;
+                            concurrencyLimit?: number;
                             provider?: string;
                             resource?: string;
                         }[];
