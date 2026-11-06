@@ -90,7 +90,7 @@ test("project graph preserves disabled and multiple connections and navigates to
     ], edges: [
       { id: "lifecycle-a", source: jobId, target: secondJob, label: "Failed, Stopped", kind: "lifecycle", enabled: false },
       { id: "idle-a", source: jobId, target: secondJob, label: "Idle", kind: "idle", enabled: false },
-      { id: "manual-a", source: jobId, target: secondJob, label: "Manual", kind: "manual", enabled: false },
+      { id: "manual-a", source: secondJob, target: jobId, label: "Manual", kind: "manual", enabled: false },
       { id: "lifecycle-reverse", source: secondJob, target: jobId, label: "Succeeded", kind: "lifecycle", enabled: true },
     ],
   } }));
@@ -104,7 +104,15 @@ test("project graph preserves disabled and multiple connections and navigates to
   assert.equal(await page.getByRole("button", { name: /connection, 4 triggers/ }).count(), 1);
   assert.equal(await combined.locator("path").getAttribute("marker-start"), "url(#graph-arrow-start)");
   assert.equal(await combined.locator("path").getAttribute("marker-end"), "url(#graph-arrow)");
-  await page.getByRole("link", { name: "Code: Deploy, disabled" }).click();
+  assert.equal(await page.getByRole("link", { name: "Deploy, disabled, not running" }).count(), 1);
+  const svg = page.getByRole("img", { name: /2 jobs and 4 connections/ });
+  const svgBox = await svg.boundingBox();
+  await page.mouse.move(svgBox.x + svgBox.width / 2, svgBox.y + svgBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(svgBox.x + svgBox.width / 2 + 25, svgBox.y + svgBox.height / 2 + 20);
+  await page.mouse.up();
+  assert.match(await svg.locator(":scope > g").getAttribute("transform"), /^translate\(25 20\) scale\(1\)$/);
+  await page.getByRole("link", { name: "Deploy, disabled, not running" }).click();
   await page.waitForURL(new RegExp(`/jobs/${secondJob}`));
   await context.close();
 });
