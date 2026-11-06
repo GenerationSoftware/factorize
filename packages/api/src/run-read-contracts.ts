@@ -4,7 +4,7 @@ export const runtimeContextResponse = z.object({
   authMethod: z.string(), runId: z.string().nullable(), jobId: z.string().nullable(), scopes: z.array(z.string()),
 });
 export const executionState = z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped"]);
-export const agentErrorResponse = z.object({ reason: z.string(), reported_at: z.string(), reporter: z.object({ user_id: z.string(), kind: z.enum(["api_key", "oauth", "session"]), id: z.string() }) });
+export const agentErrorResponse = z.object({ reason: z.string(), reported_at: z.string(), reporter: z.object({ user_id: z.string(), kind: z.enum(["api_key", "oauth", "session", "run_token"]), id: z.string() }) });
 export const runStatusResponse = z.object({
   id: z.string(), job_id: z.string(), project_id: z.string().optional(), project_name: z.string().optional(), state: executionState,
   execution_type: z.enum(["agent", "code"]).default("agent"),

@@ -18,7 +18,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `list_jobs` | jobs:read | `{}` |
 | `get_job` | jobs:read | Required string `jobId` |
 | `create_job` | jobs:write | Required `name`, `slug`, `promptTemplate`, `executionConfigId`; job fields below |
-| `update_job` | jobs:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` |
+| `update_job` | jobs:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` and `runScopes` |
 | `delete_job` | jobs:write | Required string `jobId`; deletion removes execution history/artifacts |
 | `enable_job` | jobs:write | Required string `jobId` |
 | `disable_job` | jobs:write | Required string `jobId` |
@@ -27,14 +27,14 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `create_project` | projects:write | Required `name`; optional `description` |
 | `update_project` | projects:write | Required `projectId` and `name`; optional `description` |
 | `delete_project` | projects:write | Required string `projectId` |
-| `move_job` | projects:write | Required `jobId` and destination `projectId`; optional `expectedUpdatedAt` |
+| `move_job` | projects:write | Required `jobId` and destination `projectId`; optional `expectedUpdatedAt` and `runScopes` |
 | `list_runs` | runs:read | Optional `jobId`, `state`, `contextQuery`, `limit`, `cursor` |
 | `get_run` | runs:read | Required string `runId` |
 | `rename_run` | runs:write | Required `runId` and `name`; optional `expectedName` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
 | `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
-| `get_runtime_context` | runs:read | `{}`; verified authentication kind, effective scopes, and source run/job IDs, without credentials |
+| `get_runtime_context` | Authenticated identity | `{}`; verified authentication kind, effective scopes, and source run/job IDs, without credentials |
 | `get_job_invocation_permissions` | jobs:read | Required string `jobId` |
 | `set_job_invocation_permissions` | jobs:write | Required `jobId` and `destinationJobIds` UUID array; owner session, scoped API key, or authorized OAuth client |
 | `stop_run` | runs:cancel | Required string `runId` |
@@ -180,3 +180,5 @@ Current `get_run` does not include `output`, trace message contents or a client-
 Tool errors are `code: message`. `invalid_token` needs reauthorization; `insufficient_scope` needs the listed scope; `invalid_request` needs corrected input; `not_found` means the ID is absent from the authorized workspace; `stale_job` needs refetch/reapply; `conflict` needs an unused job slug; `queue_full` needs capacity; `operation_failed` needs state/diagnostic inspection. Do not repeatedly retry a write with new identifiers after a lost response.
 
 MCP is a selected tool surface, **not full REST parity**. Signup, verification, integration credential management, authorized-client management, provider resource selection, schedule preview, specialized run status/trace pagination and retained-artifact replay have no corresponding tools in this inventory. Some REST operations require an interactive owner session rather than delegated tokens. Use the browser for setup/resource selection and [REST reference](/api/reference) for exact routes, restrictions and schemas. MCP cannot pass your conversational client's credentials to the execution agent.
+
+Job creation and updates accept optional `runScopes`, an array of Factorize API scope names. Omitting it on update preserves the current policy; an explicit empty array grants no application scopes to future runs. Jobs granted `jobs:write` can configure this field too. See [run permissions](/work/manual-invocation-permissions) for defaults and credential snapshot semantics.

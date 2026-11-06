@@ -67,6 +67,27 @@ test("All runs complete source jobs stay within the edited job project during se
   assert.equal(projectA, current.projectId); assert.notEqual(projectA, projectB);
   await context.close();
 });
+test("run permission scopes autosave and survive reload", async () => {
+  const { context, page } = await setup();
+  let current = { ...structuredClone(initial), runScopes: ["jobs:read", "runs:read"] }, saved;
+  await page.route(`**/api/v1/jobs/${id}`, route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: current });
+    saved = route.request().postDataJSON();
+    current = { ...current, ...saved, updatedAt: "2026-11-06T00:00:00.000Z" };
+    return route.fulfill({ json: current });
+  });
+  await page.goto(origin + `/jobs/${id}/edit`);
+  await page.getByRole("checkbox", { name: "Run scope jobs:write", exact: true }).check();
+  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
+  assert.deepEqual(saved.runScopes, ["jobs:read", "runs:read", "jobs:write"]);
+  await page.reload();
+  assert.equal(await page.getByRole("checkbox", { name: "Run scope jobs:write", exact: true }).isChecked(), true);
+  assert.equal(await page.getByRole("checkbox", { name: "Run scope integrations:write", exact: true }).isChecked(), false);
+  await page.getByRole("checkbox", { name: "Run scope jobs:write", exact: true }).uncheck();
+  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
+  assert.deepEqual(saved.runScopes, ["jobs:read", "runs:read"]);
+  await context.close();
+});
 test("manual invocation permissions include the current job and tenant jobs from other projects", async () => {
   const { context, page } = await setup();
   const projectA = "00000000-0000-4000-8000-000000000020", destination = "00000000-0000-4000-8000-000000000024";
@@ -95,7 +116,7 @@ test("create uses bounded lifecycle selector, lazy provider reads, schedule prev
   await page.route("**/api/v1/schedules/preview", route => route.fulfill({ json: { nextRunAt: "2026-10-09T14:00:00.000Z" } }));
   await page.route("**/api/v1/jobs", route => { body = route.request().postDataJSON(); return route.fulfill({ status: 201, json: { ...initial, ...body } }); });
   await page.route(`**/api/v1/jobs/${id}`, route => route.fulfill({ json: initial }));
-  await page.goto(origin + "/jobs/new"); await page.getByLabel("Name", { exact: true }).fill("Created job"); await page.getByLabel("Slug", { exact: true }).fill("created-job"); await page.getByLabel("Integration").selectOption("vm"); await page.getByLabel("Prompt template", { exact: true }).fill("Do work");
+  await page.goto(origin + "/jobs/new"); await page.getByLabel("Name", { exact: true }).fill("Created job"); await page.getByLabel("Slug", { exact: true }).fill("created-job"); await page.getByRole("combobox", { name: /^Integration/ }).selectOption("vm"); await page.getByLabel("Prompt template", { exact: true }).fill("Do work");
   await page.getByRole("button", { name: "Add trigger" }).click(); await page.getByRole("button", { name: "Preview schedule" }).click(); await page.getByText("Next run: 2026-10-09T14:00:00.000Z").waitFor();
   await page.getByLabel("New trigger kind").selectOption("jobLifecycle"); await page.getByRole("button", { name: "Add trigger" }).click(); await page.getByLabel("Search source jobs").fill("Source"); await page.getByLabel("Source", { exact: true }).check();
   assert.equal(providerReads, 0); assert.ok(selectors.every(url => url.searchParams.get("limit") === "30"));

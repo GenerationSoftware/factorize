@@ -160,6 +160,7 @@ function route(
 // Legacy route labels are translated by resource and effect; they are never
 // accepted as newly issued scopes.
 function scopeForRoute(path: string, legacy: string): string | string[] {
+  if (path === "/api/v1/runtime-context") return [];
   if (legacy === "runs:write" && path.endsWith("/report-error")) return "runs:write";
   if (legacy === "runs:write" && path === "/api/v1/runs/{runId}" ) return "runs:write";
   if (legacy === "runs:read" && path === "/api/v1/search") return "jobs:read+runs:read";
@@ -748,7 +749,7 @@ export const API_ROUTES: RouteContract[] = [
   ),
   route("GET", "/api/v1/runtime-context", "runs:read", {
     summary: "Inspect the current runtime identity and scopes",
-    description: "Returns the verified calling identity and effective scopes without credentials. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.",
+    description: "Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.",
     responses: { "200": { description: "Verified runtime identity", content: { "application/json": { schema: jsonSchema(runtimeContextResponse, "output") } } } } },
   service => service.getRuntimeContext()),
   route("GET", "/api/v1/jobs/{jobId}/invocation-permissions", "jobs:read", { summary: "List a source job's manual invocation destinations", responses: { "200": { description: "Configured tenant-local destination jobs", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params }) => service.getInvocationPermissions(params.jobId)),
@@ -1168,7 +1169,7 @@ export function generateOpenApi() {
       ...route.documentation,
       description: [
         route.documentation.description,
-        route.authOperation ? undefined : `Requires the ${Array.isArray(route.scope) ? route.scope.join(" and ") : route.scope.replaceAll("+", " and ")} scope${Array.isArray(route.scope) || route.scope.includes("+") ? "s" : ""}.`,
+        route.authOperation || (Array.isArray(route.scope) && route.scope.length === 0) ? undefined : `Requires the ${Array.isArray(route.scope) ? route.scope.join(" and ") : route.scope.replaceAll("+", " and ")} scope${Array.isArray(route.scope) || route.scope.includes("+") ? "s" : ""}.`,
         route.authOperation ? undefined : route.ownerSession
           ? "An interactive owner session is required; bearer tokens cannot call this operation."
           : "Accepts a scoped bearer token or interactive owner session.",

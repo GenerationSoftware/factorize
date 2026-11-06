@@ -109,6 +109,12 @@ describe("exe.dev run proxy lifecycle", () => {
     await expect(proxy.verify(vm, runId, target, ["factorize"])).resolves.toBeUndefined();
   });
 
+  it.each([{ scopes: [] }, { scopes: ["jobs:write"] }])("verifies a dedicated proxy without requiring read or invoke scopes ($scopes)", async ({ scopes }) => {
+    const proxy = new ExeRunProxy(async command => command === "integrations list --json" ? result([owned])
+      : command.includes("reflection.int.exe.xyz") ? result({ integrations: [owned] }) : result({ ...context, scopes }));
+    await expect(proxy.verify(vm, runId, target)).resolves.toBeUndefined();
+  });
+
   it("rejects a run proxy with attachments to other VMs", async () => {
     const proxy = new ExeRunProxy(async () => result([{ ...owned, attachments: [`vm:${vm}`, "auto:all"] }]));
     await expect(proxy.verify(vm, runId, target)).rejects.toThrow("attached only to its execution VM");

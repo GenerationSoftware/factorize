@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { jobInputSchema, triggerSchema, webhookTriggerConfigSchema } from "./flow-schemas";
+import { jobInputSchema, scopeSchema, triggerSchema, webhookTriggerConfigSchema } from "./flow-schemas";
 
 export const jobPageQuery = z.object({
   projectId: z.guid().optional(),
@@ -37,6 +37,7 @@ export const jobResponse = z.object({
   id: z.guid(), projectId: z.guid().optional(), name: z.string(), slug: z.string(), enabled: z.boolean(),
   executionType: z.enum(["agent", "code"]).optional(), promptTemplate: z.string(), script: z.string().optional(), runNameTemplate: z.string(), tags: z.array(z.string()).optional(), model: z.string(), effort: z.string().optional(),
   executionConfig: z.object({ connectionId: z.string(), workspace: z.string().optional(), cwd: z.string().optional(), agentKind: z.string(), image: z.string().optional(), executionType: z.enum(["agent", "code"]).optional(), script: z.string().optional() }),
+  runScopes: z.array(scopeSchema),
   executionConfigId: z.string(), agentKind: z.string(), concurrencyLimit: z.number().int(),
   runningCount: z.number().int(), currentRuns: z.number().int(), maxConcurrency: z.number().int(), lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(),
   triggers: z.array(triggerResponse),

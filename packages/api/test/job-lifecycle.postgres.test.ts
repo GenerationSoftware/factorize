@@ -76,12 +76,12 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
   it("snapshots a code script and structured trigger context when queued", async () => {
     const a = await tenant(), id = crypto.randomUUID(), timestamp = new Date().toISOString();
     const trigger: Trigger = { id: crypto.randomUUID(), jobId: id, kind: "manual", slug: "trigger-1", enabled: true, config: {}, createdAt: timestamp, updatedAt: timestamp };
-    const code = await repository(a).create({ id, name: "Code", slug: `code-${id}`, executionType: "code", script: "echo original", promptTemplate: "", runNameTemplate: "", model: "", executionConfig: { connectionId: "exe", agentKind: "codex", executionType: "code", script: "echo original" }, concurrencyLimit: 1, enabled: true, triggers: [trigger], createdAt: timestamp, updatedAt: timestamp } as Job);
+    const code = await repository(a).create({ id, runScopes: ["jobs:write"], name: "Code", slug: `code-${id}`, executionType: "code", script: "echo original", promptTemplate: "", runNameTemplate: "", model: "", executionConfig: { connectionId: "exe", agentKind: "codex", executionType: "code", script: "echo original" }, concurrencyLimit: 1, enabled: true, triggers: [trigger], createdAt: timestamp, updatedAt: timestamp } as Job);
     const invocation = await new InvocationService(repository(a), value => encrypt(value, key)).invoke(id, { source: "manual", triggerId: trigger.id, claimKey: crypto.randomUUID(), context: { "trigger-1": { outputs: { count: 3 } } } });
     const snapshot = await database.pool.query<{ execution_config: any; result_protocol_version: number }>("SELECT execution_config,result_protocol_version FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, invocation.run.id]);
-    expect(snapshot.rows[0]).toMatchObject({ execution_config: { executionType: "code", script: "echo original", inputContext: { "trigger-1": { outputs: { count: 3 } } } }, result_protocol_version: 1 });
-    await repository(a).update({ ...code, script: "echo edited", executionConfig: { ...code.executionConfig, script: "echo edited" }, updatedAt: new Date().toISOString() });
-    expect((await database.pool.query<{ execution_config: any }>("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, invocation.run.id])).rows[0].execution_config.script).toBe("echo original");
+    expect(snapshot.rows[0]).toMatchObject({ execution_config: { runScopes: ["jobs:write"], executionType: "code", script: "echo original", inputContext: { "trigger-1": { outputs: { count: 3 } } } }, result_protocol_version: 1 });
+    await repository(a).update({ ...code, runScopes: [], script: "echo edited", executionConfig: { ...code.executionConfig, script: "echo edited" }, updatedAt: new Date().toISOString() });
+    expect((await database.pool.query<{ execution_config: any }>("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, invocation.run.id])).rows[0].execution_config).toMatchObject({ script: "echo original", runScopes: ["jobs:write"] });
   });
 
   it("stores manual permissions tenant-locally and removes their edges when a job is deleted", async () => {

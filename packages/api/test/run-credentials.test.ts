@@ -7,7 +7,7 @@ describe("run-scoped execution credentials", () => {
     const database = { pool: { query: async (sql: string, values: unknown[] = []) => {
       if (sql.includes("SELECT user_id,session_version")) return { rows: [{ user_id: "owner-1", session_version: 7 }], rowCount: 1 };
       if (sql.includes("INSERT INTO app.run_credentials")) { storedDigest = String(values[2]); return { rows: [], rowCount: 1 }; }
-      if (sql.includes("FROM app.run_credentials c")) return active && values[1] === storedDigest ? { rows: [{ tenant_id: "tenant-1", user_id: "owner-1", session_version: 7, job_id: "job-1" }], rowCount: 1 } : { rows: [], rowCount: 0 };
+      if (sql.includes("FROM app.run_credentials c")) return active && values[1] === storedDigest ? { rows: [{ tenant_id: "tenant-1", user_id: "owner-1", session_version: 7, job_id: "job-1", scopes: RUN_SCOPES }], rowCount: 1 } : { rows: [], rowCount: 0 };
       throw new Error(`Unexpected SQL: ${sql}`);
     } } } as any;
     const env = { DATABASE: database } as any;

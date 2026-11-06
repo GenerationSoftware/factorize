@@ -1,3 +1,4 @@
+import { DEFAULT_RUN_SCOPES } from "./run-scopes";
 import { searchResponse } from "./search-contracts";
 import { integrationStatus, exeConnection, accessToken, createdAccessToken, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
@@ -129,7 +130,7 @@ export class ApiService {
   private async presentJob(job: Job, loadedStats?: { running_count: string; last_run_state: string | null }) {
     const stats = loadedStats ?? (await this.jobStatistics([job.id])).get(job.id);
     const runningCount = Number(stats?.running_count ?? 0);
-    return publicValue(jobResponse, { ...job, executionType: job.executionType ?? "agent", skills: (job.selectedSkills ?? []).map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision, position: skill.position })), triggers: job.triggers.map(trigger => ({ ...trigger, config: trigger.kind === "webhook" ? { ...trigger.config, ...(trigger.config.signingSecret || trigger.config.secret ? { secretConfigured: true } : {}), ...(trigger.config.provider === "cloudflareTail" ? { destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(job.id)}` } : {}) } : trigger.config })), runNameTemplate: job.runNameTemplate ?? "", executionConfigId: job.executionConfig.targetId ?? `${job.executionConfig.agentKind === "Amp" ? "amp:" : ""}${job.executionConfig.connectionId}`, agentKind: job.executionConfig.agentKind, runningCount, currentRuns: runningCount, maxConcurrency: job.concurrencyLimit, lastRunState: stats?.last_run_state ?? null });
+    return publicValue(jobResponse, { ...job, runScopes: job.runScopes ?? [...DEFAULT_RUN_SCOPES], executionType: job.executionType ?? "agent", skills: (job.selectedSkills ?? []).map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision, position: skill.position })), triggers: job.triggers.map(trigger => ({ ...trigger, config: trigger.kind === "webhook" ? { ...trigger.config, ...(trigger.config.signingSecret || trigger.config.secret ? { secretConfigured: true } : {}), ...(trigger.config.provider === "cloudflareTail" ? { destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(job.id)}` } : {}) } : trigger.config })), runNameTemplate: job.runNameTemplate ?? "", executionConfigId: job.executionConfig.targetId ?? `${job.executionConfig.agentKind === "Amp" ? "amp:" : ""}${job.executionConfig.connectionId}`, agentKind: job.executionConfig.agentKind, runningCount, currentRuns: runningCount, maxConcurrency: job.concurrencyLimit, lastRunState: stats?.last_run_state ?? null });
   }
   async listSkills(query: { q: string; limit: number; cursor?: string }) { await this.authorize("skills:read"); return publicValue(skillPage, await this.skills().list(query.q, query.limit, query.cursor)); }
   async getSkill(id: string) { await this.authorize("skills:read"); const value = await this.skills().get(id); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); }
@@ -141,6 +142,9 @@ export class ApiService {
 
   private async authorize(scope: Scope): Promise<void> {
     if (!normalizeScopes(this.auth.scopes).includes(scope)) throw new ServiceError(403, "insufficient_scope", `The ${scope} scope is required.`);
+    await this.authorizeIdentity();
+  }
+  private async authorizeIdentity(): Promise<void> {
     const started = performance.now();
     try {
       const database = databaseFor(this.env);
@@ -152,7 +156,7 @@ export class ApiService {
   private async authorizeOwnerSession(scope: Scope): Promise<void> { await this.authorize(scope); if (this.auth.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required."); }
 
   async getRuntimeContext() {
-    await this.authorize("runs:read");
+    await this.authorizeIdentity();
     return publicValue(runtimeContextResponse, { kind: "factorize-runtime-context-v1", authMethod: this.auth.authMethod ?? "oauth", runId: this.auth.runId ?? null, jobId: this.auth.runJobId ?? null, scopes: normalizeScopes(this.auth.scopes) });
   }
 
@@ -168,8 +172,8 @@ export class ApiService {
     await this.authorize("runs:write");
     const parsed = reportRunErrorSchema.parse(input), reason = safeDiagnosticText(parsed.reason, 1000);
     if (!reason.trim()) throw new ServiceError(400, "invalid_request", "Reason must contain safe text.");
-    const reporterKind = this.auth.authMethod === "oauth" ? "oauth" : this.auth.authMethod === "access_token" ? "api_key" : "session";
-    const reporterId = reporterKind === "oauth" ? this.auth.oauthGrantId && this.auth.oauthClientId ? `${this.auth.oauthClientId}:${this.auth.oauthGrantId}` : undefined : reporterKind === "api_key" ? this.auth.accessTokenId : this.auth.userId;
+    const reporterKind = this.auth.authMethod === "oauth" ? "oauth" : this.auth.authMethod === "access_token" ? "api_key" : this.auth.authMethod === "run_token" ? "run_token" : "session";
+    const reporterId = reporterKind === "oauth" ? this.auth.oauthGrantId && this.auth.oauthClientId ? `${this.auth.oauthClientId}:${this.auth.oauthGrantId}` : undefined : reporterKind === "api_key" ? this.auth.accessTokenId : reporterKind === "run_token" ? this.auth.runId : this.auth.userId;
     if (!reporterId) throw new ServiceError(403, "invalid_token", "Authenticated reporter identity is unavailable.");
     const result = await new RunRepository(databaseFor(this.env)).reportAgentError({ tenantId: this.auth.tenantId, runId, reason, userId: this.auth.userId, reporterKind, reporterId });
     if (result === "missing") throw new ServiceError(404, "not_found", "Run not found");
@@ -304,7 +308,7 @@ export class ApiService {
     const triggers = this.normalizedTriggers(input.triggers).map(trigger => ({ ...trigger, jobId: id }));
     const projectId = input.projectId ?? await this.projects().defaultProjectId();
     const selectedSkills = executionType === "code" ? [] : input.skillIds ? await this.skillSelections(input.skillIds) : [];
-    const job: Job = { id, projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", ...(input.effort ? { effort: input.effort } : {}), executionConfig: { ...await this.executionConfig(input.executionConfigId), executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, selectedSkills, createdAt: timestamp, updatedAt: timestamp };
+    const job: Job = { id, projectId, runScopes: input.runScopes ?? [...DEFAULT_RUN_SCOPES], name: input.name, slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", ...(input.effort ? { effort: input.effort } : {}), executionConfig: { ...await this.executionConfig(input.executionConfigId), executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, selectedSkills, createdAt: timestamp, updatedAt: timestamp };
     try { return this.presentJob(await this.jobs().create(job)); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "Job slug is already in use"); throw error; }
   }
   async updateJob(jobId: string, input: JobInput & { expectedUpdatedAt?: string }) {
@@ -315,7 +319,7 @@ export class ApiService {
     if (executionType !== "code") await this.validateExecutionOptions(input.executionConfigId, input.model ?? "", input.effort ?? "", input.tags ?? []);
     const triggers = this.normalizedTriggers(input.triggers, current.triggers).map(trigger => ({ ...trigger, jobId }));
     const selectedSkills = executionType === "code" ? [] : input.skillIds === undefined ? current.selectedSkills : await this.skillSelections(input.skillIds);
-    const updated = await repository.update({ ...current, projectId: input.projectId ?? current.projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", effort: input.effort, executionConfig: { ...await this.executionConfig(input.executionConfigId), executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, triggers, selectedSkills, updatedAt: new Date().toISOString() }, input.expectedUpdatedAt).catch(error => { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload its configuration before saving."); throw error; });
+    const updated = await repository.update({ ...current, runScopes: input.runScopes ?? current.runScopes ?? [...DEFAULT_RUN_SCOPES], projectId: input.projectId ?? current.projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", effort: input.effort, executionConfig: { ...await this.executionConfig(input.executionConfigId), executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, triggers, selectedSkills, updatedAt: new Date().toISOString() }, input.expectedUpdatedAt).catch(error => { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload its configuration before saving."); throw error; });
     await this.wakeScheduler();
     return this.presentJob(updated);
   }

@@ -18,7 +18,7 @@ describe("run proxy identity boundary", () => {
     const database = { pool: { query: async (sql: string, values: unknown[] = []) => {
       if (sql.includes("SELECT user_id,session_version")) return { rows: [{ user_id: "owner", session_version: 1 }] };
       if (sql.includes("INSERT INTO app.run_credentials")) { digest = String(values[2]); return { rows: [] }; }
-      if (sql.includes("FROM app.run_credentials c")) return { rows: active && values[1] === digest ? [{ tenant_id: "tenant", user_id: "owner", session_version: 1, job_id: "source" }] : [] };
+      if (sql.includes("FROM app.run_credentials c")) return { rows: active && values[1] === digest ? [{ tenant_id: "tenant", user_id: "owner", session_version: 1, job_id: "source", scopes: RUN_SCOPES }] : [] };
       throw new Error("Unexpected database operation");
     } } };
     const env = { DATABASE: database, APP_ORIGIN: "https://app.test" } as any;

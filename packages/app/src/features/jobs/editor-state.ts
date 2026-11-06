@@ -1,15 +1,16 @@
+import { defaultRunScopes } from "./run-permissions";
 import type { components, operations } from "factorize-api-client";
 export type JobInput = components["schemas"]["JobInput"];
 export type Job = operations["get_api_v1_jobs_jobId"]["responses"][200]["content"]["application/json"];
 export type Trigger = JobInput["triggers"][number];
-export const emptyJob = (): JobInput => ({ executionType: "agent", name: "", slug: "", promptTemplate: "", script: "", runNameTemplate: "", executionConfigId: "", concurrencyLimit: 1, tags: [], vmImage: "", model: "", effort: "", skillIds: [], triggers: [{ kind: "manual", slug: "trigger-1", enabled: true, config: {} }] });
+export const emptyJob = (): JobInput => ({ runScopes: [...defaultRunScopes], executionType: "agent", name: "", slug: "", promptTemplate: "", script: "", runNameTemplate: "", executionConfigId: "", concurrencyLimit: 1, tags: [], vmImage: "", model: "", effort: "", skillIds: [], triggers: [{ kind: "manual", slug: "trigger-1", enabled: true, config: {} }] });
 export function canonicalizeVmImage(value: string): string {
   const trimmed = value.trim(), digestAt = trimmed.indexOf("@"), reference = digestAt < 0 ? trimmed : trimmed.slice(0, digestAt), digest = digestAt < 0 ? "" : trimmed.slice(digestAt);
   const slash = reference.lastIndexOf("/"), colon = reference.lastIndexOf(":"), tag = colon > slash ? reference.slice(colon) : "", name = tag ? reference.slice(0, -tag.length) : reference;
   return `${name.toLowerCase()}${tag}${digest}`;
 }
 export function editableJob(job: Job): JobInput {
-  return { executionType: job.executionType ?? "agent", projectId: job.projectId, name: job.name, slug: job.slug, promptTemplate: job.promptTemplate, script: job.script ?? "", runNameTemplate: job.runNameTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], vmImage: job.executionConfig?.image ?? "", model: job.model, effort: job.effort ?? "", skillIds: job.skills?.map(skill => skill.id) ?? [], triggers: job.triggers.map(trigger => {
+  return { runScopes: job.runScopes ?? [...defaultRunScopes], executionType: job.executionType ?? "agent", projectId: job.projectId, name: job.name, slug: job.slug, promptTemplate: job.promptTemplate, script: job.script ?? "", runNameTemplate: job.runNameTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], vmImage: job.executionConfig?.image ?? "", model: job.model, effort: job.effort ?? "", skillIds: job.skills?.map(skill => skill.id) ?? [], triggers: job.triggers.map(trigger => {
     const { id, slug, kind, enabled } = trigger;
     const config = trigger.kind === "webhook" ? Object.fromEntries(Object.entries(trigger.config).filter(([key]) => !["destination", "secretConfigured"].includes(key))) : trigger.config;
     return { id, slug, kind, enabled, config } as Trigger;

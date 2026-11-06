@@ -112,7 +112,7 @@ export class ExeRunProxy {
     const url = new URL(address);
     if (url.protocol !== "https:" || url.hostname !== `${name}.int.exe.xyz`) throw new Error("Reflection returned an unexpected run proxy URL");
     const context = await this.guestJson(vm, `${url.origin}/api/v1/runtime-context`);
-    if (context?.kind !== "factorize-runtime-context-v1" || context.authMethod !== "run_token" || context.runId !== runId || !Array.isArray(context.scopes) || !context.scopes.includes("runs:invoke")) throw new Error("The run proxy identity could not be verified");
+    if (context?.kind !== "factorize-runtime-context-v1" || context.authMethod !== "run_token" || context.runId !== runId || !Array.isArray(context.scopes)) throw new Error("The run proxy identity could not be verified");
   }
 
   async remove(name: string, runId: string): Promise<void> {

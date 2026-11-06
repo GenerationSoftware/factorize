@@ -44,7 +44,9 @@ export class RunScheduler {
       if (typeof run.executionConfig.script !== "string" || !run.executionConfig.script.trim()) throw new Error("The code job has no saved script");
       const backend = await this.backend(run), context = run.executionConfig.inputContext;
       if (!context || typeof context !== "object" || Array.isArray(context)) throw new Error("The code job input context snapshot is missing");
-      const launched = await backend.launch({ runId: run.id, prompt: "", code: { script: run.executionConfig.script, context } });
+      const runToken = await issueRunCredential(this.env, run.tenantId, run.id, run.executionConfig.runScopes);
+      await this.runs.recordLaunchHandle(run, { backendKind: backend.kind, id: vmNameFor(run.id), runProxyName: runProxyName(run.id) });
+      const launched = await backend.launch({ runId: run.id, prompt: "", runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, code: { script: run.executionConfig.script, context } });
       await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities);
       if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
       return;
@@ -53,7 +55,7 @@ export class RunScheduler {
     const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, { model: run.executionConfig.model, effort: run.executionConfig.effort });
     const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
     validateTraceSources(sources);
-    const runToken = await issueRunCredential(this.env, run.tenantId, run.id);
+    const runToken = await issueRunCredential(this.env, run.tenantId, run.id, run.executionConfig.runScopes);
     const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     await this.runs.recordLaunchHandle(run, { backendKind: backend.kind, id: vmNameFor(run.id), runProxyName: runProxyName(run.id) });
     const launched = await backend.launch({ runId: run.id, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runProxyInstructions(run.id)}`, runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });

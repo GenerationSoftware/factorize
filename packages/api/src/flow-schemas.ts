@@ -67,6 +67,7 @@ export const jobInputSchema = z.object({
   script: z.string().max(50_000).optional(),
   runNameTemplate: z.string().max(500).optional(),
   concurrencyLimit: z.number().int().min(1).max(50).default(1),
+  runScopes: z.array(scopeSchema).max(scopeSchema.options.length).refine(scopes => new Set(scopes).size === scopes.length, "Run scopes must be unique").optional().describe("Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes."),
   executionConfigId: z.string().min(1),
   tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).optional(),
   vmImage: publicVmImage(true).optional(),

@@ -103,7 +103,7 @@ describe("versioned API contract", () => {
       if (route.authOperation) {
         expect(operation["x-required-scope"]).toBeUndefined();
         expect(operation.security).toEqual(route.ownerSession ? [{ cookieAuth: [] }] : []);
-      } else expect(operation["x-required-scope"]).toBe(route.scope);
+      } else expect(operation["x-required-scope"]).toEqual(route.scope);
       expect(operation["x-owner-session-required"]).toBe(route.ownerSession);
       expect(
         operation.parameters

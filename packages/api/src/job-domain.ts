@@ -41,6 +41,7 @@ export interface Job {
   effort?: string;
   tags?: string[];
   executionConfig: ExecutionConfig;
+  runScopes?: string[];
   concurrencyLimit: number;
   enabled: boolean;
   triggers: Trigger[];

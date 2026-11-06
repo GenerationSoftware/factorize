@@ -1311,9 +1311,7 @@ export interface paths {
         };
         /**
          * Inspect the current runtime identity and scopes
-         * @description Returns the verified calling identity and effective scopes without credentials. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.
-         *
-         *     Requires the runs:read scope.
+         * @description Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.
          *
          *     Accepts a scoped bearer token or interactive owner session.
          */
@@ -1830,7 +1828,7 @@ export interface components {
                 reporter: {
                     user_id: string;
                     /** @enum {string} */
-                    kind: "api_key" | "oauth" | "session";
+                    kind: "api_key" | "oauth" | "session" | "run_token";
                     id: string;
                 };
             } | null;
@@ -1878,7 +1876,7 @@ export interface components {
                     reporter: {
                         user_id: string;
                         /** @enum {string} */
-                        kind: "api_key" | "oauth" | "session";
+                        kind: "api_key" | "oauth" | "session" | "run_token";
                         id: string;
                     };
                 } | null;
@@ -2057,7 +2055,7 @@ export interface components {
                 reporter: {
                     user_id: string;
                     /** @enum {string} */
-                    kind: "api_key" | "oauth" | "session";
+                    kind: "api_key" | "oauth" | "session" | "run_token";
                     id: string;
                 };
             } | null;
@@ -2208,6 +2206,8 @@ export interface components {
             runNameTemplate?: string;
             /** @default 1 */
             concurrencyLimit: number;
+            /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
             executionConfigId: string;
             tags?: string[];
             vmImage?: string;
@@ -4988,6 +4988,7 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
+                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -5276,6 +5277,7 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
+                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -5476,6 +5478,7 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
+                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -5958,6 +5961,7 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
+                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6137,6 +6141,8 @@ export interface operations {
                     runNameTemplate?: string;
                     /** @default 1 */
                     concurrencyLimit?: number;
+                    /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                    runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                     executionConfigId: string;
                     tags?: string[];
                     vmImage?: string;
@@ -6278,6 +6284,7 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
+                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6668,7 +6675,7 @@ export interface operations {
                             reporter: {
                                 user_id: string;
                                 /** @enum {string} */
-                                kind: "api_key" | "oauth" | "session";
+                                kind: "api_key" | "oauth" | "session" | "run_token";
                                 id: string;
                             };
                         } | null;

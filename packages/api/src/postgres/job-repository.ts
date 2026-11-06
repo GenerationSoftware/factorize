@@ -1,3 +1,4 @@
+import { DEFAULT_RUN_SCOPES } from "../run-scopes";
 import { lockJobQueue, reserveExecutionSlot } from "./queue-admission";
 import type { Invocation, Job, JobRepository, JobRun, Trigger } from "../job-domain";
 import type { Database, DatabaseClient } from "./database";
@@ -26,7 +27,7 @@ export class PostgresJobRepository implements JobRepository {
     const skillRows = loadedSkills?.filter(skill => skill.job_id === row.id) ?? (db === this.database.orm
       ? (await this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.job_id=$2 ORDER BY js.position", [this.tenantId, row.id])).rows
       : (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.job_id=${row.id}::uuid ORDER BY js.position`)).rows);
-    return { id: row.id, projectId: row.projectId, name: row.name, slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), executionType: row.executionConfig.executionType ?? "agent", script: row.executionConfig.script, runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), selectedSkills: await Promise.all(skillRows.map(async (skill: any) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: await this.decrypt(skill.encrypted_body), position: skill.position }))), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
+    return { id: row.id, runScopes: row.runScopes ?? [...DEFAULT_RUN_SCOPES], projectId: row.projectId, name: row.name, slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), executionType: row.executionConfig.executionType ?? "agent", script: row.executionConfig.script, runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), selectedSkills: await Promise.all(skillRows.map(async (skill: any) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: await this.decrypt(skill.encrypted_body), position: skill.position }))), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
   async getJob(id: string): Promise<Job | null> {
@@ -49,7 +50,7 @@ export class PostgresJobRepository implements JobRepository {
 
   async create(job: Job): Promise<Job> {
     return this.database.orm.transaction(async tx => {
-      const [row] = await tx.insert(jobs).values({ tenantId: this.tenantId, id: job.id, projectId: job.projectId ?? await this.defaultProjectId(tx), name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionConfig: job.executionConfig, tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, createdAt: new Date(job.createdAt), updatedAt: new Date(job.updatedAt) }).returning();
+      const [row] = await tx.insert(jobs).values({ tenantId: this.tenantId, id: job.id, projectId: job.projectId ?? await this.defaultProjectId(tx), name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionConfig: job.executionConfig, runScopes: job.runScopes ?? [...DEFAULT_RUN_SCOPES], tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, createdAt: new Date(job.createdAt), updatedAt: new Date(job.updatedAt) }).returning();
       await this.reconcileTriggers(tx, job, []);
       await this.reconcileSkills(tx, job, []);
       return this.mapped(row!, tx);
@@ -63,7 +64,7 @@ export class PostgresJobRepository implements JobRepository {
       if (expectedUpdatedAt && current.updatedAt.toISOString() !== expectedUpdatedAt) throw new StaleJobEdit("Job changed since it was loaded");
       job = { ...job, updatedAt: new Date(Math.max(Date.parse(job.updatedAt), current.updatedAt.getTime() + 1)).toISOString() };
       const existing: TriggerRow[] = await tx.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, job.id), isNull(triggers.removedAt))).orderBy(triggers.position);
-      const [row] = await tx.update(jobs).set({ projectId: job.projectId, name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionConfig: job.executionConfig, tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, updatedAt: new Date(job.updatedAt) }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, job.id))).returning();
+      const [row] = await tx.update(jobs).set({ projectId: job.projectId, name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionConfig: job.executionConfig, runScopes: job.runScopes ?? [...DEFAULT_RUN_SCOPES], tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, updatedAt: new Date(job.updatedAt) }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, job.id))).returning();
       await this.reconcileTriggers(tx, job, existing);
       await this.reconcileSkills(tx, job, []);
       await this.recordEdit(tx, job.id, job.updatedAt);
@@ -157,7 +158,7 @@ export class PostgresJobRepository implements JobRepository {
       await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_config,execution_capabilities,result_protocol_version,created_at,updated_at)
         SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_config->>'agentKind',$7,
           CASE WHEN j.execution_config->>'agentKind'='Amp' THEN 'amp' ELSE 'exe-vm' END,
-          j.execution_config || jsonb_build_object('model',j.model,'effort',j.effort,'tags',j.tags,'inputContext',i.context),
+          j.execution_config || jsonb_build_object('model',j.model,'effort',j.effort,'tags',j.tags,'inputContext',i.context,'runScopes',j.run_scopes),
           CASE WHEN j.execution_config->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,1,$9,$10
         FROM app.jobs j JOIN app.invocations i ON i.tenant_id=j.tenant_id AND i.id=$4
         WHERE j.tenant_id=$1 AND j.id=$3`, [this.tenantId, run.id, run.jobId, run.invocationId, invocation.source, invocation.claimKey, run.state, run.runName ?? "", run.createdAt, run.updatedAt]);

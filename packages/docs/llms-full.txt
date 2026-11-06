@@ -279,7 +279,7 @@ Permissions are tenant-local. A destination may be in another project in the sam
 
 For each execution VM, Factorize creates an exe.dev HTTP proxy named `fz-run-<run UUID>`. Its credential is installed by the Factorize control plane and held by exe.dev; it is never placed in the guest environment, prompt, or files. The integration is attached only to that VM for at most 24 hours. Discover its URL through `https://reflection.int.exe.xyz/integrations`, using the name supplied in the run instructions. No API URL configuration or client-supplied Authorization header is needed.
 
-The credential is bound to the source job and run, expires after 24 hours, and stops authorizing requests when that run is no longer active. It permits tenant-scoped reads of projects, jobs, runs, safe integration metadata, and skills, plus manually invoking authorized destination jobs. It does not grant configuration writes, permission management, or cancellation. Do not pass a source job or run ID: the service derives both from the credential. `GET /api/v1/runtime-context` (MCP `get_runtime_context`) returns the verified source run/job identity without exposing the credential.
+The credential is bound to the source job and run, expires after 24 hours, and stops authorizing requests when that run is no longer active. Its scopes come from the job’s Run permissions setting (`runScopes` in the job REST/MCP contract). Existing jobs and omitted create fields default to tenant-scoped reads of projects, jobs, runs, safe integration metadata, and skills, plus invoking authorized destinations. You can select additional write/cancel scopes, remove default scopes, or choose no scopes. Write scopes do not imply read scopes, except the legacy `runs:write` expansion. Credentials remain outside the VM regardless of scope. Do not pass a source job or run ID: the service derives both from the credential. `GET /api/v1/runtime-context` (MCP `get_runtime_context`) returns the verified source run/job identity and effective scopes without exposing the credential. It requires an authenticated active identity, but no application-resource scope, so even a zero-scope run can verify its own identity.
 
 Use the normal manual invocation endpoint, which is also the `invoke_job` MCP tool:
 
@@ -291,9 +291,17 @@ curl --fail-with-body -X POST 'https://PROXY_HOST_FROM_REFLECTION/api/v1/jobs/DE
 
 Only explicitly configured destinations may be invoked with a run token. Factorize checks the permission, active source run, destination enabled state, enabled manual trigger, and queue capacity at invocation time. Reuse the same `idempotencyKey` when retrying an uncertain request. Destination run details expose `invocation.source_job_id` and `invocation.source_run_id`; human and external invocations leave these values null.
 
-Before starting the agent, Factorize verifies the run proxy and checks the control-plane attachments of other HTTP proxies targeting the same Factorize origin. Any shared Factorize proxy attached to that VM blocks startup, regardless of its scopes. The dedicated run proxy already provides reads. Keep shared Factorize integrations on operator-only VM attachments. A public API credential with `runs:invoke` still supports ordinary external clients; do not attach that credential to execution VMs. Configure any alternate Factorize hostnames with the same isolation; never attach a broader proxy through an alias.
+Before starting the agent, Factorize verifies the run proxy and checks the control-plane attachments of other HTTP proxies targeting the same Factorize origin. Any shared Factorize proxy attached to that VM blocks startup, regardless of its scopes. The dedicated run proxy provides the job’s configured API access. Keep shared Factorize integrations on operator-only VM attachments. A public API credential with `runs:invoke` still supports ordinary external clients; do not attach that credential to execution VMs. Configure any alternate Factorize hostnames with the same isolation; never attach a broader proxy through an alias.
 
 Proxy removal is part of VM cleanup and is retried after failure. The credential's active-run and expiry checks remain effective even if external cleanup is temporarily unavailable. Installing credentials in a proxy prevents exporting the secret from the VM; it does not prevent an agent from misusing its permitted operations while running. Keep destination permissions narrow.
+
+## Configuring privileged orchestration jobs
+
+In a job’s editor, select Run permissions and save its configuration. API/MCP clients can supply `runScopes` when creating or updating the job. Omitting `runScopes` on update preserves the existing setting; an explicit empty array grants no application API scopes. Both agent and code jobs use the same per-run proxy delivery.
+
+For example, an orchestration job that reads and repairs job configuration needs `jobs:read` and `jobs:write`. A job granted `jobs:write` may also change its own or other jobs’ run scopes, using the normal tenant-local job update API. This is administrative authority over future job execution; grant it only when intended. Manual invocation still needs `runs:invoke` and an explicitly authorized destination.
+
+Scopes are snapshotted when the invocation is created and stored with its execution credential. Updating a job does not add or remove authority from existing queued or active runs; cancel existing runs when immediate revocation is required. Credential rotation during a launch retry preserves the original scope snapshot. Runtime context reports the effective scopes, including legacy scope expansion. Browser-only API-key management, authorized-client management, and trace replay retain their existing session requirements.
 
 ## Connect your accounts
 Source: https://docs.factorize.sh/integrations/oauth
@@ -443,7 +451,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `list_jobs` | jobs:read | `{}` |
 | `get_job` | jobs:read | Required string `jobId` |
 | `create_job` | jobs:write | Required `name`, `slug`, `promptTemplate`, `executionConfigId`; job fields below |
-| `update_job` | jobs:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` |
+| `update_job` | jobs:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` and `runScopes` |
 | `delete_job` | jobs:write | Required string `jobId`; deletion removes execution history/artifacts |
 | `enable_job` | jobs:write | Required string `jobId` |
 | `disable_job` | jobs:write | Required string `jobId` |
@@ -452,14 +460,14 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `create_project` | projects:write | Required `name`; optional `description` |
 | `update_project` | projects:write | Required `projectId` and `name`; optional `description` |
 | `delete_project` | projects:write | Required string `projectId` |
-| `move_job` | projects:write | Required `jobId` and destination `projectId`; optional `expectedUpdatedAt` |
+| `move_job` | projects:write | Required `jobId` and destination `projectId`; optional `expectedUpdatedAt` and `runScopes` |
 | `list_runs` | runs:read | Optional `jobId`, `state`, `contextQuery`, `limit`, `cursor` |
 | `get_run` | runs:read | Required string `runId` |
 | `rename_run` | runs:write | Required `runId` and `name`; optional `expectedName` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
 | `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
-| `get_runtime_context` | runs:read | `{}`; verified authentication kind, effective scopes, and source run/job IDs, without credentials |
+| `get_runtime_context` | Authenticated identity | `{}`; verified authentication kind, effective scopes, and source run/job IDs, without credentials |
 | `get_job_invocation_permissions` | jobs:read | Required string `jobId` |
 | `set_job_invocation_permissions` | jobs:write | Required `jobId` and `destinationJobIds` UUID array; owner session, scoped API key, or authorized OAuth client |
 | `stop_run` | runs:cancel | Required string `runId` |
@@ -606,6 +614,8 @@ Tool errors are `code: message`. `invalid_token` needs reauthorization; `insuffi
 
 MCP is a selected tool surface, **not full REST parity**. Signup, verification, integration credential management, authorized-client management, provider resource selection, schedule preview, specialized run status/trace pagination and retained-artifact replay have no corresponding tools in this inventory. Some REST operations require an interactive owner session rather than delegated tokens. Use the browser for setup/resource selection and [REST reference](https://docs.factorize.sh/api/reference) for exact routes, restrictions and schemas. MCP cannot pass your conversational client's credentials to the execution agent.
 
+Job creation and updates accept optional `runScopes`, an array of Factorize API scope names. Omitting it on update preserves the current policy; an explicit empty array grants no application scopes to future runs. Jobs granted `jobs:write` can configure this field too. See [run permissions](https://docs.factorize.sh/work/manual-invocation-permissions) for defaults and credential snapshot semantics.
+
 ## Jobs, triggers, runs, and targets
 Source: https://docs.factorize.sh/concepts
 
@@ -705,6 +715,8 @@ Authorization-code clients must use PKCE S256. Implicit and plain PKCE are disab
 Device codes expire after 10 minutes from issuance, including time spent signing up. Honor the returned `interval` (initially 5 seconds). Each early poll returns `slow_down` and permanently increases that request’s interval by 5 seconds; wait the new interval before polling again. Invalid client authentication never changes another client’s polling schedule. The token endpoint returns `authorization_pending`, `slow_down`, `access_denied`, or `expired_token` as appropriate.
 
 Never send Linear, exe.dev, or connection credentials to an API client. Tokens are revocable and responses omit stored secrets.
+
+Job run scopes are configurable per job, including privileged orchestration writes. See [manual invocation and run permissions](https://docs.factorize.sh/work/manual-invocation-permissions) for defaults, snapshot timing, and destination authorization.
 
 ## OAuth discovery
 Source: https://docs.factorize.sh/api/discovery

@@ -141,6 +141,7 @@ components:
                         - api_key
                         - oauth
                         - session
+                        - run_token
                     id:
                       type: string
                   required:
@@ -311,6 +312,7 @@ components:
                               - api_key
                               - oauth
                               - session
+                              - run_token
                           id:
                             type: string
                         required:
@@ -816,6 +818,7 @@ components:
                         - api_key
                         - oauth
                         - session
+                        - run_token
                     id:
                       type: string
                   required:
@@ -1273,6 +1276,25 @@ components:
           type: integer
           minimum: 1
           maximum: 50
+        runScopes:
+          description: Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes.
+          maxItems: 12
+          type: array
+          items:
+            type: string
+            enum:
+              - projects:read
+              - projects:write
+              - jobs:read
+              - jobs:write
+              - runs:read
+              - runs:invoke
+              - runs:cancel
+              - runs:write
+              - integrations:read
+              - integrations:write
+              - skills:read
+              - skills:write
         executionConfigId:
           type: string
           minLength: 1
@@ -6486,6 +6508,23 @@ paths:
                       - connectionId
                       - agentKind
                     additionalProperties: false
+                  runScopes:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - projects:read
+                        - projects:write
+                        - jobs:read
+                        - jobs:write
+                        - runs:read
+                        - runs:invoke
+                        - runs:cancel
+                        - runs:write
+                        - integrations:read
+                        - integrations:write
+                        - skills:read
+                        - skills:write
                   executionConfigId:
                     type: string
                   agentKind:
@@ -6934,6 +6973,7 @@ paths:
                   - runNameTemplate
                   - model
                   - executionConfig
+                  - runScopes
                   - executionConfigId
                   - agentKind
                   - concurrencyLimit
@@ -7273,6 +7313,23 @@ paths:
                         - connectionId
                         - agentKind
                       additionalProperties: false
+                    runScopes:
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - projects:read
+                          - projects:write
+                          - jobs:read
+                          - jobs:write
+                          - runs:read
+                          - runs:invoke
+                          - runs:cancel
+                          - runs:write
+                          - integrations:read
+                          - integrations:write
+                          - skills:read
+                          - skills:write
                     executionConfigId:
                       type: string
                     agentKind:
@@ -7721,6 +7778,7 @@ paths:
                     - runNameTemplate
                     - model
                     - executionConfig
+                    - runScopes
                     - executionConfigId
                     - agentKind
                     - concurrencyLimit
@@ -7827,6 +7885,23 @@ paths:
                       - connectionId
                       - agentKind
                     additionalProperties: false
+                  runScopes:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - projects:read
+                        - projects:write
+                        - jobs:read
+                        - jobs:write
+                        - runs:read
+                        - runs:invoke
+                        - runs:cancel
+                        - runs:write
+                        - integrations:read
+                        - integrations:write
+                        - skills:read
+                        - skills:write
                   executionConfigId:
                     type: string
                   agentKind:
@@ -8275,6 +8350,7 @@ paths:
                   - runNameTemplate
                   - model
                   - executionConfig
+                  - runScopes
                   - executionConfigId
                   - agentKind
                   - concurrencyLimit
@@ -8462,9 +8538,7 @@ paths:
     get:
       summary: Inspect the current runtime identity and scopes
       description: |-
-        Returns the verified calling identity and effective scopes without credentials. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.
-
-        Requires the runs:read scope.
+        Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.
 
         Accepts a scoped bearer token or interactive owner session.
       responses:
@@ -8521,7 +8595,7 @@ paths:
       security:
         - bearerAuth: []
         - cookieAuth: []
-      x-required-scope: runs:read
+      x-required-scope: []
       x-owner-session-required: false
   /api/v1/jobs/{jobId}/invocation-permissions:
     get:
@@ -8876,6 +8950,23 @@ paths:
                       - connectionId
                       - agentKind
                     additionalProperties: false
+                  runScopes:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - projects:read
+                        - projects:write
+                        - jobs:read
+                        - jobs:write
+                        - runs:read
+                        - runs:invoke
+                        - runs:cancel
+                        - runs:write
+                        - integrations:read
+                        - integrations:write
+                        - skills:read
+                        - skills:write
                   executionConfigId:
                     type: string
                   agentKind:
@@ -9324,6 +9415,7 @@ paths:
                   - runNameTemplate
                   - model
                   - executionConfig
+                  - runScopes
                   - executionConfigId
                   - agentKind
                   - concurrencyLimit
@@ -9443,6 +9535,23 @@ paths:
                       - connectionId
                       - agentKind
                     additionalProperties: false
+                  runScopes:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - projects:read
+                        - projects:write
+                        - jobs:read
+                        - jobs:write
+                        - runs:read
+                        - runs:invoke
+                        - runs:cancel
+                        - runs:write
+                        - integrations:read
+                        - integrations:write
+                        - skills:read
+                        - skills:write
                   executionConfigId:
                     type: string
                   agentKind:
@@ -9891,6 +10000,7 @@ paths:
                   - runNameTemplate
                   - model
                   - executionConfig
+                  - runScopes
                   - executionConfigId
                   - agentKind
                   - concurrencyLimit
@@ -9974,6 +10084,25 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 50
+                runScopes:
+                  description: Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes.
+                  maxItems: 12
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - projects:read
+                      - projects:write
+                      - jobs:read
+                      - jobs:write
+                      - runs:read
+                      - runs:invoke
+                      - runs:cancel
+                      - runs:write
+                      - integrations:read
+                      - integrations:write
+                      - skills:read
+                      - skills:write
                 executionConfigId:
                   type: string
                   minLength: 1
@@ -10843,6 +10972,7 @@ paths:
                                   - api_key
                                   - oauth
                                   - session
+                                  - run_token
                               id:
                                 type: string
                             required:

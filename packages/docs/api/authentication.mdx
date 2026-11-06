@@ -50,3 +50,5 @@ Authorization-code clients must use PKCE S256. Implicit and plain PKCE are disab
 Device codes expire after 10 minutes from issuance, including time spent signing up. Honor the returned `interval` (initially 5 seconds). Each early poll returns `slow_down` and permanently increases that request’s interval by 5 seconds; wait the new interval before polling again. Invalid client authentication never changes another client’s polling schedule. The token endpoint returns `authorization_pending`, `slow_down`, `access_denied`, or `expired_token` as appropriate.
 
 Never send Linear, exe.dev, or connection credentials to an API client. Tokens are revocable and responses omit stored secrets.
+
+Job run scopes are configurable per job, including privileged orchestration writes. See [manual invocation and run permissions](/work/manual-invocation-permissions) for defaults, snapshot timing, and destination authorization.
