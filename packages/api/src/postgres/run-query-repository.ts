@@ -99,6 +99,7 @@ export class RunQueryRepository {
   async activity(runId: string) { return (await this.database.pool.query("SELECT action,detail,created_at FROM app.run_activity WHERE tenant_id=$1 AND run_id=$2 ORDER BY created_at,id", [this.tenantId, runId])).rows; }
   async stop(runId: string) {
     return this.database.transaction(async client => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", [this.tenantId]);
       const result = await client.query<any>("UPDATE app.job_runs SET state=CASE WHEN state='reserved' THEN 'stopped' ELSE 'stopping' END,next_poll_at=CASE WHEN state='reserved' THEN NULL ELSE now() END,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('reserved','starting','running','blocked','stopping') RETURNING id,state", [this.tenantId, runId]);
       const row = result.rows[0];
       if (row?.state === "stopped") await client.query("UPDATE app.runs SET state='stopped',claim_released=true,vm_cleanup_complete=true,updated_at=now() WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId]);

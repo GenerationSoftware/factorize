@@ -50,6 +50,7 @@ export class PostgresJobRepository implements JobRepository {
 
   async create(job: Job): Promise<Job> {
     return this.database.orm.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${this.tenantId}::text, 0))`);
       const [row] = await tx.insert(jobs).values({ tenantId: this.tenantId, id: job.id, projectId: job.projectId ?? await this.defaultProjectId(tx), name: job.name, slug: job.slug, encryptedPromptTemplate: await this.encrypt(job.promptTemplate), encryptedRunNameTemplate: job.runNameTemplate ? await this.encrypt(job.runNameTemplate) : "", executionConfig: job.executionConfig, runScopes: job.runScopes ?? [...DEFAULT_RUN_SCOPES], tags: job.tags ?? [], model: job.model, effort: job.effort ?? "", concurrencyLimit: job.concurrencyLimit, enabled: job.enabled, createdAt: new Date(job.createdAt), updatedAt: new Date(job.updatedAt) }).returning();
       await this.reconcileTriggers(tx, job, []);
       await this.reconcileSkills(tx, job, []);
@@ -59,6 +60,7 @@ export class PostgresJobRepository implements JobRepository {
 
   async update(job: Job, expectedUpdatedAt?: string): Promise<Job> {
     return this.database.orm.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${this.tenantId}::text, 0))`);
       const [current] = await tx.select().from(jobs).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, job.id))).for("update").limit(1);
       if (!current) throw new Error("Job not found");
       if (expectedUpdatedAt && current.updatedAt.toISOString() !== expectedUpdatedAt) throw new StaleJobEdit("Job changed since it was loaded");
@@ -86,6 +88,7 @@ export class PostgresJobRepository implements JobRepository {
 
   async setEnabled(id: string, enabled: boolean, changedAt: string): Promise<boolean> {
     return this.database.orm.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${this.tenantId}::text, 0))`);
       const [job] = await tx.update(jobs).set({ enabled, updatedAt: sql`greatest(${new Date(changedAt)}::timestamptz, date_trunc('milliseconds', ${jobs.updatedAt}) + interval '1 millisecond')` }).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).returning();
       if (!job) return false;
       const schedules: TriggerRow[] = await tx.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, id), eq(triggers.kind, "schedule"), isNull(triggers.removedAt)));
