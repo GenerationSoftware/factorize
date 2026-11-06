@@ -23,6 +23,7 @@ export function InvocationPermissionEditor({ jobId }: { jobId: string }) {
     <Label>Search destination jobs <Input value={search} maxLength={120} onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }} onChange={event => setSearch(event.target.value)} /></Label>
     {configured.isPending && <p role="status">Loading permissions…</p>}{configured.error && <p role="alert">{configured.error.message}</p>}
     {jobs.isPending && <p role="status">Loading jobs…</p>}{jobs.error && <p role="alert">{jobs.error.message}</p>}
+    <Label className="block"><Input type="checkbox" checked={selected.includes(jobId)} onChange={event => setSelected(event.target.checked ? [...selected, jobId] : selected.filter(id => id !== jobId))} /> Current job (allow this job to invoke itself)</Label>
     {jobs.data?.items.filter(job => job.id !== jobId).map(job => <Label key={job.id} className="block"><Input type="checkbox" checked={selected.includes(job.id)} onChange={event => setSelected(event.target.checked ? [...selected, job.id] : selected.filter(id => id !== job.id))} /> {job.name}</Label>)}
     <Button type="button" disabled={save.isPending || configured.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save permissions"}</Button>
     {save.error && <p role="alert">{save.error.message}</p>}

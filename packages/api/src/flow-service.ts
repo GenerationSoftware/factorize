@@ -400,7 +400,7 @@ export class ApiService {
     // service guard as defense in depth if a future run credential gains scopes.
     if (this.auth.authMethod === "run_token") throw new ServiceError(403, "insufficient_scope", "Run credentials cannot change invocation permissions.");
     const unique = [...new Set(destinationJobIds)];
-    if (unique.length !== destinationJobIds.length || unique.includes(sourceJobId)) throw new ServiceError(400, "invalid_request", "Destination jobs must be unique and cannot include the source job.");
+    if (unique.length !== destinationJobIds.length) throw new ServiceError(400, "invalid_request", "Destination jobs must be unique.");
     const db = databaseFor(this.env);
     await db.transaction(async client => {
       const sources = await client.query("SELECT 1 FROM app.jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.auth.tenantId, sourceJobId]);

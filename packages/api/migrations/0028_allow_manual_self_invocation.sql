@@ -1,0 +1,2 @@
+ALTER TABLE app.manual_invocation_permissions
+  DROP CONSTRAINT manual_invocation_permissions_check;

@@ -67,7 +67,7 @@ test("All runs complete source jobs stay within the edited job project during se
   assert.equal(projectA, current.projectId); assert.notEqual(projectA, projectB);
   await context.close();
 });
-test("manual invocation permissions include tenant jobs from other projects and save selected destinations", async () => {
+test("manual invocation permissions include the current job and tenant jobs from other projects", async () => {
   const { context, page } = await setup();
   const projectA = "00000000-0000-4000-8000-000000000020", destination = "00000000-0000-4000-8000-000000000024";
   let saved, selectorUrl;
@@ -78,10 +78,11 @@ test("manual invocation permissions include tenant jobs from other projects and 
   });
   await page.route("**/api/v1/job-selector?**", route => { selectorUrl = new URL(route.request().url()); return route.fulfill({ json: { items: [{ id: destination, name: "Cross project destination", slug: "cross-project", enabled: true }], nextCursor: null } }); });
   await page.goto(origin + `/jobs/${id}/edit`);
+  await page.getByLabel("Current job (allow this job to invoke itself)", { exact: true }).check();
   await page.getByLabel("Cross project destination", { exact: true }).check();
   await page.getByRole("button", { name: "Save permissions" }).click();
   await page.getByRole("status").filter({ hasText: "Manual invocation permissions saved." }).waitFor();
-  assert.deepEqual(saved, { destinationJobIds: [destination] });
+  assert.deepEqual(saved, { destinationJobIds: [id, destination] });
   assert.equal(selectorUrl.searchParams.has("projectId"), false);
   await context.close();
 });

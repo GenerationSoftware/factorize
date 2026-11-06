@@ -88,10 +88,17 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     const a = await tenant(), b = await tenant(), source = await job(a), destination = await job(a), foreign = await job(b);
     await database.pool.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_job_id,destination_job_id) VALUES ($1,$2,$3)", [a, source.id, destination.id]);
     await expect(database.pool.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_job_id,destination_job_id) VALUES ($1,$2,$3)", [a, source.id, foreign.id])).rejects.toMatchObject({ code: "23503" });
-    await expect(database.pool.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_job_id,destination_job_id) VALUES ($1,$2,$2)", [a, source.id])).rejects.toMatchObject({ code: "23514" });
     await repository(a).delete(source.id);
     const edges = await database.pool.query("SELECT 1 FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2", [a, source.id]);
     expect(edges.rowCount).toBe(0);
+  });
+
+  it("stores and revokes an explicit self-invocation permission", async () => {
+    const a = await tenant(), self = await job(a);
+    await database.pool.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_job_id,destination_job_id) VALUES ($1,$2,$2)", [a, self.id]);
+    expect((await database.pool.query("SELECT 1 FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2 AND destination_job_id=$2", [a, self.id])).rowCount).toBe(1);
+    await database.pool.query("DELETE FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2 AND destination_job_id=$2", [a, self.id]);
+    expect((await database.pool.query("SELECT 1 FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2 AND destination_job_id=$2", [a, self.id])).rowCount).toBe(0);
   });
 
   it("preserves one accepted stop across a stale poll and late launch completion", async () => {
