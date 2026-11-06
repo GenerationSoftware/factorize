@@ -85,17 +85,25 @@ test("project graph preserves disabled and multiple connections and navigates to
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
   await page.route(`**/api/v1/projects/${projectId}/graph`, route => route.fulfill({ json: {
     nodes: [
-      { id: jobId, type: "job", label: "Build", jobKind: "Agent", enabled: true },
-      { id: secondJob, type: "job", label: "Deploy", jobKind: "Code", enabled: false },
+      { id: jobId, type: "job", label: "Build", jobKind: "Agent", enabled: true, runningCount: 2, concurrencyLimit: 4 },
+      { id: secondJob, type: "job", label: "Deploy", jobKind: "Code", enabled: false, runningCount: 0, concurrencyLimit: 1 },
     ], edges: [
       { id: "lifecycle-a", source: jobId, target: secondJob, label: "Failed, Stopped", kind: "lifecycle", enabled: false },
       { id: "idle-a", source: jobId, target: secondJob, label: "Idle", kind: "idle", enabled: false },
       { id: "manual-a", source: jobId, target: secondJob, label: "Manual", kind: "manual", enabled: false },
+      { id: "lifecycle-reverse", source: secondJob, target: jobId, label: "Succeeded", kind: "lifecycle", enabled: true },
     ],
   } }));
   await page.goto(origin + `/projects/${projectId}`);
   await page.getByRole("button", { name: "Graph", exact: true }).click();
-  await page.getByRole("img", { name: /2 jobs and 3 connections/ }).waitFor();
+  await page.getByRole("img", { name: /2 jobs and 4 connections/ }).waitFor();
+  await page.getByText("Running · 2/4", { exact: true }).waitFor();
+  await page.getByText("Not running", { exact: true }).waitFor();
+  const combined = page.getByRole("button", { name: /Failed, Stopped · Idle · Manual · Succeeded connection, 4 triggers/ });
+  await combined.waitFor();
+  assert.equal(await page.getByRole("button", { name: /connection, 4 triggers/ }).count(), 1);
+  assert.equal(await combined.locator("path").getAttribute("marker-start"), "url(#graph-arrow-start)");
+  assert.equal(await combined.locator("path").getAttribute("marker-end"), "url(#graph-arrow)");
   await page.getByRole("link", { name: "Code: Deploy, disabled" }).click();
   await page.waitForURL(new RegExp(`/jobs/${secondJob}`));
   await context.close();
