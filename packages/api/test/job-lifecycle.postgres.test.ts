@@ -46,6 +46,17 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     await runs.terminal(run!, state, "stored", undefined, true);
     return result.run.id;
   }
+  async function start(tenantId: string, source: Job) {
+    const result = await new InvocationService(repository(tenantId), value => encrypt(value, key)).invoke(source.id, { source: "manual", triggerId: source.triggers[0]!.id, claimKey: crypto.randomUUID(), context: {} });
+    const run = await runs.claimNext();
+    expect(run?.id).toBe(result.run.id);
+    await runs.consumeWakeHint();
+    return run!;
+  }
+  async function updateTrigger(tenantId: string, value: Job, change: (trigger: Trigger) => Trigger, promptTemplate = value.promptTemplate) {
+    const trigger = change(value.triggers[0]!);
+    return repository(tenantId).update({ ...value, promptTemplate, triggers: [trigger], updatedAt: new Date().toISOString() });
+  }
   const invocations = async (tenantId: string, jobId: string) => (await database.pool.query("SELECT * FROM app.invocations WHERE tenant_id=$1 AND job_id=$2", [tenantId, jobId])).rows;
   const deliveries = async () => (await database.pool.query("SELECT * FROM app.lifecycle_deliveries WHERE tenant_id=ANY($1::uuid[])", [tenants])).rows;
   afterAll(async () => {
@@ -71,6 +82,85 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect(await invocations(a, target.id)).toMatchObject([{ context: { "trigger-1": { sourceRunId: runId, sourceJobId: source.id, state: "succeeded" } } }]);
     expect(await invocations(a, target.id)).toHaveLength(1);
     expect(await deliveries()).toHaveLength(1);
+  });
+
+  it("does not replay terminal history when a trigger is created disabled then enabled", async () => {
+    const a = await tenant(), source = await job(a);
+    await complete(a, source, "failed");
+    let target = await job(a, { sourceJobIds: [source.id], states: ["failed"] }, false);
+    await deliver();
+    expect(await invocations(a, target.id)).toHaveLength(0);
+    target = await updateTrigger(a, target, trigger => ({ ...trigger, enabled: true }));
+    await deliver();
+    await deliver();
+    expect(await invocations(a, target.id)).toHaveLength(0);
+
+    const activeRun = await start(a, source);
+    // This run began before the subscription, but its terminal transition is after it.
+    await runs.terminal(activeRun, "failed", "stored", undefined, true);
+    await Promise.all([deliver(), deliver()]);
+    expect(await invocations(a, target.id)).toHaveLength(1);
+    expect(await invocations(a, target.id)).toMatchObject([{ context: { "trigger-1": { sourceRunId: activeRun.id, state: "failed" } } }]);
+  });
+
+  it("keeps captured terminal work pending through disable, config edits, and re-enable", async () => {
+    const a = await tenant(), source = await job(a), other = await job(a);
+    let target = await job(a, { sourceJobIds: [source.id], states: ["failed"] });
+    const pendingRun = await complete(a, source, "failed");
+    target = await updateTrigger(a, target, trigger => ({ ...trigger, enabled: false }));
+    await deliver();
+    expect(await invocations(a, target.id)).toHaveLength(0);
+
+    // A watched-source/state change establishes the future matching set, while
+    // the already snapshotted event remains a legitimate pending delivery.
+    target = await updateTrigger(a, target, trigger => ({ ...trigger, config: { sourceJobIds: [other.id], states: ["succeeded"] } }), "{{trigger-1.state}} edited");
+    await deliver();
+    expect(await invocations(a, target.id)).toHaveLength(0);
+    target = await updateTrigger(a, target, trigger => ({ ...trigger, enabled: true }));
+    await deliver();
+    expect(await invocations(a, target.id)).toMatchObject([{ context: { "trigger-1": { sourceRunId: pendingRun, state: "failed" } } }]);
+    const targetRun = await runs.claimNext();
+    expect(targetRun?.jobId).toBe(target.id);
+    await runs.consumeWakeHint();
+    await runs.terminal(targetRun!, "succeeded", "stored", undefined, true);
+
+    await complete(a, source, "succeeded");
+    await deliver();
+    expect(await invocations(a, target.id)).toHaveLength(1);
+    await complete(a, other, "succeeded");
+    await Promise.all([deliver(), deliver()]);
+    expect(await invocations(a, target.id)).toHaveLength(2);
+  });
+
+  it("does not create lifecycle work from unrelated prompt edits or re-enabling", async () => {
+    const a = await tenant(), source = await job(a);
+    await complete(a, source, "failed");
+    let target = await job(a, { sourceJobIds: [source.id], states: ["failed"] });
+    target = await updateTrigger(a, target, trigger => ({ ...trigger }), "unrelated prompt edit");
+    target = await updateTrigger(a, target, trigger => ({ ...trigger, enabled: false }));
+    target = await updateTrigger(a, target, trigger => ({ ...trigger, enabled: true }));
+    await deliver();
+    expect(await invocations(a, target.id)).toHaveLength(0);
+    await complete(a, source, "failed");
+    await deliver();
+    expect(await invocations(a, target.id)).toHaveLength(1);
+  });
+
+  it("starts a replacement trigger at its own subscription boundary", async () => {
+    const a = await tenant(), source = await job(a);
+    await complete(a, source, "failed");
+    const target = await job(a, { sourceJobIds: [source.id], states: ["failed"] });
+    const oldTriggerId = target.triggers[0]!.id;
+    const replacement: Trigger = { ...target.triggers[0]!, id: crypto.randomUUID(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const updated = await repository(a).update({ ...target, triggers: [replacement], updatedAt: new Date().toISOString() });
+    expect(updated.triggers[0]!.id).not.toBe(oldTriggerId);
+    await deliver();
+    expect(await invocations(a, target.id)).toHaveLength(0);
+
+    await complete(a, source, "failed");
+    await deliver();
+    expect(await invocations(a, target.id)).toHaveLength(1);
+    expect((await database.pool.query("SELECT * FROM app.lifecycle_events WHERE tenant_id=$1 AND trigger_id=$2", [a, replacement.id])).rows).toHaveLength(1);
   });
 
   it("snapshots a code script and structured trigger context when queued", async () => {

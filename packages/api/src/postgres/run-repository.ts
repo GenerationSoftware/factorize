@@ -114,6 +114,7 @@ export class RunRepository {
 
   async terminal(run: PersistedRun, state: "succeeded" | "failed" | "stopped", artifactState: "stored" | "partial" | "failed", error?: string, cleanupComplete = false): Promise<void> {
     await this.database.transaction(async client => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", [run.tenantId]);
       const current = (await client.query<{ state: ExecutionState }>("SELECT state FROM app.job_runs WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked','stopping') FOR UPDATE", [run.tenantId, run.id])).rows[0];
       if (!current) return;
       const saved = (await client.query<{ agent_error_reason: string | null }>("SELECT agent_error_reason FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [run.tenantId, run.id])).rows[0];
