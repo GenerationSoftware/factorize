@@ -18,6 +18,7 @@ export interface LaunchRequest {
   runProxy?: { targetOrigin: string; credential: string };
   traceSources?: TraceSources;
   harness?: { executable: string; args: string[]; env: Record<string, string> };
+  code?: { script: string; context: Record<string, unknown> };
 }
 
 /** Opaque to orchestration. Only the backend that created it may interpret id. */

@@ -40,6 +40,15 @@ export class RunScheduler {
   }
 
   private async launch(run: PersistedRun) {
+    if (run.executionConfig.executionType === "code") {
+      if (typeof run.executionConfig.script !== "string" || !run.executionConfig.script.trim()) throw new Error("The code job has no saved script");
+      const backend = await this.backend(run), context = run.executionConfig.inputContext;
+      if (!context || typeof context !== "object" || Array.isArray(context)) throw new Error("The code job input context snapshot is missing");
+      const launched = await backend.launch({ runId: run.id, prompt: "", code: { script: run.executionConfig.script, context } });
+      await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities);
+      if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
+      return;
+    }
     if (run.executionConfig.agentKind === "Amp") throw new Error("Amp execution is unavailable for new runs because it cannot deliver the required structured result file. Choose an exe.dev agent integration.");
     const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, { model: run.executionConfig.model, effort: run.executionConfig.effort });
     const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
@@ -93,23 +102,27 @@ export class RunScheduler {
         try { await this.collectHarnessLog(run, backend, artifacts); }
         catch { errors.push("Harness log collection or storage failed"); }
       }
-      const sources = this.sources(run);
-      if (sources.primary.provider === "codex" && sources.primary.kind !== "execution_stream") errors.push("Historical Codex native source is read-only; canonical execution stream was not declared");
-      if (sources.primary.kind === "execution_stream" && !stored.some(item => item.kind === "execution_stream" && item.state === "stored")) {
-        try {
-          const collected = await this.collectArtifact(run, backend, sources.primary, true);
-          if (!collected.ok) errors.push(`Canonical execution stream upload failed: ${sources.primary.path}`);
-        } catch { errors.push(`Canonical execution stream collection failed: ${sources.primary.path}`); }
+      const sources = run.executionConfig.executionType === "code" ? undefined : this.sources(run);
+      if (run.executionConfig.executionType === "code") {
+        // Code jobs have no agent session trace; preserve the shared result,
+        // log, output directory, supervision, and cleanup lifecycle.
+      } else {
+      const sourceSet = sources!;
+      if (sourceSet.primary.provider === "codex" && sourceSet.primary.kind !== "execution_stream") errors.push("Historical Codex native source is read-only; canonical execution stream was not declared");
+      if (sourceSet.primary.kind === "execution_stream" && !stored.some(item => item.kind === "execution_stream" && item.state === "stored")) {
+        try { const collected = await this.collectArtifact(run, backend, sourceSet.primary, true); if (!collected.ok) errors.push(`Canonical execution stream upload failed: ${sourceSet.primary.path}`); }
+        catch { errors.push(`Canonical execution stream collection failed: ${sourceSet.primary.path}`); }
       }
-      if (sources.primary.provider !== "codex" && !stored.some(item => item.kind === "native_session" && item.state === "stored")) {
+      if (sourceSet.primary.provider !== "codex" && !stored.some(item => item.kind === "native_session" && item.state === "stored")) {
         try {
           const collected = await this.collectArtifact(run, backend);
           if (!collected.ok) { errors.push("Native session upload failed"); traceMetric("missing_native_artifact", run.tenantId, run.id, { attempt: run.finalizationAttempt ?? 0 }); }
         } catch { errors.push("Native session collection or storage failed"); traceMetric("missing_native_artifact", run.tenantId, run.id, { attempt: run.finalizationAttempt ?? 0 }); }
       }
-      if (sources.primary.kind === "execution_stream") {
-        try { errors.push(...await this.finalizePrimary(run, sources.primary)); }
+      if (sourceSet.primary.kind === "execution_stream") {
+        try { errors.push(...await this.finalizePrimary(run, sourceSet.primary)); }
         catch { errors.push("Retained primary trace projection failed"); }
+      }
       }
       if (run.resultProtocolVersion === 1) {
         try {
@@ -117,7 +130,7 @@ export class RunScheduler {
           const retained = new Set(current.filter(item => item.kind === "job_file" && item.state === "stored").map(item => item.source_path));
           for (const path of await backend.listJobFiles(run.executionHandle!)) {
             if (retained.has(path)) continue;
-            const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path, artifactType: "job_file", contentType: "application/octet-stream", provider: run.executionConfig.agentKind, format: "file", expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
+            const token = await issueArtifactUploadGrant({ tenantId: run.tenantId, runId: run.id, path, artifactType: "job_file", contentType: "application/octet-stream", provider: run.executionConfig.executionType === "code" ? "code" : run.executionConfig.agentKind, format: "file", expiresAt: Date.now() + 10 * 60_000 }, this.env.SESSION_SIGNING_SECRET);
             const uploaded = await backend.collectJobFile(run.executionHandle!, { path, uploadUrl: `${this.env.APP_ORIGIN}/internal/run-artifacts/${encodeURIComponent(token)}` });
             if (!uploaded.ok) throw new Error(uploaded.detail ?? "Job file upload failed");
           }
@@ -175,7 +188,7 @@ export class RunScheduler {
     const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), byte => byte.toString(16).padStart(2, "0")).join("");
     const key = artifactKey(run.tenantId, run.id, "harness/stderr.txt");
     await this.env.RUN_ARTIFACTS.put(key, bytes, { httpMetadata: { contentType: "text/plain; charset=utf-8" }, sha256 });
-    await artifacts.record({ runId: run.id, kind: "terminal_log", objectKey: key, provider: String(run.executionConfig.agentKind), format: "text", byteSize: bytes.length, sha256 });
+    await artifacts.record({ runId: run.id, kind: "terminal_log", objectKey: key, provider: run.executionConfig.executionType === "code" ? "code" : String(run.executionConfig.agentKind), format: "text", byteSize: bytes.length, sha256 });
   }
 
   private sources(run: PersistedRun): TraceSources {

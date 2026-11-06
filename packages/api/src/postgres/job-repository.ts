@@ -26,7 +26,7 @@ export class PostgresJobRepository implements JobRepository {
     const skillRows = loadedSkills?.filter(skill => skill.job_id === row.id) ?? (db === this.database.orm
       ? (await this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.job_id=$2 ORDER BY js.position", [this.tenantId, row.id])).rows
       : (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.job_id=${row.id}::uuid ORDER BY js.position`)).rows);
-    return { id: row.id, projectId: row.projectId, name: row.name, slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), selectedSkills: await Promise.all(skillRows.map(async (skill: any) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: await this.decrypt(skill.encrypted_body), position: skill.position }))), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
+    return { id: row.id, projectId: row.projectId, name: row.name, slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), executionType: row.executionConfig.executionType ?? "agent", script: row.executionConfig.script, runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), selectedSkills: await Promise.all(skillRows.map(async (skill: any) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: await this.decrypt(skill.encrypted_body), position: skill.position }))), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
   async getJob(id: string): Promise<Job | null> {
@@ -157,9 +157,9 @@ export class PostgresJobRepository implements JobRepository {
       await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_config,execution_capabilities,result_protocol_version,created_at,updated_at)
         SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_config->>'agentKind',$7,
           CASE WHEN j.execution_config->>'agentKind'='Amp' THEN 'amp' ELSE 'exe-vm' END,
-          j.execution_config || jsonb_build_object('model',j.model,'effort',j.effort,'tags',j.tags),
+          j.execution_config || jsonb_build_object('model',j.model,'effort',j.effort,'tags',j.tags,'inputContext',i.context),
           CASE WHEN j.execution_config->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,1,$9,$10
-        FROM app.jobs j
+        FROM app.jobs j JOIN app.invocations i ON i.tenant_id=j.tenant_id AND i.id=$4
         WHERE j.tenant_id=$1 AND j.id=$3`, [this.tenantId, run.id, run.jobId, run.invocationId, invocation.source, invocation.claimKey, run.state, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");
       return true;

@@ -3,7 +3,7 @@ import type { JobPageQuery } from "../job-contracts";
 
 interface SummaryRow {
   id: string; project_id: string; name: string; slug: string; enabled: boolean; model: string; effort: string;
-  agent_kind: string; concurrency_limit: number; running_count: string; last_run_state: string | null;
+  agent_kind: string; execution_type: string | null; concurrency_limit: number; running_count: string; last_run_state: string | null;
   created_at: Date; updated_at: Date;
 }
 
@@ -16,7 +16,7 @@ export class JobSummaryRepository {
     const sort = input.sort ?? "id";
     const result = await this.database.pool.query<SummaryRow>(`
       WITH page AS MATERIALIZED (
-        SELECT id,project_id project_id,name,slug,enabled,model,effort,execution_config->>'agentKind' agent_kind,
+        SELECT id,project_id project_id,name,slug,enabled,model,effort,execution_config->>'agentKind' agent_kind,execution_config->>'executionType' execution_type,
           concurrency_limit,created_at,updated_at
         FROM app.jobs WHERE tenant_id=$1 AND ($2::uuid IS NULL OR ($7='updated' OR id<$2))
           AND ($3='' OR strpos(lower(name),lower($3))>0 OR strpos(lower(slug),lower($3))>0)
@@ -34,7 +34,7 @@ export class JobSummaryRepository {
     const rows = result.rows.slice(0, input.limit);
     return {
       items: rows.map(row => ({ id: row.id, projectId: row.project_id, name: row.name, slug: row.slug, enabled: row.enabled,
-        ...(selector ? {} : { model: row.model, effort: row.effort, agentKind: row.agent_kind,
+        ...(selector ? {} : { model: row.model, effort: row.effort, agentKind: row.agent_kind, executionType: row.execution_type ?? "agent",
           concurrencyLimit: row.concurrency_limit, runningCount: Number(row.running_count ?? 0), lastRunState: row.last_run_state ?? null,
           createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() }) })),
       nextCursor: result.rows.length > input.limit ? rows.at(-1)!.id : null,

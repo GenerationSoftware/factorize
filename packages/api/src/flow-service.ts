@@ -129,7 +129,7 @@ export class ApiService {
   private async presentJob(job: Job, loadedStats?: { running_count: string; last_run_state: string | null }) {
     const stats = loadedStats ?? (await this.jobStatistics([job.id])).get(job.id);
     const runningCount = Number(stats?.running_count ?? 0);
-    return publicValue(jobResponse, { ...job, skills: (job.selectedSkills ?? []).map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision, position: skill.position })), triggers: job.triggers.map(trigger => ({ ...trigger, config: trigger.kind === "webhook" ? { ...trigger.config, ...(trigger.config.signingSecret || trigger.config.secret ? { secretConfigured: true } : {}), ...(trigger.config.provider === "cloudflareTail" ? { destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(job.id)}` } : {}) } : trigger.config })), runNameTemplate: job.runNameTemplate ?? "", executionConfigId: job.executionConfig.targetId ?? `${job.executionConfig.agentKind === "Amp" ? "amp:" : ""}${job.executionConfig.connectionId}`, agentKind: job.executionConfig.agentKind, runningCount, currentRuns: runningCount, maxConcurrency: job.concurrencyLimit, lastRunState: stats?.last_run_state ?? null });
+    return publicValue(jobResponse, { ...job, executionType: job.executionType ?? "agent", skills: (job.selectedSkills ?? []).map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision, position: skill.position })), triggers: job.triggers.map(trigger => ({ ...trigger, config: trigger.kind === "webhook" ? { ...trigger.config, ...(trigger.config.signingSecret || trigger.config.secret ? { secretConfigured: true } : {}), ...(trigger.config.provider === "cloudflareTail" ? { destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(job.id)}` } : {}) } : trigger.config })), runNameTemplate: job.runNameTemplate ?? "", executionConfigId: job.executionConfig.targetId ?? `${job.executionConfig.agentKind === "Amp" ? "amp:" : ""}${job.executionConfig.connectionId}`, agentKind: job.executionConfig.agentKind, runningCount, currentRuns: runningCount, maxConcurrency: job.concurrencyLimit, lastRunState: stats?.last_run_state ?? null });
   }
   async listSkills(query: { q: string; limit: number; cursor?: string }) { await this.authorize("skills:read"); return publicValue(skillPage, await this.skills().list(query.q, query.limit, query.cursor)); }
   async getSkill(id: string) { await this.authorize("skills:read"); const value = await this.skills().get(id); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); }
@@ -207,11 +207,11 @@ export class ApiService {
     return publicValue(fullRunResponse, JSON.parse(JSON.stringify({ id: run.id, tenant_id: run.tenant_id, job_id: run.job_id, invocation_id: run.invocation_id,
       execution_handle: run.execution_handle ? { backendKind: run.execution_handle.backendKind, id: run.execution_handle.id } : null,
       provider: run.provider, issue_id: run.issue_id, issue_url: run.issue_url, issue_title: run.issue_title,
-      run_name: run.run_name, agent_name: run.agent_name, workspace_name: run.workspace_name, agent_kind: run.agent_kind,
+      run_name: run.run_name, agent_name: run.agent_name, workspace_name: run.workspace_name, agent_kind: run.agent_kind, execution_type: run.execution_type ?? run.execution_config?.executionType ?? "agent",
       state: run.state, failure_source: run.failure_source ?? null, agent_error: agentError, execution_backend_kind: run.execution_backend_kind, backend_kind: run.backend_kind,
       execution_capabilities: run.execution_capabilities, capabilities: run.capabilities, destination_url: run.destination_url,
       artifact_state: run.artifact_state, artifact_error: run.artifact_error,
-      claim_released: run.claim_released, vm_cleanup_attempt: run.vm_cleanup_attempt, cleanup_next_at: run.cleanup_next_at, vm_cleanup_complete: run.vm_cleanup_complete,
+      claim_released: run.claim_released, vm_cleanup_attempt: run.vm_cleanup_attempt, cleanup_next_at: run.cleanup_next_at, vm_cleanup_complete: run.vm_cleanup_complete, execution_script: typeof run.execution_config?.script === "string" ? run.execution_config.script : null, execution_configuration: run.execution_config,
       created_at: run.created_at, updated_at: run.updated_at, started_at: run.started_at,
       job_name: run.job_name, prompt: run.prompt, context: run.context, occurrence: run.occurrence, invocation: run.invocation,
       invocation_source: run.invocation_source, invocation_claim_key: run.invocation_claim_key, invocation_trigger_id: run.invocation_trigger_id, invocation_created_at: run.invocation_created_at,
@@ -298,20 +298,24 @@ export class ApiService {
   async createJob(input: JobInput) {
     await this.authorize("jobs:write"); const timestamp = new Date().toISOString(), id = crypto.randomUUID();
     const vmImage = input.vmImage ? canonicalizeVmImage(input.vmImage) : input.vmImage;
-    await this.validateExecutionOptions(input.executionConfigId, input.model ?? "", input.effort ?? "", input.tags ?? []);
+    const executionType = input.executionType ?? "agent";
+    if (executionType === "code" && input.executionConfigId.startsWith("amp:")) throw new ServiceError(400, "invalid_request", "Code jobs require an exe.dev integration.");
+    if (executionType !== "code") await this.validateExecutionOptions(input.executionConfigId, input.model ?? "", input.effort ?? "", input.tags ?? []);
     const triggers = this.normalizedTriggers(input.triggers).map(trigger => ({ ...trigger, jobId: id }));
     const projectId = input.projectId ?? await this.projects().defaultProjectId();
-    const selectedSkills = input.skillIds ? await this.skillSelections(input.skillIds) : [];
-    const job: Job = { id, projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", ...(input.effort ? { effort: input.effort } : {}), executionConfig: { ...await this.executionConfig(input.executionConfigId), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, selectedSkills, createdAt: timestamp, updatedAt: timestamp };
+    const selectedSkills = executionType === "code" ? [] : input.skillIds ? await this.skillSelections(input.skillIds) : [];
+    const job: Job = { id, projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", ...(input.effort ? { effort: input.effort } : {}), executionConfig: { ...await this.executionConfig(input.executionConfigId), executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, selectedSkills, createdAt: timestamp, updatedAt: timestamp };
     try { return this.presentJob(await this.jobs().create(job)); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "Job slug is already in use"); throw error; }
   }
   async updateJob(jobId: string, input: JobInput & { expectedUpdatedAt?: string }) {
     await this.authorize("jobs:write"); const repository = this.jobs(), current = await repository.getJob(jobId); if (!current) throw new ServiceError(404, "not_found", "Job not found");
     const vmImage = input.vmImage ? canonicalizeVmImage(input.vmImage) : input.vmImage;
-    await this.validateExecutionOptions(input.executionConfigId, input.model ?? "", input.effort ?? "", input.tags ?? []);
+    const executionType = input.executionType ?? current.executionType ?? "agent";
+    if (executionType === "code" && input.executionConfigId.startsWith("amp:")) throw new ServiceError(400, "invalid_request", "Code jobs require an exe.dev integration.");
+    if (executionType !== "code") await this.validateExecutionOptions(input.executionConfigId, input.model ?? "", input.effort ?? "", input.tags ?? []);
     const triggers = this.normalizedTriggers(input.triggers, current.triggers).map(trigger => ({ ...trigger, jobId }));
-    const selectedSkills = input.skillIds === undefined ? current.selectedSkills : await this.skillSelections(input.skillIds);
-    const updated = await repository.update({ ...current, projectId: input.projectId ?? current.projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", effort: input.effort, executionConfig: { ...await this.executionConfig(input.executionConfigId), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, triggers, selectedSkills, updatedAt: new Date().toISOString() }, input.expectedUpdatedAt).catch(error => { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload its configuration before saving."); throw error; });
+    const selectedSkills = executionType === "code" ? [] : input.skillIds === undefined ? current.selectedSkills : await this.skillSelections(input.skillIds);
+    const updated = await repository.update({ ...current, projectId: input.projectId ?? current.projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", effort: input.effort, executionConfig: { ...await this.executionConfig(input.executionConfigId), executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, triggers, selectedSkills, updatedAt: new Date().toISOString() }, input.expectedUpdatedAt).catch(error => { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload its configuration before saving."); throw error; });
     await this.wakeScheduler();
     return this.presentJob(updated);
   }
@@ -319,10 +323,10 @@ export class ApiService {
     await this.authorize("jobs:write");
     const value = vmImageVerificationInput.parse(input), connection = await this.connections().get<ExeConnection>(`exe:${value.connectionId}`);
     if (!connection) throw new ServiceError(404, "not_found", "exe.dev integration not found");
-    if (connection.agentKind !== value.agentKind) throw new ServiceError(400, "invalid_request", "The selected agent does not match this exe.dev integration.");
+    if (value.executionType !== "code" && connection.agentKind !== value.agentKind) throw new ServiceError(400, "invalid_request", "The selected agent does not match this exe.dev integration.");
     const allowedTags = new Set(selectableExeTags(connection));
     if (value.tags.some(tag => !allowedTags.has(tag))) throw new ServiceError(400, "invalid_request", "VM tags must be selected from the available exe.dev labels.");
-    const id = crypto.randomUUID(), db = databaseFor(this.env), config = { connectionId: value.connectionId, image: value.image, tags: value.tags, agentKind: value.agentKind };
+    const id = crypto.randomUUID(), db = databaseFor(this.env), config = { connectionId: value.connectionId, image: value.image, tags: value.tags, agentKind: value.agentKind, executionType: value.executionType ?? "agent" };
     await db.pool.query("INSERT INTO app.vm_image_verifications(tenant_id,id,status,phase,config) VALUES ($1,$2,'queued','queued',$3)", [this.auth.tenantId, id, config]);
     const task = this.runVmImageVerification(id, connection, value);
     if (this.ctx) this.ctx.waitUntil(task); else void task.catch(error => console.error("VM image verification failed", error));
@@ -335,8 +339,8 @@ export class ApiService {
     const backend = new ExeVmBackend({ ...connection, tags: input.tags });
     try {
       await update("creating");
-      await backend.verifyImage(id, input.image, input.agentKind, phase => update(phase));
-      await update("succeeded", "Verification passed. Image pull, SSH, and agent prerequisites worked at this time.");
+      await backend.verifyImage(id, input.image, input.agentKind, phase => update(phase), input.executionType ?? "agent");
+      await update("succeeded", input.executionType === "code" ? "Verification passed. Image pull, SSH, and code prerequisites worked at this time." : "Verification passed. Image pull, SSH, and agent prerequisites worked at this time.");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Image verification failed.";
       const cleanup = message.startsWith("cleanup:"), kind = cleanup ? "cleanup" : message.startsWith("ssh:") ? "ssh" : message.startsWith("agent:") ? "agent" : cause instanceof ExeImageVerificationError ? cause.kind : "image_pull";

@@ -624,6 +624,22 @@ Concurrency can be 1–50. With concurrency 2, two reviews may execute and one m
 Inspect output before treating a terminal state as a useful result. Trace collection can be incomplete even when execution completed; advanced trace recovery belongs in [operations](https://docs.factorize.sh/self-hosting/operations).
 ## Global skills
 
+## Code jobs
+
+Choose **Code script** in the job editor to run a shell script on the configured exe.dev VM image. Code jobs do not need a prompt, model, effort, skill, or agent executable. The process runs as `exedev` in `/home/exedev/workspace`.
+
+The script receives `FACTORIZE_RESULT_PATH`, set to `~/.factorize-job/results.json`, and `FACTORIZE_INPUT_PATH`, set to a JSON file containing the trigger context. For example:
+
+```sh
+#!/bin/sh
+set -eu
+count=$(jq -r '.source.outputs.count // 0' "$FACTORIZE_INPUT_PATH")
+printf '{"status":"succeeded","summary":"Exported %s records"}\n' "$count" > "$FACTORIZE_RESULT_PATH"
+printf 'count=%s\n' "$count" > "$HOME/.factorize-job/export.txt"
+```
+
+The structured result determines run success or failure. Other files written under `~/.factorize-job/` are retained as downloadable artifacts. Each queued run snapshots its script and input context, so later job edits do not change it.
+
 Skills are reusable, tenant-scoped instruction bodies that can be attached to jobs in an explicit order. A body is literal text: Mustache expressions, braces, Unicode, whitespace, and HTML-like text are passed through unchanged. Only the job context is rendered with trigger data.
 
 Renaming a skill changes its shared key without changing stable job references. Deletion is rejected while any enabled or disabled saved job uses it. A run resolves its selected skills when queued and stores the exact bodies, keys, revisions, and order; later edits, renames, or deletion do not change historical runs. Skill library operations require `skills:read` or `skills:write`; inspecting affected jobs also requires `jobs:read`.

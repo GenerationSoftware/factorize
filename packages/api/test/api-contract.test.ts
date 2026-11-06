@@ -56,6 +56,12 @@ describe("versioned API contract", () => {
     expect(operation?.parameters.shape.projectId).toBeDefined();
     expect(openapi.paths["/api/v1/projects/{projectId}/graph"].get["x-required-scope"]).toBe("projects:read");
   });
+  it("accepts code jobs without agent prompts or models and rejects missing scripts", () => {
+    const code = { name: "Export", slug: "export", executionType: "code", script: "#!/bin/sh\nprintf '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"", executionConfigId: "exe", triggers: [] };
+    expect(jobInputSchema.safeParse(code).success).toBe(true);
+    expect(jobInputSchema.safeParse({ ...code, script: " " }).success).toBe(false);
+    expect(jobInputSchema.safeParse({ name: "Agent", slug: "agent", promptTemplate: "Run", executionConfigId: "exe", triggers: [] }).success).toBe(true);
+  });
   it("has full bidirectional method/path equality with the executable catalog", () => {
     const documented = Object.entries(openapi.paths).flatMap(([path, item]) =>
       Object.keys(item as object)

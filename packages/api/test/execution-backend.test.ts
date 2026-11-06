@@ -103,6 +103,18 @@ describe("ExeVmBackend", () => {
     expect(requests[0]).toContain("--image='ghcr.io/acme/base:release'\"'\"'candidate'");
   });
 
+  it("runs code jobs as exedev without an agent harness and writes their input context", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => { requests.push(String(init.body)); return new Response(requests.length === 1 ? '{"name":"factorize-code"}' : "started", { headers: { "X-Exe-Exit": "0" } }); }));
+    const launched = await new ExeVmBackend({ apiToken: "secret", tags: ["jobs"], image: "example/base:latest" }).launch({ runId: "code", prompt: "", code: { script: "echo done", context: { source: { outputs: { count: 3 } } } } });
+    expect(launched.handle.id).toBe("factorize-code");
+    expect(requests[1]).toContain("FACTORIZE_RESULT_PATH=/home/exedev/.factorize-job/results.json");
+    expect(requests[1]).toContain("FACTORIZE_INPUT_PATH=/home/exedev/.factorize-job/input.json");
+    expect(requests[1]).toContain("bash /tmp/factorize-code-job.sh");
+    expect(requests[1]).toContain("--uid=exedev --gid=exedev");
+    expect(requests[1]).not.toContain("codex");
+  });
+
   it.each(["codex", "claude", "pi"] as const)("passes %s harness environment as systemd options instead of an executable", async kind => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {

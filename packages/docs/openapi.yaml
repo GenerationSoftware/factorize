@@ -64,6 +64,11 @@ components:
           type: string
         agent_kind:
           type: string
+        execution_type:
+          type: string
+          enum:
+            - agent
+            - code
         state:
           type: string
           enum:
@@ -181,6 +186,7 @@ components:
         - agent_name
         - workspace_name
         - agent_kind
+        - execution_type
         - state
         - provider
         - backend_kind
@@ -228,6 +234,11 @@ components:
                 type: string
               agent_kind:
                 type: string
+              execution_type:
+                type: string
+                enum:
+                  - agent
+                  - code
               state:
                 type: string
                 enum:
@@ -345,6 +356,7 @@ components:
               - agent_name
               - workspace_name
               - agent_kind
+              - execution_type
               - state
               - provider
               - backend_kind
@@ -726,6 +738,12 @@ components:
           type: string
         agent_kind:
           type: string
+        execution_type:
+          default: agent
+          type: string
+          enum:
+            - agent
+            - code
         state:
           type: string
           enum:
@@ -925,6 +943,16 @@ components:
             - "null"
         vm_cleanup_complete:
           type: boolean
+        execution_script:
+          default: null
+          type:
+            - string
+            - "null"
+        execution_configuration:
+          type: object
+          propertyNames:
+            type: string
+          additionalProperties: {}
         prompt:
           type: string
         context:
@@ -1121,6 +1149,7 @@ components:
         - agent_name
         - workspace_name
         - agent_kind
+        - execution_type
         - state
         - provider
         - backend_kind
@@ -1144,6 +1173,8 @@ components:
         - vm_cleanup_attempt
         - cleanup_next_at
         - vm_cleanup_complete
+        - execution_script
+        - execution_configuration
         - prompt
         - context
         - occurrence
@@ -1222,9 +1253,17 @@ components:
         slug:
           type: string
           pattern: ^[a-z][a-z0-9_-]{0,29}$
-        promptTemplate:
+        executionType:
           type: string
-          minLength: 1
+          enum:
+            - agent
+            - code
+        promptTemplate:
+          default: ""
+          type: string
+          maxLength: 50000
+        script:
+          type: string
           maxLength: 50000
         runNameTemplate:
           type: string
@@ -1555,7 +1594,6 @@ components:
       required:
         - name
         - slug
-        - promptTemplate
         - executionConfigId
       additionalProperties: false
     ManualInvocation:
@@ -5105,6 +5143,11 @@ paths:
                           type: string
                         agentKind:
                           type: string
+                        executionType:
+                          type: string
+                          enum:
+                            - agent
+                            - code
                         concurrencyLimit:
                           type: integer
                           minimum: -9007199254740991
@@ -5142,6 +5185,7 @@ paths:
                         - model
                         - effort
                         - agentKind
+                        - executionType
                         - concurrencyLimit
                         - runningCount
                         - lastRunState
@@ -6399,7 +6443,14 @@ paths:
                     type: string
                   enabled:
                     type: boolean
+                  executionType:
+                    type: string
+                    enum:
+                      - agent
+                      - code
                   promptTemplate:
+                    type: string
+                  script:
                     type: string
                   runNameTemplate:
                     type: string
@@ -6423,6 +6474,13 @@ paths:
                       agentKind:
                         type: string
                       image:
+                        type: string
+                      executionType:
+                        type: string
+                        enum:
+                          - agent
+                          - code
+                      script:
                         type: string
                     required:
                       - connectionId
@@ -7050,6 +7108,11 @@ paths:
                     - codex
                     - claude
                     - pi
+                executionType:
+                  type: string
+                  enum:
+                    - agent
+                    - code
               required:
                 - connectionId
                 - image
@@ -7167,7 +7230,14 @@ paths:
                       type: string
                     enabled:
                       type: boolean
+                    executionType:
+                      type: string
+                      enum:
+                        - agent
+                        - code
                     promptTemplate:
+                      type: string
+                    script:
                       type: string
                     runNameTemplate:
                       type: string
@@ -7191,6 +7261,13 @@ paths:
                         agentKind:
                           type: string
                         image:
+                          type: string
+                        executionType:
+                          type: string
+                          enum:
+                            - agent
+                            - code
+                        script:
                           type: string
                       required:
                         - connectionId
@@ -7707,7 +7784,14 @@ paths:
                     type: string
                   enabled:
                     type: boolean
+                  executionType:
+                    type: string
+                    enum:
+                      - agent
+                      - code
                   promptTemplate:
+                    type: string
+                  script:
                     type: string
                   runNameTemplate:
                     type: string
@@ -7731,6 +7815,13 @@ paths:
                       agentKind:
                         type: string
                       image:
+                        type: string
+                      executionType:
+                        type: string
+                        enum:
+                          - agent
+                          - code
+                      script:
                         type: string
                     required:
                       - connectionId
@@ -8742,7 +8833,14 @@ paths:
                     type: string
                   enabled:
                     type: boolean
+                  executionType:
+                    type: string
+                    enum:
+                      - agent
+                      - code
                   promptTemplate:
+                    type: string
+                  script:
                     type: string
                   runNameTemplate:
                     type: string
@@ -8766,6 +8864,13 @@ paths:
                       agentKind:
                         type: string
                       image:
+                        type: string
+                      executionType:
+                        type: string
+                        enum:
+                          - agent
+                          - code
+                      script:
                         type: string
                     required:
                       - connectionId
@@ -9295,7 +9400,14 @@ paths:
                     type: string
                   enabled:
                     type: boolean
+                  executionType:
+                    type: string
+                    enum:
+                      - agent
+                      - code
                   promptTemplate:
+                    type: string
+                  script:
                     type: string
                   runNameTemplate:
                     type: string
@@ -9319,6 +9431,13 @@ paths:
                       agentKind:
                         type: string
                       image:
+                        type: string
+                      executionType:
+                        type: string
+                        enum:
+                          - agent
+                          - code
+                      script:
                         type: string
                     required:
                       - connectionId
@@ -9835,9 +9954,17 @@ paths:
                 slug:
                   type: string
                   pattern: ^[a-z][a-z0-9_-]{0,29}$
-                promptTemplate:
+                executionType:
                   type: string
-                  minLength: 1
+                  enum:
+                    - agent
+                    - code
+                promptTemplate:
+                  default: ""
+                  type: string
+                  maxLength: 50000
+                script:
+                  type: string
                   maxLength: 50000
                 runNameTemplate:
                   type: string
@@ -10172,7 +10299,6 @@ paths:
               required:
                 - name
                 - slug
-                - promptTemplate
                 - executionConfigId
               additionalProperties: false
     delete:
@@ -10657,6 +10783,12 @@ paths:
                       - succeeded
                       - failed
                       - stopped
+                  execution_type:
+                    default: agent
+                    type: string
+                    enum:
+                      - agent
+                      - code
                   run_name:
                     type: string
                   job_name:
@@ -10728,6 +10860,7 @@ paths:
                   - id
                   - job_id
                   - state
+                  - execution_type
                   - run_name
                   - job_name
                   - destination_url

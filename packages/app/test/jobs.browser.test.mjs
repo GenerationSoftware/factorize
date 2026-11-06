@@ -137,8 +137,8 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
   await table.getByRole("link", { name: "Alpha running", exact: true }).waitFor();
   assert.deepEqual(await table.locator("thead th").allTextContents(), ["Running", "Title"]);
   assert.deepEqual(await table.locator("tbody td:last-child a").allTextContents(), ["Alpha running", longTitle, ...fixtures.slice(1, 29).map(job => job.name)]);
-  assert.deepEqual(await table.locator("tbody tr").first().locator("td").allTextContents(), ["2/10", "Alpha runningdisabled"]);
-  assert.deepEqual(await table.locator("tbody tr").nth(2).locator("td").allTextContents(), ["0/2", "Idle 01disabled"]);
+  assert.deepEqual(await table.locator("tbody tr").first().locator("td").allTextContents(), ["2/10", "Alpha runningcodexdisabled"]);
+  assert.deepEqual(await table.locator("tbody tr").nth(2).locator("td").allTextContents(), ["0/2", "Idle 01codexdisabled"]);
   assert.equal(await table.locator("tbody tr").first().getByText("disabled", { exact: true }).count(), 1);
   assert.notEqual(
     await table.locator("tbody tr").first().evaluate(el => getComputedStyle(el).color),
@@ -402,8 +402,8 @@ test("run table headers sort every column accessibly and persist in the URL", as
   await page.goto(origin + `/jobs/${jobId}`);
   const table = page.getByRole("table");
   await table.getByRole("columnheader").nth(0).getByRole("button").waitFor();
-  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Run", "Elapsed", "Created", "Agent"]);
-  assert.equal(await table.getByRole("columnheader", { name: /Agent/ }).count(), 1);
+  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Run", "Elapsed", "Created", "Execution"]);
+  assert.equal(await table.getByRole("columnheader", { name: /Execution/ }).count(), 1);
   for (const index of [0, 1, 3, 4]) assert.equal(await table.getByRole("columnheader").nth(index).getByRole("button").count(), 1);
   const runButton = page.getByRole("button", { name: "Run job", exact: true }), optionsButton = page.getByRole("button", { name: "More run options", exact: true });
   const runBox = await runButton.boundingBox(), optionsBox = await optionsButton.boundingBox();

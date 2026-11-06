@@ -2,14 +2,14 @@ import type { components, operations } from "factorize-api-client";
 export type JobInput = components["schemas"]["JobInput"];
 export type Job = operations["get_api_v1_jobs_jobId"]["responses"][200]["content"]["application/json"];
 export type Trigger = JobInput["triggers"][number];
-export const emptyJob = (): JobInput => ({ name: "", slug: "", promptTemplate: "", runNameTemplate: "", executionConfigId: "", concurrencyLimit: 1, tags: [], vmImage: "", model: "", effort: "", skillIds: [], triggers: [{ kind: "manual", slug: "trigger-1", enabled: true, config: {} }] });
+export const emptyJob = (): JobInput => ({ executionType: "agent", name: "", slug: "", promptTemplate: "", script: "", runNameTemplate: "", executionConfigId: "", concurrencyLimit: 1, tags: [], vmImage: "", model: "", effort: "", skillIds: [], triggers: [{ kind: "manual", slug: "trigger-1", enabled: true, config: {} }] });
 export function canonicalizeVmImage(value: string): string {
   const trimmed = value.trim(), digestAt = trimmed.indexOf("@"), reference = digestAt < 0 ? trimmed : trimmed.slice(0, digestAt), digest = digestAt < 0 ? "" : trimmed.slice(digestAt);
   const slash = reference.lastIndexOf("/"), colon = reference.lastIndexOf(":"), tag = colon > slash ? reference.slice(colon) : "", name = tag ? reference.slice(0, -tag.length) : reference;
   return `${name.toLowerCase()}${tag}${digest}`;
 }
 export function editableJob(job: Job): JobInput {
-  return { projectId: job.projectId, name: job.name, slug: job.slug, promptTemplate: job.promptTemplate, runNameTemplate: job.runNameTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], vmImage: job.executionConfig?.image ?? "", model: job.model, effort: job.effort ?? "", skillIds: job.skills?.map(skill => skill.id) ?? [], triggers: job.triggers.map(trigger => {
+  return { executionType: job.executionType ?? "agent", projectId: job.projectId, name: job.name, slug: job.slug, promptTemplate: job.promptTemplate, script: job.script ?? "", runNameTemplate: job.runNameTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], vmImage: job.executionConfig?.image ?? "", model: job.model, effort: job.effort ?? "", skillIds: job.skills?.map(skill => skill.id) ?? [], triggers: job.triggers.map(trigger => {
     const { id, slug, kind, enabled } = trigger;
     const config = trigger.kind === "webhook" ? Object.fromEntries(Object.entries(trigger.config).filter(([key]) => !["destination", "secretConfigured"].includes(key))) : trigger.config;
     return { id, slug, kind, enabled, config } as Trigger;
@@ -35,7 +35,8 @@ export function writeInput(draft: JobInput): JobInput {
 export function validateJobInput(input: JobInput): string | undefined {
   if (!input.name.trim() || input.name.length > 120) return "Enter a job name between 1 and 120 characters.";
   if (!/^[a-z][a-z0-9_-]{0,29}$/.test(input.slug)) return "Slug must start with a lowercase letter and contain at most 30 characters.";
-  if (!input.promptTemplate || input.promptTemplate.length > 50_000) return "Enter a prompt template between 1 and 50,000 characters.";
+  if (input.executionType === "agent" && (!input.promptTemplate || input.promptTemplate.length > 50_000)) return "Enter a prompt template between 1 and 50,000 characters.";
+  if (input.executionType === "code" && (!input.script?.trim() || input.script.length > 50_000)) return "Enter a script between 1 and 50,000 characters.";
   if (!Number.isInteger(input.concurrencyLimit) || input.concurrencyLimit < 1 || input.concurrencyLimit > 50) return "Concurrency limit must be between 1 and 50.";
   if (!input.executionConfigId) return "Choose an execution integration.";
   if ((input.tags?.length ?? 0) > 20 || input.tags?.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) return "VM tags are invalid.";

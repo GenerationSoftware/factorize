@@ -6,6 +6,7 @@ export type InvocationSource = "manual" | TriggerKind;
 export type JobRunState = "queued" | "reserved" | "running" | "succeeded" | "failed" | "stopped";
 
 export interface ExecutionConfig {
+  executionType?: "agent" | "code";
   targetId?: string;
   connectionId: string;
   workspace: string;
@@ -13,6 +14,7 @@ export interface ExecutionConfig {
   agentKind: string;
   tags?: string[];
   image?: string;
+  script?: string;
 }
 
 export interface Trigger {
@@ -32,6 +34,8 @@ export interface Job {
   name: string;
   slug: string;
   promptTemplate: string;
+  executionType?: "agent" | "code";
+  script?: string;
   runNameTemplate?: string;
   model: string;
   effort?: string;
