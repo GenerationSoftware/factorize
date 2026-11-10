@@ -1039,7 +1039,7 @@ export interface paths {
         };
         /**
          * Get a project's workflow graph
-         * @description Returns every job in the project and configured lifecycle, idle, manual invocation permission, and external webhook source connections. Connections are derived from executable trigger configuration and current permission grants. Only safe webhook provider and resource metadata is returned.
+         * @description Returns every job in the project and configured lifecycle, idle, manual invocation permission, and external webhook source connections. Connections are derived from executable trigger configuration and current permission grants. Webhook edge labels are short readable provider or event names; details may include configured technical resource identifiers as secondary context.
          *
          *     Requires the projects:read scope.
          *
@@ -4635,6 +4635,7 @@ export interface operations {
                             source: string;
                             target: string;
                             label: string;
+                            details?: string;
                             /** @enum {string} */
                             kind: "lifecycle" | "idle" | "manual" | "webhook";
                             enabled: boolean;

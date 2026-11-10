@@ -40,6 +40,8 @@ import { RunRepository } from "./postgres/run-repository";
 import { safeDiagnosticText } from "./harness-diagnostics";
 import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput, composePrompt } from "./skills";
 
+const PROJECT_GRAPH_LABEL_MAX_CHARS = 24;
+
 export class ServiceError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
 }
@@ -281,19 +283,28 @@ export class ApiService {
     const ids = new Set<string>(jobs.rows.map(row => row.id));
     const nodes: any[] = jobs.rows.map(row => ({ id: row.id, type: "job", label: row.name, jobKind: row.execution_config?.executionType === "code" ? "Code" : "Agent", enabled: row.enabled, runningCount: Number(row.running_count ?? 0), concurrencyLimit: row.concurrency_limit }));
     const edges: any[] = [];
+    const shortLabel = (value: string) => value.length > PROJECT_GRAPH_LABEL_MAX_CHARS ? `${value.slice(0, PROJECT_GRAPH_LABEL_MAX_CHARS - 1).trimEnd()}…` : value;
+    const providerLabels: Record<string, string> = { linear: "Linear", clickup: "ClickUp", github: "GitHub", cloudflareTail: "Cloudflare Tail" };
     for (const job of jobs.rows) for (const trigger of job.triggers) {
-      if (trigger.kind === "jobLifecycle") for (const source of trigger.config?.sourceJobIds ?? (trigger.config?.sourceJobId ? [trigger.config.sourceJobId] : [])) if (ids.has(source)) edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: (trigger.config?.states ?? []).map((state: string) => state === "succeeded" ? "Succeeded" : state === "failed" ? "Failed" : state === "stopped" ? "Stopped" : "Edited").join(", "), kind: "lifecycle", enabled: Boolean(job.enabled && trigger.enabled) });
-      if (trigger.kind === "jobIdle") for (const source of trigger.config?.sourceJobIds ?? []) if (ids.has(source)) edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: "Idle", kind: "idle", enabled: Boolean(job.enabled && trigger.enabled) });
+      if (trigger.kind === "jobLifecycle") for (const source of trigger.config?.sourceJobIds ?? (trigger.config?.sourceJobId ? [trigger.config.sourceJobId] : [])) if (ids.has(source)) {
+        const states = (trigger.config?.states ?? []) as string[];
+        const fullLabel = states.map(state => ({ succeeded: "Succeeded", failed: "Failed", stopped: "Stopped", edited: "Edited" } as Record<string, string>)[state] ?? state).join(", ") || "Lifecycle";
+        edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: shortLabel(fullLabel), details: fullLabel, kind: "lifecycle", enabled: Boolean(job.enabled && trigger.enabled) });
+      }
+      if (trigger.kind === "jobIdle") for (const source of trigger.config?.sourceJobIds ?? []) if (ids.has(source)) edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: "Idle", details: "Runs when the source job becomes idle", kind: "idle", enabled: Boolean(job.enabled && trigger.enabled) });
       if (trigger.kind === "webhook") {
-        const config = trigger.config ?? {}, provider = String(config.provider ?? "webhook").slice(0, 50);
+        const config = trigger.config ?? {}, provider = String(config.provider ?? "webhook").slice(0, 50), displayProvider = providerLabels[provider] ?? "Webhook";
         const resource = (provider === "linear" ? String(config.projectId ?? "Project") : provider === "clickup" ? String(config.listId ?? "List") : provider === "github" ? String(config.repositoryId ? `Repository ${config.repositoryId}` : config.event ?? "Repository") : provider === "cloudflareTail" ? "Tail" : "External source").slice(0, 120);
         const source = `webhook:${provider}:${resource}`;
-        if (!nodes.some(node => node.id === source)) nodes.push({ id: source, type: "webhook", label: `${provider} · ${resource}`, provider, resource });
-        edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: `${provider} · ${resource}`, kind: "webhook", enabled: Boolean(job.enabled && trigger.enabled) });
+        const event = String(config.event ?? "").toLowerCase();
+        const label = provider === "github" && ["pull_request", "pull_request_target"].includes(event) ? "GitHub PR" : provider === "github" && event === "issues" ? "GitHub Issue" : provider === "github" && event === "push" ? "GitHub Push" : displayProvider;
+        const details = [displayProvider, [config.event, config.action].filter(Boolean).join(" "), resource && !["Tail", "External source"].includes(resource) ? resource : ""].filter(Boolean).join(" · ");
+        if (!nodes.some(node => node.id === source)) nodes.push({ id: source, type: "webhook", label: displayProvider, provider, resource });
+        edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: shortLabel(label), details, kind: "webhook", enabled: Boolean(job.enabled && trigger.enabled) });
       }
     }
     const grants = await db.pool.query<any>(`SELECT p.source_job_id,p.destination_job_id FROM app.manual_invocation_permissions p JOIN app.jobs s ON s.tenant_id=p.tenant_id AND s.id=p.source_job_id JOIN app.jobs d ON d.tenant_id=p.tenant_id AND d.id=p.destination_job_id WHERE p.tenant_id=$1 AND s.project_id=$2 AND d.project_id=$2 ORDER BY p.source_job_id,p.destination_job_id`, [tenantId, projectId]);
-    for (const grant of grants.rows) edges.push({ id: `manual:${grant.source_job_id}:${grant.destination_job_id}`, source: grant.source_job_id, target: grant.destination_job_id, label: "Manual", kind: "manual", enabled: Boolean(jobs.rows.find(row => row.id === grant.source_job_id)?.enabled && jobs.rows.find(row => row.id === grant.destination_job_id)?.enabled) });
+    for (const grant of grants.rows) edges.push({ id: `manual:${grant.source_job_id}:${grant.destination_job_id}`, source: grant.source_job_id, target: grant.destination_job_id, label: "Manual", details: "Manual invocation permission", kind: "manual", enabled: Boolean(jobs.rows.find(row => row.id === grant.source_job_id)?.enabled && jobs.rows.find(row => row.id === grant.destination_job_id)?.enabled) });
     return { nodes, edges };
   }
   async createProject(input: { name: string; description?: string }) { await this.authorize("projects:write"); try { return await this.projects().create(input.name, input.description); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "A project with this name already exists"); throw error; } }
