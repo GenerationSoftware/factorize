@@ -25,7 +25,7 @@ function conversation(events: Event[]): ConversationItem[] {
   return result;
 }
 
-export function ContinuousTrace({ runId, revision, active, onReset }: { runId: string; revision: string; active: boolean; onReset: (revision: string) => void }) {
+export function ContinuousTrace({ runId, revision, active, onReset, preview = false }: { runId: string; revision: string; active: boolean; onReset: (revision: string) => void; preview?: boolean }) {
   const [liveItems, setLiveItems] = useState<Event[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [pullDistance, setPullDistance] = useState(0);
@@ -40,7 +40,7 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
     queryKey: ["runs", runId, "conversation-trace", revision],
     initialPageParam: { mode: "recent" } as PageParam,
     queryFn: async ({ signal, pageParam }) => {
-      const query = pageParam.mode === "recent" ? { recent: true, revision: pageParam.revision, limit: 100 } : { before: pageParam.cursor, revision: pageParam.revision, limit: 100 };
+      const query = pageParam.mode === "recent" ? { recent: true, revision: pageParam.revision, limit: preview ? 20 : 100 } : { before: pageParam.cursor, revision: pageParam.revision, limit: 100 };
       const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query } });
       if (!data || error) throw new Error(messageOf(error));
       return data;
@@ -53,7 +53,7 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
   const latestSequence = items.at(-1)?.sequence ?? 0;
   const live = useQuery({
     queryKey: ["runs", runId, "conversation-tail", revision, latestSequence],
-    enabled: active && !!trace.data && !trace.isFetching,
+    enabled: !preview && active && !!trace.data && !trace.isFetching,
     queryFn: async ({ signal }) => {
       const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: latestSequence, revision, limit: 100 } } });
       if (!data || error) throw new Error(messageOf(error)); return data;
@@ -135,7 +135,12 @@ export function ContinuousTrace({ runId, revision, active, onReset }: { runId: s
     observer.observe(element);
     return () => { window.removeEventListener("resize", resize); observer.disconnect(); };
   }, []);
-  const grouped = conversation(items);
+  const grouped = conversation(preview ? items.slice(-10) : items);
+  if (preview) return <div data-run-trace data-run-trace-preview aria-label="Recent run trace" className="space-y-4">
+    {trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
+    {!trace.isPending && !grouped.length && <p className="text-sm text-slate-600 dark:text-slate-400">No assistant messages yet.</p>}
+    {grouped.map((item, index) => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={item.events[0]?.id + ":" + index} className={traceClasses("tool_call")} open={expanded.has(item.events[0]?.id + ":" + index)} onToggle={event => { const key = item.events[0]?.id + ":" + index; const open = event.currentTarget.open; setExpanded(previous => { const next = new Set(previous); open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary><div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div></Disclosure>)}
+  </div>;
   return <>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
     <div ref={scrollRef} data-run-trace-scroll aria-label="Run trace" className="-mx-4 h-[min(60rem,calc(100svh-18rem))] min-h-64 w-[calc(100%+2rem)] min-w-0 overflow-y-auto overscroll-contain p-0 sm:mx-0 sm:h-[min(60rem,calc(100svh-18rem))] sm:w-auto" onScroll={updateScrollState} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
       {(pullDistance > 0 || pullLoading) && <p data-run-trace-pull role="status" aria-live="polite" className="sticky top-0 z-10 -mb-8 flex h-8 items-center justify-center bg-stone-50/90 text-xs font-medium text-slate-600 backdrop-blur dark:bg-slate-950/90 dark:text-slate-400">{pullLoading ? "Loading older events…" : pullDistance >= 56 ? "Release to load older events" : `Pull to load older events · ${Math.round((pullDistance / 56) * 100)}%`}</p>}

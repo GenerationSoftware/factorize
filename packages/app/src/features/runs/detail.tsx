@@ -12,6 +12,7 @@ export function RunDetail() {
   const { runId } = useParams({ strict: false });
   const location = useLocation(), navigate = useNavigate(), cache = useQueryClient();
   const tab: "trace" | "info" = location.pathname.endsWith("/info") ? "info" : "trace";
+  const fullTrace = location.pathname.endsWith("/trace");
   const tabPath = (name: "trace" | "info"): "/job-runs/$runId" | "/job-runs/$runId/info" => name === "trace" ? "/job-runs/$runId" : "/job-runs/$runId/info";
   const status = useQuery(runStatusQuery(runId!));
   const [revision, setRevision] = useState("");
@@ -62,7 +63,7 @@ export function RunDetail() {
     </>}
     {!status.data && <ResourceHeader type="Run" title="Run" />}
     {stop.error && <p role="alert">{stop.error.message}</p>}
-    <nav role="tablist" aria-label="Run details" className="mt-5 flex gap-1 overflow-x-auto border-b border-stone-200 dark:border-slate-700">
+    {!fullTrace && <nav role="tablist" aria-label="Run details" className="mt-5 flex gap-1 overflow-x-auto border-b border-stone-200 dark:border-slate-700">
       {(["trace", "info"] as const).map((name, index, tabs) => <Link key={name} to={tabPath(name)} params={{ runId: runId! }} search={{ after: 0 }} role="tab" id={`run-tab-${name}`} aria-controls={`run-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1}
         className={`min-h-11 shrink-0 border-b-2 px-4 py-3 text-sm capitalize ${tab === name ? "border-factorize-500 font-semibold" : "border-transparent text-slate-600 hover:border-stone-300 dark:text-slate-400"}`}
         onKeyDown={event => {
@@ -70,8 +71,8 @@ export function RunDetail() {
           if (next === null) return;
           event.preventDefault(); void navigate({ to: tabPath(tabs[next]), params: { runId: runId! }, search: { after: 0 } }).then(() => document.getElementById(`run-tab-${tabs[next]}`)?.focus());
         }}>{name === "info" ? "Info" : name[0].toUpperCase() + name.slice(1)}</Link>)}
-    </nav>
-    <section role="tabpanel" id="run-panel-info" aria-labelledby="run-tab-info" hidden={tab !== "info"} tabIndex={0}>
+    </nav>}
+    {!fullTrace && <section role="tabpanel" id="run-panel-info" aria-labelledby="run-tab-info" hidden={tab !== "info"} tabIndex={0}>
       {status.data && <dl className="my-4 grid min-w-0 gap-4 sm:grid-cols-2">
         <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Created</dt><dd className="break-words text-sm text-slate-600 dark:text-slate-400">{new Date(status.data.created_at).toLocaleString()}</dd></div>
         <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Started</dt><dd className="break-words text-sm text-slate-600 dark:text-slate-400">{status.data.started_at ? new Date(status.data.started_at).toLocaleString() : "Not started yet"}</dd></div>
@@ -81,10 +82,10 @@ export function RunDetail() {
       </dl>}
       <ExpandedRunDetail runId={runId!} />
       {status.data && !active ? <ReplayTrace runId={runId!} /> : <p className="my-4">Replay is available after the run finishes and trace finalization completes.</p>}
-    </section>
-    <section role="tabpanel" id="run-panel-trace" aria-labelledby="run-tab-trace" hidden={tab !== "trace"} tabIndex={0} className="flex min-h-0 flex-col">
-    <h2 className="my-4 text-xl font-semibold">Trace</h2>
-    <ContinuousTrace key={revision} runId={runId!} revision={revision} active={active} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />
-    </section>
+    </section>}
+    {(fullTrace || tab === "trace") && <section role="tabpanel" id="run-panel-trace" aria-labelledby="run-tab-trace" hidden={!fullTrace && tab !== "trace"} tabIndex={0} className="flex min-h-0 flex-col">
+    {fullTrace ? <><Breadcrumb><Link to="/job-runs/$runId" params={{ runId: runId! }}>Run overview</Link></Breadcrumb><h2 className="my-4 text-xl font-semibold">Full trace</h2></> : <div className="my-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Trace</h2><a className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800" href={`/job-runs/${encodeURIComponent(runId!)}/trace`} target="_blank" rel="noopener noreferrer">Show full trace</a></div>}
+    <ContinuousTrace key={`${revision}:${fullTrace}`} runId={runId!} revision={revision} active={active} preview={!fullTrace} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />
+    </section>}
   </Page>;
 }
