@@ -115,15 +115,18 @@ export class ApiService {
   private async jobStatistics(ids: string[]) {
     if (!ids.length) return new Map<string, { running_count: string; last_run_state: string | null }>();
     const result = await databaseFor(this.env).pool.query<{ job_id: string; running_count: string; last_run_state: string | null }>(`
-      WITH selected_runs AS (
-        SELECT job_id,state,created_at,id FROM app.job_runs WHERE tenant_id=$1 AND job_id=ANY($2::uuid[])
-      ), counts AS (
-        SELECT job_id,count(*) FILTER (WHERE state IN ('reserved','starting','running','blocked','stopping'))::text running_count
-        FROM selected_runs GROUP BY job_id
-      ), latest AS (
-        SELECT DISTINCT ON (job_id) job_id,state FROM selected_runs ORDER BY job_id,created_at DESC,id DESC
-      )
-      SELECT c.job_id,c.running_count,l.state last_run_state FROM counts c JOIN latest l USING (job_id)`, [this.auth.tenantId, ids]);
+      SELECT selected.job_id,active.running_count,latest.state last_run_state
+      FROM unnest($2::uuid[]) selected(job_id)
+      CROSS JOIN LATERAL (
+        SELECT count(*)::text running_count FROM app.job_runs r
+        WHERE r.tenant_id=$1 AND r.job_id=selected.job_id
+          AND r.state IN ('reserved','starting','running','blocked','stopping')
+      ) active
+      LEFT JOIN LATERAL (
+        SELECT r.state FROM app.job_runs r
+        WHERE r.tenant_id=$1 AND r.job_id=selected.job_id
+        ORDER BY r.created_at DESC,r.id DESC LIMIT 1
+      ) latest ON true`, [this.auth.tenantId, ids]);
     return new Map(result.rows.map(row => [row.job_id, row]));
   }
 

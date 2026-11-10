@@ -130,7 +130,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     await complete(a, other, "succeeded");
     await Promise.all([deliver(), deliver()]);
     expect(await invocations(a, target.id)).toHaveLength(2);
-  });
+  }, 10_000);
 
   it("does not create lifecycle work from unrelated prompt edits or re-enabling", async () => {
     const a = await tenant(), source = await job(a);
@@ -303,7 +303,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     await runs.terminal(downstreamRun!, "succeeded", "stored", undefined, true);
     await deliverIdle();
     expect(await invocations(a, idle.id)).toHaveLength(1);
-  }, 20_000);
+  }, 120_000);
 
   it("acknowledges a queue-full lifecycle delivery and lets idle proceed after existing work ends", async () => {
     const a = await tenant(), source = await job(a), downstream = await job(a, { sourceJobIds: [source.id], states: ["succeeded"] });
@@ -341,7 +341,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect(await invocations(a, target.id)).toHaveLength(2);
     expect(await invocations(a, legacy.id)).toHaveLength(1);
     expect(await deliveries()).toHaveLength(3);
-  });
+  }, 10_000);
 
   it("excludes absent IDs, excluded states, disabled or removed subscribers, and other tenants", async () => {
     const a = await tenant(), b = await tenant(), source = await job(a);

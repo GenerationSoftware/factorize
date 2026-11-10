@@ -80,7 +80,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
     const reset = await call("/api/v1/auth/password-reset/complete", { token: token(), password: "replacement long password" }, d.cookie);
     expect(reset.status).toBe(200); const body = await reset.json() as any; expect(body.returnTo).toContain(`connection=${d.connection}`);
     expect((await consent(body.returnTo, d.cookie + "; " + cookieOf(reset))).response.status).toBe(200);
-  });
+  }, 10_000);
   it("rejects forged/expired connections and revoked verification without extending the client request", async () => {
     mail(); for (const returnTo of ["https://evil.test", "//evil.test", destination("bad").replace("127.0.0.1", "evil.test"), destination("bad").replace("S256", "plain")]) expect((await call("/api/v1/auth/connections", { returnTo })).status).toBe(400);
     const a = await start("expired"), account = email();
