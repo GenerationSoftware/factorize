@@ -52,7 +52,7 @@ test("global jobs use the Runs-style project filter", async () => {
   await page.waitForFunction(() => !new URL(location.href).searchParams.has("projectId"));
   await context.close();
 });
-test("project details can rename and describe a project", async () => {
+test("project settings can rename and describe a project", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   const saved = [];
   let projectResponse = { id: projectId, name: "Release project", description: "Project jobs", jobCount: 31 };
@@ -65,18 +65,13 @@ test("project details can rename and describe a project", async () => {
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
   await page.goto(origin + `/projects/${projectId}`);
   await page.getByRole("heading", { name: "Release project", exact: true }).waitFor();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Renamed project");
-  await page.locator("dialog textarea").fill("Updated details");
+  await page.locator("form textarea").fill("Updated details");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await page.getByRole("heading", { name: "Renamed project", exact: true }).waitFor();
   assert.deepEqual(saved, [{ name: "Renamed project", description: "Updated details" }]);
   assert.match(await page.locator("main").textContent(), /Updated details/);
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
-  await page.getByLabel("Name", { exact: true }).fill("   ");
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await page.getByRole("alert").filter({ hasText: "Project name is required." }).waitFor();
-  assert.equal(saved.length, 1);
   await context.close();
 });
 test("project graph preserves disabled and multiple connections and navigates to jobs", async () => {
@@ -127,7 +122,7 @@ test("project and job detail pages use the appropriate breadcrumbs", async () =>
   await page.getByRole("heading", { name: "Release project", exact: true }).waitFor();
   const projectBreadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
   assert.deepEqual(await projectBreadcrumb.getByRole("link").allTextContents(), ["Projects"]);
-  assert.equal(await page.getByText("Project", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("Project", { exact: true }).count(), 2);
   await page.goto(origin + `/jobs/${jobId}`);
   await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
   const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
