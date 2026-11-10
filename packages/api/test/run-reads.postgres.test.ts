@@ -62,4 +62,35 @@ describe.skipIf(!url)("lightweight status and revision-bound traces", () => {
     await f.db.pool.query("UPDATE app.runs SET artifact_state='stored',vm_cleanup_complete=true WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     expect(await service.getRunStatus(f.runId)).toMatchObject({ state: "succeeded", finalizing: false });
   });
+  it("paginates before duration enrichment and preserves terminal and active duration values", async () => {
+    const completedId = (await f.db.pool.query<any>("SELECT id FROM app.job_runs WHERE tenant_id=$1 AND job_id=$2 AND state='succeeded' AND id<>$3", [f.tenantId, (await f.db.pool.query<any>("SELECT job_id FROM app.job_runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].job_id, f.runId])).rows[0].id;
+    const runningId = (await f.db.pool.query<any>("SELECT id FROM app.job_runs WHERE tenant_id=$1 AND job_id=(SELECT job_id FROM app.job_runs WHERE tenant_id=$1 AND id=$2) AND state='running'", [f.tenantId, f.runId])).rows[0].id;
+    await f.db.pool.query("UPDATE app.job_runs SET state='stopped',started_at='2029-01-01T00:00:00Z',updated_at='2029-01-01T00:00:40Z' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.runs SET state='stopped',created_at='2030-01-03T00:00:00Z' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.job_runs SET started_at='2029-01-01T00:00:00Z',updated_at='2029-01-01T00:00:10Z' WHERE tenant_id=$1 AND id=$2", [f.tenantId, completedId]);
+    await f.db.pool.query("UPDATE app.runs SET state='succeeded',created_at='2030-01-02T00:00:00Z' WHERE tenant_id=$1 AND id=$2", [f.tenantId, completedId]);
+    await f.db.pool.query("UPDATE app.runs SET created_at='2030-01-01T00:00:00Z' WHERE tenant_id=$1 AND id=$2", [f.tenantId, runningId]);
+
+    const query = vi.spyOn(f.db.pool, "query");
+    const service = new ApiService(f.env, f.auth);
+    try {
+      const first = await service.listRuns(new URLSearchParams({ limit: "2", jobId: (await f.db.pool.query<any>("SELECT job_id FROM app.job_runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].job_id }));
+      expect(first.items.map(run => run.id)).toEqual([f.runId, completedId]);
+      expect(first.items.map(run => run.elapsed_time)).toEqual([{ duration: 40 }, { duration: 10 }]);
+      expect(first.nextCursor).not.toBeNull();
+      const statement = query.mock.calls.find(([sql]) => typeof sql === "string" && sql.includes("duration_jobs AS MATERIALIZED"))?.[0] as string;
+      expect(statement).toContain("selected AS MATERIALIZED");
+      expect(statement).toContain("SELECT DISTINCT job_id FROM page");
+      expect(statement).not.toContain("LEFT JOIN LATERAL");
+
+      const second = await service.listRuns(new URLSearchParams({ limit: "2", jobId: (await f.db.pool.query<any>("SELECT job_id FROM app.job_runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].job_id, cursor: first.nextCursor! }));
+      expect(second.items.map(run => run.id)).toEqual([runningId]);
+      expect(second.items[0].elapsed_time).toEqual({ low: 10, high: 40 });
+      expect(second.nextCursor).toBeNull();
+
+      await f.db.pool.query("UPDATE app.job_runs SET started_at=NULL WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [f.tenantId, [f.runId, completedId]]);
+      const noDurations = await service.listRuns(new URLSearchParams({ limit: "10", jobId: (await f.db.pool.query<any>("SELECT job_id FROM app.job_runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].job_id }));
+      expect(noDurations.items.find(run => run.id === runningId)?.elapsed_time).toBeNull();
+    } finally { query.mockRestore(); }
+  });
 });

@@ -34,27 +34,33 @@ export class RunQueryRepository {
     }
     values.push(limit + 1);
     const order = sort ? `CASE WHEN ${sortExpressions[sort]} IS NULL THEN 1 ELSE 0 END ASC, ${sortExpressions[sort]} ${direction} NULLS LAST, r.id ${direction}` : "r.created_at DESC,r.id DESC";
-    const result = await this.database.pool.query<any>(`SELECT r.id,r.job_id,j.project_id,j.name job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,coalesce(r.execution_config->>'executionType','agent') execution_type,r.state,r.failure_source,
-      CASE WHEN r.agent_error_reason IS NULL THEN NULL ELSE jsonb_build_object('reason',r.agent_error_reason,'reported_at',r.agent_error_reported_at,'reporter',jsonb_build_object('user_id',r.agent_error_reporter_user_id,'kind',r.agent_error_reporter_kind,'id',r.agent_error_reporter_id)) END agent_error,
-      r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at,
-      CASE WHEN r.state IN ('succeeded','failed','stopped') AND jr.started_at IS NOT NULL AND jr.updated_at >= jr.started_at
-        THEN json_build_object('duration', round(EXTRACT(EPOCH FROM (jr.updated_at - jr.started_at))))
-        WHEN r.state NOT IN ('succeeded','failed','stopped') THEN e.elapsed_time
-      END elapsed_time
-      FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.projects p ON p.tenant_id=j.tenant_id AND p.id=j.project_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id
-      LEFT JOIN LATERAL (
-        WITH durations AS (
-          SELECT EXTRACT(EPOCH FROM (completed.updated_at - completed.started_at)) duration
-          FROM app.job_runs completed
-          WHERE completed.tenant_id=r.tenant_id AND completed.job_id=r.job_id AND completed.state IN ('succeeded','failed','stopped')
-            AND completed.started_at IS NOT NULL AND completed.updated_at >= completed.started_at
-        )
-        SELECT CASE WHEN count(durations.duration) = 0 THEN NULL ELSE json_build_object(
-          'low', round(min(durations.duration)),
-          'high', round(max(durations.duration))
-        ) END elapsed_time FROM durations
-      ) e ON true
-      WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT $${values.length}`, values);
+    const selectedOrder = order.replaceAll("r.", "selected.").replaceAll("j.name", "selected.job_name");
+    const result = await this.database.pool.query<any>(`WITH selected AS MATERIALIZED (
+        SELECT r.id,r.job_id,j.project_id,j.name job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,coalesce(r.execution_config->>'executionType','agent') execution_type,r.state,r.failure_source,
+          CASE WHEN r.agent_error_reason IS NULL THEN NULL ELSE jsonb_build_object('reason',r.agent_error_reason,'reported_at',r.agent_error_reported_at,'reporter',jsonb_build_object('user_id',r.agent_error_reporter_user_id,'kind',r.agent_error_reporter_kind,'id',r.agent_error_reporter_id)) END agent_error,
+          r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at,jr.updated_at job_run_updated_at
+        FROM app.runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.projects p ON p.tenant_id=j.tenant_id AND p.id=j.project_id JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id
+        WHERE ${clauses.join(" AND ")} ORDER BY ${order} LIMIT $${values.length}
+      ), page AS MATERIALIZED (
+        SELECT id,job_id,state,started_at,job_run_updated_at FROM selected ORDER BY ${selectedOrder} LIMIT ($${values.length} - 1)
+      ), duration_jobs AS MATERIALIZED (
+        SELECT DISTINCT job_id FROM page WHERE state NOT IN ('succeeded','failed','stopped')
+      ), duration_ranges AS (
+        SELECT completed.job_id,json_build_object('low',round(min(EXTRACT(EPOCH FROM (completed.updated_at-completed.started_at)))),
+          'high',round(max(EXTRACT(EPOCH FROM (completed.updated_at-completed.started_at)))) ) elapsed_time
+        FROM app.job_runs completed JOIN duration_jobs ON duration_jobs.job_id=completed.job_id
+        WHERE completed.tenant_id=$1 AND completed.state IN ('succeeded','failed','stopped')
+          AND completed.started_at IS NOT NULL AND completed.updated_at>=completed.started_at
+        GROUP BY completed.job_id
+      )
+      SELECT selected.id,selected.job_id,selected.project_id,selected.job_name,selected.project_name,selected.issue_id,selected.issue_url,selected.issue_title,selected.run_name,selected.agent_name,selected.workspace_name,selected.agent_kind,selected.execution_type,selected.state,selected.failure_source,selected.agent_error,
+        selected.provider,selected.backend_kind,selected.capabilities,selected.destination_url,selected.artifact_state,selected.artifact_error,selected.created_at,selected.updated_at,selected.started_at,
+        CASE WHEN selected.state IN ('succeeded','failed','stopped') AND selected.started_at IS NOT NULL AND selected.job_run_updated_at>=selected.started_at
+          THEN json_build_object('duration',round(EXTRACT(EPOCH FROM (selected.job_run_updated_at-selected.started_at))))
+          WHEN selected.state NOT IN ('succeeded','failed','stopped') AND page.id IS NOT NULL THEN duration_ranges.elapsed_time
+        END elapsed_time
+      FROM selected LEFT JOIN page ON page.id=selected.id LEFT JOIN duration_ranges ON duration_ranges.job_id=selected.job_id
+      ORDER BY ${selectedOrder}`, values);
     const rows = result.rows.slice(0, limit), hasMore = result.rows.length > limit;
     const last = rows.at(-1);
     const nextCursor = hasMore && last ? sort ? (() => {

@@ -25,11 +25,15 @@ export class JobSummaryRepository {
         ORDER BY ${sort === "updated" ? "updated_at DESC,id DESC" : "id DESC"} LIMIT $6
       )
       SELECT p.*,s.running_count,s.last_run_state FROM page p
-      ${selector ? "LEFT JOIN LATERAL (SELECT '0'::text running_count,NULL::text last_run_state) s ON true" : `LEFT JOIN (
-        SELECT r.job_id,count(*) FILTER (WHERE r.state IN ('reserved','starting','running','blocked','stopping'))::text running_count,
-          (array_agg(r.state ORDER BY r.created_at DESC,r.id DESC))[1] last_run_state
-        FROM app.job_runs r JOIN page ON page.id=r.job_id WHERE r.tenant_id=$1 GROUP BY r.job_id
-      ) s ON s.job_id=p.id`}
+      ${selector ? "LEFT JOIN LATERAL (SELECT '0'::text running_count,NULL::text last_run_state) s ON true" : `LEFT JOIN LATERAL (
+        SELECT
+          (SELECT count(*)::text FROM app.job_runs active
+            WHERE active.tenant_id=$1 AND active.job_id=p.id
+              AND active.state IN ('reserved','starting','running','blocked','stopping')) running_count,
+          (SELECT latest.state FROM app.job_runs latest
+            WHERE latest.tenant_id=$1 AND latest.job_id=p.id
+            ORDER BY latest.created_at DESC,latest.id DESC LIMIT 1) last_run_state
+      ) s ON true`}
       ORDER BY ${sort === "updated" ? "p.updated_at DESC,p.id DESC" : "p.id DESC"}`, [this.tenantId, input.cursor ?? null, input.q, input.enabled === undefined ? null : input.enabled === "true", input.projectId ?? null, input.limit + 1, sort]);
     const rows = result.rows.slice(0, input.limit);
     return {

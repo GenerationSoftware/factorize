@@ -3,6 +3,7 @@ import { loadingFixture } from "./helpers/loading-fixture";
 import { Database } from "../src/postgres/database";
 import { IdentityRepository } from "../src/postgres/identity-repository";
 import { PostgresJobRepository } from "../src/postgres/job-repository";
+import { JobSummaryRepository } from "../src/postgres/job-summary-repository";
 import { ConnectionRepository } from "../src/postgres/connection-repository";
 import { ApiService } from "../src/flow-service";
 import worker from "../src/worker";
@@ -16,7 +17,7 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
   let fixture: Awaited<ReturnType<typeof loadingFixture>>;
   let db: Database, env: Env, auth: OAuthProps, cookie: string, jobIds: string[], runId: string, tenantId: string, userId: string, otherTenant: string;
   let request: Awaited<ReturnType<typeof loadingFixture>>["request"];
-  beforeAll(async () => { fixture = await loadingFixture(url!); ({ db, env, auth, cookie, jobIds, runId, tenantId, userId, otherTenant, request } = fixture); });
+  beforeAll(async () => { fixture = await loadingFixture(url!); ({ db, env, auth, cookie, jobIds, runId, tenantId, userId, otherTenant, request } = fixture); }, 30_000);
   afterAll(async () => fixture?.cleanup());
 
   it("lists ten jobs in three data queries, preserving decrypted prompts, trigger order and statistics", async () => {
@@ -28,6 +29,26 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
       for (const job of jobs) expect(job.triggers.map(t => t.kind)).toEqual(["manual", "schedule"]);
       expect(query).toHaveBeenCalledTimes(4); // membership + jobs + triggers + statistics
     } finally { query.mockRestore(); }
+  });
+  it("counts only active runs and keeps latest-state ties tenant qualified", async () => {
+    const triggerId = (await db.pool.query("SELECT id FROM app.triggers WHERE tenant_id=$1 AND job_id=$2 AND kind='manual'", [tenantId, jobIds[0]])).rows[0].id;
+    const otherTriggerId = (await db.pool.query("SELECT id FROM app.triggers WHERE tenant_id=$1 AND job_id=$2 AND kind='manual'", [otherTenant, jobIds[0]])).rows[0].id;
+    const states = ["reserved", "starting", "blocked", "stopping", "queued", "succeeded", "failed"];
+    for (const [i, state] of states.entries()) {
+      const invocationId = crypto.randomUUID(), id = `20000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`;
+      await db.pool.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context) VALUES ($1,$2,$3,'manual',$4,$5,'{}')", [tenantId, invocationId, jobIds[0], `summary-test-${i}`, triggerId]);
+      await db.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,created_at) VALUES ($1,$2,$3,$4,$5,'test',$6)", [tenantId, id, jobIds[0], invocationId, state, i >= 5 ? "2100-01-01T00:00:00Z" : `2099-01-01T00:00:0${i}Z`]);
+    }
+    const otherInvocation = crypto.randomUUID();
+    await db.pool.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context) VALUES ($1,$2,$3,'manual','summary-other-tenant',$4,'{}')", [otherTenant, otherInvocation, jobIds[0], otherTriggerId]);
+    await db.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,created_at) VALUES ($1,$2,$3,$4,'running','test','2101-01-01T00:00:00Z')", [otherTenant, crypto.randomUUID(), jobIds[0], otherInvocation]);
+
+    const jobs = await new ApiService(env, auth).listJobs();
+    expect(jobs.find(job => job.id === jobIds[0])).toMatchObject({ runningCount: 5, lastRunState: "failed" });
+    expect(jobs.find(job => job.id === jobIds[1])).toMatchObject({ runningCount: 0, lastRunState: null });
+    const summaries = (await new JobSummaryRepository(db, tenantId).page({ limit: 100, q: "" })).items;
+    expect(summaries.find(job => job.id === jobIds[0])).toMatchObject({ runningCount: 5, lastRunState: "failed" });
+    expect(summaries.find(job => job.id === jobIds[1])).toMatchObject({ runningCount: 0, lastRunState: null });
   });
   it("does not load another tenant's jobs", async () => {
     const query = vi.spyOn(db.pool, "query");
