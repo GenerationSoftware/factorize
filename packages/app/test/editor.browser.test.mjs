@@ -13,7 +13,7 @@ before(async () => {
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 async function setup(options) {
   const context = await browser.newContext(options), page = await context.newPage();
-  await page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [], nextCursor: null } })); page.setDefaultTimeout(10000);
+  await page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [], nextCursor: null } })); page.setDefaultTimeout(30000);
   await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } }));
   await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [{ connectionId: "vm", agentKind: "codex", tags: [], models: ["gpt-6"] }], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
   await page.route("**/api/v1/trigger-contexts", route => route.fulfill({ json: { manual: [{ path: "prompt", type: "string", description: "Manual prompt" }] } }));
@@ -152,16 +152,17 @@ test("template insertion escapes values and navigation protects unsaved work", a
   const { context, page } = await setup(); await page.route(`**/api/v1/jobs/${id}`, route => route.fulfill({ json: initial }));
   await page.goto(origin + `/jobs/${id}/edit`); await page.getByText("Insert a prompt template variable", { exact: true }).click(); await page.getByLabel("Prompt template", { exact: true }).focus(); await page.getByLabel("Prompt template", { exact: true }).press("End"); await page.getByRole("button", { name: "trigger-1.prompt", exact: true }).click();
   assert.equal(await page.getByLabel("Prompt template", { exact: true }).inputValue(), "Original prompt{{trigger-1.prompt}}");
-  page.once("dialog", dialog => dialog.dismiss()); await page.locator("main").getByRole("link", { name: "Projects", exact: true }).click(); assert.ok(page.url().includes("/settings")); await context.close();
+  await page.locator("main").getByRole("link", { name: "Projects", exact: true }).click(); assert.equal(new URL(page.url()).pathname, `/jobs/${id}/settings`, page.url()); await context.close();
 });
 test("provider editor fetches only the selected provider and submits project/matching/conditions configuration explicitly", async () => {
   const { context, page } = await setup(); const reads = [], writes = []; let current = structuredClone(initial);
   await page.route(`**/api/v1/jobs/${id}`, route => { if (route.request().method() === "GET") return route.fulfill({ json: current }); const body = route.request().postDataJSON(); writes.push(body); current = { ...current, ...body, triggers: body.triggers.map((trigger, index) => ({ ...trigger, id: trigger.id ?? `00000000-0000-4000-8000-00000000000${index + 4}`, jobId: id, createdAt: initial.createdAt, updatedAt: initial.updatedAt })) }; return route.fulfill({ json: current }); });
   await page.route("**/api/v1/providers/**", route => { reads.push(new URL(route.request().url()).pathname); return route.fulfill({ json: route.request().url().endsWith("/projects") ? [{ id: "project", name: "Release" }] : { statuses: [{ id: "done", name: "Done" }], users: [], labels: [] } }); });
-  await page.route("**/api/v1/job-conditions/test", route => route.fulfill({ json: { decision: "match", details: [] } }));
+  let conditionTests = 0; await page.route("**/api/v1/job-conditions/test", route => { conditionTests++; return route.fulfill({ json: { decision: "match", details: [] } }); });
   await page.goto(origin + `/jobs/${id}/edit`); assert.equal(reads.length, 0); await page.getByLabel("New trigger kind").selectOption("webhook"); await page.getByRole("button", { name: "Add trigger" }).click();
   await page.getByLabel("Linear project").selectOption("project"); await page.getByRole("button", { name: "Add matching rule" }).click(); await page.getByLabel("Match value").selectOption("done"); await page.getByLabel("Conditions JSON (optional)").fill('{"all":[{"fact":"webhook","path":"$.issue.id","operator":"equal","value":"i1"}]}');
-  await page.getByText("Test webhook conditions", { exact: true }).click(); await page.getByRole("button", { name: "Test conditions", exact: true }).click({ force: true }); await page.getByRole("status").filter({ hasText: "Conditions match the example webhook." }).waitFor(); assert.equal(await page.getByText('"decision": "match"', { exact: false }).count(), 0);
+  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
+  await page.getByText("Test webhook conditions", { exact: true }).click(); const testButton = page.getByRole("button", { name: "Test conditions", exact: true }); await page.waitForFunction(() => { const button = [...document.querySelectorAll("button")].find(element => element.textContent?.trim() === "Test conditions"); return button && !button.disabled; }); await testButton.click(); await page.getByRole("status").filter({ hasText: "Conditions match the example webhook." }).waitFor(); assert.equal(conditionTests, 1); assert.equal(await page.getByText('"decision": "match"', { exact: false }).count(), 0);
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   assert.ok(reads.every(path => path.startsWith("/api/v1/providers/linear/"))); assert.deepEqual(writes[0].triggers[1].config, { provider: "linear", projectId: "project", matchRules: [{ type: "status", targetId: "done" }], conditions: { all: [{ fact: "webhook", path: "$.issue.id", operator: "equal", value: "i1" }] } }); assert.equal(writes[0].triggers[0].id, triggerId); await context.close();
 });

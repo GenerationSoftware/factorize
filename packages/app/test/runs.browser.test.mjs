@@ -145,7 +145,7 @@ test("run rename supports keyboard save and cancel, validates names, and preserv
   await page.getByRole("button", { name: "Rename", exact: true }).click(); await page.getByRole("textbox", { name: "Run name" }).fill("Saved name"); await page.keyboard.press("Enter"); await page.getByRole("heading", { name: "Saved name", exact: true }).waitFor(); assert.deepEqual(saves, [{ name: "Saved name", expectedName: "Original run" }]);
   await page.reload(); await page.getByRole("heading", { name: "Saved name", exact: true }).waitFor(); await context.close();
 });
-test("run trace uses pull-to-load history, preserves the anchor, and never crashes on disclosure toggles", async () => {
+test("full run trace uses pull-to-load history, preserves the anchor, and never crashes on disclosure toggles", async () => {
   const { context, page } = await setup(); const requests = [];
   const event = (sequence, type = "assistant_message") => ({ id: `trace-${sequence}`, sequence, type, title: `Trace ${sequence}`, preview: `Trace ${sequence}`, display: {} });
   const longCommand = `start-${"x".repeat(5000)}-end`;
@@ -160,7 +160,7 @@ test("run trace uses pull-to-load history, preserves the anchor, and never crash
     if (url.searchParams.has("after")) return route.fulfill({ json: { items: [], nextCursor: null, previousCursor: null, revision: "rev", reset: false } });
     return route.fulfill({ json: { items: recent, nextCursor: null, previousCursor: 10, revision: "rev", reset: false } });
   });
-  await page.goto(origin + "/job-runs/" + runId); const scroller = page.locator("[data-run-trace-scroll]");
+  await page.goto(origin + "/job-runs/" + runId + "/trace"); const scroller = page.locator("[data-run-trace-scroll]");
   await page.getByText("Trace 24", { exact: true }).waitFor();
   const tracePanel = page.locator("#run-panel-trace");
   assert.equal(await tracePanel.locator(":scope > section").count(), 0, "trace should not contain a redundant nested section");

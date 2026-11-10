@@ -83,6 +83,8 @@ test("conversation trace renders assistant messages and uses document scrolling"
   await mockApi(page, { long: true });
   await page.goto(origin + "/job-runs/" + "00000000-0000-4000-8000-000000000002");
   await expect(page.getByText("Release ready", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Show full trace" })).toHaveAttribute("target", "_blank");
+  await expect(page.getByRole("link", { name: "Show full trace" })).toHaveAttribute("href", /\/job-runs\/00000000-0000-4000-8000-000000000002\/trace$/);
   await expect(page.getByText("Full trace", { exact: true })).toHaveCount(0);
   await expect(page.getByText("events loaded", { exact: false })).toHaveCount(0);
   expect(await page.locator("[data-run-trace]").evaluate(element => getComputedStyle(element).overflow)).not.toBe("auto");
