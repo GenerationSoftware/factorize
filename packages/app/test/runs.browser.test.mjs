@@ -137,7 +137,10 @@ test("run rename supports keyboard save and cancel, validates names, and preserv
 test("run trace uses pull-to-load history, preserves the anchor, and never crashes on disclosure toggles", async () => {
   const { context, page } = await setup(); const requests = [];
   const event = (sequence, type = "assistant_message") => ({ id: `trace-${sequence}`, sequence, type, title: `Trace ${sequence}`, preview: `Trace ${sequence}`, display: {} });
-  const recent = [...Array.from({ length: 14 }, (_, index) => event(index + 11)), event(25, "tool_call"), event(26, "tool_result")];
+  const longCommand = `start-${"x".repeat(5000)}-end`;
+  const call = { ...event(25, "tool_call"), title: "bash", preview: JSON.stringify({ command: longCommand }), display: { arguments: { command: longCommand } } };
+  const result = { ...event(26, "tool_result"), title: "bash", preview: `output-start-${"y".repeat(5000)}-output-end`, display: { isError: false } };
+  const recent = [...Array.from({ length: 14 }, (_, index) => event(index + 11)), call, result];
   const olderPages = [Array.from({ length: 10 }, (_, index) => event(index + 1)), Array.from({ length: 10 }, (_, index) => event(index + 27)), Array.from({ length: 10 }, (_, index) => event(index + 37)), Array.from({ length: 10 }, (_, index) => event(index + 47)), Array.from({ length: 10 }, (_, index) => event(index + 57)), Array.from({ length: 10 }, (_, index) => event(index + 67))];
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Job", run_name: "Run", state: "succeeded", finalizing: false, trace_revision: "rev", artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
   await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => {
@@ -154,6 +157,12 @@ test("run trace uses pull-to-load history, preserves the anchor, and never crash
   const presentation = await scroller.evaluate(element => { const style = getComputedStyle(element); return { border: style.borderWidth, radius: style.borderRadius, padding: style.padding }; });
   assert.equal(presentation.border, "0px"); assert.equal(presentation.radius, "0px"); assert.equal(presentation.padding, "0px");
   await page.getByText("1 Tool Call", { exact: true }).click();
+  await page.getByRole("heading", { name: "bash", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Output", exact: true }).waitFor();
+  assert.match(await page.getByLabel("bash command").textContent(), /^\{\n  "command": "start-/);
+  assert.match(await page.getByLabel("bash command").textContent(), /\.\.\./);
+  assert.match(await page.getByLabel("Tool output").textContent(), /^output-start-/);
+  assert.match(await page.getByLabel("Tool output").textContent(), /\.\.\./);
   assert.equal(await page.getByText("Cannot read properties of null", { exact: false }).count(), 0);
   const initial = await scroller.evaluate(element => ({ top: element.scrollTop, height: element.scrollHeight, client: element.clientHeight }));
   assert.ok(initial.height > initial.client && initial.top > 0, "initial trace should be bottom-aligned inside its own scroller");
