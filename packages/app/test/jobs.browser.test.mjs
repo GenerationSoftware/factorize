@@ -122,8 +122,8 @@ test("project settings can rename and describe a project", async () => {
   assert.match(await page.locator("main").textContent(), /Updated details/);
   await context.close();
 });
-test("project graph preserves disabled and multiple connections and navigates to jobs", async () => {
-  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+test("project graph groups every connection with directions, state, selection, and dismissal", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 }, hasTouch: true });
   const secondJob = "00000000-0000-4000-8000-000000000012";
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
   await page.route(`**/api/v1/projects/${projectId}/graph`, route => route.fulfill({ json: {
@@ -133,30 +133,78 @@ test("project graph preserves disabled and multiple connections and navigates to
     ], edges: [
       { id: "lifecycle-a", source: jobId, target: secondJob, label: "Failed, Stopped", kind: "lifecycle", enabled: false },
       { id: "idle-a", source: jobId, target: secondJob, label: "Idle", kind: "idle", enabled: false },
+      { id: "idle-b", source: jobId, target: secondJob, label: "Idle", kind: "idle", enabled: true },
       { id: "manual-a", source: secondJob, target: jobId, label: "Manual", kind: "manual", enabled: false },
       { id: "lifecycle-reverse", source: secondJob, target: jobId, label: "Succeeded", kind: "lifecycle", enabled: true },
     ],
   } }));
   await page.goto(origin + `/projects/${projectId}`);
   await page.getByRole("button", { name: "Graph", exact: true }).click();
-  await page.getByRole("img", { name: /2 jobs and 4 connections/ }).waitFor();
+  const svg = page.getByRole("img", { name: /2 jobs and 5 connections/ });
+  await svg.waitFor();
   await page.getByText("Running · 2/4", { exact: true }).waitFor();
   await page.getByText("Not running", { exact: true }).waitFor();
-  const combined = page.getByRole("button", { name: /Failed, Stopped · Idle · Manual · Succeeded connection, 4 triggers/ });
-  await combined.waitFor();
-  assert.equal(await page.getByRole("button", { name: /connection, 4 triggers/ }).count(), 1);
-  assert.equal(await combined.locator("path").getAttribute("marker-start"), "url(#graph-arrow-start)");
-  assert.equal(await combined.locator("path").getAttribute("marker-end"), "url(#graph-arrow)");
-  assert.equal(await page.getByRole("link", { name: "Deploy, disabled, not running" }).count(), 1);
-  const svg = page.getByRole("img", { name: /2 jobs and 4 connections/ });
-  const svgBox = await svg.boundingBox();
-  await page.mouse.move(svgBox.x + svgBox.width / 2, svgBox.y + svgBox.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(svgBox.x + svgBox.width / 2 + 25, svgBox.y + svgBox.height / 2 + 20);
-  await page.mouse.up();
-  assert.match(await svg.locator(":scope > g").getAttribute("transform"), /^translate\(25 20\) scale\(1\)$/);
+  const badge = page.getByRole("button", { name: "5 connections" });
+  await badge.waitFor();
+  assert.equal(await page.getByRole("button", { name: /connections/ }).count(), 1);
+  assert.equal(await svg.locator("path[marker-start='url(#graph-arrow-start)']").count(), 1);
+  assert.equal(await svg.locator("path[marker-end='url(#graph-arrow)']").count(), 1);
+  await badge.tap();
+  const dropdown = page.getByRole("dialog", { name: "Grouped connections" });
+  await dropdown.waitFor();
+  const dropdownBox = await dropdown.boundingBox(), viewport = page.viewportSize();
+  assert.ok(dropdownBox.x >= 0 && dropdownBox.y >= 0 && dropdownBox.x + dropdownBox.width <= viewport.width && dropdownBox.y + dropdownBox.height <= viewport.height);
+  assert.equal(await dropdown.getByRole("button").count(), 5);
+  assert.equal(await dropdown.getByRole("button", { name: /Idle/ }).count(), 2);
+  assert.equal(await dropdown.getByText("Build → Deploy", { exact: true }).count(), 3);
+  assert.equal(await dropdown.getByText("Deploy → Build", { exact: true }).count(), 2);
+  assert.equal(await dropdown.getByText("Manual invocation permission · Disabled", { exact: true }).count(), 1);
+  assert.equal(await dropdown.getByText("Automatic trigger · Enabled", { exact: true }).count(), 2);
+  const graphTransform = await svg.locator(":scope > g").getAttribute("transform");
+  await dropdown.getByRole("button", { name: /Failed, Stopped/ }).click();
+  assert.equal(await svg.locator(":scope > g").getAttribute("transform"), graphTransform);
+  await page.getByRole("button", { name: "Close connection details" }).click();
+  await badge.click();
+  const idleChoices = dropdown.getByRole("button", { name: /Idle/ });
+  await idleChoices.nth(0).click();
+  await page.getByRole("heading", { name: "Idle", exact: true }).waitFor();
+  await page.getByText(/Automatic trigger · Disabled/).waitFor();
+  await badge.click();
+  await dropdown.getByRole("button", { name: /Idle/ }).nth(1).click();
+  await page.getByText(/Automatic trigger · Enabled/).waitFor();
+  await badge.click();
+  for (const label of ["Failed, Stopped", "Manual", "Succeeded"]) {
+    const choice = dropdown.getByRole("button", { name: new RegExp(label) }).first();
+    await choice.click();
+    await page.getByRole("heading", { name: label, exact: true }).waitFor();
+    if (label !== "Succeeded") await badge.click();
+  }
+  await badge.click();
+  await page.keyboard.press("Escape");
+  await dropdown.waitFor({ state: "detached" });
+  assert.equal(await badge.evaluate(el => el === document.activeElement), true);
+  await badge.click();
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await dropdown.waitFor({ state: "detached" });
+  await badge.click();
   await page.getByRole("link", { name: "Deploy, disabled, not running" }).click();
   await page.waitForURL(new RegExp(`/jobs/${secondJob}`));
+  await context.close();
+});
+
+test("single graph connections keep a readable label and open details", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+  const secondJob = "00000000-0000-4000-8000-000000000012";
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  await page.route(`**/api/v1/projects/${projectId}/graph`, route => route.fulfill({ json: { nodes: [
+    { id: jobId, type: "job", label: "Build", jobKind: "Agent", enabled: true }, { id: secondJob, type: "job", label: "Deploy", jobKind: "Code", enabled: true },
+  ], edges: [{ id: "manual-edge", source: jobId, target: secondJob, label: "Manual", kind: "manual", enabled: true }] } }));
+  await page.goto(origin + `/projects/${projectId}`);
+  await page.getByRole("button", { name: "Graph", exact: true }).click();
+  await page.getByRole("button", { name: /Manual connection/ }).click();
+  await page.getByRole("heading", { name: "Manual", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close connection details" }).click();
+  assert.equal(await page.getByRole("heading", { name: "Manual", exact: true }).count(), 0);
   await context.close();
 });
 test("project and job detail pages use the appropriate breadcrumbs", async () => {
