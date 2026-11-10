@@ -8,6 +8,40 @@ const jobId = "00000000-0000-4000-8000-000000000001", projectId = "00000000-0000
 before(async () => { server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } }); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 async function setup() { const context = await browser.newContext(), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
+test("run page polling backs off when idle, discovers runs, and stays fast while active", async () => {
+  const idle = await setup(); let idleCount = 0;
+  await idle.page.clock.install({ time: new Date(time) });
+  await idle.page.route("**/api/v1/runs?**", route => { idleCount++; const state = idleCount > 1 ? "running" : "succeeded"; return route.fulfill({ json: { items: [{ id: runId, run_name: "Polling run", state, created_at: time, agent_kind: "codex" }], nextCursor: null } }); });
+  await idle.page.goto(origin + "/job-runs"); await idle.page.getByRole("link", { name: "Polling run", exact: true }).waitFor();
+  await new Promise(resolve => setTimeout(resolve, 200)); assert.equal(idleCount, 1, "loader data should be reused when the list component mounts");
+  await idle.page.clock.runFor(4100); assert.equal(idleCount, 1, "an idle page should make one request in the fixed comparison window");
+  await idle.page.clock.runFor(10_900); await idle.page.getByRole("img", { name: "Status: Running" }).waitFor(); assert.equal(idleCount, 2, "idle polling should discover a newly created run within 15 seconds");
+  await idle.context.close();
+
+  const active = await setup(); let activeCount = 0;
+  await active.page.route("**/api/v1/runs?**", route => { activeCount++; return route.fulfill({ json: { items: [{ id: runId, run_name: "Polling run", state: "running", created_at: time, agent_kind: "codex" }], nextCursor: null } }); });
+  await active.page.goto(origin + "/job-runs"); await active.page.getByRole("link", { name: "Polling run", exact: true }).waitFor();
+  await new Promise(resolve => setTimeout(resolve, 200)); assert.equal(activeCount, 1, "active loader data should also be reused on mount");
+  await new Promise(resolve => setTimeout(resolve, 4100)); assert.equal(activeCount, 3, "active rows should make three requests in the same 4.1-second window");
+  await active.context.close();
+});
+test("run page errors back off for ten seconds and recover to the idle interval", async () => {
+  const { context, page } = await setup(); let count = 0;
+  await page.clock.install({ time: new Date(time) });
+  await page.route("**/api/v1/runs?**", route => {
+    count++;
+    if (count === 1 || count >= 4) return route.fulfill({ json: { items: [{ id: runId, run_name: "Polling run", state: "succeeded", created_at: time, agent_kind: "codex" }], nextCursor: null } });
+    return route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Try again" } } });
+  });
+  await page.goto(origin + "/job-runs"); await page.getByRole("link", { name: "Polling run", exact: true }).waitFor();
+  await page.clock.runFor(16_100); await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
+  assert.equal(count, 3, "the idle refetch and its single retry should expose an error");
+  await page.clock.runFor(9000); assert.equal(count, 3, "errors should wait about ten seconds before another query");
+  await page.clock.runFor(1100); await page.getByRole("link", { name: "Polling run", exact: true }).waitFor(); assert.equal(count, 4, "the ten-second error interval should retry and recover");
+  await page.clock.runFor(14999); assert.equal(count, 4, "a successful response should return to the 15-second idle interval");
+  await page.clock.runFor(1); assert.equal(count, 5);
+  await context.close();
+});
 test("all-jobs runs index uses a tenant-scoped page, navigation, refresh, and created time", async () => {
   const { context, page } = await setup(); const requests = []; let refreshes = 0;
 const runs = Array.from({ length: 21 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, project_id: projectId, project_name: "Project Alpha", job_id: jobId, job_name: "Review builds", run_name: `Run ${index}`, state: index === 0 ? "running" : "succeeded", created_at: time, updated_at: time, started_at: index === 0 ? time : null, agent_kind: "codex", elapsed_time: index === 0 ? { low: 60, high: 180 } : { duration: 120 } }));
