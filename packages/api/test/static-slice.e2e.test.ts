@@ -63,8 +63,9 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
         await page.getByRole("img", { name: "Status: Succeeded", exact: true }).waitFor();
       }
       await page.goto(`https://factorize.test/projects/${f.projectId}`);
-      await page.locator("header img").waitFor();
-      expect(await page.locator("header img").evaluate(async (image: any) => { await image.decode(); return image.complete && image.naturalWidth > 0; })).toBe(true);
+      await page.getByRole("link", { name: "owner@example.test", exact: true }).waitFor();
+      await page.locator("#project-switcher").waitFor();
+      expect(await page.getByRole("link", { name: "Factorize", exact: true }).count()).toBe(0);
       expect(await page.locator("html").getAttribute("data-theme")).toBe("light");
       expect(await page.locator("body").evaluate((element: any) => (globalThis as any).getComputedStyle(element).backgroundColor)).toBe("rgb(252, 251, 246)");
       await page.getByRole("link", { name: "Job-1", exact: true }).click();

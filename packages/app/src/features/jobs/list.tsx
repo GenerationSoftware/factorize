@@ -11,7 +11,7 @@ function FunnelButton({ name, selected, onToggle }: { name: string; selected: bo
 
 export function GlobalJobsList() {
   const search = useSearch({ from: "/jobs" });
-  return <Page className="max-w-6xl"><PageHeader title="Jobs" description="Configure and monitor jobs across your projects."><Link to="/jobs/new" search={{ projectId: search.projectId }}><Button variant="primary">Create job</Button></Link></PageHeader><div className="mb-5 flex justify-end"><Link to="/projects" className="text-sm font-semibold underline underline-offset-4">Manage projects</Link></div><JobsTable projectId={search.projectId} global /></Page>;
+  return <Page className="max-w-6xl"><PageHeader title="Jobs" description="Configure and monitor jobs across your projects."><div className="flex flex-wrap items-center gap-4"><Link to="/projects" className="text-sm font-semibold underline underline-offset-4">Manage projects</Link><Link to="/jobs/new" search={{ projectId: search.projectId }}><Button variant="primary">Create job</Button></Link></div></PageHeader><JobsTable projectId={search.projectId} global /></Page>;
 }
 
 export function JobsTable({ projectId, global = false }: { projectId?: string; global?: boolean }) {
