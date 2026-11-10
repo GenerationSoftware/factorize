@@ -26,7 +26,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
   const key = btoa("01234567890123456789012345678901");
   const tenants: string[] = [];
   const repository = (tenantId: string) => new PostgresJobRepository(database, tenantId, value => encrypt(value, key), value => decrypt(value, key));
-  const deliver = () => (new AutomationScheduler(database, { CREDENTIAL_ENCRYPTION_KEY: key } as any) as any).lifecycle();
+  const deliver = (batchSize?: number) => (new AutomationScheduler(database, { CREDENTIAL_ENCRYPTION_KEY: key } as any, batchSize) as any).lifecycle();
   const deliverIdle = () => (new AutomationScheduler(database, { CREDENTIAL_ENCRYPTION_KEY: key } as any) as any).jobIdle();
   async function tenant() {
     const id = crypto.randomUUID(); tenants.push(id);
@@ -281,13 +281,14 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect(await invocations(a, idle.id)).toHaveLength(1);
   });
 
-  it("drains lifecycle deliveries beyond the first 100 before firing all-runs-complete", async () => {
+  it("drains lifecycle deliveries beyond the first batch before firing all-runs-complete", async () => {
+    const batchSize = 5;
     const a = await tenant(), source = await job(a), downstream = await job(a, { sourceJobIds: [source.id], states: ["succeeded"] });
     const idle = await job(a, { sourceJobIds: [source.id, downstream.id] }, true, "jobIdle");
-    for (let index = 0; index < 101; index++) await complete(a, source);
+    for (let index = 0; index < batchSize + 1; index++) await complete(a, source);
 
-    await deliver();
-    expect((await database.pool.query("SELECT * FROM app.lifecycle_deliveries WHERE tenant_id=$1 AND trigger_id=$2", [a, downstream.triggers[0]!.id])).rows).toHaveLength(101);
+    await deliver(batchSize);
+    expect((await database.pool.query("SELECT * FROM app.lifecycle_deliveries WHERE tenant_id=$1 AND trigger_id=$2", [a, downstream.triggers[0]!.id])).rows).toHaveLength(batchSize + 1);
     expect(await invocations(a, downstream.id)).toHaveLength(2);
     await deliverIdle();
     expect(await invocations(a, idle.id)).toHaveLength(0);

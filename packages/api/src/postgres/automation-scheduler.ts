@@ -12,9 +12,13 @@ function skipFullQueue(error: unknown): void {
   if (!(error instanceof InvocationError) || error.code !== "queue_full") throw error;
 }
 
+const DEFAULT_LIFECYCLE_BATCH_SIZE = 100;
+
 /** Claims durable automatic signals in PostgreSQL. The alarm DO is only its clock. */
 export class AutomationScheduler {
-  constructor(private database: Database, private env: Env) {}
+  constructor(private database: Database, private env: Env, private lifecycleBatchSize = DEFAULT_LIFECYCLE_BATCH_SIZE) {
+    if (!Number.isSafeInteger(lifecycleBatchSize) || lifecycleBatchSize < 1) throw new RangeError("Lifecycle batch size must be a positive integer");
+  }
   async process(): Promise<void> { await this.githubVerifications(); await this.schedules(); await this.jobEdits(); await this.lifecycle(); await this.jobIdle(); }
   private repository(tenantId: string) { return new PostgresJobRepository(this.database, tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
   private async schedules() {
@@ -64,7 +68,7 @@ export class AutomationScheduler {
       JOIN app.runs r ON r.tenant_id=e.tenant_id AND r.id=e.source_run_id
       LEFT JOIN app.lifecycle_deliveries d ON d.tenant_id=e.tenant_id AND d.trigger_id=e.trigger_id AND d.source_run_id=e.source_run_id AND d.terminal_state=e.terminal_state
       WHERE t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
-        AND d.source_run_id IS NULL ORDER BY e.event_id LIMIT 100`);
+        AND d.source_run_id IS NULL ORDER BY e.event_id LIMIT $1`, [this.lifecycleBatchSize]);
       if (!rows.rows.length) break;
       for (const row of rows.rows) {
         const context = { sourceRunId: row.source_run_id, sourceJobId: row.source_job_id, state: row.state, completedAt: row.occurred_at.toISOString(), outputs: row.job_result?.outputs ?? null }, occurrence = { occurredAt: context.completedAt, externalId: `${row.source_run_id}:${row.state}`, metadata: context };
