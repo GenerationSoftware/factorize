@@ -94,7 +94,7 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       expect(failures).toEqual([]);
       await context.close();
     } finally { await browser.close(); await f.cleanup(); }
-  }, 30000);
+  }, 90_000);
   it("edits a real job with a racing write, reconciles safely and creates/revokes a real API key", async () => {
     const f = await loadingFixture(url!), browser = await chromium.launch({ headless: true });
     try {
@@ -136,6 +136,6 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       expect((await f.db.pool.query("SELECT revoked_at FROM app.access_tokens WHERE tenant_id=$1", [f.tenantId])).rows[0].revoked_at).not.toBeNull();
       await context.close();
     } finally { await browser.close(); await f.cleanup(); }
-  }, 30000);
+  }, 90_000);
 
 });

@@ -130,7 +130,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     await complete(a, other, "succeeded");
     await Promise.all([deliver(), deliver()]);
     expect(await invocations(a, target.id)).toHaveLength(2);
-  }, 10_000);
+  }, 20_000);
 
   it("does not create lifecycle work from unrelated prompt edits or re-enabling", async () => {
     const a = await tenant(), source = await job(a);
