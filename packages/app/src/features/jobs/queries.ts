@@ -5,34 +5,14 @@ export type JobsSort = "running" | "title";
 export type JobsOrder = "asc" | "desc";
 export type JobsSearch = { q?: string; projectId?: string; cursor?: string; enabled?: "true" | "false"; sort?: JobsSort; order?: JobsOrder };
 export const jobsQuery = (search: JobsSearch) => queryOptions({
-  queryKey: ["jobs", "summaries", { projectId: search.projectId, q: search.q, enabled: search.enabled, sort: search.sort, order: search.order }],
+  queryKey: ["jobs", "summaries", { projectId: search.projectId, q: search.q ?? "", enabled: search.enabled, cursor: search.cursor, sort: search.sort ?? "active", direction: search.sort === "running" || search.sort === "title" ? search.order ?? "asc" : undefined, limit: 30 }],
   queryFn: async ({ signal }) => {
-    // The API's UUID pages do not reflect running/title order. Collect lightweight
-    // summaries before paginating so active jobs on later API pages come first.
-    const items = [];
-    let cursor: string | undefined;
-    do {
-      const { data, error } = await api.GET("/api/v1/job-summaries", { signal, params: { query: { projectId: search.projectId, q: search.q ?? "", enabled: search.enabled, cursor, limit: 100 } } });
-      if (!data || error) throw new Error(messageOf(error));
-      items.push(...data.items);
-      cursor = data.nextCursor ?? undefined;
-    } while (cursor);
-    items.sort((a, b) => {
-      if (!search.sort) return Number(b.runningCount > 0) - Number(a.runningCount > 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
-      const direction = search.order === "desc" ? -1 : 1;
-      const comparison = search.sort === "running"
-        ? a.runningCount - b.runningCount
-        : a.name.localeCompare(b.name);
-      return direction * comparison || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
-    });
-    return items;
+    const sort = search.sort === "running" ? "running" : search.sort === "title" ? "title" : "active";
+    const { data, error } = await api.GET("/api/v1/job-summaries", { signal, params: { query: { projectId: search.projectId, q: search.q ?? "", enabled: search.enabled, cursor: search.cursor, limit: 30, sort, direction: sort === "active" ? undefined : search.order ?? "asc" } } });
+    if (!data || error) throw new Error(messageOf(error));
+    return data;
   },
-  select: items => {
-    const cursorIndex = search.cursor ? items.findIndex(job => job.id === search.cursor) : -1;
-    const start = cursorIndex + 1;
-    const page = items.slice(start, start + 30);
-    return { items: page, nextCursor: start + 30 < items.length ? page.at(-1)!.id : null };
-  }, staleTime: 10_000,
+  staleTime: 10_000,
 });
 export const recentJobsQuery = queryOptions({ queryKey: ["jobs", "recent"], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/job-summaries", { signal, params: { query: { limit: 5, sort: "updated", q: "" } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, staleTime: 10_000 });
 export const jobQuery = (jobId: string) => queryOptions({

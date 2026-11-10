@@ -11,7 +11,7 @@ import { nextOccurrence, validateScheduleConfig } from "./schedule";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
-import { JobSummaryRepository } from "./postgres/job-summary-repository";
+import { InvalidJobSummaryCursor, JobSummaryRepository } from "./postgres/job-summary-repository";
 import { jobResponse } from "./job-contracts";
 import type { JobPageQuery } from "./job-contracts";
 import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
@@ -260,7 +260,7 @@ export class ApiService {
   }
   async stopRun(runId: string) { await this.authorize("runs:cancel"); const stopped = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).stop(runId); if (!stopped) throw new ServiceError(409, "operation_failed", "Run is not active"); if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" }); return stopped; }
   killRun(runId: string) { return this.stopRun(runId); }
-  async listJobSummaries(input: JobPageQuery, selector = false) { await this.authorize("jobs:read"); return new JobSummaryRepository(databaseFor(this.env), this.auth.tenantId).page(input, selector); }
+  async listJobSummaries(input: JobPageQuery, selector = false) { await this.authorize("jobs:read"); try { return await new JobSummaryRepository(databaseFor(this.env), this.auth.tenantId).page(input, selector); } catch (error) { if (error instanceof InvalidJobSummaryCursor) throw new ServiceError(400, "invalid_request", error.message); throw error; } }
   async listJobs() { await this.authorize("jobs:read"); const jobs = await this.jobs().list(), stats = await this.jobStatistics(jobs.map(job => job.id)); return Promise.all(jobs.map(job => this.presentJob(job, stats.get(job.id) ?? { running_count: "0", last_run_state: null }))); }
   async getJob(jobId: string) { await this.authorize("jobs:read"); const job = await this.jobs().getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found"); return this.presentJob(job); }
   async listProjects(options?: { limit?: number; sort?: "name" | "updated" }) { await this.authorize("projects:read"); return this.projects().list(options); }

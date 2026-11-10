@@ -645,7 +645,7 @@ export const API_ROUTES: RouteContract[] = [
   ),
   route("GET", "/api/v1/job-summaries", "flows:read", {
     summary: "List bounded job summaries",
-    description: "Additive list representation, ordered by immutable UUID descending. Cursor is the last ID; filters must remain the same between pages. Literal case-insensitive name/slug search. No prompts or trigger configuration; statistics are batched. Existing GET /jobs remains an array.",
+    description: "Additive bounded list representation. Omitted sort preserves legacy immutable UUID descending; updated preserves updated time descending with UUID descending ties. active sorts jobs with live runs first, then name and UUID ascending; running sorts numeric live-run counts in direction with name and UUID ascending ties; title sorts name in direction with UUID ascending ties. Name ordering uses the PostgreSQL en-US ICU collation. Non-ID sorts return opaque cursors bound to their sort and direction; keep filters and sort unchanged between pages. Live run-count changes can move jobs between pages. Literal case-insensitive name/slug search. No prompts or trigger configuration; statistics are batched. Existing GET /jobs remains an array.",
     responses: { "200": { description: "Summary page", content: { "application/json": { schema: jsonSchema(jobSummaryPage, "output") } } } },
   }, (service, { query }) => service.listJobSummaries(query), { query: jobPageQuery }),
   route("GET", "/api/v1/job-selector", "flows:read", {

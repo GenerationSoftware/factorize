@@ -13,7 +13,8 @@ export function jobsRoutes(root: AnyRootRoute) {
     if (!(await queryClient.ensureQueryData(sessionQuery)).authenticated) throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } });
   };
   const jobs = createRoute({ getParentRoute: () => root, path: "/jobs", beforeLoad: guard,
-    validateSearch: (s: Record<string, unknown>) => ({ q: typeof s.q === "string" ? s.q.slice(0, 120) : "", projectId: typeof s.projectId === "string" ? s.projectId : undefined, cursor: typeof s.cursor === "string" ? s.cursor : undefined, sort: s.sort === "running" || s.sort === "title" ? s.sort : undefined, order: s.order === "asc" || s.order === "desc" ? s.order : undefined }),
+    validateSearch: (s: Record<string, unknown>) => ({ q: typeof s.q === "string" ? s.q.slice(0, 120) : "", projectId: typeof s.projectId === "string" ? s.projectId : undefined, cursor: typeof s.cursor === "string" ? s.cursor : undefined, enabled: s.enabled === "true" || s.enabled === true ? "true" : s.enabled === "false" || s.enabled === false ? "false" : undefined, sort: s.sort === "running" || s.sort === "title" ? s.sort : undefined, order: s.order === "asc" || s.order === "desc" ? s.order : undefined }),
+    loaderDeps: ({ search }) => ({ q: search.q, projectId: search.projectId, cursor: search.cursor, enabled: search.enabled, sort: search.sort, order: search.order }),
     loader: ({ deps }) => queryClient.ensureQueryData(jobsQuery(deps)),
     component: lazyRouteComponent(() => import("./list"), "GlobalJobsList"),
   });
