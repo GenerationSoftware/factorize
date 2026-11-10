@@ -2,6 +2,7 @@ import { createRoute, lazyRouteComponent, redirect, type AnyRootRoute } from "@t
 import { sessionQuery } from "../auth/session";
 import { queryClient } from "../../shared/query-client";
 import { jobQuery, jobsQuery } from "./queries";
+import { historyQuery } from "../runs/queries";
 import { runStatuses } from "../../shared/ui";
 const runStates = runStatuses;
 const parseRunStates = (value: unknown) => {
@@ -20,7 +21,11 @@ export function jobsRoutes(root: AnyRootRoute) {
   });
   const job = createRoute({ getParentRoute: () => root, path: "/jobs/$jobId", beforeLoad: guard,
     validateSearch: (s: Record<string, unknown>) => ({ cursor: typeof s.cursor === "string" ? s.cursor : undefined, previous: typeof s.previous === "string" ? s.previous.slice(0, 20_000) : undefined, states: parseRunStates(s.states) as any, sort: ["run", "status", "created", "agent"].includes(String(s.sort)) ? s.sort as "run" | "status" | "created" | "agent" : undefined, direction: s.direction === "asc" || s.direction === "desc" ? s.direction : undefined }),
-    loader: ({ params }) => queryClient.ensureQueryData(jobQuery(params.jobId)),
+    loaderDeps: ({ search }) => ({ cursor: search.cursor, sort: search.sort, direction: search.direction, states: search.states }),
+    loader: ({ params, deps }) => {
+      void queryClient.prefetchQuery(historyQuery(params.jobId, deps.cursor, deps.sort, deps.direction, deps.states)).catch(() => undefined);
+      return queryClient.ensureQueryData(jobQuery(params.jobId));
+    },
     component: lazyRouteComponent(() => import("./detail"), "JobDetail"),
   });
   const create = createRoute({ getParentRoute: () => root, path: "/jobs/new", beforeLoad: guard, validateSearch: (s: Record<string, unknown>) => ({ projectId: typeof s.projectId === "string" ? s.projectId : undefined }), component: lazyRouteComponent(() => import("./editor"), "JobEditor") });
