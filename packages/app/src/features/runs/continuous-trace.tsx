@@ -1,5 +1,5 @@
 import { traceClasses, EventBody } from "./event-body";
-import { Disclosure, Summary } from "../../shared/ui";
+import { Disclosure, RunStatusLabel, Summary } from "../../shared/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useInfiniteQuery, useQuery, type InfiniteData } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
@@ -147,6 +147,6 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
       {!trace.isPending && !grouped.length && <p className="text-sm text-slate-600 dark:text-slate-400">No assistant messages yet.</p>}
       <div data-run-trace className="flex min-h-full min-w-0 flex-col justify-end space-y-4" aria-live={active ? "polite" : undefined}>{grouped.map((item, index) => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={item.events[0]?.id + ":" + index} className={traceClasses("tool_call")} open={expanded.has(item.events[0]?.id + ":" + index)} onToggle={event => { const key = item.events[0]?.id + ":" + index; const open = event.currentTarget.open; setExpanded(previous => { const next = new Set(previous); open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary><div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div></Disclosure>)}</div>
     </div>
-    {active && <p role="status" className="mt-5 text-sm font-medium"><span aria-hidden="true" className="mr-2 inline-block motion-safe:animate-pulse">●</span>Running…</p>}
+    {active && <p role="status" className="mt-5 text-sm font-medium"><RunStatusLabel state="running" /></p>}
   </>;
 }

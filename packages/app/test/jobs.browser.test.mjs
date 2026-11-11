@@ -142,7 +142,10 @@ test("project graph groups every connection with directions, state, selection, a
   await page.getByRole("button", { name: "Graph", exact: true }).click();
   const svg = page.getByRole("img", { name: /2 jobs and 5 connections/ });
   await svg.waitFor();
-  await page.getByText("Running · 2/4", { exact: true }).waitFor();
+  const running = page.getByRole("img", { name: "Status: Running", exact: true });
+  await running.waitFor();
+  assert.match(await running.locator("[aria-hidden]").getAttribute("class"), /bg-blue-500.*motion-safe:animate-pulse/);
+  assert.match(await running.locator("..").textContent(), /running · 2\/4/i);
   await page.getByText("Not running", { exact: true }).waitFor();
   const badge = page.getByRole("button", { name: "5 connections" });
   await badge.waitFor();
