@@ -75,9 +75,16 @@ export const jobInputSchema = z.object({
   effort: z.string().trim().max(40).optional(),
   triggers: z.array(triggerSchema).max(50).default([]),
   skillIds: z.array(z.guid()).max(50).optional(),
+  portableIntegrationIds: z.array(z.guid()).max(100).refine(ids => new Set(ids).size === ids.length, "Portable integrations must be unique").optional(),
+  modelAccess: z.enum(["native", "portable"]).optional(),
+  modelAccountId: z.guid().optional(),
 }).strict().superRefine((value, context) => {
   if (value.executionType !== "code" && !value.promptTemplate?.trim()) context.addIssue({ code: "custom", path: ["promptTemplate"], message: "Agent jobs require a prompt template." });
   if (value.executionType === "code" && !value.script?.trim()) context.addIssue({ code: "custom", path: ["script"], message: "Code jobs require a script." });
+  if (value.executionType === "code" && value.modelAccountId) context.addIssue({ code: "custom", path: ["modelAccountId"], message: "Code jobs cannot select a model account." });
+  if (value.executionType === "code" && value.modelAccess === "portable") context.addIssue({ code: "custom", path: ["modelAccess"], message: "Code jobs cannot select model access." });
+  if (value.modelAccess === "portable" && !value.modelAccountId && value.executionType !== "code") context.addIssue({ code: "custom", path: ["modelAccountId"], message: "Portable model access requires a model account." });
+  if (value.modelAccountId && value.modelAccess === "native") context.addIssue({ code: "custom", path: ["modelAccountId"], message: "Native model access cannot select a portable model account." });
 });
 export const vmImageVerificationInput = z.object({
   connectionId: z.string().min(1).max(200),

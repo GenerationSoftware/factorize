@@ -1670,6 +1670,22 @@ components:
             type: string
             format: uuid
             pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        portableIntegrationIds:
+          maxItems: 100
+          type: array
+          items:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        modelAccess:
+          type: string
+          enum:
+            - native
+            - portable
+        modelAccountId:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
       required:
         - name
         - slug
@@ -7750,6 +7766,10 @@ paths:
                         type: string
                       image:
                         type: string
+                      region:
+                        type: string
+                      size:
+                        type: string
                       executionType:
                         type: string
                         enum:
@@ -7778,6 +7798,21 @@ paths:
                         - integrations:write
                         - skills:read
                         - skills:write
+                  portableIntegrationIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  modelAccess:
+                    type: string
+                    enum:
+                      - native
+                      - portable
+                  modelAccountId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   executionConfigId:
                     type: string
                   agentKind:
@@ -8555,6 +8590,10 @@ paths:
                           type: string
                         image:
                           type: string
+                        region:
+                          type: string
+                        size:
+                          type: string
                         executionType:
                           type: string
                           enum:
@@ -8583,6 +8622,21 @@ paths:
                           - integrations:write
                           - skills:read
                           - skills:write
+                    portableIntegrationIds:
+                      type: array
+                      items:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    modelAccess:
+                      type: string
+                      enum:
+                        - native
+                        - portable
+                    modelAccountId:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                     executionConfigId:
                       type: string
                     agentKind:
@@ -9127,6 +9181,10 @@ paths:
                         type: string
                       image:
                         type: string
+                      region:
+                        type: string
+                      size:
+                        type: string
                       executionType:
                         type: string
                         enum:
@@ -9155,6 +9213,21 @@ paths:
                         - integrations:write
                         - skills:read
                         - skills:write
+                  portableIntegrationIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  modelAccess:
+                    type: string
+                    enum:
+                      - native
+                      - portable
+                  modelAccountId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   executionConfigId:
                     type: string
                   agentKind:
@@ -10192,6 +10265,10 @@ paths:
                         type: string
                       image:
                         type: string
+                      region:
+                        type: string
+                      size:
+                        type: string
                       executionType:
                         type: string
                         enum:
@@ -10220,6 +10297,21 @@ paths:
                         - integrations:write
                         - skills:read
                         - skills:write
+                  portableIntegrationIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  modelAccess:
+                    type: string
+                    enum:
+                      - native
+                      - portable
+                  modelAccountId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   executionConfigId:
                     type: string
                   agentKind:
@@ -10777,6 +10869,10 @@ paths:
                         type: string
                       image:
                         type: string
+                      region:
+                        type: string
+                      size:
+                        type: string
                       executionType:
                         type: string
                         enum:
@@ -10805,6 +10901,21 @@ paths:
                         - integrations:write
                         - skills:read
                         - skills:write
+                  portableIntegrationIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  modelAccess:
+                    type: string
+                    enum:
+                      - native
+                      - portable
+                  modelAccountId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   executionConfigId:
                     type: string
                   agentKind:
@@ -11674,6 +11785,22 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                portableIntegrationIds:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                modelAccess:
+                  type: string
+                  enum:
+                    - native
+                    - portable
+                modelAccountId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                 expectedUpdatedAt:
                   type: string
                   format: date-time

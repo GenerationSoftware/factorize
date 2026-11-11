@@ -5,6 +5,10 @@ import { IdentityRepository } from "../src/postgres/identity-repository";
 import { PostgresJobRepository } from "../src/postgres/job-repository";
 import { JobSummaryRepository } from "../src/postgres/job-summary-repository";
 import { ConnectionRepository } from "../src/postgres/connection-repository";
+import { EncryptedIntegrationRepository } from "../src/postgres/encrypted-integration-repository";
+import { FlyConnectionRepository } from "../src/postgres/fly-connection-repository";
+import { FlyExecutionConfigurationRepository } from "../src/postgres/fly-execution-configuration-repository";
+import { encrypt } from "../src/crypto";
 import { ApiService } from "../src/flow-service";
 import worker from "../src/worker";
 import { signSession } from "../src/index";
@@ -103,10 +107,48 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
     try {
       const job = await new ApiService(env, auth).createJob({ name: "Migrated target job", slug: "migrated-target-job", promptTemplate: "Do work", executionConfigId: target, vmImage: "ghcr.io/GenerationSoftware/anarack:ReleaseA", concurrencyLimit: 1, triggers: [{ kind: "manual", enabled: true, config: {} }] });
       expect(job.executionConfigId).toBe(target);
+      expect(job).toMatchObject({ portableIntegrationIds: [], modelAccess: "native" });
       expect(job.executionConfig).toMatchObject({ connectionId: "local", agentKind: "codex" });
       expect(job.executionConfig.image).toBe("ghcr.io/generationsoftware/anarack:ReleaseA");
+      const native = await new ApiService(env, auth).createJob({ name: "Native model job", slug: "native-model-job", promptTemplate: "Do work", executionConfigId: target, modelAccess: "native", concurrencyLimit: 1, triggers: [{ kind: "manual", enabled: true, config: {} }] });
+      expect(native).toMatchObject({ modelAccess: "native", portableIntegrationIds: [] });
     } finally {
       await db.pool.query("DELETE FROM app.jobs WHERE execution_config->>'targetId'=$1", [target]);
+    }
+  });
+  it("persists explicit integration and model selections and snapshots them at invocation", async () => {
+    const service = new ApiService(env, auth);
+    const write = async (kind: "bearer" | "model", name: string, owner = tenantId) => {
+      const repository = new EncryptedIntegrationRepository(db, owner, env.CREDENTIAL_ENCRYPTION_KEY), id = crypto.randomUUID();
+      await repository.write({ id, idempotencyKey: crypto.randomUUID(), expectedRevision: await repository.revision(), operation: "upsert", kind, name, origin: kind === "bearer" ? "https://api.example.test" : null, description: null, encryptedPayload: await encrypt("fixture", env.CREDENTIAL_ENCRYPTION_KEY) });
+      return id;
+    };
+    const bearerA = await write("bearer", "Tools A"), bearerB = await write("bearer", "Tools B");
+    const accountA = await write("model", "Account A"), accountB = await write("model", "Account B"), foreignAccount = await write("model", "Foreign Account", otherTenant);
+    await new FlyConnectionRepository(db, tenantId, env.CREDENTIAL_ENCRYPTION_KEY).save({ organizationSlug: "fixture", organizationName: "Fixture" }, "fixture-token");
+    const execution = await new FlyExecutionConfigurationRepository(db, tenantId).save({ name: "Fixture", image: "ghcr.io/example/agent:latest", region: "iad", size: "shared-cpu-1x" });
+    const base = { name: "Portable", slug: `portable-${crypto.randomUUID().slice(0, 8)}`, promptTemplate: "Do work", executionConfigId: execution.id, concurrencyLimit: 1, triggers: [{ kind: "manual" as const, enabled: true, config: {} }] };
+    try {
+      await expect(service.createJob({ ...base, modelAccountId: foreignAccount })).rejects.toMatchObject({ status: 400 });
+      const job = await service.createJob({ ...base, portableIntegrationIds: [bearerA], modelAccess: "portable", modelAccountId: accountA });
+      expect(job).toMatchObject({ portableIntegrationIds: [bearerA], modelAccess: "portable", modelAccountId: accountA });
+      expect(job.executionConfig).toMatchObject({ region: "iad", size: "shared-cpu-1x" });
+      const invoked = await service.invokeJob(job.id, { prompt: "run", data: {} });
+      const snapshot = (await db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenantId, invoked.runId])).rows[0].execution_config;
+      expect(snapshot).toMatchObject({ portableIntegrationIds: [bearerA], modelAccess: "portable", modelAccountId: accountA });
+      const updated = await service.updateJob(job.id, { ...base, portableIntegrationIds: [bearerB], modelAccess: "portable", modelAccountId: accountB });
+      expect(updated).toMatchObject({ portableIntegrationIds: [bearerB], modelAccountId: accountB });
+      expect((await db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenantId, invoked.runId])).rows[0].execution_config).toEqual(snapshot);
+      const omitted = await service.updateJob(job.id, { ...base });
+      expect(omitted).toMatchObject({ portableIntegrationIds: [bearerB], modelAccess: "portable", modelAccountId: accountB });
+      await expect(service.createJob({ ...base, portableIntegrationIds: [foreignAccount], modelAccess: "native" })).rejects.toMatchObject({ status: 400 });
+      const code = await service.createJob({ ...base, name: "Code", slug: `code-${crypto.randomUUID().slice(0, 8)}`, executionType: "code", script: "echo ok" });
+      expect(code).toMatchObject({ modelAccess: "native", portableIntegrationIds: [] });
+      await expect(service.createJob({ ...base, name: "Needs account", slug: `need-${crypto.randomUUID().slice(0, 8)}`, modelAccess: "portable" })).rejects.toMatchObject({ status: 400 });
+    } finally {
+      await db.pool.query("DELETE FROM app.jobs WHERE tenant_id=$1 AND (slug LIKE 'portable-%' OR slug LIKE 'code-%' OR slug LIKE 'need-%')", [tenantId]);
+      await db.pool.query("DELETE FROM app.fly_execution_configurations WHERE tenant_id=$1 AND id=$2", [tenantId, execution.id]);
+      await new FlyConnectionRepository(db, tenantId, env.CREDENTIAL_ENCRYPTION_KEY).remove();
     }
   });
   it("enforces tenant and scope boundaries, email verification, cookie expiry and session revocation", async () => {
