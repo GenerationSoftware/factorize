@@ -14,6 +14,7 @@ import { artifactUpload } from "./artifact-upload";
 import { traceChunkUpload } from "./trace-chunk-upload";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
+import { proxyControlFetch } from "./proxy-control";
 
 const scopes = [...ACCESS_SCOPES];
 // Keep accepting grants issued by the pre-resource-scope protocol. New
@@ -85,6 +86,7 @@ function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)
 
 export { AlarmCoordinator } from "./alarm-coordinator";
 const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+  if (new URL(request.url).pathname.startsWith("/internal/credential-proxy/")) return proxyControlFetch(request, env);
   const staticResponse = !["/authorize", "/device"].includes(new URL(request.url).pathname) ? await staticApp(request, env) : null;
   if (staticResponse) return staticResponse;
   const oauth = provider(env);

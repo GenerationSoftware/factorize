@@ -1,0 +1,56 @@
+import type { Database } from "./database";
+
+export type RegisteredProxy = { tenantId: string; proxyIdentity: string; bootEpoch: string };
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const digest = async (token: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
+
+/** Credentials for the Factorize-to-proxy control plane. These are never job run credentials. */
+export class ProxyControlRepository {
+  constructor(private database: Database) {}
+
+  /** Called only from the authenticated infrastructure provisioning path; the token is returned once. */
+  async provisionCredential(tenantId: string, proxyIdentity: string, bootEpoch: string): Promise<string> {
+    if (!uuid.test(tenantId) || !proxyIdentity.trim() || proxyIdentity.length > 255 || !uuid.test(bootEpoch)) throw new TypeError("Invalid proxy identity or boot epoch");
+    const token = `fzc_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url")}`;
+    await this.database.pool.query(`INSERT INTO app.credential_proxy_control_credentials(tenant_id,proxy_identity,boot_epoch,token_digest,revoked_at,consumed_at)
+      VALUES ($1,$2,$3,$4,NULL,NULL) ON CONFLICT (tenant_id,proxy_identity) DO UPDATE SET boot_epoch=excluded.boot_epoch,token_digest=excluded.token_digest,revoked_at=NULL,consumed_at=NULL,created_at=now()`,
+    [tenantId, proxyIdentity, bootEpoch, Buffer.from(await digest(token))]);
+    return token;
+  }
+
+  async authenticate(token: string): Promise<Pick<RegisteredProxy, "tenantId" | "proxyIdentity"> | null> {
+    if (typeof token !== "string" || !/^fzc_[A-Za-z0-9_-]{43}$/.test(token)) return null;
+    const result = await this.database.pool.query<{ tenant_id: string; proxy_identity: string }>(`SELECT tenant_id,proxy_identity
+      FROM app.credential_proxy_control_credentials WHERE token_digest=$1 AND revoked_at IS NULL`, [Buffer.from(await digest(token))]);
+    const row = result.rows[0];
+    return row ? { tenantId: row.tenant_id, proxyIdentity: row.proxy_identity } : null;
+  }
+
+  async registerBoot(token: string, bootEpoch: string): Promise<RegisteredProxy | null> {
+    if (!uuid.test(bootEpoch)) throw new TypeError("bootEpoch must be a UUID");
+    const tokenDigest = Buffer.from(await digest(token));
+    return this.database.transaction(async client => {
+      const credential = await client.query<{ tenant_id: string; proxy_identity: string }>(`SELECT tenant_id,proxy_identity
+        FROM app.credential_proxy_control_credentials WHERE token_digest=$1 AND boot_epoch=$2 AND revoked_at IS NULL AND consumed_at IS NULL FOR UPDATE`, [tokenDigest, bootEpoch]);
+      const identity = credential.rows[0];
+      if (!identity) return null;
+      const saved = await client.query(`INSERT INTO app.credential_proxy_states(tenant_id,proxy_identity,boot_epoch)
+        VALUES ($1,$2,$3) ON CONFLICT (tenant_id) DO UPDATE SET proxy_identity=excluded.proxy_identity,boot_epoch=excluded.boot_epoch,updated_at=now()
+        WHERE app.credential_proxy_states.proxy_identity=excluded.proxy_identity
+          AND app.credential_proxy_states.disabled_at IS NULL AND app.credential_proxy_states.revoked_at IS NULL RETURNING tenant_id`,
+      [identity.tenant_id, identity.proxy_identity, bootEpoch]);
+      if (!saved.rowCount) return null;
+      await client.query(`UPDATE app.credential_proxy_control_credentials SET consumed_at=now()
+        WHERE token_digest=$1 AND boot_epoch=$2 AND consumed_at IS NULL`, [tokenDigest, bootEpoch]);
+      await client.query(`UPDATE app.credential_run_grants SET revoked_at=now()
+        WHERE tenant_id=$1 AND proxy_identity=$2 AND boot_epoch<>$3 AND revoked_at IS NULL`, [identity.tenant_id, identity.proxy_identity, bootEpoch]);
+      return { tenantId: identity.tenant_id, proxyIdentity: identity.proxy_identity, bootEpoch };
+    });
+  }
+
+  async revokeCredential(tenantId: string, proxyIdentity: string): Promise<boolean> {
+    const result = await this.database.pool.query(`UPDATE app.credential_proxy_control_credentials SET revoked_at=now()
+      WHERE tenant_id=$1 AND proxy_identity=$2 AND revoked_at IS NULL`, [tenantId, proxyIdentity]);
+    return Boolean(result.rowCount);
+  }
+}
