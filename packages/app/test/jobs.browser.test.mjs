@@ -303,6 +303,37 @@ test("project tabs stay on projects while job detail gets Runs and Settings navi
   assert.equal(await page.getByRole("navigation", { name: "Job navigation" }).getByRole("link", { name: "Settings", exact: true }).getAttribute("aria-current"), "page");
   await context.close();
 });
+test("dashboard Projects subnav completes keyboard navigation into project Jobs", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
+  await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [{ ...summary }], nextCursor: null } }));
+
+  await page.goto(origin + "/projects");
+  const dashboardNav = page.getByRole("navigation", { name: "Dashboard navigation" });
+  const projectsTab = dashboardNav.getByRole("link", { name: "Projects", exact: true });
+  await projectsTab.waitFor();
+  assert.equal(await projectsTab.getAttribute("aria-current"), "page");
+  assert.equal(await projectsTab.evaluate(element => getComputedStyle(element.parentElement).overflowX), "auto");
+
+  const dashboard = page.getByRole("link", { name: "Factorize dashboard" });
+  await dashboard.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("heading", { name: "Recent work" }).waitFor();
+  assert.equal(await dashboardNav.getByRole("link", { name: "Projects", exact: true }).getAttribute("aria-current"), null);
+
+  const dashboardProjects = dashboardNav.getByRole("link", { name: "Projects", exact: true });
+  await dashboardProjects.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("heading", { name: "Projects", exact: true }).waitFor();
+  assert.equal(await dashboardNav.getByRole("link", { name: "Projects", exact: true }).getAttribute("aria-current"), "page");
+
+  const project = page.getByRole("link", { name: /Release project/ });
+  await project.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("heading", { name: "Release project jobs", exact: true }).waitFor();
+  assert.equal(await page.getByRole("navigation", { name: "Project navigation" }).getByRole("link", { name: "Jobs", exact: true }).getAttribute("aria-current"), "page");
+  await context.close();
+});
 test("main navigation shows the current project switcher inside a project and its jobs", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
