@@ -6,9 +6,10 @@ import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useParams, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { runStatusQuery } from "./queries";
+import { runPageQuery, runStatusQuery } from "./queries";
 import { jobQuery } from "../jobs/queries";
-import { ProjectNav } from "../projects/project-nav";
+import { JobNav } from "../jobs/job-nav";
+import { ResourceSwitcher } from "../../shared/resource-switcher";
 import { messageOf } from "../auth/session";
 function RuntimeInfo({ startedAt, updatedAt, active }: { startedAt: string | null; updatedAt: string; active: boolean }) {
   const [now, setNow] = useState(() => Date.now());
@@ -27,6 +28,7 @@ export function RunDetail() {
   const tabPath = (name: "trace" | "info"): "/job-runs/$runId" | "/job-runs/$runId/info" => name === "trace" ? "/job-runs/$runId" : "/job-runs/$runId/info";
   const status = useQuery(runStatusQuery(runId!));
   const job = useQuery({ ...jobQuery(status.data?.job_id ?? ""), enabled: !!status.data?.job_id });
+  const jobRuns = useQuery({ ...runPageQuery({ jobId: status.data?.job_id, limit: 30, sort: "created", direction: "desc" }), enabled: !!status.data?.job_id });
   const [revision, setRevision] = useState("");
   const [renaming, setRenaming] = useState(false), [nameDraft, setNameDraft] = useState(""), [nameExpected, setNameExpected] = useState(""), [nameError, setNameError] = useState("");
   const active = !status.data || !["succeeded", "failed", "stopped"].includes(status.data.state) || status.data.finalizing;
@@ -65,7 +67,7 @@ export function RunDetail() {
     {status.isPending && <p role="status">Loading run…</p>}{status.error && <p role="alert">{status.error.message}</p>}
     {!job.data?.projectId && <Breadcrumb>{status.data ? <Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: status.data.job_id }}>{status.data.job_name}</Link> : <Link to="/projects">Projects</Link>}</Breadcrumb>}
     {status.data && <>
-      <ResourceHeader type="Run" title={status.data.run_name || "Run"} titleActions={renaming ? <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); setNameError(""); rename.mutate(); }}><label className="sr-only" htmlFor="run-name">Run name</label><input autoFocus id="run-name" className="w-64 rounded-lg border border-stone-300 bg-white px-3 py-2 text-base font-normal dark:border-slate-700 dark:bg-slate-950" value={nameDraft} maxLength={120} aria-invalid={!!nameError} aria-describedby={nameError ? "run-name-error" : undefined} onChange={event => { setNameDraft(event.target.value); setNameError(""); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); cancelRename(); } }} /><Button type="submit" disabled={rename.isPending}>Save</Button><Button type="button" disabled={rename.isPending} onClick={cancelRename}>Cancel</Button>{nameError && <span id="run-name-error" role="alert" className="basis-full text-sm text-red-700 dark:text-red-300">{nameError}</span>}</form> : <Button type="button" onClick={startRename}>Rename</Button>} description={<p role="status"><RunStatusLabel state={status.data.state} failureSource={status.data.failure_source} failure={status.data.failure} />{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}{(status.data.failure?.reason || (status.data.agent_error as any)?.reason) && <span className="mt-1 block max-w-3xl text-left">{status.data.failure?.reason || (status.data.agent_error as any).reason}</span>}</p>}>{["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button className="shrink-0" disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}</ResourceHeader>
+      <ResourceHeader type="Run" title={status.data.run_name || "Run"} titleActions={<>{job.data?.projectId && !renaming && <ResourceSwitcher kind="Run" items={(jobRuns.data?.items ?? []).map(run => ({ id: run.id, name: run.run_name || "Run" }))} currentId={runId!} loading={jobRuns.isPending} error={jobRuns.error?.message} onSelect={id => { void navigate({ to: "/job-runs/$runId", params: { runId: id } }); }} />}{renaming ? <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); setNameError(""); rename.mutate(); }}><label className="sr-only" htmlFor="run-name">Run name</label><input autoFocus id="run-name" className="w-64 rounded-lg border border-stone-300 bg-white px-3 py-2 text-base font-normal dark:border-slate-700 dark:bg-slate-950" value={nameDraft} maxLength={120} aria-invalid={!!nameError} aria-describedby={nameError ? "run-name-error" : undefined} onChange={event => { setNameDraft(event.target.value); setNameError(""); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); cancelRename(); } }} /><Button type="submit" disabled={rename.isPending}>Save</Button><Button type="button" disabled={rename.isPending} onClick={cancelRename}>Cancel</Button>{nameError && <span id="run-name-error" role="alert" className="basis-full text-sm text-red-700 dark:text-red-300">{nameError}</span>}</form> : <Button type="button" onClick={startRename}>Rename</Button>}</>} description={<p role="status"><RunStatusLabel state={status.data.state} failureSource={status.data.failure_source} failure={status.data.failure} />{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}{(status.data.failure?.reason || (status.data.agent_error as any)?.reason) && <span className="mt-1 block max-w-3xl text-left">{status.data.failure?.reason || (status.data.agent_error as any).reason}</span>}</p>}>{["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button className="shrink-0" disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}</ResourceHeader>
     </>}
     {!status.data && <ResourceHeader type="Run" title="Run" />}
     {stop.error && <p role="alert">{stop.error.message}</p>}
@@ -94,7 +96,5 @@ export function RunDetail() {
     <ContinuousTrace key={`${revision}:${fullTrace}`} runId={runId!} revision={revision} active={active} visible={fullTrace || tab === "trace"} preview={!fullTrace} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />
     </section>}
   </>;
-  return job.data?.projectId
-    ? <ProjectNav tab="runs" projectId={job.data.projectId}>{content}</ProjectNav>
-    : <Page className="max-w-6xl">{content}</Page>;
+  return <>{job.data?.projectId && <JobNav jobId={job.data.id} tab="runs" />}<Page className="max-w-6xl pt-6 sm:pt-8">{content}</Page></>;
 }

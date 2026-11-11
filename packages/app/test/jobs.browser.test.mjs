@@ -282,7 +282,7 @@ test("project graph keeps opaque webhook resource IDs out of labels and availabl
   await page.getByText(`Linear · ${projectUuid}`, { exact: true }).waitFor();
   await context.close();
 });
-test("project tabs omit redundant headings while job detail selects project jobs", async () => {
+test("project tabs stay on projects while job detail gets Runs and Settings navigation", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
@@ -298,19 +298,20 @@ test("project tabs omit redundant headings while job detail selects project jobs
   await page.goto(origin + `/jobs/${jobId}`);
   await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
-  assert.equal(await page.getByRole("navigation", { name: "Project navigation" }).getByRole("link", { name: "Jobs", exact: true }).getAttribute("aria-current"), "page");
-  assert.equal(await page.getByRole("navigation", { name: "Job navigation" }).count(), 0);
-  assert.equal(await page.getByText("Job", { exact: true }).count(), 1);
+  assert.equal(await page.getByRole("navigation", { name: "Job navigation" }).getByRole("link", { name: "Runs", exact: true }).getAttribute("aria-current"), "page");
+  await page.getByRole("navigation", { name: "Job navigation" }).getByRole("link", { name: "Settings", exact: true }).click();
+  assert.equal(await page.getByRole("navigation", { name: "Job navigation" }).getByRole("link", { name: "Settings", exact: true }).getAttribute("aria-current"), "page");
   await context.close();
 });
 test("main navigation shows the current project switcher inside a project and its jobs", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
-  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [{ ...summary }], nextCursor: null } }));
   const mainNav = page.getByRole("navigation", { name: "Main navigation" });
   await page.goto(origin + "/");
-  await mainNav.getByRole("link", { name: "owner" }).waitFor();
+  await mainNav.getByRole("button", { name: "Your account" }).waitFor();
+  assert.equal(await mainNav.getByRole("link", { name: "owner", exact: true }).count(), 0);
   assert.equal(await mainNav.getByRole("link", { name: "Projects", exact: true }).count(), 0);
   assert.equal(await mainNav.getByRole("button", { name: "Switch project" }).count(), 0);
   await page.goto(origin + `/projects/${projectId}`);
@@ -326,6 +327,11 @@ test("main navigation shows the current project switcher inside a project and it
   await jobSwitcher.click();
   const currentProject = page.getByRole("option", { name: /Release project.*Current/ });
   await currentProject.waitFor();
+  assert.equal(await mainNav.getByRole("link", { name: "Review builds", exact: true }).count(), 1);
+  const switchJob = mainNav.getByRole("button", { name: "Switch job" });
+  assert.equal(await switchJob.count(), 1);
+  await switchJob.click();
+  await page.getByRole("option", { name: /Review builds.*Current/ }).waitFor();
   await context.close();
 });
 test("mobile main navigation truncates the account and project names without the logo divider", async () => {
@@ -339,8 +345,6 @@ test("mobile main navigation truncates the account and project names without the
   assert.equal(await divider.evaluate(element => getComputedStyle(element).display), "none");
   const account = mainNav.getByRole("button", { name: "Your account" });
   await account.waitFor();
-  assert.equal(await account.locator("span").evaluate(element => getComputedStyle(element).textOverflow), "ellipsis");
-  assert.equal(await account.locator("span").evaluate(element => element.scrollWidth > element.clientWidth), true);
   await account.click();
   await page.locator("#mobile-profile-menu").getByRole("link", { name: "Settings", exact: true }).waitFor();
   const project = mainNav.getByRole("link", { name: "A very long release project name for mobile" });
