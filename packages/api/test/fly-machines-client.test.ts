@@ -116,31 +116,29 @@ describe("bounded Fly Machines client", () => {
   it("times out a stalled response and reconciles an ambiguous create by operation id", async () => {
     const machines: FlyMachine[] = [];
     let createCount = 0;
-    let markCreateReceived!: () => void;
-    const createReceived = new Promise<void>(resolve => { markCreateReceived = resolve; });
+    let markCommitted!: () => void;
+    const committed = new Promise<void>(resolve => { markCommitted = resolve; });
     const origin = await fakeFly(async (req, res) => {
       if (req.method === "GET") return json(res, 200, machines);
       if (req.method === "POST") {
         createCount++;
-        markCreateReceived();
         let raw = ""; for await (const chunk of req) raw += chunk;
         const body = JSON.parse(raw);
         const machine = { id: "m-created", config: body.config };
         machines.push(machine);
+        markCommitted();
+        markCommitted();
         // Commit the resource but leave the response stalled past the client's deadline.
         res.writeHead(200, { "content-type": "application/json" });
       }
     });
-    const client = createFlyMachinesClient({ token, apiOrigin: origin, timeoutMs: 1_000, maxRetries: 0 });
+    const client = createFlyMachinesClient({ token, apiOrigin: origin, timeoutMs: 250, maxRetries: 0 });
+    const creation = client.createMachine("app", { image: "image" }, "op-ambiguous");
     let deadline: ReturnType<typeof setTimeout> | undefined;
-    let created: FlyMachine;
     try {
-      const creation = client.createMachine("app", { image: "image" }, "op-ambiguous");
-      await Promise.race([createReceived, new Promise<never>((_, reject) => {
-        deadline = setTimeout(() => reject(new Error("Fake Fly server did not receive the ambiguous create")), 5_000);
-      })]);
-      created = await creation;
+      await Promise.race([committed, new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error("Fake Fly server did not commit the bounded create")), 5_000); })]);
     } finally { if (deadline) clearTimeout(deadline); }
+    const created = await creation;
     expect(created.id).toBe("m-created");
     expect(createCount).toBe(1);
   });
