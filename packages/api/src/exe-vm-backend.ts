@@ -208,7 +208,7 @@ export class ExeVmBackend implements ExecutionBackend {
     for (let attempt = 1; !accepted(started) && attempt < 5; attempt++) started = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(work)}`);
     if (!accepted(started)) {
       const detail = `VM provisioning failed (${started.status}): ${safeDiagnosticText(started.body, 500)}`;
-      return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail, command: started }, command: started };
+      return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail, failure: { source: "system", code: "launch_failed", reason: detail }, command: started }, command: started };
     }
     return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "running", command: started }, command: started };
   }
@@ -222,17 +222,18 @@ export class ExeVmBackend implements ExecutionBackend {
     // systemctl can return nonzero for a missing unit, but still emits LoadState.
     if (!response.ok && !response.body.includes("LoadState=not-found")) return ![404, 410].includes(response.status)
       ? { state: "running", detail: `VM inspection is temporarily unavailable (${response.status})` }
-      : { state: "failed", detail: `The run-owned VM is unavailable (${response.status})` };
+      : { state: "failed", detail: `The run-owned VM is unavailable (${response.status})`, failure: { source: "system", code: "vm_unavailable", reason: `The run-owned VM is unavailable (${response.status})` } };
     const properties = Object.fromEntries(response.body.split("\n").filter(line => /^[A-Za-z]+=/.test(line)).map(line => { const index = line.indexOf("="); return [line.slice(0, index), line.slice(index + 1).trim()]; }));
     const label = (name: string) => /^[a-z-]{1,64}$/.test(properties[name] ?? "") ? properties[name] : "";
     const number = (name: string) => /^\d{1,10}$/.test(properties[name] ?? "") ? Number(properties[name]) : null;
     const systemd = { loadState: label("LoadState"), activeState: label("ActiveState"), subState: label("SubState"), result: label("Result"), execMainCode: number("ExecMainCode"), execMainStatus: number("ExecMainStatus") };
     if (!systemd.loadState) return { state: "running", detail: "VM inspection returned incomplete supervisor metadata" };
-    if (systemd.loadState !== "loaded") return { state: "failed", systemd, detail: "The run supervisor disappeared before recording a result." };
+    if (systemd.loadState !== "loaded") return { state: "failed", systemd, detail: "The run supervisor disappeared before recording a result.", failure: { source: "system", code: "supervisor_disappeared", reason: "The run supervisor disappeared before recording a result." } };
     if (["running", "start"].includes(systemd.subState) || ["activating", "deactivating"].includes(systemd.activeState)) return { state: "running", systemd };
     if (!systemd.activeState || !systemd.subState || !systemd.result || systemd.execMainStatus === null || systemd.execMainCode === null) return { state: "running", detail: "VM inspection returned incomplete supervisor metadata" };
     if (systemd.result === "success" && systemd.execMainStatus === 0) return { state: "succeeded", systemd };
-    return { state: "failed", systemd, detail: `The supervised agent process exited unsuccessfully (Result=${systemd.result}, ExecMainCode=${systemd.execMainCode}, ExecMainStatus=${systemd.execMainStatus}).` };
+    const reason = `The supervised agent process exited unsuccessfully (Result=${systemd.result}, ExecMainCode=${systemd.execMainCode}, ExecMainStatus=${systemd.execMainStatus}).`;
+    return { state: "failed", systemd, detail: reason, failure: { source: "run", code: "process_exit", reason } };
   }
 
   /** Stop the writer but preserve the guest until terminal artifacts are retained. */

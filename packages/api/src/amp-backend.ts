@@ -34,12 +34,14 @@ export class AmpBackend implements ExecutionBackend {
     if (!result.command.ok) throw new Error(`Amp launch failed (${result.command.status}): ${result.command.body.slice(0, 500)}`);
     const threadId = String(result.data.threadId ?? result.data.threadID ?? result.data.id ?? "");
     if (!threadId) throw new Error("Amp launch response did not include a thread ID.");
-    return { handle: { backendKind: this.kind, id: threadId }, destinationUrl: String(result.data.url ?? `https://ampcode.com/threads/${encodeURIComponent(threadId)}`), capabilities: this.capabilities, observation: { state: mapAmpState(result.data.status ?? "starting") }, command: result.command };
+    const state = mapAmpState(result.data.status ?? "starting");
+    return { handle: { backendKind: this.kind, id: threadId }, destinationUrl: String(result.data.url ?? `https://ampcode.com/threads/${encodeURIComponent(threadId)}`), capabilities: this.capabilities, observation: { state, ...(state === "failed" ? { failure: { source: "run" as const, code: "process_exit", reason: String(result.data.detail ?? "Amp reported an unsuccessful execution") } } : {}) }, command: result.command };
   }
   async inspect(handle: RunHandle): Promise<ExecutionObservation> {
     const result = await this.call(`/runs/${encodeURIComponent(handle.id)}`);
-    if (!result.command.ok) return { state: result.command.status === 404 ? "failed" : "running", detail: result.command.body, command: result.command };
-    return { state: mapAmpState(result.data.status ?? result.data.state), detail: result.data.detail, command: result.command };
+    if (!result.command.ok) return result.command.status === 404 ? { state: "failed", detail: result.command.body, command: result.command, failure: { source: "system", code: "execution_unavailable", reason: "Amp execution could not be found" } } : { state: "running", detail: result.command.body, command: result.command };
+    const state = mapAmpState(result.data.status ?? result.data.state);
+    return { state, detail: result.data.detail, command: result.command, ...(state === "failed" ? { failure: { source: "run" as const, code: "process_exit", reason: String(result.data.detail ?? "Amp reported an unsuccessful execution") } } : {}) };
   }
   async stop(handle: RunHandle): Promise<ExecutionObservation> {
     const result = await this.call(`/runs/${encodeURIComponent(handle.id)}/stop`, { method: "POST", body: "{}" });

@@ -11,6 +11,9 @@ Call `get_run({"runId":"RUN_ID"})` then `get_run_diagnostics({"runId":"RUN_ID"})
 
 | Evidence | Recovery |
 | --- | --- |
+| `failure.source` is `run` | The agent/script could not complete, including required result protocol errors and process exits. Read the primary failure reason, result and trace. |
+| `failure.source` is `system` | Positive launch, VM or supervisor evidence prevented execution or supervision. Use execution diagnostics and contact the operator if it persists. |
+| Failed with `failure: null` | Historical failure evidence is unknown. Do not infer system failure from legacy `failure_source` alone. |
 | Queued | Inspect active runs/concurrency with `get_job`; wait for a slot. |
 | Launch or permission failure | Browser-test the execution connection; check repository/model access and tags. Use `list_exe_connections` then `diagnose_exe_integration({"connectionId":"CONNECTION_ID"})` if appropriate. This probe uses a disposable VM. |
 | Wrong/empty prompt values | Read actual trigger slug/reflection and persisted context; safely replace the full job configuration. |
@@ -18,4 +21,4 @@ Call `get_run({"runId":"RUN_ID"})` then `get_run_diagnostics({"runId":"RUN_ID"})
 | Starting/running/blocked but stuck | Request `stop_run`, poll, and inspect cleanup. `kill_run` currently has identical semantics. Escalate persistently stuck runs to the hosted operator with run ID and safe diagnostics. |
 | Missing/partial trace | Inspect output and artifact state; ask the owner/operator about REST-only retained-artifact replay. See [advanced operations](/self-hosting/operations). |
 
-Worked recovery configuration: use the original job ID and `invoke_job({"jobId":"JOB_ID","prompt":"Retry after correcting repository access","idempotencyKey":"investigation-RUN_ID-retry-1"})` only after fixing the cause and confirming the old run is terminal. Expected result is a **new** run ID. Verify its rendered prompt/state with `get_run` and successful output in the browser trace; a diagnostic probe passing does not itself prove the job succeeds.
+Worked recovery configuration: use the original job ID and `invoke_job({"jobId":"JOB_ID","prompt":"Retry after correcting repository access","idempotencyKey":"investigation-RUN_ID-retry-1"})` only after fixing the cause and confirming the old run is terminal. Expected result is a **new** run ID. Verify its rendered prompt/state with `get_run` and successful output in the browser trace; a diagnostic probe passing does not itself prove the job succeeds. Artifact and cleanup diagnostics are separate from the primary failure and never change an already resolved outcome.

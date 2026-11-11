@@ -1822,6 +1822,12 @@ export interface components {
             updated_at: string;
             started_at: string | null;
             failure_source: ("system" | "agent") | null;
+            failure?: {
+                /** @enum {string} */
+                source: "run" | "system";
+                code: string;
+                reason: string;
+            } | null;
             agent_error: {
                 reason: string;
                 reported_at: string;
@@ -1870,6 +1876,12 @@ export interface components {
                 updated_at: string;
                 started_at: string | null;
                 failure_source: ("system" | "agent") | null;
+                failure?: {
+                    /** @enum {string} */
+                    source: "run" | "system";
+                    code: string;
+                    reason: string;
+                } | null;
                 agent_error: {
                     reason: string;
                     reported_at: string;
@@ -2049,6 +2061,12 @@ export interface components {
             updated_at: string;
             started_at: string | null;
             failure_source: ("system" | "agent") | null;
+            failure?: {
+                /** @enum {string} */
+                source: "run" | "system";
+                code: string;
+                reason: string;
+            } | null;
             agent_error: {
                 reason: string;
                 reported_at: string;
@@ -6674,6 +6692,12 @@ export interface operations {
                         finalizing: boolean;
                         trace_revision: string;
                         failure_source: ("system" | "agent") | null;
+                        failure?: {
+                            /** @enum {string} */
+                            source: "run" | "system";
+                            code: string;
+                            reason: string;
+                        } | null;
                         agent_error: {
                             reason: string;
                             reported_at: string;

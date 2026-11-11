@@ -27,8 +27,8 @@ export class RunScheduler {
   async process(): Promise<void> {
     await this.runs.consumeWakeHint();
     await new AutomationScheduler(this.database, this.env).process();
-    for (const run of await this.runs.dueForPoll()) await this.poll(run).catch(error => this.fail(run, error));
-    for (let count = 0; count < 20; count++) { const run = await this.runs.claimNext(); if (!run) break; await this.launch(run).catch(error => this.fail(run, error)); }
+    for (const run of await this.runs.dueForPoll()) await this.poll(run).catch(error => this.fail(run, error, "poll"));
+    for (let count = 0; count < 20; count++) { const run = await this.runs.claimNext(); if (!run) break; await this.launch(run).catch(error => this.fail(run, error, "launch")); }
   }
 
   private connections(run: PersistedRun) { return new ConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
@@ -82,21 +82,26 @@ export class RunScheduler {
     let artifactState: "stored" | "partial" | "failed" = "stored";
     const errors: string[] = [];
     let finalState = diagnostics.state;
-    let resultFailure: string | undefined;
-    if (run.resultProtocolVersion === 1 && diagnostics.state !== "failed" && diagnostics.state !== "stopped") {
+    let taskFailure: { source: "run" | "system"; code: string; reason: string } | undefined = run.failureCode && run.failureReason
+      ? { source: diagnostics.failure?.source ?? "run", code: run.failureCode, reason: run.failureReason } : diagnostics.failure;
+    if (taskFailure) await this.runs.recordFailureOutcome(run, taskFailure);
+    if (!run.failureCode && run.resultProtocolVersion === 1 && diagnostics.state !== "failed" && diagnostics.state !== "stopped") {
       if (!(backend instanceof ExeVmBackend)) throw new Error("This execution backend cannot collect structured job results");
       let raw: string | null;
       try { raw = await backend.readJobResult(run.executionHandle!); }
       catch (error) { throw error; } // Collection errors are transient and retried by finalization.
-      if (raw === null) { finalState = "failed"; resultFailure = "Required structured job result is missing"; }
+      if (raw === null) { finalState = "failed"; taskFailure = { source: "run", code: "result_missing", reason: "Required structured job result is missing" }; }
       else {
-        try {
-          const result = parseJobResult(raw);
+        let result;
+        try { result = parseJobResult(raw); }
+        catch (error) { finalState = "failed"; taskFailure = { source: "run", code: "result_invalid", reason: `Invalid structured job result: ${error instanceof Error ? error.message : "validation failed"}` }; }
+        if (result) {
           await this.runs.recordJobResult(run, result);
-          if (result.status === "failed") { finalState = "failed"; resultFailure = result.reason; }
-        } catch (error) { finalState = "failed"; resultFailure = `Invalid structured job result: ${error instanceof Error ? error.message : "validation failed"}`; }
+          if (result.status === "failed") { finalState = "failed"; taskFailure ??= { source: "run", code: "task_reported_failure", reason: result.reason! }; }
+        }
       }
     }
+    if (taskFailure) await this.runs.recordFailureOutcome(run, taskFailure);
     if (backend instanceof ExeVmBackend) {
       const artifacts = new ArtifactRepository(this.database, run.tenantId);
       const stored = await artifacts.list(run.id);
@@ -152,7 +157,8 @@ export class RunScheduler {
         return;
       }
     }
-    await this.runs.terminal(run, finalState, artifactState, [resultFailure, ...errors].filter(Boolean).join("; ") || undefined, true);
+    if (finalState === "failed" && diagnostics.state === "succeeded" && !taskFailure) taskFailure = { source: "run", code: "task_reported_failure", reason: "The run reported an error" };
+    await this.runs.terminal(run, finalState, artifactState, errors.filter(Boolean).join("; ") || undefined, true, taskFailure);
   }
 
   /** Retry projection from retained bytes, without relying on a surviving VM. */
@@ -226,18 +232,25 @@ export class RunScheduler {
     return backend.collectTraceChunk(run.executionHandle, { source, generation: cursor.generation, offset: cursor.offset, previousHash: cursor.rollingHash, uploadUrl: `${this.env.APP_ORIGIN}/internal/run-trace-chunks/${encodeURIComponent(token)}` });
   }
 
-  private async fail(run: PersistedRun, error: unknown) {
+  private async fail(run: PersistedRun, error: unknown, phase: "poll" | "launch" = "launch") {
     // Infrastructure errors while finalizing must not change the execution result.
     if (run.executionDiagnostics) {
       await this.runs.retryFinalization(run, "partial", "Run finalization temporarily failed");
       return;
     }
-    await this.runs.recordObservation(run, { state: "failed", detail: safeDiagnosticText(error instanceof Error ? error.message : "Run processing failed") });
+    // An unconfirmed inspection transport error must retry under the normal
+    // polling lifecycle; it is not evidence that the guest task or system ended.
+    if (phase === "poll" && run.executionHandle) {
+      await this.runs.schedulePoll(run, run.state === "stopping" ? "stopping" : "running");
+      return;
+    }
+    const reason = safeDiagnosticText(error instanceof Error ? error.message : "Run processing failed");
+    await this.runs.recordObservation(run, { state: "failed", detail: reason, failure: { source: "system", code: "execution_unavailable", reason } });
     if (run.executionHandle) {
       if (run.state === "starting" || run.state === "stopping") await this.runs.markLaunched(run, run.executionHandle, `https://${run.executionHandle.id}.exe.xyz/`, run.capabilities ?? [], run.traceSources ?? undefined);
       await this.runs.schedulePoll(run, run.state === "stopping" ? "stopping" : "running");
       return;
     }
-    await this.runs.terminal(run, "failed", "failed");
+    await this.runs.terminal(run, "failed", "failed", undefined, false, { source: "system", code: "launch_failed", reason });
   }
 }

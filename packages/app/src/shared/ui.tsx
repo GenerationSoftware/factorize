@@ -60,18 +60,19 @@ const runStatusStyles: Record<string, { label: string; color: string; pulse?: bo
   blocked: { label: "Blocked", color: "bg-amber-500" }, stopping: { label: "Stopping", color: "bg-amber-500" }, succeeded: { label: "Succeeded", color: "bg-emerald-500" }, done: { label: "Done", color: "bg-emerald-500" },
   failed: { label: "Failed", color: "bg-red-500" }, stopped: { label: "Stopped", color: "bg-slate-500" }, ignored: { label: "Ignored", color: "bg-slate-400" },
 };
-function runStatusDetails(state: string, failureSource?: string | null) {
+function runStatusDetails(state: string, failureSource?: string | null, failure?: { source?: string } | null) {
   const base = runStatusStyles[state] ?? { label: state || "Unknown", color: "bg-slate-400" };
-  return state === "failed" && failureSource ? { ...base, label: failureSource === "agent" ? "Agent failed" : "System failed" } : base;
+  const source = failure?.source ?? (failureSource === "agent" ? "run" : failureSource === "system" ? "system" : null);
+  return state === "failed" && source ? { ...base, label: source === "run" ? "Run failed" : "System failed" } : base;
 }
-export function RunStatusDot({ state, failureSource, decorative = false }: { state: string; failureSource?: string | null; decorative?: boolean }) {
-  const status = runStatusDetails(state, failureSource);
+export function RunStatusDot({ state, failureSource, failure, decorative = false }: { state: string; failureSource?: string | null; failure?: { source?: string } | null; decorative?: boolean }) {
+  const status = runStatusDetails(state, failureSource, failure);
   return <span role={decorative ? undefined : "img"} aria-label={decorative ? undefined : `Status: ${status.label}`} aria-hidden={decorative || undefined} title={status.label} className={`inline-block size-2.5 rounded-full ${status.color} ${status.pulse ? "motion-safe:animate-pulse" : ""}`} />;
 }
-export function RunStatusLabel({ state, failureSource, className = "" }: { state: string; failureSource?: string | null; className?: string }) {
-  const status = runStatusDetails(state, failureSource);
-  const text = state === "failed" && failureSource ? status.label : state || "Unknown";
-  return <span role="img" aria-label={`Status: ${status.label}`} className={`inline-flex items-center gap-2 ${className}`}><RunStatusDot state={state} failureSource={failureSource} decorative /><span className="first-letter:uppercase">{text}</span></span>;
+export function RunStatusLabel({ state, failureSource, failure, className = "" }: { state: string; failureSource?: string | null; failure?: { source?: string } | null; className?: string }) {
+  const status = runStatusDetails(state, failureSource, failure);
+  const text = state === "failed" && status.label !== "Failed" ? status.label : state || "Unknown";
+  return <span role="img" aria-label={`Status: ${status.label}`} className={`inline-flex items-center gap-2 ${className}`}><RunStatusDot state={state} failureSource={failureSource} failure={failure} decorative /><span className="first-letter:uppercase">{text}</span></span>;
 }
 export function Button({ variant = "secondary", className = "", ...props }: ComponentProps<"button"> & { variant?: keyof typeof buttonClasses }) {
   return <button {...props} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${buttonClasses[variant]} ${className}`} />;
