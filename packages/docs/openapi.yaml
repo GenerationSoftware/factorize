@@ -4378,6 +4378,421 @@ paths:
                 - token
                 - organizationSlug
               additionalProperties: false
+  /api/v1/fly/execution-configurations:
+    get:
+      summary: List Fly execution configurations
+      description: |-
+        Returns tenant-owned image, region, and VM size selections without connection credentials.
+
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Configurations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configurations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        name:
+                          type: string
+                        image:
+                          type: string
+                        region:
+                          type: string
+                        size:
+                          type: string
+                        createdAt:
+                          type: string
+                        updatedAt:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - image
+                        - region
+                        - size
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
+                required:
+                  - configurations
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_fly_execution_configurations
+      tags:
+        - fly
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+    post:
+      summary: Create a Fly execution configuration
+      description: |-
+        Requires a saved Fly connection and validates region and VM size against bounded provider metadata.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Created configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configuration:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      name:
+                        type: string
+                      image:
+                        type: string
+                      region:
+                        type: string
+                      size:
+                        type: string
+                      createdAt:
+                        type: string
+                      updatedAt:
+                        type: string
+                    required:
+                      - id
+                      - name
+                      - image
+                      - region
+                      - size
+                      - createdAt
+                      - updatedAt
+                    additionalProperties: false
+                required:
+                  - configuration
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_fly_execution_configurations
+      tags:
+        - fly
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                image:
+                  type: string
+                  minLength: 1
+                  maxLength: 512
+                  pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                region:
+                  type: string
+                  pattern: ^[a-z0-9]{3}$
+                size:
+                  type: string
+                  pattern: ^[a-z0-9-]{1,64}$
+              required:
+                - name
+                - image
+                - region
+                - size
+              additionalProperties: false
+  /api/v1/fly/execution-configurations/{id}:
+    get:
+      summary: Read a Fly execution configuration
+      responses:
+        "200":
+          description: Configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configuration:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      name:
+                        type: string
+                      image:
+                        type: string
+                      region:
+                        type: string
+                      size:
+                        type: string
+                      createdAt:
+                        type: string
+                      updatedAt:
+                        type: string
+                    required:
+                      - id
+                      - name
+                      - image
+                      - region
+                      - size
+                      - createdAt
+                      - updatedAt
+                    additionalProperties: false
+                required:
+                  - configuration
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_fly_execution_configurations_id
+      tags:
+        - fly
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+    put:
+      summary: Update a Fly execution configuration
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configuration:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      name:
+                        type: string
+                      image:
+                        type: string
+                      region:
+                        type: string
+                      size:
+                        type: string
+                      createdAt:
+                        type: string
+                      updatedAt:
+                        type: string
+                    required:
+                      - id
+                      - name
+                      - image
+                      - region
+                      - size
+                      - createdAt
+                      - updatedAt
+                    additionalProperties: false
+                required:
+                  - configuration
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: put_api_v1_fly_execution_configurations_id
+      tags:
+        - fly
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                image:
+                  type: string
+                  minLength: 1
+                  maxLength: 512
+                  pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                region:
+                  type: string
+                  pattern: ^[a-z0-9]{3}$
+                size:
+                  type: string
+                  pattern: ^[a-z0-9-]{1,64}$
+              required:
+                - name
+                - image
+                - region
+                - size
+              additionalProperties: false
+    delete:
+      summary: Delete a Fly execution configuration
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  deleted:
+                    type: boolean
+                    const: true
+                required:
+                  - id
+                  - deleted
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: delete_api_v1_fly_execution_configurations_id
+      tags:
+        - fly
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/integrations/exe:
     put:
       summary: Create an exe.dev integration
