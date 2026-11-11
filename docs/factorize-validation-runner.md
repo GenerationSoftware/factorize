@@ -1,0 +1,61 @@
+# Factorize validation runner image
+
+The Factorize-specific exe.dev runner image is built from
+[`Dockerfile.validation-runner`](../Dockerfile.validation-runner), using the
+documented exe.dev `exeuntu` base. It keeps the base image's SSH, systemd,
+`exedev` user, and agent setup while adding prerequisites for the complete
+Factorize test suite.
+
+The image pins Node 24.12.0, npm 11.19.0, and Playwright/Chromium 1.64.0. It
+installs PostgreSQL 16 without starting systemd during image build, enables
+the PostgreSQL service for VM boot, and sets the `postgres` password used by
+`scripts/bootstrap-test.mjs`. PostgreSQL listens on loopback; the test
+bootstrap creates and recreates only its isolated validation database. The
+image sets `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright` as an OCI environment
+variable so non-login job processes inherit the installed browser location.
+The Docker build launches Chromium as `exedev`; the post-boot smoke command
+also checks password authentication over TCP and Chromium from the job user.
+
+## Build, publish, and pin
+
+The build/publish script uses the attached GHCR integration and prints the
+immutable public image reference with its registry digest:
+
+```sh
+scripts/build-validation-runner-image.sh
+```
+
+The resulting package must be public because exe.dev job images are pulled by
+the host and private images are unsupported for jobs. Set the Factorize Dev
+job's image to the printed
+`ghcr.io/generationsoftware/factorize-validation-runner@sha256:…` reference,
+preserving its other execution configuration. Do not use a mutable tag for
+the job image. Record the exact digest in the issue handoff and validation
+record below.
+
+## Fresh-VM acceptance
+
+After booting the pinned image, run the image smoke check, then check out the
+Factorize repository and run the full local validation:
+
+```sh
+scripts/smoke-validation-runner-image.sh
+npm ci
+npm run test:local
+```
+
+`test:local` resets the local validation database, applies the migrations
+from that checkout, sets all three isolated database URLs in the root test
+process, and runs `npm test`. Before it drops or recreates the database,
+`test:local` launches Chromium and authenticates to the configured local
+PostgreSQL admin URL, so missing image prerequisites fail before migrations
+or the full suite. A failure requires correcting the image or bootstrap and
+publishing a new digest, followed by repeating this sequence.
+
+## Validated image record
+
+| Field | Value |
+| --- | --- |
+| Public image digest | Pending publication and fresh-VM validation |
+| Node / npm / Playwright | 24.12.0 / 11.19.0 / 1.64.0 |
+| Fresh-VM smoke and full suite | Pending |

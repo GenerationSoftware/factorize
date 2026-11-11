@@ -10,13 +10,20 @@ validation and runs the shared backend and browser lanes used by CI. `npm run
 check` is an alias for the same suite. Targeted workspace commands remain
 available for iteration, but do not replace the root suite before handoff.
 
-For a Factorize validation VM with PostgreSQL and Chromium available, run
-`npm run test:local` to create an isolated local database, apply migrations,
-and run the complete root suite with the required database variables. To
-prepare the database without running tests, use `npm run bootstrap:test`; it
-prints the variables to export before `npm test`. Never point validation at
-production or a shared database. A missing database, Node version, or Chromium
-prerequisite is a hard failure with a recovery command.
+For a fresh exe.dev VM, use the Factorize validation runner image described in
+[`docs/factorize-validation-runner.md`](docs/factorize-validation-runner.md).
+It provides Node 24.12.0, npm 11.19.0, PostgreSQL and the matching Playwright
+Chromium build. After checkout, run `npm ci` and `npm run test:local`; this
+resets only the isolated local validation database, applies migrations, and
+runs the complete root suite with the database variables in its child
+process. The image smoke command checks PostgreSQL password authentication
+and Chromium through the non-login `exedev` process environment. Do not repair
+the VM manually with apt or a browser download; fix the image and publish a
+new digest instead.
+
+To prepare the database without running tests, use `npm run bootstrap:test`;
+it prints the variables to export before `npm test`. Never point validation at
+production or a shared database. The bootstrap refuses remote database URLs.
 
 ## API architecture
 
