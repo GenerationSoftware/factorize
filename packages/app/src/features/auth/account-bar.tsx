@@ -29,7 +29,7 @@ export function AccountBar() {
   const currentProjectId = routeProjectId ?? routeJob.data?.projectId;
   const routeProject = useQuery({ ...projectQuery(currentProjectId ?? ""), enabled: !!authenticated && !!currentProjectId, retry: false });
   const currentProject = projects.data?.find(project => project.id === currentProjectId) ?? routeProject.data;
-  const projectJobs = useQuery({ ...jobsQuery({ projectId: currentProjectId, sort: "title" }), enabled: !!authenticated && !!currentProjectId });
+  const projectJobs = useQuery({ ...jobsQuery({ projectId: currentProjectId, sort: "title" }), enabled: !!authenticated && !!currentJobId && !!currentProjectId });
   const navigate = useNavigate();
   const logout = useMutation({
     retry: false,
