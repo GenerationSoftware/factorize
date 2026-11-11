@@ -300,16 +300,14 @@ test("project tabs stay on projects while job detail gets Runs and Settings navi
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
   assert.equal(await page.getByRole("navigation", { name: "Job navigation" }).getByRole("link", { name: "Runs", exact: true }).getAttribute("aria-current"), "page");
   await page.getByRole("navigation", { name: "Job navigation" }).getByRole("link", { name: "Settings", exact: true }).click();
-  await page.getByRole("heading", { name: "Job settings", exact: true }).waitFor();
-  assert.equal(await page.getByRole("navigation", { name: "Job navigation" }).count(), 0);
-  assert.equal(await page.getByText("Job", { exact: true }).count(), 1);
+  assert.equal(await page.getByRole("navigation", { name: "Job navigation" }).getByRole("link", { name: "Settings", exact: true }).getAttribute("aria-current"), "page");
   await context.close();
 });
 test("main navigation shows the current project switcher inside a project and its jobs", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
-  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [{ ...summary }], nextCursor: null } }));
   const mainNav = page.getByRole("navigation", { name: "Main navigation" });
   await page.goto(origin + "/");
   await mainNav.getByRole("link", { name: "owner" }).waitFor();
