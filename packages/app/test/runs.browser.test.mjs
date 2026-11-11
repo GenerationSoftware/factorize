@@ -1,7 +1,7 @@
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 let server, origin, browser;
 const jobId = "00000000-0000-4000-8000-000000000001", projectId = "00000000-0000-4000-8000-000000000003", runId = "00000000-0000-4000-8000-000000000002", time = "2026-10-09T12:00:00Z";
@@ -54,17 +54,32 @@ const runs = Array.from({ length: 21 }, (_, index) => ({ id: `00000000-0000-4000
   await page.getByRole("link", { name: "Next page" }).click(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); await page.reload(); await page.getByRole("link", { name: "Run 20", exact: true }).waitFor(); assert.ok(refreshes >= 2);
   await context.close();
 });
-test("project Runs tab is scoped to that project and preserves its route while sorting", async () => {
-  const { context, page } = await setup(); const requests = [];
+test("project Runs tab filters only project jobs and preserves selection through clearing, sorting, paging, and reload", async () => {
+  const { context, page } = await setup(); const requests = [], jobRequests = [];
+  const captureEvidence = process.env.GEN_2823_CAPTURE_EVIDENCE === "1", evidenceDir = "/home/exedev/.factorize-job/GEN-2823"; if (captureEvidence) await mkdir(evidenceDir, { recursive: true }); await page.setViewportSize({ width: 1721, height: 914 });
+  const otherJobId = "00000000-0000-4000-8000-000000000009";
   await page.route(`**/api/v1/projects/${projectId}`, route => route.fulfill({ json: { id: projectId, name: "Project Alpha", description: "Project details", jobCount: 1 } }));
-  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); return route.fulfill({ json: { items: [{ id: runId, project_id: projectId, project_name: "Project Alpha", job_id: jobId, job_name: "Review builds", run_name: "Project run", state: "succeeded", created_at: time, agent_kind: "codex" }], nextCursor: null } }); });
-  await page.goto(origin + `/projects/${projectId}/runs`); await page.getByRole("link", { name: "Project run", exact: true }).waitFor();
-  assert.equal(await page.getByRole("navigation", { name: "Project navigation" }).getByRole("link", { name: "Runs" }).getAttribute("aria-current"), "page");
-  assert.ok(requests.every(url => url.searchParams.getAll("projectId").includes(projectId)));
-  await page.getByRole("button", { name: /Created/ }).click(); await page.waitForURL(/\/runs\?sort=created&direction=asc/);
-  assert.ok(requests.at(-1).searchParams.getAll("projectId").includes(projectId));
+  await page.route("**/api/v1/job-summaries?**", route => { const url = new URL(route.request().url()); jobRequests.push(url); return route.fulfill({ json: { items: [{ id: jobId, name: "Review builds", projectId, runningCount: 0 }], nextCursor: null } }); });
+  await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); const selected = url.searchParams.getAll("jobId").includes(jobId); return route.fulfill({ json: { items: [{ id: selected ? runId : otherJobId, project_id: projectId, project_name: "Project Alpha", job_id: selected ? jobId : otherJobId, job_name: selected ? "Review builds" : "Another job", run_name: selected ? "Filtered project run" : "Unfiltered project run", state: "succeeded", created_at: time, agent_kind: "codex" }], nextCursor: "next" } }); });
+  await page.goto(origin + `/projects/${projectId}/runs`); await page.getByRole("link", { name: "Unfiltered project run", exact: true }).waitFor();
+  assert.ok(jobRequests.every(url => url.searchParams.get("projectId") === projectId));
+  const jobFilter = page.getByRole("button", { name: /Job, all jobs/ }); await jobFilter.click();
+  const dialog = page.getByRole("dialog", { name: "Job filter" }); if (captureEvidence) await page.screenshot({ path: `${evidenceDir}/project-runs-job-filter-open-desktop.png`, fullPage: true }); await dialog.getByLabel("Review builds").click({ noWaitAfter: true }); await page.waitForURL(/jobs=/); await page.getByRole("link", { name: "Filtered project run", exact: true }).waitFor(); if (captureEvidence) await page.screenshot({ path: `${evidenceDir}/project-runs-job-filter-selected-desktop.png`, fullPage: true });
+  const filtered = requests.at(-1); assert.deepEqual(filtered.searchParams.getAll("projectId"), [projectId]); assert.deepEqual(filtered.searchParams.getAll("jobId"), [jobId]);
+  await page.getByRole("button", { name: /Created/ }).click(); await page.waitForURL(/jobs=.*sort=created&direction=asc/); await page.waitForFunction(() => document.querySelector('th[aria-sort="ascending"]')?.textContent?.includes("Created"));
+  assert.equal(requests.at(-1).searchParams.get("jobId"), jobId); assert.equal(requests.at(-1).searchParams.get("projectId"), projectId);
+  await page.getByRole("link", { name: "Next page" }).click(); await page.waitForURL(/jobs=.*cursor=next/); assert.equal(requests.at(-1).searchParams.get("jobId"), jobId); assert.equal(requests.at(-1).searchParams.get("projectId"), projectId);
+  await page.reload(); await page.getByRole("button", { name: /Job, 1 job selected/ }).waitFor(); assert.equal(requests.at(-1).searchParams.get("jobId"), jobId); assert.equal(requests.at(-1).searchParams.get("cursor"), "next");
+  await page.getByRole("link", { name: "First page" }).click(); await page.waitForURL(/jobs=.*sort=created/);
+  await page.getByRole("button", { name: /Job, 1 job selected/ }).click(); await page.getByRole("dialog", { name: "Job filter" }).getByRole("button", { name: "Clear job filters" }).click(); await page.waitForFunction(() => !new URL(location.href).searchParams.has("jobs"));
+  assert.equal(requests.at(-1).searchParams.has("jobId"), false); assert.deepEqual(requests.at(-1).searchParams.getAll("projectId"), [projectId]);
+  await page.goBack(); await page.waitForURL(/jobs=/); await page.getByRole("button", { name: /Job, 1 job selected/ }).waitFor();
+  assert.ok(requests.every(url => url.searchParams.getAll("projectId").every(id => id === projectId)));
+  await page.goto(origin + "/job-runs"); await page.getByRole("button", { name: /Job, all jobs/ }).click(); await page.getByRole("dialog", { name: "Job filter" }).getByLabel("Review builds").waitFor(); if (captureEvidence) await page.screenshot({ path: `${evidenceDir}/global-runs-job-filter-open-desktop.png`, fullPage: true });
   await context.close();
+  const mobile = await setup(); await mobile.page.setViewportSize({ width: 390, height: 844 }); await mobile.page.route(`**/api/v1/projects/${projectId}`, route => route.fulfill({ json: { id: projectId, name: "Project Alpha", description: "Project details", jobCount: 1 } })); await mobile.page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [{ id: jobId, name: "Review builds", projectId, runningCount: 0 }], nextCursor: null } })); await mobile.page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [{ id: runId, project_id: projectId, project_name: "Project Alpha", job_id: jobId, job_name: "Review builds", run_name: "Filtered project run", state: "succeeded", created_at: time, agent_kind: "codex" }], nextCursor: null } })); await mobile.page.goto(origin + `/projects/${projectId}/runs?jobs=${jobId}`); await mobile.page.getByRole("link", { name: "Filtered project run", exact: true }).waitFor(); if (captureEvidence) await mobile.page.screenshot({ path: `${evidenceDir}/project-runs-selected-mobile.png`, fullPage: true }); await mobile.context.close();
 });
+
 test("all-runs table sorts its data columns with accessible headers", async () => {
   const { context, page } = await setup(); const requests = [];
   const runs = [{ id: runId, run_name: "Run", state: "succeeded", created_at: time, updated_at: time, started_at: null, agent_kind: "codex" }];
