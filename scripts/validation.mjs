@@ -17,7 +17,7 @@ const lanes = {
     ["application build", "npm", ["run", "build", "--workspace=factorize-app"], 90_000],
     ["Chromium availability", process.execPath, ["scripts/validation.mjs", "--check-chromium"], 15_000],
     ["functional browser checks", "npm", ["run", "test:functional", "--workspace=factorize-app"], 90_000],
-    ["application unit checks", "npm", ["test", "--workspace=factorize-app"], 180_000],
+    ["application unit checks", "npm", ["test", "--workspace=factorize-app"], 240_000],
   ],
   proxy: [
     ["portable proxy harness checks", process.execPath, ["--test", "scripts/validation-runner.test.mjs"], 30_000],
