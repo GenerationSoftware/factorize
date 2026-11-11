@@ -10,6 +10,8 @@ Artifact object keys are copied into `app.run_retention_cleanup` in the same dat
 
 Terminal runs whose execution-provider cleanup is incomplete use a separate bounded reconciliation lane. Workers claim rows with `FOR UPDATE SKIP LOCKED`, store a ten-minute lease, and ask the recorded backend to stop the recorded handle. A confirmed stop or provider-confirmed absence completes cleanup; failures retain the run and retry with capped exponential backoff. A terminal row with no handle and no provider start timestamp is explicitly treated as never launched. A started row with no handle cannot prove provider absence, so it retains an error and remains ineligible for retention until reconciled. Since retention requires provider cleanup completion, unresolved handles cannot be purged with their authoritative records.
 
+Explicit job deletion also snapshots every incomplete run's provider configuration, handle, and start evidence into `app.deleted_job_provider_cleanup` in the same transaction as the job cascade. This independent queue lets the maintenance lane stop or reconcile provider resources after the source job and run rows are gone. A started run without a saved handle stays queued for retry and manual reconciliation; a never-started run can be removed from the queue safely. R2 artifacts for explicit job deletion continue to be deleted before the database cascade so a storage failure leaves the authoritative keys available for retry.
+
 Successful cleanup removes its retry state from the run. Failed work retains only a bounded diagnostic string and retry timestamp; operator metrics and backlog dashboards remain follow-up work for this rollout.
 
 ## Rollout and recovery

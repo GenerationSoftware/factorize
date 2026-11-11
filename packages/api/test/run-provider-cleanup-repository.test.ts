@@ -23,4 +23,22 @@ describe("terminal provider cleanup reconciliation", () => {
     await repository.retryProviderCleanup("tenant", "run", 9, new Error("provider unavailable"));
     expect(query).toHaveBeenNthCalledWith(2, expect.stringContaining("provider_cleanup_next_at=now()+make_interval(secs=>$3)"), ["tenant", "run", 15_360, "provider unavailable"]);
   });
+
+  it("leases independent ownership after job deletion and keeps failed provider work retryable", async () => {
+    const query = vi.fn(async (sql: string) => {
+      expect(sql).toContain("app.deleted_job_provider_cleanup");
+      expect(sql).toContain("FOR UPDATE SKIP LOCKED");
+      return { rows: [{ tenant_id: "tenant", run_id: "deleted-run", execution_config: { connectionId: "connection" }, execution_handle: { backendKind: "exe-vm", id: "provider-run" }, execution_backend_kind: "exe-vm", started_at: new Date("2026-10-01T00:00:00Z"), attempts: 3 }], rowCount: 1 };
+    });
+    const database = { transaction: (work: (client: any) => unknown) => work({ query }) } as any;
+    const repository = new RunRepository(database);
+    await expect(repository.claimDeletedJobProviderCleanup()).resolves.toEqual([{ tenantId: "tenant", id: "deleted-run", executionConfig: { connectionId: "connection" }, executionHandle: { backendKind: "exe-vm", id: "provider-run" }, backendKind: "exe-vm", startedAt: new Date("2026-10-01T00:00:00Z"), attempt: 3 }]);
+
+    const writes = vi.fn().mockResolvedValue({ rowCount: 1 });
+    const writer = new RunRepository({ pool: { query: writes } } as any);
+    await writer.retryDeletedJobProviderCleanup("tenant", "deleted-run", 3, new Error("provider unavailable"));
+    expect(writes).toHaveBeenCalledWith(expect.stringContaining("lease_expires_at=NULL,last_error=$4"), ["tenant", "deleted-run", 240, "provider unavailable"]);
+    await writer.completeDeletedJobProviderCleanup("tenant", "deleted-run");
+    expect(writes).toHaveBeenLastCalledWith(expect.stringContaining("DELETE FROM app.deleted_job_provider_cleanup"), ["tenant", "deleted-run"]);
+  });
 });

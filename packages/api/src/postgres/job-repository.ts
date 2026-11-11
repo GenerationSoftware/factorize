@@ -151,7 +151,20 @@ export class PostgresJobRepository implements JobRepository {
     for (const [position, skill] of selected.entries()) await tx.execute(sql`INSERT INTO app.job_skills(tenant_id,job_id,skill_id,position) VALUES(${this.tenantId}::uuid,${job.id}::uuid,${skill.id}::uuid,${position})`);
   }
 
-  async delete(id: string): Promise<boolean> { return Boolean((await this.database.orm.delete(jobs).where(and(eq(jobs.tenantId, this.tenantId), eq(jobs.id, id))).returning({ id: jobs.id })).length); }
+  async delete(id: string): Promise<boolean> {
+    return this.database.transaction(async client => {
+      // Preserve provider cleanup ownership before job deletion cascades through
+      // runs. This durable queue has no FK to the job or tenant by design.
+      await client.query(`INSERT INTO app.deleted_job_provider_cleanup
+        (tenant_id,run_id,execution_config,execution_backend_kind,execution_handle,started_at)
+        SELECT x.tenant_id,x.id,x.execution_config,x.execution_backend_kind,x.execution_handle,jr.started_at
+        FROM app.runs x JOIN app.job_runs jr ON jr.tenant_id=x.tenant_id AND jr.id=x.id
+        WHERE x.tenant_id=$1 AND x.job_id=$2 AND NOT x.vm_cleanup_complete
+        ON CONFLICT (tenant_id,run_id) DO NOTHING`, [this.tenantId, id]);
+      const result = await client.query("DELETE FROM app.jobs WHERE tenant_id=$1 AND id=$2 RETURNING id", [this.tenantId, id]);
+      return result.rowCount === 1;
+    });
+  }
   async findInvocation(jobId: string, claimKey: string) {
     const result = await this.database.pool.query<any>(`SELECT i.id invocation_id,i.job_id,i.source,i.claim_key,i.trigger_id,i.context,i.occurrence,i.source_job_id,i.source_run_id,i.created_at invocation_created_at,r.id run_id,r.state run_state,r.encrypted_prompt,r.encrypted_skill_snapshot,r.run_name,r.created_at run_created_at,r.updated_at run_updated_at,r.started_at
       FROM app.invocations i JOIN app.job_runs r ON r.tenant_id=i.tenant_id AND r.invocation_id=i.id WHERE i.tenant_id=$1 AND i.job_id=$2 AND i.claim_key=$3`, [this.tenantId, jobId, claimKey]);

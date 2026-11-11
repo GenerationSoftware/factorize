@@ -60,6 +60,24 @@ export class RunScheduler {
         await this.runs.retryProviderCleanup(item.tenantId, item.id, item.attempt, error);
       }
     }
+    for (const item of await this.runs.claimDeletedJobProviderCleanup()) {
+      if (!item.executionHandle) {
+        if (item.startedAt) {
+          await this.runs.retryDeletedJobProviderCleanup(item.tenantId, item.id, item.attempt, new Error("Deleted job run started without a persisted provider handle; provider absence cannot be verified"));
+        } else {
+          await this.runs.completeDeletedJobProviderCleanup(item.tenantId, item.id);
+        }
+        continue;
+      }
+      try {
+        const run = { tenantId: item.tenantId, id: item.id, executionConfig: item.executionConfig, executionHandle: item.executionHandle, backendKind: item.backendKind } as PersistedRun;
+        const result = await (await this.backend(run)).stop(item.executionHandle);
+        if (result.state !== "stopped") throw new Error(result.detail ?? "Execution provider did not confirm cleanup");
+        await this.runs.completeDeletedJobProviderCleanup(item.tenantId, item.id);
+      } catch (error) {
+        await this.runs.retryDeletedJobProviderCleanup(item.tenantId, item.id, item.attempt, error);
+      }
+    }
   }
 
   private connections(run: PersistedRun) { return new ConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
