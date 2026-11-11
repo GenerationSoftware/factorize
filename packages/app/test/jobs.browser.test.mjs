@@ -292,7 +292,7 @@ test("project tabs omit redundant headings while job detail keeps its project br
   await page.goto(origin + `/projects/${projectId}`);
   await page.getByRole("heading", { name: "Release project jobs", exact: true }).waitFor();
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
-  assert.equal(await page.getByRole("heading", { name: "Release project", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Release project", exact: true }).count(), 1);
   const projectNavigation = page.getByRole("navigation", { name: "Project navigation" });
   assert.equal(await projectNavigation.getByRole("link", { name: "Jobs", exact: true }).getAttribute("aria-current"), "page");
   await page.goto(origin + `/jobs/${jobId}`);
