@@ -63,7 +63,8 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
         await page.getByRole("img", { name: "Status: Succeeded", exact: true }).waitFor();
       }
       await page.goto(`https://factorize.test/projects/${f.projectId}`);
-      await page.getByRole("link", { name: "owner", exact: true }).waitFor();
+      await page.getByRole("button", { name: "Your account", exact: true }).waitFor();
+      expect(await page.getByRole("link", { name: "owner", exact: true }).count()).toBe(0);
       await page.getByRole("link", { name: "Default", exact: true }).waitFor();
       await page.getByRole("button", { name: "Switch project", exact: true }).click();
       await page.getByRole("combobox", { name: "Search projects", exact: true }).waitFor();
