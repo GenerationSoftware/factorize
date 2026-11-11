@@ -35,6 +35,7 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const historyLoadingRef = useRef(false);
+  const historyTopArmedRef = useRef(true);
   const pullStartY = useRef<number | null>(null);
   const prependAnchor = useRef<{ height: number; top: number } | null>(null);
   const initialAlignedRevision = useRef<string | null>(null);
@@ -79,7 +80,7 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
   useEffect(() => { const changed = live.data?.reset ? live.data : pages.find(page => page.reset || page.revision !== revision); if (changed) onReset(changed.revision); }, [live.data, pages, revision, onReset]);
   useEffect(() => { if (live.data && !live.data.reset && live.data.revision === revision) setLiveItems(previous => [...previous, ...live.data!.items]); }, [live.data, revision]);
   useEffect(() => { setLiveItems([]); setExpanded(new Set()); }, [revision]);
-  useEffect(() => { initialAlignedRevision.current = null; followRef.current = true; }, [revision]);
+  useEffect(() => { initialAlignedRevision.current = null; followRef.current = true; historyTopArmedRef.current = true; }, [revision]);
   const updateRetainedRows = () => {
     const root = scrollRef.current;
     if (!root) return;
@@ -101,7 +102,11 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
     updateRetainedRows();
     const bottom = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
     followRef.current = bottom;
-    if (element.scrollTop <= 8 && trace.hasNextPage && !trace.isFetching && !historyLoadingRef.current) void loadHistory(3);
+    if (element.scrollTop > 8) historyTopArmedRef.current = true;
+    else if (historyTopArmedRef.current && trace.hasNextPage && !trace.isFetching && !historyLoadingRef.current) {
+      historyTopArmedRef.current = false;
+      void loadHistory(3);
+    }
   };
   useEffect(() => {
     document.addEventListener("selectionchange", updateRetainedRows);
