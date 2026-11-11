@@ -68,7 +68,20 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
         .filter(record => selected.includes(record.id))
       : [];
     if (records.length !== selected.length) return json({ error: "integration_snapshot_unavailable" }, 403);
-    return json({ ownerId: proxy.tenantId, records });
+    const modelAccess = run.execution_config?.modelAccess ?? "native";
+    const modelAccountId = run.execution_config?.modelAccountId;
+    let modelAccount = null;
+    if (modelAccess === "portable") {
+      if (typeof modelAccountId !== "string") return json({ error: "integration_snapshot_unavailable" }, 403);
+      modelAccount = (await new EncryptedIntegrationRepository(database, proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).records("model"))
+        .find(record => record.id === modelAccountId) ?? null;
+      if (!modelAccount) return json({ error: "integration_snapshot_unavailable" }, 403);
+    } else if (modelAccess !== "native" || modelAccountId !== undefined) {
+      return json({ error: "integration_snapshot_unavailable" }, 403);
+    }
+    // Only the selected model account's user-encrypted payload crosses the
+    // control plane. It remains encrypted until the proxy is unlocked.
+    return json({ ownerId: proxy.tenantId, records, modelAccount });
   }
   const enrollments = new RunEnrollmentRepository(databaseFor(env));
   if (url.pathname === "/internal/credential-proxy/enroll") {
