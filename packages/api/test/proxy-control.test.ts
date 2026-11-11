@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { proxyControlFetch } from "../src/proxy-control";
+import { encrypt } from "../src/crypto";
 
 const token = `fzc_${"A".repeat(43)}`;
 const bootEpoch = "22222222-2222-4222-8222-222222222222";
@@ -119,5 +120,31 @@ describe("dedicated proxy boot registration endpoint", () => {
     expect(await accepted.json()).toMatchObject({ consumed: true, binding: { bootEpoch, proxyIdentity: "proxy-fixture", vmIdentity: "fly:vm-123" } });
     const rejected = await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/enroll", body: { runId: "33333333-3333-4333-8333-333333333333", vmIdentity: "fly:vm-123", tenantId: "other" } }), env);
     expect(rejected.status).toBe(400);
+  });
+
+  it("returns only the current run's selected user-encrypted bearer records to its registered proxy", async () => {
+    const integrationId = "55555555-5555-4555-8555-555555555555";
+    const key = "test-server-encryption-key";
+    const env = envFor();
+    env.CREDENTIAL_ENCRYPTION_KEY = key;
+    env.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("proxy_token_digest")) return { rows: [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }], rowCount: 1 };
+      if (sql.includes("FROM app.runs r")) return { rows: [{ execution_config: { portableIntegrationIds: [integrationId] }, grant_revision: 3 }], rowCount: 1 };
+      if (sql.includes("FROM app.integration_records")) return { rows: [
+        { id: integrationId, kind: "bearer", name: "selected", origin: "https://api.example", description: null, revision: 4, encrypted_payload: await encrypt("user-ciphertext", key) },
+        { id: "66666666-6666-4666-8666-666666666666", kind: "bearer", name: "not-selected", origin: "https://other.example", description: null, revision: 5, encrypted_payload: await encrypt("other-ciphertext", key) },
+      ], rowCount: 2 };
+      return { rows: [], rowCount: 0 };
+    });
+    const response = await proxyControlFetch(request({
+      authorization: `Bearer ${token}`,
+      path: "/internal/credential-proxy/integration-snapshot",
+      body: { runId, grantRevision: 3 },
+    }), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ownerId: "11111111-1111-4111-8111-111111111111", records: [
+      { id: integrationId, kind: "bearer", name: "selected", origin: "https://api.example", description: null, revision: 4, encryptedPayload: "user-ciphertext" },
+    ] });
+    expect(env.query.mock.calls.map((call: any[]) => call[0])).toEqual(expect.arrayContaining([expect.stringContaining("grant_revision=$5"), expect.stringContaining("FROM app.integration_records")]));
   });
 });

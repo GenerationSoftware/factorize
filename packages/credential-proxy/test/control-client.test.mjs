@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { consumeProxyEnrollment, createProxyEnrollmentAuthenticator, issueProxyEnrollment, registerProxyBoot } from "../src/control-client.mjs";
+import { consumeProxyEnrollment, createProxyEnrollmentAuthenticator, issueProxyEnrollment, readProxyIntegrationSnapshot, registerProxyBoot } from "../src/control-client.mjs";
 
 const token = `fzc_${"A".repeat(43)}`;
 const bootEpoch = "22222222-2222-4222-8222-222222222222";
@@ -18,6 +18,20 @@ test("boot registration uses a one-call control credential, HTTPS, exact path an
   assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
   assert.equal(request.init.redirect, "error");
   assert.deepEqual(JSON.parse(request.init.body), { bootEpoch });
+});
+
+test("proxy snapshot reader requests only the bound run revision and validates encrypted records", async () => {
+  let request;
+  const snapshot = { ownerId: "owner-1", records: [{ id: "integration-1", kind: "bearer", origin: "https://api.example", revision: 4, encryptedPayload: "ciphertext" }] };
+  const result = await readProxyIntegrationSnapshot({ controlOrigin: "https://factorize.example", token, binding: { runId, grantRevision: 7 }, fetchImpl: async (url, init) => {
+    request = { url: String(url), init, body: JSON.parse(init.body) };
+    return Response.json(snapshot);
+  } });
+  assert.deepEqual(result, snapshot);
+  assert.equal(request.url, "https://factorize.example/internal/credential-proxy/integration-snapshot");
+  assert.deepEqual(request.body, { runId, grantRevision: 7 });
+  assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
+  await assert.rejects(readProxyIntegrationSnapshot({ controlOrigin: "https://factorize.example", token, binding: { runId, grantRevision: 7 }, fetchImpl: async () => Response.json({ ownerId: "owner-1", records: [{ ...snapshot.records[0], kind: "model" }] }) }), /invalid proxy integration snapshot response/);
 });
 
 test("boot registration rejects unsafe origins, invalid credentials and mismatched response bindings", async () => {
