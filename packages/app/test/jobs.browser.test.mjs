@@ -212,6 +212,25 @@ test("single graph connections keep a readable label and open details", async ()
   assert.equal(await page.getByRole("heading", { name: "Manual", exact: true }).count(), 0);
   await context.close();
 });
+test("project graph does not zoom when the desktop wheel scrolls over it", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  await page.route(`**/api/v1/projects/${projectId}/graph`, route => route.fulfill({ json: {
+    nodes: [{ id: jobId, type: "job", label: "Build", jobKind: "Agent", enabled: true, runningCount: 0, concurrencyLimit: 1 }],
+    edges: [],
+  } }));
+  await page.goto(origin + `/projects/${projectId}`);
+  await page.getByRole("button", { name: "Graph", exact: true }).click();
+  const graph = page.getByRole("region", { name: /1 jobs and 0 connections/ });
+  await graph.waitFor();
+  const viewport = graph.locator(".react-flow__viewport");
+  const initialTransform = await viewport.getAttribute("style");
+  const bounds = await graph.boundingBox();
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.wheel(0, -400);
+  assert.equal(await viewport.getAttribute("style"), initialTransform);
+  await context.close();
+});
 test("project graph renders dense cyclic, webhook and self-loop routes and fits their labels", async () => {
   const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
   const ids = [jobId, "00000000-0000-4000-8000-000000000012", "00000000-0000-4000-8000-000000000013", "00000000-0000-4000-8000-000000000014"];
