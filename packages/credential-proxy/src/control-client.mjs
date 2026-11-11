@@ -52,6 +52,27 @@ export async function consumeProxyEnrollment(options) {
   return result.binding;
 }
 
+/** Read the current user-encrypted integration records selected by an active run.
+ * The control plane decrypts only Factorize's outer encryption layer. */
+export async function readProxyIntegrationSnapshot({ controlOrigin, token, binding, fetchImpl = fetch } = {}) {
+  if (!binding || !uuidPattern.test(binding.runId ?? "") || !Number.isSafeInteger(binding.grantRevision) || binding.grantRevision < 0) {
+    throw new TypeError("invalid proxy integration snapshot binding");
+  }
+  const result = await proxyControlRequest({
+    controlOrigin,
+    token,
+    path: "/internal/credential-proxy/integration-snapshot",
+    body: { runId: binding.runId, grantRevision: binding.grantRevision },
+    fetchImpl,
+  });
+  if (typeof result?.ownerId !== "string" || !Array.isArray(result.records)
+      || result.records.some(record => !record || typeof record.id !== "string" || record.kind !== "bearer"
+        || typeof record.origin !== "string" || typeof record.encryptedPayload !== "string" || !Number.isSafeInteger(record.revision))) {
+    throw new Error("invalid proxy integration snapshot response");
+  }
+  return result;
+}
+
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**

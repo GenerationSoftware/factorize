@@ -1,6 +1,7 @@
 import { databaseFor } from "./postgres/database";
 import { ProxyControlRepository } from "./postgres/proxy-control-repository";
 import { RunEnrollmentRepository } from "./postgres/run-enrollment-repository";
+import { EncryptedIntegrationRepository } from "./postgres/encrypted-integration-repository";
 import { authenticateRunCredential } from "./run-credentials";
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -8,7 +9,7 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 /** Dedicated service-to-service endpoint. The run API credential is intentionally not accepted here. */
 export async function proxyControlFetch(request: Request, env: Parameters<typeof databaseFor>[0]): Promise<Response> {
   const url = new URL(request.url);
-  if (!["/internal/credential-proxy/register-boot", "/internal/credential-proxy/enroll", "/internal/credential-proxy/consume-enrollment"].includes(url.pathname)) return json({ error: "not_found" }, 404);
+  if (!["/internal/credential-proxy/register-boot", "/internal/credential-proxy/enroll", "/internal/credential-proxy/consume-enrollment", "/internal/credential-proxy/integration-snapshot"].includes(url.pathname)) return json({ error: "not_found" }, 404);
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return json({ error: "unsupported_media_type" }, 415);
   const authorization = request.headers.get("authorization") ?? "";
@@ -40,6 +41,27 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
 
   const proxy = await repository.authenticateProxy(token);
   if (!proxy) return json({ error: "unauthorized" }, 401);
+  if (url.pathname === "/internal/credential-proxy/integration-snapshot") {
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["runId", "grantRevision"].includes(key))
+        || typeof (body as any).runId !== "string" || !Number.isSafeInteger((body as any).grantRevision) || (body as any).grantRevision < 0) return json({ error: "invalid_request" }, 400);
+    const database = databaseFor(env);
+    const active = await database.pool.query<{ execution_config: Record<string, unknown>; grant_revision: string | number }>(`SELECT r.execution_config,g.grant_revision
+      FROM app.runs r JOIN app.credential_run_grants g ON g.tenant_id=r.tenant_id AND g.run_id=r.id
+      JOIN app.credential_proxy_states p ON p.tenant_id=g.tenant_id AND p.proxy_identity=g.proxy_identity AND p.boot_epoch=g.boot_epoch
+      WHERE r.tenant_id=$1 AND r.id=$2 AND r.state IN ('starting','running','blocked')
+        AND g.proxy_identity=$3 AND g.boot_epoch=$4 AND g.grant_revision=$5 AND g.revoked_at IS NULL
+        AND p.disabled_at IS NULL AND p.revoked_at IS NULL`, [proxy.tenantId, (body as any).runId, proxy.proxyIdentity, proxy.bootEpoch, (body as any).grantRevision]);
+    const run = active.rows[0];
+    if (!run) return json({ error: "integration_snapshot_unavailable" }, 403);
+    const selected = run.execution_config?.portableIntegrationIds;
+    if (!Array.isArray(selected) || selected.some(id => typeof id !== "string") || new Set(selected).size !== selected.length) return json({ error: "integration_snapshot_unavailable" }, 403);
+    const records = selected.length
+      ? (await new EncryptedIntegrationRepository(database, proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).records("bearer"))
+        .filter(record => selected.includes(record.id))
+      : [];
+    if (records.length !== selected.length) return json({ error: "integration_snapshot_unavailable" }, 403);
+    return json({ ownerId: proxy.tenantId, records });
+  }
   const enrollments = new RunEnrollmentRepository(databaseFor(env));
   if (url.pathname === "/internal/credential-proxy/enroll") {
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["runId", "vmIdentity", "runCredential"].includes(key))
