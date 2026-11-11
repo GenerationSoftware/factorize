@@ -37,6 +37,17 @@ function safeRevision(value: string | number): number {
   return number;
 }
 
+function isUserCiphertext(value: string): boolean {
+  if (value.length > 65_536) return false;
+  const [encodedIv, encodedBody, extra] = value.split(".");
+  if (!encodedIv || !encodedBody || extra !== undefined) return false;
+  try {
+    const iv = atob(encodedIv), body = atob(encodedBody);
+    return iv.length === 12 && body.length >= 16
+      && btoa(iv) === encodedIv && btoa(body) === encodedBody;
+  } catch { return false; }
+}
+
 function validate(change: IntegrationWrite): void {
   if (!Number.isSafeInteger(change.expectedRevision) || change.expectedRevision < 0) throw new IntegrationValidationError("expectedRevision must be a non-negative safe integer");
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -46,7 +57,7 @@ function validate(change: IntegrationWrite): void {
   if (change.description !== null && change.description.length > 500) throw new IntegrationValidationError("description must be at most 500 characters");
   if (change.kind === "bearer" && (!change.origin || change.origin.length > 2048)) throw new IntegrationValidationError("bearer integrations require an origin of at most 2048 characters");
   if (change.kind === "model" && change.origin !== null) throw new IntegrationValidationError("model accounts do not have an origin");
-  if (change.operation === "upsert" && (typeof change.encryptedPayload !== "string" || !change.encryptedPayload.length)) throw new IntegrationValidationError("upserts require user-encrypted ciphertext");
+  if (change.operation === "upsert" && (typeof change.encryptedPayload !== "string" || !isUserCiphertext(change.encryptedPayload))) throw new IntegrationValidationError("upserts require a valid user-encrypted AES-GCM ciphertext envelope");
   if (change.operation === "delete" && change.encryptedPayload !== undefined) throw new IntegrationValidationError("deletions cannot contain ciphertext");
 }
 
@@ -103,9 +114,9 @@ export class EncryptedIntegrationRepository {
     });
   }
 
-  async records(): Promise<Array<IntegrationMetadata & { revision: number; encryptedPayload: string }>> {
+  async records(kind?: EncryptedIntegrationKind): Promise<Array<IntegrationMetadata & { revision: number; encryptedPayload: string }>> {
     const { rows } = await this.database.pool.query<{ id: string; kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string }>(
-      "SELECT id,kind,name,origin,description,revision,encrypted_payload FROM app.integration_records WHERE tenant_id=$1 AND deleted_at IS NULL ORDER BY revision,id", [this.tenantId]);
+      `SELECT id,kind,name,origin,description,revision,encrypted_payload FROM app.integration_records WHERE tenant_id=$1 AND deleted_at IS NULL${kind ? " AND kind=$2" : ""} ORDER BY revision,id`, kind ? [this.tenantId, kind] : [this.tenantId]);
     return Promise.all(rows.map(async row => ({ id: row.id, kind: row.kind, name: row.name, origin: row.origin, description: row.description, revision: safeRevision(row.revision), encryptedPayload: await decrypt(row.encrypted_payload, this.serverEncryptionKey) })));
   }
 
