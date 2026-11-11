@@ -10,11 +10,14 @@ function envFor({ credentialFound = true, stateSaved = true } = {}) {
     if (sql.includes("INSERT INTO app.credential_proxy_states")) return { rows: stateSaved ? [{ tenant_id: "11111111-1111-4111-8111-111111111111" }] : [], rowCount: stateSaved ? 1 : 0 };
     return { rows: [], rowCount: 1 };
   });
-  return { DATABASE: { pool: { query: vi.fn() }, transaction: (work: (client: any) => Promise<unknown>) => work({ query: transactionQuery }) }, transactionQuery } as any;
+  const query = vi.fn(async (sql: string) => sql.includes("proxy_token_digest")
+    ? { rows: credentialFound ? [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }] : [], rowCount: credentialFound ? 1 : 0 }
+    : { rows: [], rowCount: 0 });
+  return { DATABASE: { pool: { query }, transaction: (work: (client: any) => Promise<unknown>) => work({ query: transactionQuery }) }, transactionQuery, query } as any;
 }
 
-function request({ authorization, body = { bootEpoch }, method = "POST" }: { authorization?: string; body?: unknown; method?: string } = {}) {
-  return new Request("https://factorize.example/internal/credential-proxy/register-boot", { method, headers: { "Content-Type": "application/json", ...(authorization ? { Authorization: authorization } : {}) }, body: method === "POST" ? JSON.stringify(body) : undefined });
+function request({ authorization, body = { bootEpoch }, method = "POST", path = "/internal/credential-proxy/register-boot" }: { authorization?: string; body?: unknown; method?: string; path?: string } = {}) {
+  return new Request(`https://factorize.example${path}`, { method, headers: { "Content-Type": "application/json", ...(authorization ? { Authorization: authorization } : {}) }, body: method === "POST" ? JSON.stringify(body) : undefined });
 }
 
 describe("dedicated proxy boot registration endpoint", () => {
@@ -22,7 +25,7 @@ describe("dedicated proxy boot registration endpoint", () => {
     const env = envFor();
     const response = await proxyControlFetch(request({ authorization: `Bearer ${token}` }), env);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ registered: true, proxyIdentity: "proxy-fixture", bootEpoch });
+    expect(await response.json()).toMatchObject({ registered: true, proxyIdentity: "proxy-fixture", bootEpoch, controlCredential: expect.stringMatching(/^fzc_[A-Za-z0-9_-]{43}$/) });
     expect(env.transactionQuery.mock.calls.map((call: any[]) => call[0])).toHaveLength(4);
     expect(env.transactionQuery.mock.calls[0][0]).toContain("boot_epoch=$2 AND revoked_at IS NULL AND consumed_at IS NULL");
     expect(env.transactionQuery.mock.calls[2][0]).toContain("consumed_at=now()");
@@ -54,5 +57,37 @@ describe("dedicated proxy boot registration endpoint", () => {
     const response = await proxyControlFetch(request({ authorization: `Bearer ${token}`, body: { bootEpoch, padding: "x".repeat(2_000) } }), env);
     expect(response.status).toBe(413);
     expect(env.transactionQuery).not.toHaveBeenCalled();
+  });
+
+  it("issues a short-lived enrollment only through the registered proxy identity", async () => {
+    const env = envFor();
+    env.transactionQuery.mockImplementation(async (sql: string) => sql.includes("SELECT g.grant_revision")
+      ? { rows: [{ grant_revision: 3 }], rowCount: 1 }
+      : { rows: [], rowCount: 1 });
+    const response = await proxyControlFetch(request({
+      authorization: `Bearer ${token}`,
+      path: "/internal/credential-proxy/enroll",
+      body: { runId: "33333333-3333-4333-8333-333333333333", vmIdentity: "fly:vm-123" },
+    }), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ grantRevision: 3, enrollmentId: expect.any(String), token: expect.any(String) });
+    expect(env.query).toHaveBeenCalled();
+    expect(env.transactionQuery.mock.calls[0][0]).toContain("JOIN app.credential_proxy_states");
+  });
+
+  it("consumes enrollment against the authenticated proxy boot and rejects untrusted extra bindings", async () => {
+    const env = envFor();
+    env.transactionQuery.mockImplementation(async (sql: string) => sql.includes("UPDATE app.credential_run_enrollments")
+      ? { rows: [{ id: "44444444-4444-4444-8444-444444444444", grant_revision: 3 }], rowCount: 1 }
+      : { rows: [], rowCount: 1 });
+    const accepted = await proxyControlFetch(request({
+      authorization: `Bearer ${token}`,
+      path: "/internal/credential-proxy/consume-enrollment",
+      body: { runId: "33333333-3333-4333-8333-333333333333", vmIdentity: "fly:vm-123", enrollmentToken: "e".repeat(43) },
+    }), env);
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ consumed: true, binding: { bootEpoch, proxyIdentity: "proxy-fixture", vmIdentity: "fly:vm-123" } });
+    const rejected = await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/enroll", body: { runId: "33333333-3333-4333-8333-333333333333", vmIdentity: "fly:vm-123", tenantId: "other" } }), env);
+    expect(rejected.status).toBe(400);
   });
 });
