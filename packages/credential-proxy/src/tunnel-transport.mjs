@@ -47,7 +47,7 @@ export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnro
       let listener;
       let target;
       try {
-        const connection = await authenticateEnrollment({ token: match[1], vmIdentity: peerIdentity(socket) });
+        const connection = await authenticateEnrollment({ token: match[1], vmIdentity: peerIdentity(socket), bootEpoch: runtime.bootEpoch });
         if (!connection || connection.authenticated !== true || connection.enrollmentConsumed !== true) throw new Error("enrollment was not consumed");
         listener = await runtime.acceptAuthenticatedConnection(connection);
         const address = listener.address;

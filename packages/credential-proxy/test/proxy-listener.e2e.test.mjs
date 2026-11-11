@@ -65,6 +65,7 @@ test("authenticated tunnel listener streams over TLS, confines grants and cancel
     listener = await runtime.acceptAuthenticatedConnection({
       authenticated: true,
       enrollmentConsumed: true,
+      bootEpoch: runtime.bootEpoch,
       connectionId: "consumed-enrollment-1",
       runId: "run-1",
       vmId: "vm-1",
@@ -117,6 +118,24 @@ test("listener refuses an unconsumed or unauthenticated connection", async () =>
   } }), /authenticated consumed connection/);
 });
 
+test("runtime rejects a consumed enrollment from an earlier proxy boot", async () => {
+  const runtime = createProxyRuntime({ bootEpoch: "11111111-1111-4111-8111-111111111111" });
+  runtime.unlock("synthetic-unlock-key");
+  try {
+    await assert.rejects(runtime.acceptAuthenticatedConnection({
+      authenticated: true,
+      enrollmentConsumed: true,
+      bootEpoch: "22222222-2222-4222-8222-222222222222",
+      connectionId: "stale-enrollment",
+      runId: "run-1",
+      vmId: "vm-1",
+      grants: [],
+    }), /different proxy boot/);
+  } finally {
+    await runtime.shutdown();
+  }
+});
+
 test("VM helper uses mutual TLS and consumed enrollment to reach only its granted integration listener", { timeout: 5_000 }, async () => {
   let observedAuthorization;
   let enrollmentCount = 0;
@@ -141,13 +160,15 @@ test("VM helper uses mutual TLS and consumed enrollment to reach only its grante
   const tunnel = createAuthenticatedTunnelServer({
     tls: { key, cert, ca: cert },
     runtime,
-    authenticateEnrollment: async ({ token, vmIdentity }) => {
+    authenticateEnrollment: async ({ token, vmIdentity, bootEpoch }) => {
       authenticationCount++;
       assert.equal(token, (authenticationCount === 1 ? "A" : "B").repeat(43));
       assert.equal(vmIdentity, "api.example.test");
+      assert.equal(bootEpoch, runtime.bootEpoch);
       return {
         authenticated: true,
         enrollmentConsumed: true,
+        bootEpoch,
         connectionId: "transport-enrollment-1",
         runId: "run-transport-1",
         vmId: vmIdentity,
