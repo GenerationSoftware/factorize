@@ -80,7 +80,8 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
     }
     const selected = new Set(integrationIds);
     const records = snapshot.records.filter(record => selected.has(record?.id) && record.kind === "bearer" && record.deletedAt == null);
-    if (records.length !== selected.size || snapshot.records.length !== records.length) throw new Error("selected integration is unavailable");
+    const selectionWasNarrowedLocally = binding.integrationIds !== undefined || resolveIntegrationIds !== undefined;
+    if (records.length !== selected.size || (!selectionWasNarrowedLocally && snapshot.records.length !== records.length)) throw new Error("selected integration is unavailable");
     const unlockKey = await getUnlockKey();
     if (typeof unlockKey !== "string" || !unlockKey) throw new Error("proxy is locked");
     const aesKey = await deriveKey(unlockKey);
