@@ -36,6 +36,37 @@ function fixture(exit = 42) {
 }
 
 describe("durable run finalization", () => {
+  it("finalizes a second backend through explicit capabilities", async () => {
+    const f = fixture(0); f.run.resultProtocolVersion = 1;
+    const fake = Object.fromEntries(["inspect", "stop", "terminate", "readJobResult", "readHarnessLog", "listJobFiles", "collectJobFile", "collectArtifact", "collectTraceChunk"].map(name => [name, (f.backend as any)[name].bind(f.backend)]));
+    vi.spyOn(f.scheduler, "backend").mockResolvedValue(fake as any);
+    vi.spyOn(fake, "readJobResult").mockResolvedValue('{"status":"succeeded","summary":"fake backend"}');
+    vi.spyOn(fake, "listJobFiles").mockResolvedValue([]);
+    vi.spyOn(fake, "readHarnessLog").mockResolvedValue("fake log\n");
+    Object.assign(f.scheduler.env, { SESSION_SIGNING_SECRET: "signing-secret", APP_ORIGIN: "https://app.example.test" });
+    vi.spyOn(RunRepository.prototype, "recordJobResult").mockImplementation(async () => { f.events.push("result"); });
+    f.native.mockRejectedValue(new Error("temporary fake collection failure"));
+    await f.scheduler.poll(f.run);
+    expect(f.retry).toHaveBeenCalledOnce();
+    expect(f.stop).not.toHaveBeenCalled();
+    await f.scheduler.poll(f.run); await f.scheduler.poll(f.run);
+    expect(f.retry).toHaveBeenCalledTimes(2);
+    expect(f.stop).toHaveBeenCalledOnce();
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "partial", expect.stringContaining("Native session"), true, undefined);
+    expect(f.events.indexOf("result")).toBeLessThan(f.events.indexOf("cleanup"));
+  });
+
+  it("uses a backend terminator to cancel before collecting and still cleans up", async () => {
+    const f = fixture(0); f.run.state = "stopping";
+    vi.spyOn(RunRepository.prototype, "recordStopAttempt").mockResolvedValue();
+    const fake = Object.fromEntries(["inspect", "stop", "terminate", "readJobResult", "readHarnessLog", "listJobFiles", "collectJobFile", "collectArtifact", "collectTraceChunk"].map(name => [name, (f.backend as any)[name].bind(f.backend)]));
+    vi.spyOn(f.scheduler, "backend").mockResolvedValue(fake as any);
+    vi.spyOn(fake, "terminate").mockImplementation(async () => { f.events.push("terminate"); return { state: "stopped" }; });
+    await f.scheduler.poll(f.run);
+    expect(f.events).toEqual(["terminate", "observation", "log", "native", "cleanup"]);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "stopped", "stored", undefined, true, undefined);
+  });
+
   it("keeps historical Claude runs on native discovery without a source declaration", async () => {
     const f = fixture(0);
     f.run.executionConfig.agentKind = "claude";
