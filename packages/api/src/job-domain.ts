@@ -15,6 +15,12 @@ export interface ExecutionConfig {
   tags?: string[];
   image?: string;
   script?: string;
+  portableIntegrationIds?: string[];
+  modelAccess?: "native" | "portable";
+  modelAccountId?: string;
+  executionProvider?: "exe" | "fly";
+  region?: string;
+  size?: string;
 }
 
 export interface Trigger {
@@ -48,6 +54,9 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
   selectedSkills?: { id: string; key: string; revision: number; body: string; position: number }[];
+  portableIntegrationIds?: string[];
+  modelAccess?: "native" | "portable";
+  modelAccountId?: string;
 }
 
 export interface InvocationRequest {

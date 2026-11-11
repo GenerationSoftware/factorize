@@ -83,14 +83,36 @@ export class ApiService {
       return { targetId: id, connectionId, workspace: value.project, cwd: "", agentKind: "Amp", tags: [] };
     }
     const value = await this.connections().get<{ agentKind: string; tags?: string[] }>(`exe:${id}`);
-    if (!value) throw new ServiceError(400, "invalid_request", "execution integration not found");
-    return { targetId: id, connectionId: id, workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: value.agentKind, tags: value.tags ?? [] };
+    if (value) return { targetId: id, connectionId: id, workspace: "ephemeral", cwd: "/home/exedev/workspace", agentKind: value.agentKind, tags: value.tags ?? [], executionProvider: "exe" as const };
+    const fly = await this.flyExecutionConfigs().get(id);
+    if (!fly) throw new ServiceError(400, "invalid_request", "execution integration not found");
+    if (!await this.flyConnections().get()) throw new ServiceError(409, "fly_connection_required", "Connect a Fly account before selecting this execution configuration.");
+    return { targetId: id, connectionId: id, workspace: "", cwd: "", agentKind: "codex", tags: [], image: fly.image, region: fly.region, size: fly.size, executionProvider: "fly" as const };
+  }
+
+  private async portableSelections(config: Awaited<ReturnType<ApiService["executionConfig"]>>, executionType: "agent" | "code", input: JobInput, current?: Job) {
+    const portableIntegrationIds = input.portableIntegrationIds ?? current?.portableIntegrationIds ?? current?.executionConfig.portableIntegrationIds ?? [];
+    if (executionType === "code" && input.modelAccess === "portable") throw new ServiceError(400, "invalid_request", "Code jobs cannot select model access.");
+    const modelAccess = executionType === "code" ? "native" : input.modelAccess ?? current?.modelAccess ?? current?.executionConfig.modelAccess ?? (config.executionProvider === "fly" ? "portable" : "native");
+    if (modelAccess === "native" && input.modelAccountId) throw new ServiceError(400, "invalid_request", "Native model access cannot select a portable model account.");
+    const modelAccountId = modelAccess === "portable" ? input.modelAccountId ?? current?.modelAccountId ?? current?.executionConfig.modelAccountId : undefined;
+    if (executionType === "code" && modelAccountId) throw new ServiceError(400, "invalid_request", "Code jobs cannot select a model account.");
+    if (config.executionProvider === "fly" && executionType === "agent" && config.agentKind === "codex" && (!modelAccountId || modelAccess !== "portable")) throw new ServiceError(400, "invalid_request", "Fly Codex jobs require a portable model account.");
+    const records = await new EncryptedIntegrationRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).records();
+    const byId = new Map(records.map(record => [record.id, record]));
+    if (new Set(portableIntegrationIds).size !== portableIntegrationIds.length || portableIntegrationIds.some(id => byId.get(id)?.kind !== "bearer")) throw new ServiceError(400, "invalid_request", "One or more selected portable integrations are unavailable.");
+    if (modelAccountId && byId.get(modelAccountId)?.kind !== "model") throw new ServiceError(400, "invalid_request", "The selected model account is unavailable.");
+    if (modelAccess === "portable" && executionType !== "code" && !modelAccountId) throw new ServiceError(400, "invalid_request", "Portable model access requires a model account.");
+    return { portableIntegrationIds, modelAccess, ...(modelAccountId ? { modelAccountId } : {}) };
   }
 
   private async validateExecutionOptions(id: string, model: string, effort: string, tags: string[]) {
     if (id.startsWith("amp:")) return;
     const connection = await this.connections().get<ExeConnection>(`exe:${id}`);
-    if (!connection) throw new ServiceError(400, "invalid_request", "execution integration not found");
+    if (!connection) {
+      if (await this.flyExecutionConfigs().get(id)) return;
+      throw new ServiceError(400, "invalid_request", "execution integration not found");
+    }
     const availableModels = connection.modelsByAgent?.[connection.agentKind ?? "codex"] ?? connection.models ?? [];
     const availableEfforts = effortOptions[connection.agentKind ?? "codex"] ?? [];
     if (model && availableModels.length && !availableModels.includes(model)) throw new ServiceError(400, "invalid_request", "Model is not available on this agent.");
@@ -357,10 +379,12 @@ export class ApiService {
     const executionType = input.executionType ?? "agent";
     if (executionType === "code" && input.executionConfigId.startsWith("amp:")) throw new ServiceError(400, "invalid_request", "Code jobs require an exe.dev integration.");
     if (executionType !== "code") await this.validateExecutionOptions(input.executionConfigId, input.model ?? "", input.effort ?? "", input.tags ?? []);
+    const executionConfig = await this.executionConfig(input.executionConfigId);
+    const portable = await this.portableSelections(executionConfig, executionType, input);
     const triggers = this.normalizedTriggers(input.triggers).map(trigger => ({ ...trigger, jobId: id }));
     const projectId = input.projectId ?? await this.projects().defaultProjectId();
     const selectedSkills = executionType === "code" ? [] : input.skillIds ? await this.skillSelections(input.skillIds) : [];
-    const job: Job = { id, projectId, runScopes: input.runScopes ?? [...DEFAULT_RUN_SCOPES], name: input.name, slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", ...(input.effort ? { effort: input.effort } : {}), executionConfig: { ...await this.executionConfig(input.executionConfigId), executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, selectedSkills, createdAt: timestamp, updatedAt: timestamp };
+    const job: Job = { id, projectId, runScopes: input.runScopes ?? [...DEFAULT_RUN_SCOPES], name: input.name, slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", ...portable, ...(input.effort ? { effort: input.effort } : {}), executionConfig: { ...executionConfig, ...portable, executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, selectedSkills, createdAt: timestamp, updatedAt: timestamp };
     try { return this.presentJob(await this.jobs().create(job)); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "Job slug is already in use"); throw error; }
   }
   async updateJob(jobId: string, input: JobInput & { expectedUpdatedAt?: string }) {
@@ -369,9 +393,11 @@ export class ApiService {
     const executionType = input.executionType ?? current.executionType ?? "agent";
     if (executionType === "code" && input.executionConfigId.startsWith("amp:")) throw new ServiceError(400, "invalid_request", "Code jobs require an exe.dev integration.");
     if (executionType !== "code") await this.validateExecutionOptions(input.executionConfigId, input.model ?? "", input.effort ?? "", input.tags ?? []);
+    const executionConfig = await this.executionConfig(input.executionConfigId);
+    const portable = await this.portableSelections(executionConfig, executionType, input, current);
     const triggers = this.normalizedTriggers(input.triggers, current.triggers).map(trigger => ({ ...trigger, jobId }));
     const selectedSkills = executionType === "code" ? [] : input.skillIds === undefined ? current.selectedSkills : await this.skillSelections(input.skillIds);
-    const updated = await repository.update({ ...current, runScopes: input.runScopes ?? current.runScopes ?? [...DEFAULT_RUN_SCOPES], projectId: input.projectId ?? current.projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", effort: input.effort, executionConfig: { ...await this.executionConfig(input.executionConfigId), executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, triggers, selectedSkills, updatedAt: new Date().toISOString() }, input.expectedUpdatedAt).catch(error => { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload its configuration before saving."); throw error; });
+    const updated = await repository.update({ ...current, ...portable, runScopes: input.runScopes ?? current.runScopes ?? [...DEFAULT_RUN_SCOPES], projectId: input.projectId ?? current.projectId, name: input.name, slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", effort: input.effort, executionConfig: { ...executionConfig, ...portable, executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, triggers, selectedSkills, updatedAt: new Date().toISOString() }, input.expectedUpdatedAt).catch(error => { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload its configuration before saving."); throw error; });
     await this.wakeScheduler();
     return this.presentJob(updated);
   }

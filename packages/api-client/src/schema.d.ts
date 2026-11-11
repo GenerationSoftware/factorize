@@ -2555,6 +2555,11 @@ export interface components {
                 };
             })[];
             skillIds?: string[];
+            portableIntegrationIds?: string[];
+            /** @enum {string} */
+            modelAccess?: "native" | "portable";
+            /** Format: uuid */
+            modelAccountId?: string;
         };
         ManualInvocation: {
             /** @default  */
@@ -5848,11 +5853,18 @@ export interface operations {
                             cwd?: string;
                             agentKind: string;
                             image?: string;
+                            region?: string;
+                            size?: string;
                             /** @enum {string} */
                             executionType?: "agent" | "code";
                             script?: string;
                         };
                         runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        portableIntegrationIds?: string[];
+                        /** @enum {string} */
+                        modelAccess?: "native" | "portable";
+                        /** Format: uuid */
+                        modelAccountId?: string;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6137,11 +6149,18 @@ export interface operations {
                             cwd?: string;
                             agentKind: string;
                             image?: string;
+                            region?: string;
+                            size?: string;
                             /** @enum {string} */
                             executionType?: "agent" | "code";
                             script?: string;
                         };
                         runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        portableIntegrationIds?: string[];
+                        /** @enum {string} */
+                        modelAccess?: "native" | "portable";
+                        /** Format: uuid */
+                        modelAccountId?: string;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6338,11 +6357,18 @@ export interface operations {
                             cwd?: string;
                             agentKind: string;
                             image?: string;
+                            region?: string;
+                            size?: string;
                             /** @enum {string} */
                             executionType?: "agent" | "code";
                             script?: string;
                         };
                         runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        portableIntegrationIds?: string[];
+                        /** @enum {string} */
+                        modelAccess?: "native" | "portable";
+                        /** Format: uuid */
+                        modelAccountId?: string;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6821,11 +6847,18 @@ export interface operations {
                             cwd?: string;
                             agentKind: string;
                             image?: string;
+                            region?: string;
+                            size?: string;
                             /** @enum {string} */
                             executionType?: "agent" | "code";
                             script?: string;
                         };
                         runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        portableIntegrationIds?: string[];
+                        /** @enum {string} */
+                        modelAccess?: "native" | "portable";
+                        /** Format: uuid */
+                        modelAccountId?: string;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7110,6 +7143,11 @@ export interface operations {
                         };
                     })[];
                     skillIds?: string[];
+                    portableIntegrationIds?: string[];
+                    /** @enum {string} */
+                    modelAccess?: "native" | "portable";
+                    /** Format: uuid */
+                    modelAccountId?: string;
                     /** Format: date-time */
                     expectedUpdatedAt?: string;
                 };
@@ -7144,11 +7182,18 @@ export interface operations {
                             cwd?: string;
                             agentKind: string;
                             image?: string;
+                            region?: string;
+                            size?: string;
                             /** @enum {string} */
                             executionType?: "agent" | "code";
                             script?: string;
                         };
                         runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        portableIntegrationIds?: string[];
+                        /** @enum {string} */
+                        modelAccess?: "native" | "portable";
+                        /** Format: uuid */
+                        modelAccountId?: string;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;

@@ -43,8 +43,9 @@ export const triggerResponse = z.discriminatedUnion("kind", [
 export const jobResponse = z.object({
   id: z.guid(), projectId: z.guid().optional(), name: z.string(), slug: z.string(), enabled: z.boolean(),
   executionType: z.enum(["agent", "code"]).optional(), promptTemplate: z.string(), script: z.string().optional(), runNameTemplate: z.string(), tags: z.array(z.string()).optional(), model: z.string(), effort: z.string().optional(),
-  executionConfig: z.object({ connectionId: z.string(), workspace: z.string().optional(), cwd: z.string().optional(), agentKind: z.string(), image: z.string().optional(), executionType: z.enum(["agent", "code"]).optional(), script: z.string().optional() }),
+  executionConfig: z.object({ connectionId: z.string(), workspace: z.string().optional(), cwd: z.string().optional(), agentKind: z.string(), image: z.string().optional(), region: z.string().optional(), size: z.string().optional(), executionType: z.enum(["agent", "code"]).optional(), script: z.string().optional() }),
   runScopes: z.array(scopeSchema),
+  portableIntegrationIds: z.array(z.guid()).optional(), modelAccess: z.enum(["native", "portable"]).optional(), modelAccountId: z.guid().optional(),
   executionConfigId: z.string(), agentKind: z.string(), concurrencyLimit: z.number().int(),
   runningCount: z.number().int(), currentRuns: z.number().int(), maxConcurrency: z.number().int(), lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(),
   triggers: z.array(triggerResponse),
