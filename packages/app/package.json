@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "check": "npm run build && npm test && npm run test:functional",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test --test-concurrency=2 test/*.test.mjs",
     "test:functional": "playwright test --config=playwright.functional.config.mjs",
     "test:visual": "playwright test --config=playwright.visual.config.mjs"
   },
