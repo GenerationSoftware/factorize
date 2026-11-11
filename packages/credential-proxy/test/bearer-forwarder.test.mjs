@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Readable } from "node:stream";
 import { createBearerForwarder } from "../src/bearer-forwarder.mjs";
 
 const integration = { id: "integration-1", origin: "https://api.example.test", credential: "synthetic-token" };
@@ -12,7 +13,7 @@ test("forwards only through the granted origin and replaces unsafe routing and a
       connections.push({ origin, url });
       return { socket: { fixture: true }, url: new URL(url) };
     },
-    request: async request => { calls.push(request); return { status: 201, body: Buffer.from("created") }; },
+      request: async request => { calls.push(request); return { status: 201, headers: {}, body: Readable.from([Buffer.from("created")]) }; },
   });
   const result = await forwarder.forward(integration, {
     method: "post",
@@ -27,7 +28,8 @@ test("forwards only through the granted origin and replaces unsafe routing and a
     },
     body: Buffer.from('{"ok":true}'),
   });
-  assert.deepEqual(result, { status: 201, body: Buffer.from("created") });
+  assert.equal(result.status, 201);
+  assert.deepEqual(Buffer.concat(await Array.fromAsync(result.body)), Buffer.from("created"));
   assert.deepEqual(connections, [{ origin: integration.origin, url: "https://api.example.test/v1/items?source=job" }]);
   assert.equal(calls[0].method, "POST");
   assert.equal(calls[0].headers.authorization, "Bearer synthetic-token");

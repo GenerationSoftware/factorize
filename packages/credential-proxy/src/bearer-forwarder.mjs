@@ -59,48 +59,58 @@ function sendHttpsRequest({ socket, url, method, headers, body, limits, signal }
     let settled = false;
     let responseTimer;
     let idleTimer;
+    let responseStream;
+    const agent = new https.Agent({ keepAlive: false });
+    agent.createConnection = () => socket;
     const finishError = (error) => {
-      if (settled) return;
+      if (settled) {
+        responseStream?.destroy(error);
+        return;
+      }
       settled = true;
       clearTimeout(responseTimer);
       clearTimeout(idleTimer);
       socket.destroy(error);
+      agent.destroy();
       reject(error);
     };
     const request = https.request(url, {
       method,
       headers,
-      agent: false,
-      createConnection: () => socket,
+      agent,
       maxHeaderSize: limits.headerBytes,
       signal,
     }, (response) => {
       clearTimeout(responseTimer);
       let responseBytes = 0;
-      const chunks = [];
       const resetIdle = () => {
         clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => finishError(new Error("upstream response idle deadline exceeded")), limits.idleMs);
+        idleTimer = setTimeout(() => responseStream.destroy(new Error("upstream response idle deadline exceeded")), limits.idleMs);
         idleTimer.unref?.();
       };
-      response.on("data", (chunk) => {
-        responseBytes += chunk.length;
-        if (responseBytes > limits.responseBytes) return finishError(new RangeError("upstream response exceeds configured limit"));
-        chunks.push(chunk);
-        resetIdle();
+      responseStream = new Transform({
+        transform(chunk, _encoding, callback) {
+          responseBytes += chunk.length;
+          if (responseBytes > limits.responseBytes) return callback(new RangeError("upstream response exceeds configured limit"));
+          resetIdle();
+          callback(null, chunk);
+        },
       });
-      response.once("error", finishError);
+      response.once("error", (error) => responseStream.destroy(error));
+      responseStream.once("error", (error) => {
+        response.destroy(error);
+        request.destroy(error);
+      });
+      responseStream.once("close", () => clearTimeout(idleTimer));
+      responseStream.once("close", () => agent.destroy());
       if (response.statusCode >= 300 && response.statusCode < 400) {
         response.resume();
         return finishError(new Error("upstream redirects are not permitted"));
       }
-      response.once("end", () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(idleTimer);
-        resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks) });
-      });
       resetIdle();
+      response.pipe(responseStream);
+      settled = true;
+      resolve({ status: response.statusCode, headers: response.headers, body: responseStream });
     });
     request.once("error", finishError);
     responseTimer = setTimeout(() => finishError(new Error("upstream response headers deadline exceeded")), limits.headersMs);
@@ -133,17 +143,34 @@ export function createBearerForwarder({ connectorFactory = createOriginConnector
       timeout.unref?.();
       const key = {};
       active.add(key);
-      try {
-        const connect = connectorFactory(integration.origin, { timeoutMs: limits.connectMs });
-        const { socket, url } = await connect(input.url);
-        const method = String(input.method ?? "GET").toUpperCase();
-        if (!/^[A-Z!#$%&'*+.^_`|~-]+$/.test(method)) throw new TypeError("invalid HTTP method");
-        const headers = safeHeaders(input.headers, integration.credential, limits.headerBytes);
-        return await request({ socket, url, method, headers, body: input.body, limits, signal: controller.signal });
-      } finally {
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
         clearTimeout(timeout);
         signal?.removeEventListener("abort", abort);
         active.delete(key);
+      };
+      try {
+        const connect = connectorFactory(integration.origin, { timeoutMs: limits.connectMs });
+        const { socket, url } = await connect(input.url);
+        if (controller.signal.aborted) {
+          socket.destroy(controller.signal.reason);
+          throw controller.signal.reason ?? new Error("request cancelled");
+        }
+        const method = String(input.method ?? "GET").toUpperCase();
+        if (!/^[A-Z!#$%&'*+.^_`|~-]+$/.test(method)) throw new TypeError("invalid HTTP method");
+        const headers = safeHeaders(input.headers, integration.credential, limits.headerBytes);
+        const result = await request({ socket, url, method, headers, body: input.body, limits, signal: controller.signal });
+        if (result?.body && typeof result.body.once === "function") {
+          result.body.once("end", release);
+          result.body.once("close", release);
+          result.body.once("error", release);
+        } else release();
+        return result;
+      } catch (error) {
+        release();
+        throw error;
       }
     },
     get activeRequests() { return active.size; },

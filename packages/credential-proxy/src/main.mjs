@@ -10,10 +10,10 @@ function respond(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
-function stop() {
+async function stop() {
   if (closing) return;
   closing = true;
-  runtime.shutdown();
+  await runtime.shutdown();
   lines.close();
   clearTimeout(shutdownDeadline);
   process.exit(0);
@@ -25,7 +25,7 @@ shutdownDeadline = setTimeout(() => process.exit(1), 2_000);
 shutdownDeadline.unref();
 respond({ type: "ready", state: runtime.state });
 
-lines.on("line", (line) => {
+lines.on("line", async (line) => {
   if (closing) return;
   let command;
   try {
@@ -35,7 +35,7 @@ lines.on("line", (line) => {
       runtime.unlock(command.key);
       respond({ type: "status", state: runtime.state });
     } else if (command?.type === "lock") {
-      runtime.lock();
+      await runtime.lock();
       respond({ type: "status", state: runtime.state });
     } else if (command?.type === "stop") stop();
     else respond({ type: "error", error: "unsupported command" });
