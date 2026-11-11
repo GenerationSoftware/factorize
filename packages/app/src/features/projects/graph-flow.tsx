@@ -6,6 +6,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { RunStatusLabel } from "../../shared/ui";
 import { routeAroundNodes, roundedPath, type GraphRect, type GraphSide } from "./graph-geometry";
+import { positionProjectGraph } from "./graph-layout.mjs";
 
 export type GraphNode = { id: string; type: string; label: string; provider?: string; jobKind?: string; enabled?: boolean; runningCount?: number; concurrencyLimit?: number };
 export type GraphConnection = { id: string; source: string; target: string; label: string; details?: string; kind: string; enabled: boolean };
@@ -16,27 +17,8 @@ type FlowEdge = Edge<GraphEdgeData, "routed">;
 export type ProjectFlowInstance = ReactFlowInstance<FlowNode, FlowEdge>;
 const width = (node: GraphNode) => node.type === "webhook" ? 145 : 220;
 const height = (node: GraphNode) => node.type === "webhook" ? 70 : 112;
-const positionFor = (nodes: GraphNode[], edges: GraphConnection[]) => {
-  const jobs = nodes.filter(node => node.type === "job");
-  const indegree = new Map(jobs.map(node => [node.id, 0]));
-  for (const edge of edges) if (indegree.has(edge.source) && indegree.has(edge.target) && edge.kind !== "manual") indegree.set(edge.target, indegree.get(edge.target)! + 1);
-  const level = new Map<string, number>(), queue = jobs.filter(node => indegree.get(node.id) === 0).map(node => node.id);
-  queue.forEach(id => level.set(id, 0));
-  for (let i = 0; i < queue.length; i++) for (const edge of edges) if (edge.source === queue[i] && indegree.has(edge.target) && edge.kind !== "manual") {
-    level.set(edge.target, Math.max(level.get(edge.target) ?? 0, (level.get(queue[i]) ?? 0) + 1));
-    indegree.set(edge.target, indegree.get(edge.target)! - 1); if (indegree.get(edge.target) === 0) queue.push(edge.target);
-  }
-  let maxLevel = Math.max(0, ...level.values());
-  for (const node of jobs) if (!level.has(node.id)) level.set(node.id, ++maxLevel);
-  const columns = new Map<number, GraphNode[]>();
-  for (const node of jobs) { const col = level.get(node.id)!; columns.set(col, [...(columns.get(col) ?? []), node]); }
-  const positions = new Map<string, { x: number; y: number }>();
-  for (const [col, column] of columns) column.forEach((node, row) => positions.set(node.id, { x: 300 + col * 340, y: 110 + row * 200 }));
-  nodes.filter(node => node.type === "webhook").forEach((node, row) => positions.set(node.id, { x: 35, y: 110 + row * 190 }));
-  return positions;
-};
 function makeLayout(nodes: GraphNode[], edges: GraphConnection[], onOpen: (id: string) => void, onSelect: (edge: GraphConnection) => void, onGroup: (edges: GraphConnection[], trigger: HTMLButtonElement) => void) {
-  const positions = positionFor(nodes, edges);
+  const positions = positionProjectGraph(nodes, edges);
   const rects: GraphRect[] = nodes.map(node => ({ id: node.id, ...positions.get(node.id)!, width: width(node), height: height(node) }));
   const grouped = new Map<string, GraphConnection[]>();
   for (const edge of edges) { const pair = JSON.stringify([edge.source, edge.target].sort()); grouped.set(pair, [...(grouped.get(pair) ?? []), edge]); }
