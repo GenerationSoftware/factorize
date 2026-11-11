@@ -66,12 +66,18 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
   return async function resolveGrants(binding) {
     if (!binding || typeof binding.tenantId !== "string" || !binding.tenantId
         || (binding.integrationIds !== undefined && !Array.isArray(binding.integrationIds))) throw new TypeError("invalid run integration selection");
+    const requestedIds = binding.integrationIds ?? await resolveIntegrationIds?.(binding);
+    if (requestedIds !== undefined && (!Array.isArray(requestedIds) || requestedIds.some(id => typeof id !== "string" || !id)
+        || new Set(requestedIds).size !== requestedIds.length)) throw new TypeError("invalid run integration selection");
+    if (requestedIds?.length === 0) return [];
+    const unlockKey = await getUnlockKey();
+    if (typeof unlockKey !== "string" || !unlockKey) throw new Error("proxy is locked");
     const snapshot = await readSnapshot(binding);
     if (!snapshot || !Array.isArray(snapshot.records) || typeof snapshot.ownerId !== "string" || !snapshot.ownerId) throw new Error("integration snapshot is unavailable");
     // Production snapshots are already filtered by the control plane using the
     // active run's immutable selection and grant revision. Local callers may
     // still provide IDs explicitly for additional narrowing.
-    const integrationIds = binding.integrationIds ?? await resolveIntegrationIds?.(binding) ?? snapshot.records.map(record => record?.id);
+    const integrationIds = requestedIds ?? snapshot.records.map(record => record?.id);
     if (!Array.isArray(integrationIds) || integrationIds.some(id => typeof id !== "string" || !id)
         || new Set(integrationIds).size !== integrationIds.length) throw new TypeError("invalid run integration selection");
     if (integrationIds.length === 0) {
@@ -82,8 +88,6 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
     const records = snapshot.records.filter(record => selected.has(record?.id) && record.kind === "bearer" && record.deletedAt == null);
     const selectionWasNarrowedLocally = binding.integrationIds !== undefined || resolveIntegrationIds !== undefined;
     if (records.length !== selected.size || (!selectionWasNarrowedLocally && snapshot.records.length !== records.length)) throw new Error("selected integration is unavailable");
-    const unlockKey = await getUnlockKey();
-    if (typeof unlockKey !== "string" || !unlockKey) throw new Error("proxy is locked");
     const aesKey = await deriveKey(unlockKey);
     const grants = [];
     for (const record of records) {
