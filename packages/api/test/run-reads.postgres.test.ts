@@ -75,8 +75,8 @@ describe.skipIf(!url)("lightweight status and revision-bound traces", () => {
     const service = new ApiService(f.env, f.auth);
     try {
       const first = await service.listRuns(new URLSearchParams({ limit: "2", jobId: (await f.db.pool.query<any>("SELECT job_id FROM app.job_runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].job_id }));
-      expect(first.items.map(run => run.id)).toEqual([f.runId, completedId]);
-      expect(first.items.map(run => run.elapsed_time)).toEqual([{ duration: 40 }, { duration: 10 }]);
+      expect(first.items.map(run => run.id)).toEqual([runningId, f.runId]);
+      expect(first.items.map(run => run.elapsed_time)).toEqual([{ low: 10, high: 40 }, { duration: 40 }]);
       expect(first.nextCursor).not.toBeNull();
       const statement = query.mock.calls.find(([sql]) => typeof sql === "string" && sql.includes("duration_jobs AS MATERIALIZED"))?.[0] as string;
       expect(statement).toContain("selected AS MATERIALIZED");
@@ -84,8 +84,8 @@ describe.skipIf(!url)("lightweight status and revision-bound traces", () => {
       expect(statement).not.toContain("LEFT JOIN LATERAL");
 
       const second = await service.listRuns(new URLSearchParams({ limit: "2", jobId: (await f.db.pool.query<any>("SELECT job_id FROM app.job_runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].job_id, cursor: first.nextCursor! }));
-      expect(second.items.map(run => run.id)).toEqual([runningId]);
-      expect(second.items[0].elapsed_time).toEqual({ low: 10, high: 40 });
+      expect(second.items.map(run => run.id)).toEqual([completedId]);
+      expect(second.items[0].elapsed_time).toEqual({ duration: 10 });
       expect(second.nextCursor).toBeNull();
 
       await f.db.pool.query("UPDATE app.job_runs SET started_at=NULL WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [f.tenantId, [f.runId, completedId]]);
