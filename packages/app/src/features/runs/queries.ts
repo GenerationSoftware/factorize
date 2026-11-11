@@ -22,6 +22,8 @@ export const diagnosticsQuery = (runId: string) => queryOptions({ queryKey: ["ru
 export const runPageQuery = ({ jobId, projectIds, jobIds, cursor, limit, sort, direction, states }: { jobId?: string; projectIds?: string[]; jobIds?: string[]; cursor?: string; limit: number; sort?: "job" | "run" | "status" | "created" | "agent"; direction?: "asc" | "desc"; states?: RunStatus[] }) => queryOptions({
   queryKey: ["runs", "page", jobId, projectIds, jobIds, cursor, limit, sort, direction, states],
   queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs", { signal, params: { query: { jobId: jobIds ?? jobId, projectId: projectIds, cursor, limit, sort, direction, state: states } } }); if (!data || error) throw new Error(messageOf(error)); return data; },
-  staleTime: 0, refetchInterval: 2_000, refetchIntervalInBackground: false,
+  staleTime: 1_000,
+  refetchInterval: query => query.state.error ? 10_000 : query.state.data?.items.some(run => ["queued", "reserved", "starting", "running", "blocked", "stopping"].includes(run.state)) ? 2_000 : 15_000,
+  refetchIntervalInBackground: false,
 });
 export const historyQuery = (jobId: string, cursor?: string, sort?: "run" | "status" | "created" | "agent", direction?: "asc" | "desc", states?: RunStatus[]) => queryOptions({ queryKey: ["runs", "history", jobId, cursor, sort, direction, states], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/runs", { signal, params: { query: { jobId, cursor, sort, direction: direction ?? (sort ? "asc" : undefined), state: states, limit: 30 } } }); if (!data || error) throw new Error(messageOf(error)); return data; }, placeholderData: keepPreviousData, staleTime: 0, refetchOnMount: false });
