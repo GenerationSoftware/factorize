@@ -9,7 +9,7 @@ export async function requireApiReady(origin, fetcher = fetch) {
 }
 export async function verifyPublicRouting(origin) {
   await requireApiReady(origin);
-  for (const path of ["/jobs", "/jobs/route-probe/edit", "/job-runs", "/job-runs/route-probe", "/settings/api-keys", "/settings/api-keys/new", "/auth/password-reset?token=route-probe"]) {
+  for (const path of ["/projects/route-probe/runs", "/projects/route-probe/settings", "/route-probe-missing", "/route-probe-missing/nested", "/jobs", "/jobs/route-probe/edit", "/job-runs", "/job-runs/route-probe", "/settings/api-keys", "/settings/api-keys/new", "/auth/password-reset?token=route-probe"]) {
     const response = await fetch(origin + path, { redirect: "manual", signal: AbortSignal.timeout(15_000) });
     assert.equal(response.status, 200, path); assert.match(response.headers.get("Content-Type"), /text\/html/);
     assert.equal(response.headers.get("Cache-Control"), "no-cache, must-revalidate");
@@ -18,7 +18,7 @@ export async function verifyPublicRouting(origin) {
     const body = await response.text(), assetPath = body.match(/src="(\/assets\/[^"/]+\.js)"/)?.[1]; assert.ok(assetPath, "Expected an external compiled script");
     const asset = await fetch(origin + assetPath, { redirect: "manual", signal: AbortSignal.timeout(15_000) }); assert.equal(asset.status, 200); assert.match(asset.headers.get("Content-Type"), /javascript/); assert.equal(asset.headers.get("Cache-Control"), "public, max-age=31536000, immutable");
   }
-  for (const path of ["/api/v1/route-probe-missing", "/oauth/route-probe-missing", "/auth/route-probe-missing", "/internal/route-probe-missing", "/webhooks/route-probe-missing", "/mcp", "/route-probe-missing", "/assets/route-probe-missing.js"]) {
+  for (const path of ["/api/v1/route-probe-missing", "/oauth/route-probe-missing", "/auth/route-probe-missing", "/internal/route-probe-missing", "/webhooks/route-probe-missing", "/mcp", "/healthz/route-probe-missing", "/api/route-probe-missing", "/assets/route-probe-missing.js"]) {
     const response = await fetch(origin + path, { redirect: "manual", signal: AbortSignal.timeout(15_000) }); assert.ok([401, 404, 405].includes(response.status), path); assert.ok(!response.headers.get("Content-Type")?.includes("text/html"), path);
   }
   const metadata = await (await fetch(origin + "/.well-known/oauth-authorization-server", { signal: AbortSignal.timeout(15_000) })).json(); assert.equal(metadata.issuer, origin); assert.equal(metadata.device_authorization_endpoint, origin + "/oauth/device_authorization");
