@@ -14,6 +14,7 @@
     "test": "node scripts/validation.mjs all",
     "test:backend": "node scripts/validation.mjs backend",
     "test:browser": "node scripts/validation.mjs browser",
+    "test:proxy": "node scripts/validation.mjs proxy",
     "check": "npm test",
     "bootstrap:test": "node scripts/bootstrap-test.mjs",
     "check:backend": "npm run check:hosting && npm run check:boundaries && npm run check:client && npm run validate --workspace=factorize-docs && npm run check --workspace=factorize && npm run test:conditions-runtime && npm run test:hosting-runtime && npm run test:oauth-runtime && npm run test:rollback-runtime && npm run check --workspace=factorize-marketing && npm run check --workspace=factorize-tail-relay",
