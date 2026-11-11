@@ -4,10 +4,17 @@ import { jobInputSchema, scopeSchema, triggerSchema, webhookTriggerConfigSchema 
 export const jobPageQuery = z.object({
   projectId: z.guid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
-  cursor: z.guid().optional(),
+  cursor: z.string().max(512).optional(),
   q: z.string().trim().max(120).default(""),
   enabled: z.enum(["true", "false"]).optional(),
-  sort: z.enum(["id", "updated"]).optional(),
+  sort: z.enum(["id", "updated", "active", "running", "title"]).optional(),
+  direction: z.enum(["asc", "desc"]).optional(),
+}).superRefine((query, context) => {
+  if (!query.cursor) return;
+  const legacySort = query.sort === undefined || query.sort === "id" || query.sort === "updated";
+  if (z.guid().safeParse(query.cursor).success !== legacySort) {
+    context.addIssue({ code: "custom", path: ["cursor"], message: "Cursor format does not match the selected sort" });
+  }
 });
 export type JobPageQuery = z.infer<typeof jobPageQuery>;
 export const jobSelectorItem = z.object({ id: z.guid(), name: z.string(), slug: z.string(), enabled: z.boolean() });
@@ -17,8 +24,8 @@ export const jobSummary = jobSelectorItem.extend({
   concurrencyLimit: z.number().int(), runningCount: z.number().int(),
   lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(), createdAt: z.string(), updatedAt: z.string(),
 });
-export const jobSummaryPage = z.object({ items: z.array(jobSummary), nextCursor: z.guid().nullable() });
-export const jobSelectorPage = z.object({ items: z.array(jobSelectorItem), nextCursor: z.guid().nullable() });
+export const jobSummaryPage = z.object({ items: z.array(jobSummary), nextCursor: z.string().nullable() });
+export const jobSelectorPage = z.object({ items: z.array(jobSelectorItem), nextCursor: z.string().nullable() });
 const triggerIdentity = { id: z.guid(), jobId: z.guid(), slug: z.string(), createdAt: z.string(), updatedAt: z.string() };
 const webhookResponse = z.discriminatedUnion("provider", [
   webhookTriggerConfigSchema.options[0].extend({ secretConfigured: z.boolean().optional() }).strip(),

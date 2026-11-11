@@ -339,6 +339,7 @@ describe("Worker OpenAPI request/response boundaries", () => {
       await assertResponse(await request("GET", path + "?limit=2&q=Review&enabled=true"), "GET", path, 200);
       await assertResponse(await request("GET", path + "?limit=101"), "GET", path, 400);
       await assertResponse(await request("GET", path + "?cursor=broken"), "GET", path, 400);
+      await assertResponse(await request("GET", path + "?sort=title&cursor=00000000-0000-4000-8000-000000000001"), "GET", path, 400);
       await assertResponse(await request("GET", path, undefined, { auth: { ...auth, scopes: ["runs:read"] } }), "GET", path, 403);
     }
     expect(summaries).toHaveBeenCalledWith({ limit: 2, q: "Review", enabled: "true" }, true);

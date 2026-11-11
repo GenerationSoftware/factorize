@@ -35,7 +35,7 @@ test("global jobs use the Runs-style project filter", async () => {
   await page.route("**/api/v1/job-summaries?**", route => {
     return route.fulfill({ json: { items: [{ ...summary, projectId }], nextCursor: null } });
   });
-  await page.goto(origin + "/jobs");
+  await page.goto(origin + "/jobs?cursor=old-cursor");
   const table = page.getByRole("table", { name: "Jobs", exact: true });
   const projectFilter = table.getByRole("button", { name: "Filter by project Release project" });
   await projectFilter.waitFor();
@@ -47,9 +47,57 @@ test("global jobs use the Runs-style project filter", async () => {
   await page.waitForURL(/projectId=/);
   const filtered = await filteredRequest;
   assert.equal(new URL(filtered.url()).searchParams.get("projectId"), projectId);
-  await table.getByRole("button", { name: /Project/ }).click();
-  await page.getByRole("dialog", { name: "Project filter" }).getByRole("button", { name: "Clear project filters" }).click();
+  assert.equal(new URL(filtered.url()).searchParams.has("cursor"), false);
+  await dialog.getByRole("button", { name: "Clear project filters" }).click();
   await page.waitForFunction(() => !new URL(location.href).searchParams.has("projectId"));
+  await context.close();
+});
+test("a 1,000-job workspace loads one bounded first page and one request on Next", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+  const fixtures = Array.from({ length: 1000 }, (_, index) => ({ ...summary, id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, name: `Job ${String(index + 1).padStart(4, "0")}` }));
+  fixtures[900] = { ...fixtures[900], name: "Active beyond old first 100", runningCount: 2 };
+  const serverOrder = [fixtures[900], ...fixtures.filter((_, index) => index !== 900).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))];
+  const requests = [];
+  await page.route("**/api/v1/job-summaries?**", route => {
+    const url = new URL(route.request().url()); requests.push(url);
+    const offset = url.searchParams.has("cursor") ? 30 : 0;
+    return route.fulfill({ json: { items: serverOrder.slice(offset, offset + 30), nextCursor: offset + 30 < serverOrder.length ? "server-cursor-30" : null } });
+  });
+  await page.goto(origin + "/jobs");
+  const table = page.getByRole("table", { name: "Jobs", exact: true });
+  await table.getByRole("link", { name: "Active beyond old first 100", exact: true }).waitFor();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].searchParams.get("limit"), "30");
+  assert.equal(requests[0].searchParams.get("sort"), "active");
+  assert.equal(await table.locator("tbody tr").count(), 30);
+  await page.getByRole("link", { name: "Next page" }).click();
+  await table.getByRole("link", { name: "Job 0030", exact: true }).waitFor();
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].searchParams.get("cursor"), "server-cursor-30");
+  assert.equal(requests[1].searchParams.get("limit"), "30");
+  await context.close();
+});
+test("jobs carry search and enabled filters and reset the cursor when sorting changes", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+  const requests = [];
+  await page.route("**/api/v1/job-summaries?**", route => {
+    const url = new URL(route.request().url()); requests.push(url);
+    return route.fulfill({ json: { items: [{ ...summary, id: jobId, name: "Filtered job" }], nextCursor: null } });
+  });
+  await page.goto(origin + "/jobs?q=needle&enabled=false&cursor=old-cursor&sort=running&order=desc");
+  const table = page.getByRole("table", { name: "Jobs", exact: true });
+  await table.getByRole("link", { name: "Filtered job", exact: true }).waitFor();
+  assert.equal(requests[0].searchParams.get("q"), "needle");
+  assert.equal(requests[0].searchParams.get("enabled"), "false", requests[0].href);
+  assert.equal(requests[0].searchParams.get("cursor"), "old-cursor");
+  const nextRequest = page.waitForRequest(request => {
+    const url = new URL(request.url()); return url.pathname === "/api/v1/job-summaries" && url.searchParams.get("sort") === "title";
+  });
+  await table.getByRole("button", { name: /Title sort/ }).click();
+  const sorted = new URL((await nextRequest).url());
+  assert.equal(sorted.searchParams.get("q"), "needle");
+  assert.equal(sorted.searchParams.get("enabled"), "false", sorted.href);
+  assert.equal(sorted.searchParams.has("cursor"), false);
   await context.close();
 });
 test("project settings can rename and describe a project", async () => {
@@ -140,7 +188,9 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
   const requests = [];
   await page.route("**/api/v1/job-summaries?**", route => {
     const url = new URL(route.request().url()); requests.push(url);
-    return route.fulfill({ json: { items: url.searchParams.has("cursor") ? fixtures.slice(30) : fixtures.slice(0, 30), nextCursor: url.searchParams.has("cursor") ? null : fixtures[29].id } });
+    const serverOrder = [...fixtures].sort((a, b) => Number(b.runningCount > 0) - Number(a.runningCount > 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    const offset = url.searchParams.has("cursor") ? 30 : 0;
+    return route.fulfill({ json: { items: serverOrder.slice(offset, offset + 30), nextCursor: offset + 30 < serverOrder.length ? "server-cursor-30" : null } });
   });
   await page.route(`**/api/v1/jobs/${fixtures[30].id}`, route => route.fulfill({ json: { ...fixtures[30], promptTemplate: "Template", runNameTemplate: "", executionConfigId: "local", executionConfig: { connectionId: "local", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex" }, triggers: [], currentRuns: 2, maxConcurrency: 10 } }));
   await page.goto(origin + `/projects/${projectId}?q=Review`);
@@ -171,7 +221,7 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
   await page.getByRole("link", { name: "Next page" }).click(); await table.getByRole("link", { name: "Idle 29", exact: true }).waitFor();
   await page.reload(); await table.getByRole("link", { name: "Idle 29", exact: true }).waitFor();
   await page.getByRole("link", { name: "First page" }).click(); await table.getByRole("link", { name: "Alpha running", exact: true }).waitFor();
-  assert.ok(requests.every(url => url.searchParams.get("limit") === "100" && url.searchParams.get("q") === "Review"));
+  assert.ok(requests.every(url => url.searchParams.get("limit") === "30" && url.searchParams.get("q") === "Review" && url.searchParams.get("sort") === "active"));
   await table.getByRole("link", { name: "Alpha running", exact: true }).focus(); await page.keyboard.press("Enter");
   await page.waitForURL(`**/jobs/${fixtures[30].id}`);
   await page.getByRole("heading", { name: "Alpha running", exact: true }).waitFor();
@@ -205,7 +255,16 @@ test("jobs can sort running and title in both directions with accessible state",
     { ...summary, id: "job-b", name: "Beta", runningCount: 3 },
     { ...summary, id: "job-i", name: "Idle", runningCount: 0 },
   ];
-  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: fixtures, nextCursor: null } }));
+  await page.route("**/api/v1/job-summaries?**", route => {
+    const url = new URL(route.request().url());
+    const sort = url.searchParams.get("sort"), direction = url.searchParams.get("direction") ?? "asc";
+    const rows = [...fixtures].sort((a, b) => {
+      if (sort === "running") return (Number(a.runningCount) - Number(b.runningCount)) * (direction === "asc" ? 1 : -1) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+      if (sort === "title") return a.name.localeCompare(b.name) * (direction === "asc" ? 1 : -1) || a.id.localeCompare(b.id);
+      return Number(b.runningCount > 0) - Number(a.runningCount > 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+    });
+    return route.fulfill({ json: { items: rows, nextCursor: null } });
+  });
   await page.goto(origin + `/projects/${projectId}`);
   const table = page.getByRole("table", { name: "Jobs", exact: true });
   await table.getByRole("link", { name: "Zulu", exact: true }).waitFor();
