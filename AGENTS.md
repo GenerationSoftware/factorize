@@ -10,7 +10,7 @@ validation and runs the shared backend and browser lanes used by CI. `npm run
 check` is an alias for the same suite. Targeted workspace commands remain
 available for iteration, but do not replace the root suite before handoff.
 
-For a fresh local VM, install PostgreSQL and Chromium as needed, then run
+For a Factorize validation VM with PostgreSQL and Chromium available, run
 `npm run test:local` to create an isolated local database, apply migrations,
 and run the complete root suite with the required database variables. To
 prepare the database without running tests, use `npm run bootstrap:test`; it
