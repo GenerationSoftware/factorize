@@ -21,6 +21,8 @@ describe.skipIf(!url)("encrypted integration persistence (PostgreSQL)", () => {
   let db: Database;
   let admin: pg.Client;
   let databaseName: string;
+  let tearingDown = false;
+  let unexpectedPoolError: Error | undefined;
   beforeAll(async () => {
     admin = new pg.Client({ connectionString: url });
     await admin.connect();
@@ -28,12 +30,22 @@ describe.skipIf(!url)("encrypted integration persistence (PostgreSQL)", () => {
     await admin.query(`CREATE DATABASE ${databaseName}`);
     const databaseUrl = new URL(url!); databaseUrl.pathname = `/${databaseName}`;
     db = new Database({ connectionString: databaseUrl.toString() });
+    db.pool.on("error", error => {
+      if (tearingDown && (error as NodeJS.ErrnoException).code === "57P01") return;
+      unexpectedPoolError = error;
+    });
     const migrations = new URL("../migrations/", import.meta.url);
     for (const file of (await readdir(migrations)).filter(file => /^\d+.*\.sql$/.test(file)).sort()) await db.pool.query(await readFile(new URL(file, migrations), "utf8"));
     const migration = await db.pool.query("SELECT to_regclass('app.integration_collections') AS collection, to_regclass('app.integration_changes') AS changes");
     expect(migration.rows[0]).toEqual({ collection: "app.integration_collections", changes: "app.integration_changes" });
   }, 30_000);
-  afterAll(async () => { await db?.close(); await admin?.query(`DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`); await admin?.end(); });
+  afterAll(async () => {
+    await db?.close();
+    tearingDown = true;
+    await admin?.query(`DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`);
+    await admin?.end();
+    if (unexpectedPoolError) throw unexpectedPoolError;
+  });
 
   async function freshRepository() {
     const tenantId = crypto.randomUUID();
