@@ -38,9 +38,13 @@ async function startProxy() {
   });
   child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
   await waitFor(() => messages.length > 0, "proxy startup");
-  assert.deepEqual(messages.shift(), { type: "ready", state: "locked" });
+  const ready = messages.shift();
+  assert.equal(ready.type, "ready");
+  assert.equal(ready.state, "locked");
+  assert.match(ready.bootEpoch, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   return {
     child,
+    bootEpoch: ready.bootEpoch,
     get logs() { return `${log}${stderr}`; },
     command(command) {
       child.stdin.write(`${JSON.stringify(command)}\n`);
@@ -65,6 +69,7 @@ test("process starts locked, unlocks in memory, shuts down bounded, and restarts
 
     const restarted = await startProxy();
     processes.push(restarted);
+    assert.notEqual(restarted.bootEpoch, first.bootEpoch, "every process restart gets a fresh enrollment epoch");
     assert.deepEqual(await restarted.command({ type: "status" }), { type: "status", state: "locked" });
     assert.deepEqual(await restarted.command({ type: "unlock", key: tokenMarker }), { type: "status", state: "unlocked" });
     restarted.child.stdin.write('{"type":"stop"}\n');

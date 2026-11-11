@@ -23,7 +23,7 @@ process.once("SIGTERM", stop);
 process.once("SIGINT", stop);
 shutdownDeadline = setTimeout(() => process.exit(1), 2_000);
 shutdownDeadline.unref();
-respond({ type: "ready", state: runtime.state });
+respond({ type: "ready", state: runtime.state, bootEpoch: runtime.bootEpoch });
 
 lines.on("line", async (line) => {
   if (closing) return;
