@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { createBearerForwarder } from "../src/bearer-forwarder.mjs";
 import { createAuthenticatedProxyListener } from "../src/proxy-listener.mjs";
 import { createProxyRuntime } from "../src/runtime.mjs";
-import { createAuthenticatedTunnelServer, startAuthenticatedProxyTunnel, startVmTunnelHelper } from "../src/tunnel-transport.mjs";
+import { createAuthenticatedTunnelServer, peerIdentity, startAuthenticatedProxyTunnel, startVmTunnelHelper } from "../src/tunnel-transport.mjs";
 
 const fixtures = new URL("./fixtures/", import.meta.url);
 const key = await readFile(new URL("upstream-key.pem", fixtures));
@@ -17,6 +17,21 @@ async function waitForEvent(emitter, event) {
   const pending = once(emitter, event);
   return pending;
 }
+
+test("mTLS VM identity comes from one canonical URI SAN bound to the certificate CN", () => {
+  const identity = "api.example.test";
+  const encoded = Buffer.from(identity).toString("base64url");
+  const socket = (subjectaltname, commonName = identity, authorized = true) => ({
+    authorized,
+    getPeerCertificate: () => ({ subject: { CN: commonName }, subjectaltname }),
+  });
+  assert.equal(peerIdentity(socket(`DNS:api.example.test, URI:urn:factorize:vm:${encoded}`)), identity);
+  assert.throws(() => peerIdentity(socket("DNS:api.example.test")), /one VM identity URI/);
+  assert.throws(() => peerIdentity(socket(`URI:urn:factorize:vm:${encoded}, URI:urn:factorize:vm:${encoded}`)), /one VM identity URI/);
+  assert.throws(() => peerIdentity(socket("URI:urn:factorize:vm:not_canonical=")), /invalid VM identity URI/);
+  assert.throws(() => peerIdentity(socket(`URI:urn:factorize:vm:${encoded}`, "other-vm")), /inconsistent/);
+  assert.throws(() => peerIdentity(socket(`URI:urn:factorize:vm:${encoded}`, identity, false)), /not authorized/);
+});
 
 test("authenticated tunnel listener streams over TLS, confines grants and cancels upstream work", { timeout: 5_000 }, async () => {
   let observedAuthorization;

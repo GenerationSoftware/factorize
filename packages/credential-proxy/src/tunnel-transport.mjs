@@ -9,10 +9,23 @@ const CONTROL_RETRY_WINDOW_MS = 5 * 60_000;
 const CONTROL_RETRY_MAX_MS = 30_000;
 const CONTROL_RETRY_SLOW_MS = 60_000;
 
-function peerIdentity(socket) {
+export function peerIdentity(socket) {
   const certificate = socket.getPeerCertificate();
-  if (!socket.authorized || !certificate?.subject?.CN) throw new Error("tunnel client certificate is not authorized");
-  return certificate.subject.CN;
+  if (!socket.authorized || !certificate?.subject?.CN || typeof certificate.subjectaltname !== "string") {
+    throw new Error("tunnel client certificate is not authorized");
+  }
+  const identities = certificate.subjectaltname.split(/,\s*/).filter(value => value.startsWith("URI:"));
+  if (identities.length !== 1) throw new Error("tunnel client certificate must contain one VM identity URI");
+  const match = /^URI:urn:factorize:vm:([A-Za-z0-9_-]+)$/.exec(identities[0]);
+  if (!match) throw new Error("tunnel client certificate has an invalid VM identity URI");
+  const identityBytes = Buffer.from(match[1], "base64url");
+  const identity = identityBytes.toString("utf8");
+  if (!identity || identityBytes.toString("base64url") !== match[1]
+      || identity.length > 255 || /[\u0000-\u001f\u007f]/.test(identity)
+      || certificate.subject.CN !== identity) {
+    throw new Error("tunnel client certificate identity is invalid or inconsistent");
+  }
+  return identity;
 }
 
 /**
