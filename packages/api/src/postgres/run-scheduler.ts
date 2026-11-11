@@ -6,7 +6,7 @@ import { ArtifactRepository } from "./artifact-repository";
 import { safeDiagnosticText } from "../harness-diagnostics";
 import { decrypt } from "../crypto";
 import { ExeVmBackend } from "../exe-vm-backend";
-import type { ExecutionBackend } from "../execution";
+import type { ArtifactCollector, ExecutionBackend, ExecutionTerminator, HarnessLogReader, JobFileCollector, JobResultReader, TraceChunkCollector } from "../execution";
 import type { ExeRunConnection } from "../exe";
 import type { Env } from "../types";
 import { ConnectionRepository } from "./connection-repository";
@@ -33,6 +33,10 @@ export class RunScheduler {
   }
 
   private connections(run: PersistedRun) { return new ConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+
+  private hasCapability<T extends object>(backend: ExecutionBackend, method: keyof T): backend is ExecutionBackend & T {
+    return typeof (backend as unknown as Record<PropertyKey, unknown>)[method] === "function";
+  }
   private async backend(run: PersistedRun): Promise<ExecutionBackend> {
     const id = String(run.executionConfig.connectionId ?? "");
     const kind = run.executionConfig.backendKind ?? (run.executionConfig.agentKind === "Amp" ? "amp" : "exe-vm");
@@ -71,13 +75,13 @@ export class RunScheduler {
   private async poll(run: PersistedRun) {
     if (!run.executionHandle && run.state === "stopping") return this.runs.schedulePoll(run, "stopping");
     const backend = await this.backend(run); if (!run.executionHandle) throw new Error("Execution handle is missing");
-    const cancellationBackend = backend instanceof ExeVmBackend || backend instanceof AmpBackend;
-    if (run.state === "stopping" && cancellationBackend && !run.executionDiagnostics) await this.runs.recordStopAttempt(run);
-    const observation = run.executionDiagnostics ?? (run.state === "stopping" && cancellationBackend
-      ? backend instanceof ExeVmBackend ? await backend.terminate(run.executionHandle) : await backend.stop(run.executionHandle)
+    const terminator = this.hasCapability<ExecutionTerminator>(backend, "terminate");
+    if (run.state === "stopping" && !run.executionDiagnostics) await this.runs.recordStopAttempt(run);
+    const observation = run.executionDiagnostics ?? (run.state === "stopping"
+      ? terminator ? await backend.terminate(run.executionHandle) : await backend.stop(run.executionHandle)
       : await backend.inspect(run.executionHandle));
     if (["running", "blocked", "stopping"].includes(observation.state)) {
-      if (backend instanceof ExeVmBackend) await this.collectTraceChunk(run, backend).catch(() => { traceMetric("chunk_collection_failure", run.tenantId, run.id); });
+      if (this.hasCapability<TraceChunkCollector>(backend, "collectTraceChunk")) await this.collectTraceChunk(run, backend).catch(() => { traceMetric("chunk_collection_failure", run.tenantId, run.id); });
       return this.runs.schedulePoll(run, observation.state as "running" | "blocked" | "stopping");
     }
     // Persist the first terminal observation before any collection or deletion.
@@ -91,23 +95,26 @@ export class RunScheduler {
       ? { source: diagnostics.failure?.source ?? "run", code: run.failureCode, reason: run.failureReason } : diagnostics.failure;
     if (taskFailure) await this.runs.recordFailureOutcome(run, taskFailure);
     if (!run.failureCode && run.resultProtocolVersion === 1 && diagnostics.state !== "failed" && diagnostics.state !== "stopped") {
-      if (!(backend instanceof ExeVmBackend)) throw new Error("This execution backend cannot collect structured job results");
-      let raw: string | null;
-      try { raw = await backend.readJobResult(run.executionHandle!); }
-      catch (error) { throw error; } // Collection errors are transient and retried by finalization.
-      if (raw === null) { finalState = "failed"; taskFailure = { source: "run", code: "result_missing", reason: "Required structured job result is missing" }; }
-      else {
-        let result;
-        try { result = parseJobResult(raw); }
-        catch (error) { finalState = "failed"; taskFailure = { source: "run", code: "result_invalid", reason: `Invalid structured job result: ${error instanceof Error ? error.message : "validation failed"}` }; }
-        if (result) {
-          await this.runs.recordJobResult(run, result);
-          if (result.status === "failed") { finalState = "failed"; taskFailure ??= { source: "run", code: "task_reported_failure", reason: result.reason! }; }
+      if (!this.hasCapability<JobResultReader>(backend, "readJobResult")) {
+        finalState = "failed"; taskFailure = { source: "system", code: "result_collection_unavailable", reason: "Execution backend cannot collect the required structured job result" };
+      } else {
+        let raw: string | null;
+        try { raw = await backend.readJobResult(run.executionHandle!); }
+        catch (error) { throw error; } // Collection errors are transient and retried by finalization.
+        if (raw === null) { finalState = "failed"; taskFailure = { source: "run", code: "result_missing", reason: "Required structured job result is missing" }; }
+        else {
+          let result;
+          try { result = parseJobResult(raw); }
+          catch (error) { finalState = "failed"; taskFailure = { source: "run", code: "result_invalid", reason: `Invalid structured job result: ${error instanceof Error ? error.message : "validation failed"}` }; }
+          if (result) {
+            await this.runs.recordJobResult(run, result);
+            if (result.status === "failed") { finalState = "failed"; taskFailure ??= { source: "run", code: "task_reported_failure", reason: result.reason! }; }
+          }
         }
       }
     }
     if (taskFailure) await this.runs.recordFailureOutcome(run, taskFailure);
-    if (backend instanceof ExeVmBackend) {
+    if (this.hasCapability<ArtifactCollector & HarnessLogReader & JobFileCollector>(backend, "collectArtifact") && this.hasCapability<HarnessLogReader>(backend, "readHarnessLog") && this.hasCapability<JobFileCollector>(backend, "listJobFiles") && this.hasCapability<JobFileCollector>(backend, "collectJobFile")) {
       const artifacts = new ArtifactRepository(this.database, run.tenantId);
       const stored = await artifacts.list(run.id);
       if (!stored.some(item => item.kind === "terminal_log" && item.state === "stored")) {
@@ -148,19 +155,19 @@ export class RunScheduler {
           }
         } catch { errors.push("Job output file collection or storage failed"); }
       }
-      // Retry collection, but do not keep a VM forever for an absent session/log.
-      if (errors.length && (run.finalizationAttempt ?? 0) < 2) {
-        await this.runs.retryFinalization(run, "partial", errors.join("; "));
-        return;
-      }
-      if (errors.length) artifactState = "partial";
-      try {
-        const stopped = await backend.stop(run.executionHandle);
-        if (stopped.state !== "stopped") throw new Error("VM cleanup failed");
-      } catch {
-        await this.runs.retryFinalization(run, artifactState, [...errors, "VM cleanup failed"].join("; "));
-        return;
-      }
+    } else errors.push("Execution backend does not support complete final artifact collection");
+    // Retry collection, but do not keep a VM forever for an absent session/log.
+    if (errors.length && (run.finalizationAttempt ?? 0) < 2) {
+      await this.runs.retryFinalization(run, "partial", errors.join("; "));
+      return;
+    }
+    if (errors.length) artifactState = "partial";
+    try {
+      const stopped = await backend.stop(run.executionHandle);
+      if (stopped.state !== "stopped") throw new Error("VM cleanup failed");
+    } catch {
+      await this.runs.retryFinalization(run, artifactState, [...errors, "VM cleanup failed"].join("; "));
+      return;
     }
     if (finalState === "failed" && diagnostics.state === "succeeded" && !taskFailure) taskFailure = { source: "run", code: "task_reported_failure", reason: "The run reported an error" };
     await this.runs.terminal(run, finalState, artifactState, errors.filter(Boolean).join("; ") || undefined, true, taskFailure);
@@ -194,7 +201,7 @@ export class RunScheduler {
     });
   }
 
-  private async collectHarnessLog(run: PersistedRun, backend: ExeVmBackend, artifacts: ArtifactRepository) {
+  private async collectHarnessLog(run: PersistedRun, backend: HarnessLogReader, artifacts: ArtifactRepository) {
     if (!this.env.RUN_ARTIFACTS || !run.executionHandle) throw new Error("Harness artifact storage is unavailable");
     const text = await backend.readHarnessLog(run.executionHandle);
     const bytes = new TextEncoder().encode(text);
@@ -219,7 +226,7 @@ export class RunScheduler {
     return driverTraceSources(kind, legacy).primary;
   }
 
-  private async collectArtifact(run: PersistedRun, backend: ExeVmBackend, source?: TraceSource, primary?: boolean) {
+  private async collectArtifact(run: PersistedRun, backend: ArtifactCollector, source?: TraceSource, primary?: boolean) {
     if (!run.executionHandle) throw new Error("Execution handle is missing");
     const sources = this.sources(run);
     source ??= sources.nativeSession ?? sources.primary;
@@ -229,7 +236,7 @@ export class RunScheduler {
     return backend.collectArtifact(run.executionHandle, { source, contentType: source.mediaType, uploadUrl: `${this.env.APP_ORIGIN}/internal/run-artifacts/${encodeURIComponent(token)}` });
   }
 
-  private async collectTraceChunk(run: PersistedRun, backend: ExeVmBackend) {
+  private async collectTraceChunk(run: PersistedRun, backend: ExecutionBackend & TraceChunkCollector) {
     if (!run.executionHandle) throw new Error("Execution handle is missing");
     const source = this.sources(run).primary;
     const cursor = await new LiveTraceRepository(this.database, run.tenantId).cursor(run.id);

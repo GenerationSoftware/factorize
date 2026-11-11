@@ -27,6 +27,7 @@ import { traceReplaySchema } from "./trace-replay-schemas";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
 import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput } from "./skills";
+import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
 
 type JsonSchema = Record<string, any>;
 export interface RouteContract {
@@ -131,6 +132,8 @@ const bearerIntegrationDelete = z.object({ expectedRevision: z.number().int().no
 const bearerIntegrationList = z.object({ revision: z.number().int().nonnegative(), integrations: z.array(bearerIntegrationMetadata) });
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
+const unlockKeyVerification = z.object({ ownerId: z.string(), verification: z.object({ generationId: z.uuid(), encryptedVerification: z.string() }).strict().nullable() }).strict();
+const unlockKeyVerificationInput = z.object({ generationId: z.uuid(), encryptedVerification: z.string().min(1).max(4096) }).strict();
 
 function route(
   method: string,
@@ -209,6 +212,8 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 }
 
 export const API_ROUTES: RouteContract[] = [
+  route("GET", "/api/v1/unlock-key/verification", "integrations:read", { summary: "Get the current encrypted unlock-key verification record", description: "Requires an interactive owner browser session. Returns user-encrypted verification ciphertext and its key generation; the unlock key is never accepted or returned.", responses: { "200": { description: "Encrypted verification record or empty setup state", content: { "application/json": { schema: jsonSchema(unlockKeyVerification, "output") } } } } }, service => service.getUnlockKeyVerification(), { ownerSession: true }),
+  route("POST", "/api/v1/unlock-key/verification", "integrations:write", { summary: "Create the encrypted unlock-key verification record", description: "Requires an interactive owner browser session. Stores only browser-encrypted verification ciphertext and permits one setup per account.", responses: { "200": { description: "Created verification record", content: { "application/json": { schema: jsonSchema(z.object({ generationId: z.uuid() }), "output") } } } } }, (service, { body }) => service.createUnlockKeyVerification(body), { body: unlockKeyVerificationInput, maxBodyBytes: 8192, ownerSession: true }),
   route("GET", "/api/v1/integrations/bearer", "flows:read", {
     summary: "List encrypted bearer integrations",
     description: "Requires an interactive owner browser session. Returns safe metadata and user-encrypted ciphertext; credentials are never decrypted or revealed.",
@@ -354,6 +359,26 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service) => service.integrationStatus(),
   ),
+  route("GET", "/api/v1/fly/connection", "integrations:read", {
+    summary: "Read Fly account connection status",
+    description: "Owner browser session only. Returns organization metadata and never returns the provisioning token.",
+    responses: { "200": { description: "Connection status", content: { "application/json": { schema: jsonSchema(z.object({ connection: flyConnectionMetadata.nullable() }), "output") } } } },
+  }, service => service.getFlyConnection(), { ownerSession: true }),
+  route("POST", "/api/v1/fly/connection/test", "integrations:write", {
+    summary: "Validate a Fly organization token",
+    description: "Owner browser session only. Supply an org-scoped Fly deploy token with permission to manage Machines in the selected organization, created with `fly tokens create org --org <slug>`. A read-only org token is insufficient for later provisioning. Validation calls Fly's documented read-only current-token endpoint and launches no resources.",
+    responses: { "200": { description: "Validated organization", content: { "application/json": { schema: jsonSchema(z.object({ valid: z.literal(true), connection: flyConnectionMetadata }), "output") } } } },
+  }, (service, { body }) => service.validateFlyConnection(body), { body: flyConnectionInput, ownerSession: true }),
+  route("PUT", "/api/v1/fly/connection", "integrations:write", {
+    summary: "Save a Fly account connection",
+    description: "Owner browser session only. Supply an org-scoped Fly deploy token with permission to manage Machines in the selected organization, created with `fly tokens create org --org <slug>`. A read-only org token is insufficient for provisioning. The server validates the connection and encrypts the token with its credential key; the token is never returned.",
+    responses: { "200": { description: "Saved connection metadata", content: { "application/json": { schema: jsonSchema(z.object({ connection: flyConnectionMetadata }), "output") } } } },
+  }, (service, { body }) => service.saveFlyConnection(body), { body: flyConnectionInput, ownerSession: true }),
+  route("DELETE", "/api/v1/fly/connection", "integrations:write", {
+    summary: "Remove the Fly account connection",
+    description: "Owner browser session only. Deletes the tenant's encrypted provisioning token.",
+    responses: { "200": { description: "Deletion result", content: { "application/json": { schema: jsonSchema(z.object({ deleted: z.boolean() }), "output") } } } },
+  }, service => service.removeFlyConnection(), { ownerSession: true }),
   route(
     "PUT",
     "/api/v1/integrations/exe",

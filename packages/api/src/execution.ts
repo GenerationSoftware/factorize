@@ -52,6 +52,20 @@ export interface JobFileCollectionRequest { path: string; uploadUrl: string; }
 export interface TraceChunkCollectionRequest { uploadUrl: string; source?: TraceSource; discoverCommand?: string; generation: string | null; offset: number; previousHash: string; }
 export interface ArtifactCollectionReceipt { ok: boolean; detail?: string; command?: BackendCommandResult; }
 
+/** Optional execution backend capabilities used while collecting a finished run. */
+export interface JobResultReader { readJobResult(handle: RunHandle): Promise<string | null>; }
+export interface JobFileCollector {
+  listJobFiles(handle: RunHandle): Promise<string[]>;
+  collectJobFile(handle: RunHandle, request: JobFileCollectionRequest): Promise<ArtifactCollectionReceipt>;
+}
+export interface HarnessLogReader { readHarnessLog(handle: RunHandle): Promise<string>; }
+export interface ArtifactCollector {
+  collectArtifact(handle: RunHandle, request: ArtifactCollectionRequest): Promise<ArtifactCollectionReceipt>;
+  collectTraceChunk?(handle: RunHandle, request: TraceChunkCollectionRequest): Promise<ArtifactCollectionReceipt>;
+}
+export interface TraceChunkCollector { collectTraceChunk(handle: RunHandle, request: TraceChunkCollectionRequest): Promise<ArtifactCollectionReceipt>; }
+export interface ExecutionTerminator { terminate(handle: RunHandle): Promise<ExecutionObservation>; }
+
 /** Provider-neutral boundary. Output and recovery are opt-in capabilities. */
 export interface ExecutionBackend {
   readonly kind: string;

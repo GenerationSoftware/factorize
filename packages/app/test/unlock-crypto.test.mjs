@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decryptRecord, encryptRecord, generateUnlockKey } from "../src/lib/unlock-crypto.ts";
+import { createUnlockVerification, decryptRecord, encryptAfterUnlockVerification, encryptRecord, generateUnlockKey, verifyUnlockKey } from "../src/lib/unlock-crypto.ts";
 
 const key = "fzk1.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 const binding = { ownerId: "owner-vector", recordId: "record-vector", recordType: "integration", destination: "https://api.example.test", revision: 7 };
@@ -41,4 +41,16 @@ test("malformed keys and envelopes and unsupported versions are rejected", async
     await assert.rejects(decryptRecord(malformed, key, binding));
   }
   await assert.rejects(decryptRecord({ ...vector, version: 2 }, key, binding), /Unsupported/u);
+});
+
+test("verification records bind the account and generation, and edits verify before encryption", async () => {
+  const generation = "00000000-0000-4000-8000-000000000001";
+  const record = await createUnlockVerification(key, "owner-1", generation);
+  await verifyUnlockKey(key, "owner-1", generation, record);
+  await assert.rejects(verifyUnlockKey(key, "owner-2", generation, record));
+  await assert.rejects(verifyUnlockKey(key, "owner-1", "00000000-0000-4000-8000-000000000002", record));
+  await assert.rejects(verifyUnlockKey("malformed", "owner-1", generation, record));
+  const binding = { ownerId: "owner-1", recordId: "record-1", recordType: "integration", destination: "https://api.example.test", revision: 1 };
+  await assert.rejects(encryptAfterUnlockVerification("fzk1.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE", "owner-1", generation, record, new TextEncoder().encode("edit"), binding));
+  assert.ok(await encryptAfterUnlockVerification(key, "owner-1", generation, record, new TextEncoder().encode("edit"), binding));
 });

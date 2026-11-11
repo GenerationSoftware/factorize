@@ -4,13 +4,13 @@ import { runProcess } from "./portable-proxy-test-helpers.mjs";
 
 const lane = process.argv[2] ?? "all";
 const expectedNode = "24.12.0";
-const suiteTimeoutMs = 540_000;
+const suiteTimeoutMs = 580_000;
 const lanes = {
   backend: [
     ["generated contracts", "npm", ["run", "generate"], 90_000],
     ["generated contract drift", "git", ["diff", "--exit-code", "--", "packages/docs/openapi.yaml", "packages/api-client/src/schema.d.ts"], 15_000],
     ["application build", "npm", ["run", "build", "--workspace=factorize-app"], 90_000],
-    ["backend checks", "npm", ["run", "check:backend"], 240_000],
+    ["backend checks", "npm", ["run", "check:backend"], 300_000],
     ["compiled app/API/PostgreSQL integration", "npm", ["run", "test:static-slice", "--workspace=factorize"], 90_000],
   ],
   browser: [
@@ -21,7 +21,7 @@ const lanes = {
   ],
   proxy: [
     ["portable proxy harness checks", process.execPath, ["--test", "scripts/validation-runner.test.mjs"], 30_000],
-    ["credential proxy process checks", process.execPath, ["--test", "packages/credential-proxy/test/runtime-process.test.mjs"], 30_000],
+    ["credential proxy checks", process.execPath, ["--test", "packages/credential-proxy/test/*.test.mjs"], 30_000],
   ],
 };
 
