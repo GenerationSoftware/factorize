@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { consumeProxyEnrollment, createProxyEnrollmentAuthenticator, issueProxyEnrollment, readProxyIntegrationSnapshot, registerProxyBoot } from "../src/control-client.mjs";
+import { consumeProxyEnrollment, createProxyEnrollmentAuthenticator, issueProxyEnrollment, readProxyIntegrationSnapshot, readProxyRunRevocations, registerProxyBoot, startProxyRunRevocationMonitor } from "../src/control-client.mjs";
 
 const token = `fzc_${"A".repeat(43)}`;
 const bootEpoch = "22222222-2222-4222-8222-222222222222";
@@ -32,6 +32,33 @@ test("proxy snapshot reader requests only the bound run revision and validates e
   assert.deepEqual(request.body, { runId, grantRevision: 7 });
   assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
   await assert.rejects(readProxyIntegrationSnapshot({ controlOrigin: "https://factorize.example", token, binding: { runId, grantRevision: 7 }, fetchImpl: async () => Response.json({ ownerId: "owner-1", records: [{ ...snapshot.records[0], kind: "model" }] }) }), /invalid proxy integration snapshot response/);
+});
+
+test("proxy revocation monitor applies durable run revocations and tolerates an outage", async () => {
+  const requests = [];
+  const revoked = [];
+  let failFirst = true;
+  const fetchImpl = async (url, init) => {
+    requests.push({ url: String(url), init, body: JSON.parse(init.body) });
+    if (failFirst) { failFirst = false; throw new Error("offline fixture"); }
+    return Response.json({ revokedRunIds: [runId] });
+  };
+  const runtime = { revokeRun: async id => { revoked.push(id); } };
+  const monitor = startProxyRunRevocationMonitor({
+    controlOrigin: "https://factorize.example", controlCredential: token, bootEpoch, runtime, intervalMs: 100, fetchImpl,
+  });
+  try {
+    const deadline = Date.now() + 1_000;
+    while (!revoked.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.deepEqual(revoked, [runId]);
+    assert.equal(requests.length, 2, "a failed poll leaves the proxy live and retries through the control plane");
+    assert.ok(requests.every(request => request.url === "https://factorize.example/internal/credential-proxy/revocations"));
+    assert.ok(requests.every(request => request.init.headers.Authorization === `Bearer ${token}`));
+    assert.ok(requests.every(request => request.body.bootEpoch === bootEpoch));
+  } finally {
+    await monitor.close();
+  }
+  await assert.rejects(readProxyRunRevocations({ controlOrigin: "https://factorize.example", token, bootEpoch, fetchImpl: async () => Response.json({ revokedRunIds: ["invalid"] }) }), /invalid proxy revocation response/);
 });
 
 test("boot registration rejects unsafe origins, invalid credentials and mismatched response bindings", async () => {

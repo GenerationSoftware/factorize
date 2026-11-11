@@ -73,6 +73,58 @@ export async function readProxyIntegrationSnapshot({ controlOrigin, token, bindi
   return result;
 }
 
+/** Read durable revocations for the registered proxy boot. Replaying the full
+ * set is intentional: it closes runs revoked while this proxy was offline and
+ * runtime.revokeRun is idempotent. */
+export async function readProxyRunRevocations({ controlOrigin, token, bootEpoch, fetchImpl = fetch } = {}) {
+  if (!bootEpochPattern.test(bootEpoch ?? "")) throw new TypeError("invalid proxy boot epoch");
+  const result = await proxyControlRequest({
+    controlOrigin,
+    token,
+    path: "/internal/credential-proxy/revocations",
+    body: { bootEpoch },
+    fetchImpl,
+  });
+  if (!Array.isArray(result?.revokedRunIds) || result.revokedRunIds.some(id => !uuidPattern.test(id))) {
+    throw new Error("invalid proxy revocation response");
+  }
+  return result.revokedRunIds;
+}
+
+/** Poll durable control-plane state. A failed request leaves established
+ * connections running and the next bounded poll retries when communication
+ * recovers; it does not add an authorization lease or expiry. */
+export function startProxyRunRevocationMonitor({ controlOrigin, controlCredential, bootEpoch, runtime, intervalMs = 5_000, fetchImpl = fetch } = {}) {
+  if (!runtime || typeof runtime.revokeRun !== "function" || !Number.isInteger(intervalMs) || intervalMs < 100 || intervalMs > 60_000) {
+    throw new TypeError("invalid proxy revocation monitor configuration");
+  }
+  let stopped = false;
+  let timer;
+  let polling;
+  const poll = async () => {
+    if (stopped || polling) return;
+    polling = (async () => {
+      try {
+        const runIds = await readProxyRunRevocations({ controlOrigin, token: controlCredential, bootEpoch, fetchImpl });
+        for (const runId of runIds) await runtime.revokeRun(runId);
+      } catch {
+        // Keep existing connections alive during an outage and retry on schedule.
+      } finally {
+        polling = undefined;
+        if (!stopped) timer = setTimeout(poll, intervalMs);
+      }
+    })();
+  };
+  void poll();
+  return Object.freeze({
+    async close() {
+      stopped = true;
+      clearTimeout(timer);
+      await polling;
+    },
+  });
+}
+
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**

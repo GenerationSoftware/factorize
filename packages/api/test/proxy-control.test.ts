@@ -147,4 +147,26 @@ describe("dedicated proxy boot registration endpoint", () => {
     ] });
     expect(env.query.mock.calls.map((call: any[]) => call[0])).toEqual(expect.arrayContaining([expect.stringContaining("grant_revision=$5"), expect.stringContaining("FROM app.integration_records")]));
   });
+
+  it("returns durable revoked runs only for the authenticated current proxy boot", async () => {
+    const env = envFor();
+    env.query.mockImplementation(async (sql: string) => sql.includes("proxy_token_digest")
+      ? { rows: [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }], rowCount: 1 }
+      : { rows: [{ run_id: runId }], rowCount: 1 });
+    const response = await proxyControlFetch(request({
+      authorization: `Bearer ${token}`,
+      path: "/internal/credential-proxy/revocations",
+      body: { bootEpoch },
+    }), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ revokedRunIds: [runId] });
+    expect(env.query.mock.calls[1][0]).toContain("revoked_at IS NOT NULL");
+    expect(env.query.mock.calls[1][1]).toEqual(["11111111-1111-4111-8111-111111111111", "proxy-fixture", bootEpoch]);
+    const stale = await proxyControlFetch(request({
+      authorization: `Bearer ${token}`,
+      path: "/internal/credential-proxy/revocations",
+      body: { bootEpoch: "44444444-4444-4444-8444-444444444444" },
+    }), env);
+    expect(stale.status).toBe(400);
+  });
 });
