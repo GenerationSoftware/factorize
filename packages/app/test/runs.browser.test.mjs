@@ -242,6 +242,26 @@ test("run rename supports keyboard save and cancel, validates names, and preserv
   await page.getByRole("button", { name: "Rename", exact: true }).click(); await page.getByRole("textbox", { name: "Run name" }).fill("Saved name"); await page.keyboard.press("Enter"); await page.getByRole("heading", { name: "Saved name", exact: true }).waitFor(); assert.deepEqual(saves, [{ name: "Saved name", expectedName: "Original run" }]);
   await page.reload(); await page.getByRole("heading", { name: "Saved name", exact: true }).waitFor(); await context.close();
 });
+test("running trace shows animated dots and polls forward from its latest event", async () => {
+  const { context, page } = await setup(); const tailRequests = [];
+  const event = sequence => ({ id: `live-${sequence}`, sequence, type: "assistant_message", title: `Live ${sequence}`, preview: `Live ${sequence}`, display: {} });
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Job", run_name: "Live run", state: "running", finalizing: false, trace_revision: "live", artifact_state: "pending", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => {
+    const query = new URL(route.request().url()).searchParams;
+    if (query.has("after")) {
+      const after = Number(query.get("after")); tailRequests.push(after);
+      return route.fulfill({ json: { items: [event(after + 1)], nextCursor: null, previousCursor: null, revision: "live", reset: false } });
+    }
+    return route.fulfill({ json: { items: [event(1)], nextCursor: null, previousCursor: null, revision: "live", reset: false } });
+  });
+  await page.goto(origin + "/job-runs/" + runId + "/trace");
+  const indicator = page.locator("[data-run-trace-live]"); await indicator.waitFor();
+  assert.equal(await indicator.locator(".trace-live-dots > span").count(), 3);
+  assert.equal(await indicator.locator(".trace-live-dots > span").first().evaluate(element => getComputedStyle(element).animationName), "trace-dot-pulse");
+  await page.getByText("Live 3", { exact: true }).waitFor({ timeout: 7000 });
+  assert.deepEqual(tailRequests.slice(0, 2), [1, 2], "each poll should request events after the latest displayed sequence");
+  await context.close();
+});
 test("full run trace uses pull-to-load history, preserves the anchor, and never crashes on disclosure toggles", async () => {
   const { context, page } = await setup(); const requests = [];
   const event = (sequence, type = "assistant_message") => ({ id: `trace-${sequence}`, sequence, type, title: `Trace ${sequence}`, preview: `Trace ${sequence}`, display: {} });

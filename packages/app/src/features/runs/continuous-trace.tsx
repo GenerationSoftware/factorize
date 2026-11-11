@@ -69,8 +69,8 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
   });
   const latestSequence = items.at(-1)?.sequence ?? 0;
   const live = useQuery({
-    queryKey: ["runs", runId, "conversation-tail", revision, latestSequence],
-    enabled: !preview && active && visible && !!trace.data && !trace.isFetching,
+    queryKey: ["runs", runId, "conversation-tail", revision],
+    enabled: !preview && active && visible && !!trace.data,
     queryFn: async ({ signal }) => {
       const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: latestSequence, revision, limit: 100 } } });
       if (!data || error) throw new Error(messageOf(error)); return data;
@@ -78,7 +78,7 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
     refetchIntervalInBackground: false, refetchInterval: query => query.state.error ? 10_000 : 2_000, retry: 1,
   });
   useEffect(() => { const changed = live.data?.reset ? live.data : pages.find(page => page.reset || page.revision !== revision); if (changed) onReset(changed.revision); }, [live.data, pages, revision, onReset]);
-  useEffect(() => { if (live.data && !live.data.reset && live.data.revision === revision) setLiveItems(previous => [...previous, ...live.data!.items]); }, [live.data, revision]);
+  useEffect(() => { if (live.data && !live.data.reset && live.data.revision === revision && live.data.items.length) setLiveItems(previous => [...previous, ...live.data!.items]); }, [live.data, revision]);
   useEffect(() => { setLiveItems([]); setExpanded(new Set()); }, [revision]);
   useEffect(() => { initialAlignedRevision.current = null; followRef.current = true; historyTopArmedRef.current = true; }, [revision]);
   const updateRetainedRows = () => {
@@ -196,6 +196,6 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
         </div>;
       })}</div>
     </div>
-    {active && <p role="status" className="mt-5 text-sm font-medium"><RunStatusLabel state="running" /></p>}
+    {active && <p data-run-trace-live role="status" aria-label="Run is still running" className="mt-5 flex items-center gap-2 text-sm font-medium"><RunStatusLabel state="running" /><span className="trace-live-dots" aria-hidden="true"><span /><span /><span /></span></p>}
   </>;
 }
