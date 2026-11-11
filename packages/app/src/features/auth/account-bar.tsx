@@ -7,6 +7,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf, refreshIdentity, sessionQuery } from "./session";
 import { projectQuery, projectsQuery } from "../projects/queries";
+import { jobQuery } from "../jobs/queries";
 import beeMark from "../../assets/bee-mark-monochrome.png";
 
 export function AccountBar() {
@@ -14,10 +15,14 @@ export function AccountBar() {
   const authenticated = session.data?.authenticated;
   const projects = useQuery({ ...projectsQuery, enabled: !!authenticated });
   const pathname = useRouterState({ select: state => state.location.pathname });
-  const match = pathname.match(/^\/projects\/([^/]+)/);
-  const routeProjectId = match && match[1] !== "new" ? decodeURIComponent(match[1]) : undefined;
-  const routeProject = useQuery({ ...projectQuery(routeProjectId ?? ""), enabled: !!authenticated && !!routeProjectId, retry: false });
-  const currentProject = projects.data?.find(project => project.id === routeProjectId) ?? routeProject.data;
+  const projectMatch = pathname.match(/^\/projects\/([^/]+)/);
+  const routeProjectId = projectMatch && projectMatch[1] !== "new" ? decodeURIComponent(projectMatch[1]) : undefined;
+  const jobMatch = pathname.match(/^\/jobs\/([^/]+)/);
+  const routeJobId = jobMatch && jobMatch[1] !== "new" ? decodeURIComponent(jobMatch[1]) : undefined;
+  const routeJob = useQuery({ ...jobQuery(routeJobId ?? ""), enabled: !!authenticated && !!routeJobId, retry: false });
+  const currentProjectId = routeProjectId ?? routeJob.data?.projectId;
+  const routeProject = useQuery({ ...projectQuery(currentProjectId ?? ""), enabled: !!authenticated && !!currentProjectId, retry: false });
+  const currentProject = projects.data?.find(project => project.id === currentProjectId) ?? routeProject.data;
   const navigate = useNavigate();
   const logout = useMutation({
     retry: false,
@@ -68,7 +73,7 @@ export function AccountBar() {
               <Button className="mt-2 w-full" onClick={() => logout.mutate()} disabled={logout.isPending}>{logout.isPending ? "Signing out…" : "Sign out"}</Button>
             </div>}
           </div>
-          {routeProjectId && <><span aria-hidden="true" className="hidden text-slate-400 sm:inline">/</span><div ref={menu} className="relative flex min-w-0 items-center">
+          {currentProjectId && <><span aria-hidden="true" className="hidden text-slate-400 sm:inline">/</span><div ref={menu} className="relative flex min-w-0 items-center">
           {currentProject ? <Link to="/projects/$projectId" params={{ projectId: currentProject.id }} className="min-w-0 max-w-[55vw] truncate text-slate-700 hover:text-factorize-700 dark:text-slate-200 sm:max-w-64">{currentProject.name}</Link> : <span className="truncate text-slate-600 dark:text-slate-300">{routeProject.isPending ? "Loading project…" : routeProject.error ? "Project unavailable" : "Project"}</span>}
             <button ref={trigger} type="button" aria-label="Switch project" aria-haspopup="listbox" aria-expanded={open} className="ml-0 flex size-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-factorize-500 dark:text-slate-300 dark:hover:bg-slate-800 sm:ml-1" onClick={() => { setOpen(value => !value); setSearch(""); setActive(0); requestAnimationFrame(() => searchInput.current?.focus()); }}><svg aria-hidden="true" viewBox="0 0 20 20" className="size-4 fill-current"><path d="m5 7 5 5 5-5" /></svg></button>
             {open && <div className="absolute left-0 top-full z-40 mt-2 w-[min(19rem,calc(100vw-2rem))] rounded-xl border border-stone-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900">
@@ -79,7 +84,7 @@ export function AccountBar() {
                 {projects.error && <li role="alert" className="px-3 py-2 text-sm text-red-700">{projects.error.message}</li>}
                 {projects.data?.length === 0 && <li className="px-3 py-2 text-sm text-slate-500">No projects yet.</li>}
                 {projects.data && !projects.error && options.length === 0 && projects.data.length > 0 && <li className="px-3 py-2 text-sm text-slate-500">No matching projects.</li>}
-                {options.map((project, index) => <li key={project.id} id={`project-option-${project.id}`} role="option" aria-selected={project.id === routeProjectId} className={`cursor-pointer rounded-lg px-3 py-2 text-sm ${index === active ? "bg-factorize-50 text-slate-950 dark:bg-slate-800 dark:text-white" : "text-slate-700 dark:text-slate-200"}`} onMouseEnter={() => setActive(index)} onMouseDown={event => event.preventDefault()} onClick={() => choose(project.id)}>{project.name}{project.id === routeProjectId && <span className="ml-2 text-xs text-slate-500">Current</span>}</li>)}
+                {options.map((project, index) => <li key={project.id} id={`project-option-${project.id}`} role="option" aria-selected={project.id === currentProjectId} className={`cursor-pointer rounded-lg px-3 py-2 text-sm ${index === active ? "bg-factorize-50 text-slate-950 dark:bg-slate-800 dark:text-white" : "text-slate-700 dark:text-slate-200"}`} onMouseEnter={() => setActive(index)} onMouseDown={event => event.preventDefault()} onClick={() => choose(project.id)}>{project.name}{project.id === currentProjectId && <span className="ml-2 text-xs text-slate-500">Current</span>}</li>)}
               </ul>
             </div>}
           </div></>}
