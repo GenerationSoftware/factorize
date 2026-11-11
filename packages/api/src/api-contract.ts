@@ -131,6 +131,8 @@ const bearerIntegrationDelete = z.object({ expectedRevision: z.number().int().no
 const bearerIntegrationList = z.object({ revision: z.number().int().nonnegative(), integrations: z.array(bearerIntegrationMetadata) });
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
+const unlockKeyVerification = z.object({ ownerId: z.string(), verification: z.object({ generationId: z.uuid(), encryptedVerification: z.string() }).strict().nullable() }).strict();
+const unlockKeyVerificationInput = z.object({ generationId: z.uuid(), encryptedVerification: z.string().min(1).max(4096) }).strict();
 
 function route(
   method: string,
@@ -209,6 +211,8 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 }
 
 export const API_ROUTES: RouteContract[] = [
+  route("GET", "/api/v1/unlock-key/verification", "integrations:read", { summary: "Get the current encrypted unlock-key verification record", description: "Requires an interactive owner browser session. Returns user-encrypted verification ciphertext and its key generation; the unlock key is never accepted or returned.", responses: { "200": { description: "Encrypted verification record or empty setup state", content: { "application/json": { schema: jsonSchema(unlockKeyVerification, "output") } } } } }, service => service.getUnlockKeyVerification(), { ownerSession: true }),
+  route("POST", "/api/v1/unlock-key/verification", "integrations:write", { summary: "Create the encrypted unlock-key verification record", description: "Requires an interactive owner browser session. Stores only browser-encrypted verification ciphertext and permits one setup per account.", responses: { "200": { description: "Created verification record", content: { "application/json": { schema: jsonSchema(z.object({ generationId: z.uuid() }), "output") } } } } }, (service, { body }) => service.createUnlockKeyVerification(body), { body: unlockKeyVerificationInput, maxBodyBytes: 8192, ownerSession: true }),
   route("GET", "/api/v1/integrations/bearer", "flows:read", {
     summary: "List encrypted bearer integrations",
     description: "Requires an interactive owner browser session. Returns safe metadata and user-encrypted ciphertext; credentials are never decrypted or revealed.",
