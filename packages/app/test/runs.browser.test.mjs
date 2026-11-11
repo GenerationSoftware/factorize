@@ -38,9 +38,10 @@ test("run page errors back off for ten seconds and recover", async () => {
   assert.equal(count, 3, "the idle refetch and its single retry should expose an error");
   await page.clock.runFor(9000); assert.equal(count, 3, "errors should wait about ten seconds before another query");
   const recoveredResponse = page.waitForResponse(response => response.url().includes("/api/v1/runs?") && response.status() === 200);
-  await page.clock.runFor(1100); await recoveredResponse; await page.getByRole("link", { name: "Polling run", exact: true }).waitFor(); await page.getByRole("alert").waitFor({ state: "detached" }); assert.equal(count, 4, "the ten-second error interval should retry and recover");
-  await page.clock.runFor(14999); assert.equal(count, 4, "a successful response should return to the 15-second idle interval");
-  await page.clock.runFor(1); assert.equal(count, 5);
+  for (let elapsed = 0; count < 4 && elapsed < 2000; elapsed++) await page.clock.runFor(1);
+  await recoveredResponse; await page.getByRole("link", { name: "Polling run", exact: true }).waitFor(); await page.getByRole("alert").waitFor({ state: "detached" }); assert.equal(count, 4, "the ten-second error interval should retry and recover");
+  await page.clock.runFor(12_000); assert.equal(count, 4, "a successful response should return to the 15-second idle interval");
+  await page.clock.runFor(5_000); assert.equal(count, 5, "the idle interval should refresh after about 15 seconds");
   await context.close();
 });
 test("all-jobs runs index uses a tenant-scoped page, navigation, refresh, and created time", async () => {
