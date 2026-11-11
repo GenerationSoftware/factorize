@@ -4,6 +4,7 @@ import {
   Handle, type Edge, type EdgeProps, type Node, type NodeProps, type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { RunStatusLabel } from "../../shared/ui";
 import { routeAroundNodes, roundedPath, type GraphRect, type GraphSide } from "./graph-geometry";
 
 export type GraphNode = { id: string; type: string; label: string; provider?: string; jobKind?: string; enabled?: boolean; runningCount?: number; concurrencyLimit?: number };
@@ -69,7 +70,7 @@ const GraphCardNode = memo(function GraphCardNode({ data }: NodeProps<FlowNode>)
   return <div role={isJob ? "link" : undefined} tabIndex={isJob ? 0 : undefined} onKeyDown={event => { if (isJob && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); (data as GraphNodeData).onOpen(node.id); } }} className={`relative h-full w-full rounded-xl border-2 p-3 shadow-sm ${muted ? "border-dashed border-stone-400 bg-stone-200" : isJob ? "border-teal-700 bg-white" : "border-sky-600 bg-sky-100"}`} aria-label={accessible}>
     {sides.map(side => <Handle key={side + "in"} id={side} type="target" position={handlePosition(side)} className="!h-1 !w-1 !border-0 !bg-transparent" />)}
     {sides.map(side => <Handle key={side + "out"} id={side} type="source" position={handlePosition(side)} className="!h-1 !w-1 !border-0 !bg-transparent" />)}
-    {isJob ? <><div className="text-[11px] font-medium text-slate-800">{node.jobKind}</div><div className="mt-1 truncate text-base font-semibold text-slate-800">{title}</div><div className="mt-3 flex items-center gap-2 text-[11px] font-medium text-slate-600"><span className={`inline-block h-2.5 w-2.5 rounded-full ${active ? "bg-emerald-600 motion-safe:animate-pulse" : "bg-stone-400"}`} />{active ? `Running${node.concurrencyLimit && node.concurrencyLimit > 1 ? ` · ${node.runningCount}/${node.concurrencyLimit}` : ""}` : "Not running"}</div></> : <><div className="text-xs font-semibold text-slate-800">{node.provider}</div><div className="mt-1 truncate text-xs text-slate-700">{node.label.length > 19 ? node.label.slice(0, 18) + "…" : node.label}</div></>}
+    {isJob ? <><div className="text-[11px] font-medium text-slate-800">{node.jobKind}</div><div className="mt-1 truncate text-base font-semibold text-slate-800">{title}</div><div className="mt-3 flex items-center gap-1 text-[11px] font-medium text-slate-600"><RunStatusLabel state={active ? "running" : "Not running"} />{active && node.concurrencyLimit && node.concurrencyLimit > 1 ? ` · ${node.runningCount}/${node.concurrencyLimit}` : ""}</div></> : <><div className="text-xs font-semibold text-slate-800">{node.provider}</div><div className="mt-1 truncate text-xs text-slate-700">{node.label.length > 19 ? node.label.slice(0, 18) + "…" : node.label}</div></>}
   </div>;
 });
 const nodeTypes = { job: GraphCardNode, webhook: GraphCardNode };
