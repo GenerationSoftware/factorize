@@ -16,10 +16,13 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
   let shutdown = false;
   let locking = false;
   const listeners = new Set();
+  const listenerRuns = new Map();
+  const revokedRuns = new Set();
 
   async function closeListeners() {
     const current = [...listeners];
     listeners.clear();
+    listenerRuns.clear();
     await Promise.allSettled(current.map((listener) => listener.close()));
   }
 
@@ -49,20 +52,33 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       if (shutdown) throw new Error("runtime is shutting down");
       if (state !== "unlocked") throw new Error("proxy is locked");
       if (connection?.bootEpoch !== bootEpoch) throw new Error("enrollment belongs to a different proxy boot");
+      if (typeof connection.runId !== "string" || !connection.runId) throw new TypeError("authenticated connection requires a run identity");
+      if (revokedRuns.has(connection.runId)) throw new Error("run grants have been revoked");
       // The transport adapter calls this only after atomically consuming and
       // authenticating enrollment. Grants are the consumed, current run state.
       const listener = await listenerFactory({ connection });
-      if (state !== "unlocked" || shutdown) {
+      if (state !== "unlocked" || shutdown || revokedRuns.has(connection.runId)) {
         await listener.close();
-        throw new Error("proxy locked while accepting the connection");
+        throw new Error(revokedRuns.has(connection.runId) ? "run grants have been revoked" : "proxy locked while accepting the connection");
       }
       listeners.add(listener);
+      // Keep the run identity beside the listener so a control-plane revocation
+      // can tear down every established connection without retaining grants.
+      listenerRuns.set(listener, connection.runId);
       return listener;
     },
     async disconnect(connectionId) {
       const matching = [...listeners].filter((listener) => listener.connectionId === connectionId);
       await Promise.allSettled(matching.map((listener) => listener.close()));
-      for (const listener of matching) listeners.delete(listener);
+      for (const listener of matching) { listeners.delete(listener); listenerRuns.delete(listener); }
+    },
+    async revokeRun(runId) {
+      if (typeof runId !== "string" || !runId) throw new TypeError("run identity is required for revocation");
+      revokedRuns.add(runId);
+      const matching = [...listeners].filter((listener) => listenerRuns.get(listener) === runId);
+      await Promise.allSettled(matching.map((listener) => listener.close()));
+      for (const listener of matching) { listeners.delete(listener); listenerRuns.delete(listener); }
+      return matching.length;
     },
     async shutdown() {
       shutdown = true;
