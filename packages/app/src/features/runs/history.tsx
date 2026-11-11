@@ -3,7 +3,8 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { historyQuery } from "./queries";
 import { formatElapsedTime } from "../../shared/elapsed-time";
-export type HistorySort = "run" | "status" | "created" | "agent";
+import { formatCreated } from "./format-created";
+export type HistorySort = "run" | "status" | "created";
 export type HistorySearch = { cursor?: string; previous?: string; states?: RunStatus[]; sort?: HistorySort; direction?: "asc" | "desc" };
 export function RunHistory({ jobId }: { jobId: string }) {
   const search = useSearch({ strict: false }) as HistorySearch;
@@ -11,7 +12,7 @@ export function RunHistory({ jobId }: { jobId: string }) {
   const runs = useQuery(historyQuery(jobId, search.cursor, search.sort, search.direction, search.states));
   const previous = search.previous === undefined ? [] : search.previous.split(",");
   const pageClasses = `inline-flex min-h-10 items-center rounded-lg border px-3 py-2 text-sm font-semibold ${buttonClasses.secondary}`;
-  const columns: Array<[HistorySort, string]> = [["status", "Status"], ["run", "Run"], ["created", "Created"], ["agent", "Execution"]];
+  const columns: Array<[HistorySort, string]> = [["status", "Status"], ["run", "Run"], ["created", "Created"]];
   const sortColumn = (column: HistorySort) => {
     const direction = search.sort === column && search.direction === "asc" ? "desc" : "asc";
     void navigate({ to: "/jobs/$jobId", params: { jobId }, search: { ...search, sort: column, direction, cursor: undefined, previous: undefined } });
@@ -22,13 +23,13 @@ export function RunHistory({ jobId }: { jobId: string }) {
   const clearStatuses = () => void navigate({ to: "/jobs/$jobId", params: { jobId }, search: { ...search, states: undefined, sort: undefined, direction: undefined, cursor: undefined, previous: undefined } });
   return <section aria-label="Runs" className="my-6 min-w-0">
     {runs.isPending && <p role="status">Loading run history…</p>}{runs.error && <p role="alert">{runs.error.message} <Button onClick={() => void runs.refetch()}>Retry</Button></p>}
-    {runs.data && <><Table className="min-w-[40rem] table-fixed" shellProps={{ role: "region", "aria-label": "Runs table", tabIndex: 0 }}><caption className="sr-only">Job runs{search.sort ? "" : ", queued and starting first, running second, then other states; newest first within each group"}</caption><colgroup><col className="w-20" /><col className="w-60" /><col className="w-44" /><col className="w-52" /><col className="w-32" /></colgroup>
+    {runs.data && <><Table className="min-w-[40rem] table-fixed" shellProps={{ role: "region", "aria-label": "Runs table", tabIndex: 0 }}><caption className="sr-only">Job runs{search.sort ? "" : ", queued and starting first, running second, then other states; newest first within each group"}</caption><colgroup><col className="w-20" /><col className="w-64" /><col className="w-52" /><col className="w-44" /></colgroup>
         <thead className={tableHeadClasses}><tr><StatusHeader selected={search.states ?? []} sortDirection={search.sort === "status" ? search.direction : undefined} onFilterChange={changeFilter} onSortChange={changeStatusSort} onClear={clearStatuses} />{columns.slice(1, 2).map(([column, label]) => <SortableHeader key={column} label={label} active={search.sort === column} direction={search.direction} ariaLabel={`${label}, ${sortLabel(column)}`} onSort={() => sortColumn(column)} />)}<th scope="col" className={tableCellClasses}>Elapsed</th>{columns.slice(2).map(([column, label]) => <SortableHeader key={column} label={label} active={search.sort === column} direction={search.direction} ariaLabel={`${label}, ${sortLabel(column)}`} onSort={() => sortColumn(column)} />)}</tr></thead>
         <tbody>{runs.data.items.map(run => <tr className={tableRowClasses} key={run.id}>
           <td className={`whitespace-nowrap ${tableCellClasses}`}><RunStatusDot state={run.state} failureSource={run.failure_source} failure={run.failure} /></td>
           <td className={tableCellClasses}><Link to="/job-runs/$runId" params={{ runId: run.id }} search={{ after: 0 }} title={run.run_name || run.issue_title || "Run"} className="block truncate font-semibold hover:text-factorize-700 focus-visible:rounded-sm dark:hover:text-factorize-500">{run.run_name || run.issue_title || "Run"}</Link>{(run.failure?.reason || (run.agent_error as any)?.reason) && <p className="mt-1 truncate text-xs text-red-700 dark:text-red-300" title={(run.failure?.reason || (run.agent_error as any).reason)}>{(run.failure?.reason || (run.agent_error as any).reason)}</p>}</td>
-          <td className={`whitespace-nowrap ${tableCellClasses}`} title={run.elapsed_time ? formatElapsedTime(run.elapsed_time) : undefined}>{run.elapsed_time ? formatElapsedTime(run.elapsed_time) : "—"}</td><td className={`whitespace-nowrap ${tableCellClasses}`}><time dateTime={run.created_at}>{new Date(run.created_at).toLocaleString()}</time></td><td className={`${tableCellClasses} truncate`} title={run.execution_type === "code" ? "Code script" : run.agent_kind}>{run.execution_type === "code" ? "Code script" : run.agent_kind}</td>
-        </tr>)}{runs.data.items.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center">{search.states?.length ? <><p>No runs match the selected statuses.</p><Button className="mt-3" onClick={() => void navigate({ to: "/jobs/$jobId", params: { jobId }, search: { ...search, states: undefined, cursor: undefined, previous: undefined } })}>Clear status filters</Button></> : "No runs found."}</td></tr>}</tbody>
+          <td className={`whitespace-nowrap ${tableCellClasses}`} title={run.elapsed_time ? formatElapsedTime(run.elapsed_time) : undefined}>{run.elapsed_time ? formatElapsedTime(run.elapsed_time) : "—"}</td><td className={`whitespace-nowrap ${tableCellClasses}`}><time dateTime={run.created_at}>{formatCreated(run.created_at)}</time></td>
+        </tr>)}{runs.data.items.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center">{search.states?.length ? <><p>No runs match the selected statuses.</p><Button className="mt-3" onClick={() => void navigate({ to: "/jobs/$jobId", params: { jobId }, search: { ...search, states: undefined, cursor: undefined, previous: undefined } })}>Clear status filters</Button></> : "No runs found."}</td></tr>}</tbody>
       </Table></>}
     <nav aria-label="Run pages" className="mt-4 flex flex-wrap items-center gap-2">
       {search.cursor && <Link className={pageClasses} to="/jobs/$jobId" params={{ jobId }} search={{ states: search.states, sort: search.sort, direction: search.direction }}>First page</Link>}

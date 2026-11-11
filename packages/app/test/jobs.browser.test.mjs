@@ -721,14 +721,15 @@ test("run table headers sort every column accessibly and persist in the URL", as
   await page.goto(origin + `/jobs/${jobId}`);
   const table = page.getByRole("table");
   await table.getByRole("columnheader").nth(0).getByRole("button").waitFor();
-  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Run", "Elapsed", "Created", "Execution"]);
-  assert.equal(await table.getByRole("columnheader", { name: /Execution/ }).count(), 1);
-  for (const index of [0, 1, 3, 4]) assert.equal(await table.getByRole("columnheader").nth(index).getByRole("button").count(), 1);
+  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Run", "Elapsed", "Created"]);
+  assert.equal(await table.getByRole("columnheader", { name: /Execution/ }).count(), 0);
+  for (const index of [0, 1, 3]) assert.equal(await table.getByRole("columnheader").nth(index).getByRole("button").count(), 1);
   const runButton = page.getByRole("button", { name: "Run job", exact: true }), optionsButton = page.getByRole("button", { name: "More run options", exact: true });
   const runBox = await runButton.boundingBox(), optionsBox = await optionsButton.boundingBox();
   assert.equal(runBox.x + runBox.width, optionsBox.x);
   const runHeader = table.getByRole("button", { name: /Run, not sorted/ });
   const widths = await table.locator("thead th").evaluateAll(cells => cells.map(cell => Math.round(cell.getBoundingClientRect().width)));
+  assert.ok(widths[1] > widths[2], "Run column is wider than Elapsed");
   await runHeader.focus(); await page.keyboard.press("Enter"); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=asc`);
   assert.equal(await table.getByRole("columnheader", { name: /Run/ }).getAttribute("aria-sort"), "ascending");
   assert.deepEqual(await table.locator("thead th").evaluateAll(cells => cells.map(cell => Math.round(cell.getBoundingClientRect().width))), widths);

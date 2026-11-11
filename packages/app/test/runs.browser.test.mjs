@@ -182,17 +182,20 @@ test("job run history restores its cursor on direct refresh and ignores legacy f
   assert.equal(new URL(page.url()).searchParams.get("cursor"), "next-cursor"); assert.ok(requests.every(url => url.searchParams.get("jobId") === jobId && url.searchParams.get("limit") === "30" && !url.searchParams.has("contextQuery") && !url.searchParams.has("state"))); await context.close();
 });
 test("job run history keeps the table visible while sorting and puts status first", async () => {
-  const { context, page } = await setup(); let releaseSorted;
+  const { context, page } = await setup(); let releaseSorted; const createdAt = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const sorted = new Promise(resolve => { releaseSorted = resolve; });
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Job", enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: 0, promptTemplate: "Prompt", triggers: [] } }));
   await page.route("**/api/v1/runs?**", async route => {
     const url = new URL(route.request().url());
-    if (url.searchParams.has("sort")) { await sorted; return route.fulfill({ json: { items: [{ id: runId, run_name: "Sorted run", state: "failed", created_at: time, agent_kind: "codex" }], nextCursor: null } }); }
-    return route.fulfill({ json: { items: [{ id: runId, run_name: "Initial run", state: "succeeded", created_at: time, agent_kind: "codex" }], nextCursor: null } });
+    if (url.searchParams.has("sort")) { await sorted; return route.fulfill({ json: { items: [{ id: runId, run_name: "Sorted run", state: "failed", created_at: createdAt, agent_kind: "codex" }], nextCursor: null } }); }
+    return route.fulfill({ json: { items: [{ id: runId, run_name: "Initial run", state: "succeeded", created_at: createdAt, agent_kind: "codex" }], nextCursor: null } });
   });
   await page.goto(origin + `/jobs/${jobId}`); const table = page.getByRole("region", { name: "Runs table" });
   await table.getByRole("link", { name: "Initial run", exact: true }).waitFor();
   assert.equal(await table.locator("thead th").first().textContent(), "Status");
+  assert.equal(await table.getByRole("columnheader", { name: "Execution" }).count(), 0);
+  assert.equal(await table.getByRole("columnheader", { name: "Created" }).count(), 1);
+  await table.getByText("5 minutes ago", { exact: true }).waitFor();
   await table.getByRole("button", { name: /Run, not sorted/ }).click(); await page.waitForURL(`**/jobs/${jobId}?sort=run&direction=asc`);
   assert.equal(await page.getByText("Loading run history…", { exact: true }).count(), 0);
   assert.equal(await table.getByRole("link", { name: "Initial run", exact: true }).count(), 1);
