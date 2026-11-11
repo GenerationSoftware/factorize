@@ -62,7 +62,7 @@ export function AccountBar() {
     <nav aria-label="Main navigation" className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-x-5 gap-y-3 px-4 py-3 sm:px-6 lg:px-8">
       <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
         <Link to="/" aria-label="Factorize dashboard" className="flex shrink-0 items-center"><img src={beeMark} alt="" className="size-8 object-contain" /></Link>
-        <span aria-hidden="true" className="hidden h-8 w-px shrink-0 bg-stone-300 dark:bg-slate-700 sm:block" />
+        <span aria-hidden="true" className="hidden h-8 w-px shrink-0 bg-stone-300 dark:bg-slate-700" />
         {authenticated ? <div className="flex min-w-0 flex-1 items-center gap-1 text-sm font-semibold sm:flex-initial sm:gap-2">
           <Link to="/" title={session.data?.user.email} className="hidden max-w-[38vw] truncate text-slate-700 hover:text-factorize-700 dark:text-slate-200 dark:hover:text-factorize-500 sm:block sm:max-w-56">{displayName}</Link>
           <div ref={mobileAccountMenu} className="relative min-w-0 sm:hidden">
