@@ -56,6 +56,14 @@ describe("versioned API contract", () => {
     expect(operation?.parameters.shape.projectId).toBeDefined();
     expect(openapi.paths["/api/v1/projects/{projectId}/graph"].get["x-required-scope"]).toBe("projects:read");
   });
+  it("publishes owner-session unlock verification operations and strict ciphertext-only input", () => {
+    const get = API_ROUTES.find(route => route.method === "GET" && route.path === "/api/v1/unlock-key/verification");
+    const post = API_ROUTES.find(route => route.method === "POST" && route.path === "/api/v1/unlock-key/verification");
+    expect(get?.scope).toBe("integrations:read"); expect(get?.ownerSession).toBe(true);
+    expect(post?.scope).toBe("integrations:write"); expect(post?.ownerSession).toBe(true);
+    expect(post?.body?.safeParse({ generationId: "00000000-0000-4000-8000-000000000001", encryptedVerification: "ciphertext", key: "plain" }).success).toBe(false);
+    expect(openapi.paths["/api/v1/unlock-key/verification"].post.requestBody).toBeDefined();
+  });
   it("accepts code jobs without agent prompts or models and rejects missing scripts", () => {
     const code = { name: "Export", slug: "export", executionType: "code", script: "#!/bin/sh\nprintf '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"", executionConfigId: "exe", triggers: [] };
     expect(jobInputSchema.safeParse(code).success).toBe(true);

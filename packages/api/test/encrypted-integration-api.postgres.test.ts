@@ -18,6 +18,25 @@ async function userEncrypt(plaintext: string): Promise<string> {
 }
 
 describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (PostgreSQL)", { timeout: 60_000 }, () => {
+  it("stores one ciphertext-only unlock verification per owner and never accepts a plaintext key", async () => {
+    const f = await loadingFixture(databaseUrl!);
+    try {
+      const request = (method = "GET", body?: unknown, cookie = f.cookie) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1/unlock-key/verification", {
+        method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }), f.env, { waitUntil() {} } as any);
+      expect(await (await request()).json()).toEqual({ ownerId: f.userId, verification: null });
+      const generationId = crypto.randomUUID();
+      const encryptedVerification = JSON.stringify({ version: 1, algorithm: "A256GCM", nonce: "AAAAAAAAAAAAAAAA", ciphertext: "AAAAAAAAAAAAAAAAAAAAAA" });
+      const body = { generationId, encryptedVerification };
+      expect((await request("POST", body)).status).toBe(200);
+      expect(await (await request()).json()).toEqual({ ownerId: f.userId, verification: body });
+      const stored = await f.db.pool.query("SELECT generation_id,encrypted_verification FROM app.unlock_key_verifications WHERE tenant_id=$1", [f.tenantId]);
+      expect(stored.rows).toEqual([{ generation_id: generationId, encrypted_verification: encryptedVerification }]);
+      expect(JSON.stringify(stored.rows)).not.toContain("fzk1.");
+      expect((await request("POST", body)).status).toBe(409);
+      expect((await request("POST", { ...body, unlockKey: "fzk1.must-not-be-accepted" })).status).toBe(400);
+    } finally { await f.cleanup(); }
+  });
   it("supports safe create, list, update, delete and rejects malformed and stale writes", async () => {
     const f = await loadingFixture(databaseUrl!);
     try {

@@ -8,6 +8,7 @@ import { installationsQuery } from "../jobs/provider-queries";
 import { SettingsLayout } from "./navigation";
 import { IntegrationForm } from "./integration-form";
 import { messageOf } from "../auth/session";
+import { UnlockKeySetup } from "./unlock-key-setup";
 
 const linkClass = "inline-flex min-h-10 items-center rounded-lg border border-stone-200 px-3 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800";
 
@@ -38,7 +39,7 @@ export function Integrations() {
   const buttons = (kind: "exe" | "amp" | "cloudflareTail" | "github", id: string) => { const key = `${kind}:${id}`, current = feedback?.key === key ? feedback : null; return <div className="flex flex-wrap items-center gap-2">{kind !== "github" && <Button disabled={action.isPending} onClick={() => { setFeedback(null); action.mutate({ kind, id, test: true }); }}>Test connection</Button>}<Button variant="destructive" disabled={action.isPending} onClick={() => { if (window.confirm("Disconnect this integration? Jobs that still reference it must be updated first.")) { setFeedback(null); action.mutate({ kind, id }); } }}>Disconnect</Button>{current && <p role={current.error ? "alert" : "status"} aria-live="polite" className={current.error ? "text-red-700 dark:text-red-400" : "text-green-700 dark:text-green-400"}>{current.error ? current.message : `✓ ${current.message}`}</p>}</div>; };
   const manage = (key: string, form: ReactNode) => openSetup === key && <div className="mt-3 border-t border-stone-200 pt-3 dark:border-slate-700">{form}</div>;
   const hasConnections = Boolean(status.data?.linear || status.data?.clickup || status.data?.exeConnections.length || status.data?.ampConnections.length || status.data?.cloudflareTail.installations.length || github.data?.length);
-  return <SettingsLayout title="Integrations">
+  return <SettingsLayout title="Integrations"><UnlockKeySetup />
     {status.isPending && <p role="status">Loading integrations…</p>}{[status.error, github.error].filter(Boolean).map((error, i) => <p role="alert" key={i}>{error?.message}</p>)}
     <section aria-labelledby="your-integrations-heading"><div className="mb-4"><h2 id="your-integrations-heading" className="text-2xl font-bold">Your integrations</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage the connections already available to your workspace.</p></div>
       {!hasConnections && !status.isPending && <Card className="border-dashed"><p className="font-semibold">No integrations added yet</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Choose a provider from the available integrations below to get started.</p></Card>}

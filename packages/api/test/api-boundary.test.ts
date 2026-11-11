@@ -94,6 +94,14 @@ const jobInput = {
 };
 
 describe("Worker OpenAPI request/response boundaries", () => {
+  it("accepts only browser-encrypted unlock verification and rejects plaintext key fields", async () => {
+    const payload = { generationId: "00000000-0000-4000-8000-000000000001", encryptedVerification: JSON.stringify({ version: 1, algorithm: "A256GCM", nonce: "AAAAAAAAAAAAAAAA", ciphertext: "AAAAAAAAAAAAAAAAAAAAAA" }) };
+    const create = vi.spyOn(ApiService.prototype, "createUnlockKeyVerification").mockResolvedValue({ generationId: payload.generationId });
+    await assertResponse(await request("POST", "/api/v1/unlock-key/verification", payload), "POST", "/api/v1/unlock-key/verification", 200);
+    expect(create).toHaveBeenCalledWith(payload);
+    await assertResponse(await request("POST", "/api/v1/unlock-key/verification", { ...payload, key: "fzk1.never-send-me" }), "POST", "/api/v1/unlock-key/verification", 400);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
   it("returns a documented JSON array for a read", async () => {
     vi.spyOn(ApiService.prototype, "listJobs").mockResolvedValue([]);
     expect(

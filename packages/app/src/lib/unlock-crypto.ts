@@ -4,6 +4,7 @@ const VERSION = 1 as const;
 const KEY_PREFIX = "fzk1.";
 const SALT = new TextEncoder().encode("factorize.unlock-key.v1");
 const INFO = new TextEncoder().encode("factorize.record.aes-256-gcm.v1");
+export const UNLOCK_VERIFICATION_TEXT = "factorize-unlock-key-verification-v1";
 
 export type RecordBinding = {
   ownerId: string;
@@ -105,4 +106,25 @@ export async function decryptRecord(envelope: unknown, key: string, binding: Rec
   const aesKey = await deriveAesKey(key, ["decrypt"]);
   const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: toArrayBuffer(nonce), additionalData: toArrayBuffer(aad), tagLength: 128 }, aesKey, toArrayBuffer(ciphertext));
   return new Uint8Array(plaintext);
+}
+
+export async function createUnlockVerification(key: string, ownerId: string, generationId: string): Promise<EncryptedEnvelopeV1> {
+  return encryptRecord(encoder.encode(UNLOCK_VERIFICATION_TEXT), key, { ownerId, recordId: generationId, recordType: "unlock-verification", destination: "factorize", revision: 0 });
+}
+
+export async function verifyUnlockKey(key: string, ownerId: string, generationId: string, encryptedVerification: unknown): Promise<void> {
+  const plain = await decryptRecord(encryptedVerification, key, { ownerId, recordId: generationId, recordType: "unlock-verification", destination: "factorize", revision: 0 });
+  try {
+    if (new TextDecoder().decode(plain) !== UNLOCK_VERIFICATION_TEXT) throw new TypeError("Unlock key does not match this account and key generation");
+  } finally { plain.fill(0); }
+}
+
+export async function encryptAfterUnlockVerification(key: string, ownerId: string, generationId: string, encryptedVerification: unknown, plaintext: Uint8Array, binding: RecordBinding) {
+  await verifyUnlockKey(key, ownerId, generationId, encryptedVerification);
+  return encryptRecord(plaintext, key, binding);
+}
+
+export async function decryptAfterUnlockVerification(key: string, ownerId: string, generationId: string, encryptedVerification: unknown, envelope: unknown, binding: RecordBinding) {
+  await verifyUnlockKey(key, ownerId, generationId, encryptedVerification);
+  return decryptRecord(envelope, key, binding);
 }
