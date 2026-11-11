@@ -5,12 +5,15 @@ import { mkdir, readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 let server, origin, browser;
 const jobId = "00000000-0000-4000-8000-000000000001", projectId = "00000000-0000-4000-8000-000000000003", runId = "00000000-0000-4000-8000-000000000002", time = "2026-10-09T12:00:00Z";
+const siblingRunId = "00000000-0000-4000-8000-000000000004";
 before(async () => { server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } }); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 async function setup() { const context = await browser.newContext(), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
 test("individual run keeps its parent project and job navigation context", async () => {
   const { context, page } = await setup();
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Review builds", run_name: "Project run", state: "succeeded", finalizing: false, trace_revision: "rev", artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
+  await page.route(`**/api/v1/runs/${siblingRunId}/status`, route => route.fulfill({ json: { id: siblingRunId, job_id: jobId, job_name: "Review builds", run_name: "Sibling run", state: "succeeded", finalizing: false, trace_revision: "rev", artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
+  await page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [{ id: runId, run_name: "Project run" }, { id: siblingRunId, run_name: "Sibling run" }], nextCursor: null } }));
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Review builds", projectId, enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: 0, promptTemplate: "Prompt", triggers: [] } }));
   await page.route(`**/api/v1/projects/${projectId}`, route => route.fulfill({ json: { id: projectId, name: "Release project", description: "", jobCount: 1 } }));
   await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [], nextCursor: null, revision: "rev", reset: false } }));
@@ -21,6 +24,10 @@ test("individual run keeps its parent project and job navigation context", async
   const mainNav = page.getByRole("navigation", { name: "Main navigation" });
   await mainNav.getByRole("link", { name: "Release project", exact: true }).waitFor();
   await mainNav.getByRole("link", { name: "Review builds", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Switch run" }).click();
+  await page.getByRole("option", { name: /Project run.*Current/ }).waitFor();
+  await page.getByRole("option", { name: "Sibling run" }).click();
+  await page.waitForURL(new RegExp(siblingRunId));
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
   await context.close();
 });
