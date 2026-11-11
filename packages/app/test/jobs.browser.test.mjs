@@ -310,7 +310,8 @@ test("main navigation shows the current project switcher inside a project and it
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [{ ...summary }], nextCursor: null } }));
   const mainNav = page.getByRole("navigation", { name: "Main navigation" });
   await page.goto(origin + "/");
-  await mainNav.getByRole("link", { name: "owner" }).waitFor();
+  await mainNav.getByRole("button", { name: "Your account" }).waitFor();
+  assert.equal(await mainNav.getByRole("link", { name: "owner", exact: true }).count(), 0);
   assert.equal(await mainNav.getByRole("link", { name: "Projects", exact: true }).count(), 0);
   assert.equal(await mainNav.getByRole("button", { name: "Switch project" }).count(), 0);
   await page.goto(origin + `/projects/${projectId}`);
@@ -344,8 +345,6 @@ test("mobile main navigation truncates the account and project names without the
   assert.equal(await divider.evaluate(element => getComputedStyle(element).display), "none");
   const account = mainNav.getByRole("button", { name: "Your account" });
   await account.waitFor();
-  assert.equal(await account.locator("span").evaluate(element => getComputedStyle(element).textOverflow), "ellipsis");
-  assert.equal(await account.locator("span").evaluate(element => element.scrollWidth > element.clientWidth), true);
   await account.click();
   await page.locator("#mobile-profile-menu").getByRole("link", { name: "Settings", exact: true }).waitFor();
   const project = mainNav.getByRole("link", { name: "A very long release project name for mobile" });

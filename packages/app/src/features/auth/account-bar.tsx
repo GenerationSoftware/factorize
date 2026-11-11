@@ -52,9 +52,6 @@ export function AccountBar() {
   const chooseJob = (id: string) => { void navigate({ to: "/jobs/$jobId", params: { jobId: id } }); };
   const email = session.data?.authenticated ? session.data.user.email ?? "" : "";
   const initials = (email || "?").split("@")[0].split(/[._-]/).filter(Boolean).slice(0, 2).map((part: string) => part[0]).join("").toUpperCase() || "?";
-  // The current session contract exposes email only. Use its local part as a readable
-  // display identity and retain the full address in the account menu.
-  const displayName = email.split("@")[0] || "Account";
   return <header className="border-b border-stone-200 bg-white dark:border-slate-800 dark:bg-slate-950">
     <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-factorize-500 focus:p-3 focus:text-slate-950">Skip to content</a>
     <nav aria-label="Main navigation" className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-x-5 gap-y-3 px-4 py-3 sm:px-6 lg:px-8">
@@ -62,15 +59,6 @@ export function AccountBar() {
         <Link to="/" aria-label="Factorize dashboard" className="flex shrink-0 items-center"><img src={beeMark} alt="" className="size-8 object-contain" /></Link>
         <span aria-hidden="true" className="hidden h-8 w-px shrink-0 bg-stone-300 dark:bg-slate-700" />
         {authenticated ? <div className="flex min-w-0 flex-1 items-center gap-1 text-sm font-semibold sm:flex-initial sm:gap-2">
-          <Link to="/" title={session.data?.user.email} className="hidden max-w-[38vw] truncate text-slate-700 hover:text-factorize-700 dark:text-slate-200 dark:hover:text-factorize-500 sm:block sm:max-w-56">{displayName}</Link>
-          <div ref={mobileAccountMenu} className="relative min-w-0 sm:hidden">
-            <Button ref={mobileAccountTrigger} aria-expanded={accountOpen} aria-controls="mobile-profile-menu" onClick={() => { setMobileAccountOpen(true); setAccountOpen(!accountOpen); }} aria-label="Your account" className="!h-8 !min-h-8 !max-w-[24vw] !gap-1 !overflow-hidden !border-0 !bg-transparent !px-1 !py-0 text-sm font-semibold text-slate-700 dark:text-slate-200"><span className="truncate">{displayName}</span><svg aria-hidden="true" viewBox="0 0 20 20" className="size-4 shrink-0 fill-current"><path d="m5 7 5 5 5-5" /></svg></Button>
-            {accountOpen && mobileAccountOpen && <div id="mobile-profile-menu" className="absolute left-0 z-30 mt-2 w-64 rounded-xl border border-stone-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
-              <p className="mb-3 break-all px-2 text-xs text-slate-600 dark:text-slate-300">{session.data?.user.email ?? ""}</p>
-              <Link to="/settings" onClick={() => setAccountOpen(false)} className="block rounded-lg px-3 py-3 text-sm hover:bg-stone-100 dark:hover:bg-slate-800">Settings</Link>
-              <Button className="mt-2 w-full" onClick={() => logout.mutate()} disabled={logout.isPending}>{logout.isPending ? "Signing out…" : "Sign out"}</Button>
-            </div>}
-          </div>
           {currentProjectId && <><span aria-hidden="true" className="hidden text-slate-400 sm:inline">/</span><div className="flex min-w-0 items-center">
             {currentProject ? <Link to="/projects/$projectId" params={{ projectId: currentProject.id }} title={currentProject.name} className="min-w-0 max-w-[55vw] truncate text-slate-700 hover:text-factorize-700 dark:text-slate-200 sm:max-w-64">{currentProject.name}</Link> : <span className="truncate text-slate-600 dark:text-slate-300">{routeProject.isPending ? "Loading project…" : routeProject.error ? "Project unavailable" : "Project"}</span>}
             <ResourceSwitcher kind="Project" items={projects.data ?? []} currentId={currentProjectId} loading={projects.isPending} error={projects.error?.message} onSelect={chooseProject} />
@@ -84,6 +72,14 @@ export function AccountBar() {
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
         {authenticated && <SearchLauncher />}
         <ThemeToggle />
+        {authenticated && <div ref={mobileAccountMenu} className="relative sm:hidden">
+          <Button ref={mobileAccountTrigger} aria-expanded={accountOpen} aria-controls="mobile-profile-menu" onClick={() => { setMobileAccountOpen(true); setAccountOpen(!accountOpen); }} aria-label="Your account" className="!size-9 !min-h-9 !rounded-full !border-0 !bg-factorize-500 !p-0 text-xs font-semibold text-slate-950">{initials}</Button>
+          {accountOpen && mobileAccountOpen && <div id="mobile-profile-menu" className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-stone-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+            <p className="mb-3 break-all px-2 text-xs text-slate-600 dark:text-slate-300">{session.data?.user.email ?? ""}</p>
+            <Link to="/settings" onClick={() => setAccountOpen(false)} className="block rounded-lg px-3 py-3 text-sm hover:bg-stone-100 dark:hover:bg-slate-800">Settings</Link>
+            <Button className="mt-2 w-full" onClick={() => logout.mutate()} disabled={logout.isPending}>{logout.isPending ? "Signing out…" : "Sign out"}</Button>
+          </div>}
+        </div>}
         {authenticated ? <div ref={accountMenu} className="relative hidden sm:block">
           <Button ref={accountTrigger} aria-expanded={accountOpen} aria-controls="profile-menu" onClick={() => { setMobileAccountOpen(false); setAccountOpen(!accountOpen); }} aria-label="Your account" className="!size-10 !min-h-10 !rounded-full !border-0 !bg-factorize-500 !p-0 text-sm font-semibold text-slate-950">{initials}</Button>
           {accountOpen && <div id="profile-menu" className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-stone-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
