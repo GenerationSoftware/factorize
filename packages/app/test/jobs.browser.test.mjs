@@ -311,8 +311,12 @@ test("dashboard Projects subnav completes keyboard navigation into project Jobs"
   await page.goto(origin + "/projects");
   const dashboardNav = page.getByRole("navigation", { name: "Dashboard navigation" });
   const projectsTab = dashboardNav.getByRole("link", { name: "Projects", exact: true });
+  const skillsTab = dashboardNav.getByRole("link", { name: "Skills", exact: true });
   await projectsTab.waitFor();
+  await skillsTab.waitFor();
+  assert.deepEqual(await dashboardNav.getByRole("link").allTextContents(), ["Projects", "Skills"]);
   assert.equal(await projectsTab.getAttribute("aria-current"), "page");
+  assert.equal(await skillsTab.getAttribute("aria-current"), null);
   assert.equal(await projectsTab.evaluate(element => getComputedStyle(element.parentElement).overflowX), "auto");
 
   const dashboard = page.getByRole("link", { name: "Factorize dashboard" });
@@ -320,6 +324,15 @@ test("dashboard Projects subnav completes keyboard navigation into project Jobs"
   await page.keyboard.press("Enter");
   await page.getByRole("heading", { name: "Recent work" }).waitFor();
   assert.equal(await dashboardNav.getByRole("link", { name: "Projects", exact: true }).getAttribute("aria-current"), null);
+  assert.equal(await dashboardNav.getByRole("link", { name: "Skills", exact: true }).getAttribute("aria-current"), null);
+
+  await page.route("**/api/v1/skills**", route => route.fulfill({ json: { items: [{ id: "00000000-0000-4000-8000-000000000020", key: "review", usageCount: 1, revision: 1, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }], nextCursor: null } }));
+  await skillsTab.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("heading", { name: "Skills", exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: "review", exact: true }).count(), 1);
+  assert.equal(await dashboardNav.getByRole("link", { name: "Projects", exact: true }).getAttribute("aria-current"), null);
+  assert.equal(await dashboardNav.getByRole("link", { name: "Skills", exact: true }).getAttribute("aria-current"), "page");
 
   const dashboardProjects = dashboardNav.getByRole("link", { name: "Projects", exact: true });
   await dashboardProjects.focus();
