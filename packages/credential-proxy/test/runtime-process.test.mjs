@@ -58,7 +58,8 @@ test("process starts locked, unlocks in memory, shuts down bounded, and restarts
     const first = await startProxy();
     processes.push(first);
     assert.deepEqual(await first.command({ type: "status" }), { type: "status", state: "locked" });
-    assert.deepEqual(await first.command({ type: "unlock", key: keyMarker }), { type: "status", state: "unlocked" });
+    assert.deepEqual(await first.command({ type: "unlock", key: keyMarker }), { type: "error", error: "unsupported command" });
+    assert.deepEqual(await first.command({ type: "status" }), { type: "status", state: "locked" });
     first.child.kill("SIGTERM");
     await waitFor(() => first.child.exitCode !== null || first.child.signalCode !== null, "first process stop");
     assert.equal(first.child.exitCode, 0);
@@ -66,14 +67,15 @@ test("process starts locked, unlocks in memory, shuts down bounded, and restarts
     const restarted = await startProxy();
     processes.push(restarted);
     assert.deepEqual(await restarted.command({ type: "status" }), { type: "status", state: "locked" });
-    assert.deepEqual(await restarted.command({ type: "unlock", key: tokenMarker }), { type: "status", state: "unlocked" });
+    assert.deepEqual(await restarted.command({ type: "unlock", key: tokenMarker }), { type: "error", error: "unsupported command" });
+    assert.deepEqual(await restarted.command({ type: "status" }), { type: "status", state: "locked" });
     restarted.child.stdin.write('{"type":"stop"}\n');
     await waitFor(() => restarted.child.exitCode !== null || restarted.child.signalCode !== null, "command shutdown");
     assert.equal(restarted.child.exitCode, 0);
 
     const crashed = await startProxy();
     processes.push(crashed);
-    assert.deepEqual(await crashed.command({ type: "unlock", key: keyMarker }), { type: "status", state: "unlocked" });
+    assert.deepEqual(await crashed.command({ type: "unlock", key: keyMarker }), { type: "error", error: "unsupported command" });
     crashed.child.kill("SIGKILL");
     await waitFor(() => crashed.child.exitCode !== null || crashed.child.signalCode !== null, "crash stop");
     assert.equal(crashed.child.signalCode, "SIGKILL");

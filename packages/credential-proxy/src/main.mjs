@@ -1,7 +1,18 @@
 import { createInterface } from "node:readline";
 import { createProxyRuntime } from "./runtime.mjs";
+import { createControlServer } from "./control.mjs";
 
 const runtime = createProxyRuntime();
+const controlConfigured = ["PROXY_ID", "PROXY_OWNER_ID", "PROXY_GENERATION", "FACTORIZE_WEB_ORIGIN", "FACTORIZE_CAPABILITY_PUBLIC_KEY"].every((name) => process.env[name]);
+const controlServer = controlConfigured ? createControlServer({
+  runtime,
+  proxyId: process.env.PROXY_ID,
+  ownerId: process.env.PROXY_OWNER_ID,
+  generation: Number(process.env.PROXY_GENERATION),
+  origin: process.env.FACTORIZE_WEB_ORIGIN,
+  publicKey: process.env.FACTORIZE_CAPABILITY_PUBLIC_KEY,
+}) : undefined;
+if (controlServer) controlServer.listen(Number(process.env.PROXY_CONTROL_PORT ?? 8787), process.env.PROXY_CONTROL_HOST ?? "0.0.0.0");
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 let closing = false;
 let shutdownDeadline;
@@ -14,6 +25,7 @@ function stop() {
   if (closing) return;
   closing = true;
   runtime.shutdown();
+  controlServer?.close();
   lines.close();
   clearTimeout(shutdownDeadline);
   process.exit(0);
@@ -31,13 +43,7 @@ lines.on("line", (line) => {
   try {
     command = JSON.parse(line);
     if (command?.type === "status") respond({ type: "status", state: runtime.state });
-    else if (command?.type === "unlock") {
-      runtime.unlock(command.key);
-      respond({ type: "status", state: runtime.state });
-    } else if (command?.type === "lock") {
-      runtime.lock();
-      respond({ type: "status", state: runtime.state });
-    } else if (command?.type === "stop") stop();
+    else if (command?.type === "stop") stop();
     else respond({ type: "error", error: "unsupported command" });
   } catch {
     respond({ type: "error", error: "invalid command" });
