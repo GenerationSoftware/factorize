@@ -124,7 +124,7 @@ describe("dedicated proxy boot registration endpoint", () => {
 
   it("returns only the current run's selected user-encrypted bearer records to its registered proxy", async () => {
     const integrationId = "55555555-5555-4555-8555-555555555555";
-    const key = "test-server-encryption-key";
+    const key = Buffer.alloc(32, 7).toString("base64");
     const env = envFor();
     env.CREDENTIAL_ENCRYPTION_KEY = key;
     env.query.mockImplementation(async (sql: string) => {
