@@ -51,7 +51,7 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     const runAuth = await authenticateRunCredential(new Request(request.url, {
       headers: { Authorization: `Bearer ${(body as any).runCredential}` },
     }), env);
-    if (!runAuth || runAuth.runId !== (body as any).runId || runAuth.tenantId !== proxy.tenantId
+    if (!runAuth || !runAuth.runId || runAuth.runId !== (body as any).runId || runAuth.tenantId !== proxy.tenantId
         || !runAuth.scopes.includes("integrations:read")) return json({ error: "enrollment_unavailable" }, 403);
     const enrollment = await enrollments.issue({ tenantId: proxy.tenantId, runId: runAuth.runId, vmIdentity: (body as any).vmIdentity, proxyIdentity: proxy.proxyIdentity, bootEpoch: proxy.bootEpoch }, new Date(Date.now() + 30_000));
     return enrollment ? json(enrollment) : json({ error: "enrollment_unavailable" }, 403);
