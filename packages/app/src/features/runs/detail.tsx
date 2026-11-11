@@ -11,6 +11,7 @@ import { jobQuery } from "../jobs/queries";
 import { JobNav } from "../jobs/job-nav";
 import { ResourceSwitcher } from "../../shared/resource-switcher";
 import { messageOf } from "../auth/session";
+import { NavIcon } from "../../shared/nav-icon";
 function RuntimeInfo({ startedAt, updatedAt, active }: { startedAt: string | null; updatedAt: string; active: boolean }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -73,12 +74,12 @@ export function RunDetail() {
     {stop.error && <p role="alert">{stop.error.message}</p>}
     {!fullTrace && <nav role="tablist" aria-label="Run details" className="mt-5 flex gap-1 overflow-x-auto border-b border-stone-200 dark:border-slate-700">
       {(["trace", "info"] as const).map((name, index, tabs) => <Link key={name} to={tabPath(name)} params={{ runId: runId! }} search={{ after: 0 }} role="tab" id={`run-tab-${name}`} aria-controls={`run-panel-${name}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1}
-        className={`min-h-11 shrink-0 border-b-2 px-4 py-3 text-sm capitalize ${tab === name ? "border-factorize-500 font-semibold" : "border-transparent text-slate-600 hover:border-stone-300 dark:text-slate-400"}`}
+        className={`inline-flex min-h-11 shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm capitalize ${tab === name ? "border-factorize-500 font-semibold" : "border-transparent text-slate-600 hover:border-stone-300 dark:text-slate-400"}`}
         onKeyDown={event => {
           const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
           if (next === null) return;
           event.preventDefault(); void navigate({ to: tabPath(tabs[next]), params: { runId: runId! }, search: { after: 0 } }).then(() => document.getElementById(`run-tab-${tabs[next]}`)?.focus());
-        }}>{name === "info" ? "Info" : name[0].toUpperCase() + name.slice(1)}</Link>)}
+        }}><NavIcon name={name} />{name === "info" ? "Info" : name[0].toUpperCase() + name.slice(1)}</Link>)}
     </nav>}
     {!fullTrace && <section role="tabpanel" id="run-panel-info" aria-labelledby="run-tab-info" hidden={tab !== "info"} tabIndex={0}>
       {status.data && <dl className="my-4 grid min-w-0 gap-4 sm:grid-cols-2">

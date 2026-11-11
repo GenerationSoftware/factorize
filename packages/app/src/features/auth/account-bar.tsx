@@ -10,6 +10,7 @@ import { projectQuery, projectsQuery } from "../projects/queries";
 import { jobQuery, jobsQuery } from "../jobs/queries";
 import { runStatusQuery } from "../runs/queries";
 import { ResourceSwitcher } from "../../shared/resource-switcher";
+import { NavIcon } from "../../shared/nav-icon";
 import beeMark from "../../assets/bee-mark-monochrome.png";
 
 export function AccountBar() {
@@ -92,8 +93,8 @@ export function AccountBar() {
     </nav>
     {authenticated && (pathname === "/" || pathname === "/projects" || pathname === "/skills") && <nav aria-label="Dashboard navigation" className="border-t border-stone-200 dark:border-slate-800">
       <div className="mx-auto flex w-full max-w-6xl gap-1 overflow-x-auto px-4 sm:px-6 lg:px-8">
-        <Link to="/projects" className={`inline-flex min-h-12 shrink-0 items-center border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-factorize-500 ${pathname === "/projects" ? "border-factorize-500 text-factorize-700 dark:text-factorize-500" : "border-transparent text-slate-600 hover:border-stone-300 hover:text-slate-950 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:text-white"}`} aria-current={pathname === "/projects" ? "page" : undefined}>Projects</Link>
-        <Link to="/skills" className={`inline-flex min-h-12 shrink-0 items-center border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-factorize-500 ${pathname === "/skills" ? "border-factorize-500 text-factorize-700 dark:text-factorize-500" : "border-transparent text-slate-600 hover:border-stone-300 hover:text-slate-950 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:text-white"}`} aria-current={pathname === "/skills" ? "page" : undefined}>Skills</Link>
+        <Link to="/projects" className={`inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-factorize-500 ${pathname === "/projects" ? "border-factorize-500 text-factorize-700 dark:text-factorize-500" : "border-transparent text-slate-600 hover:border-stone-300 hover:text-slate-950 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:text-white"}`} aria-current={pathname === "/projects" ? "page" : undefined}><NavIcon name="projects" />Projects</Link>
+        <Link to="/skills" className={`inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-factorize-500 ${pathname === "/skills" ? "border-factorize-500 text-factorize-700 dark:text-factorize-500" : "border-transparent text-slate-600 hover:border-stone-300 hover:text-slate-950 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:text-white"}`} aria-current={pathname === "/skills" ? "page" : undefined}><NavIcon name="skills" />Skills</Link>
       </div>
     </nav>}
     {logout.isError && <p role="alert">{logout.error.message}</p>}

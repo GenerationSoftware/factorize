@@ -13,6 +13,7 @@ import { canonicalizeVmImage, applySavedJob, editableJob, emptyJob, reconcile, v
 import { TemplateField } from "./template-field";
 import { TriggerEditor } from "./trigger-editor";
 import { InvocationPermissionEditor } from "./invocation-permission-editor";
+import { NavIcon } from "../../shared/nav-icon";
 import { messageOf } from "../auth/session";
 import { projectsQuery } from "../projects/queries";
 import { AutosaveStatus, useDebouncedAutosave } from "../../shared/use-debounced-autosave";
@@ -90,7 +91,7 @@ function EditorForm({ initial, section }: { initial?: Job; section?: string }) {
   const [localConflictDraft, setLocalConflictDraft] = useState(draft);
   const selectedSection = initial && ["general", "execution", "context", "permissions", "triggers"].includes(section ?? "") ? section : initial ? "general" : "all";
   const show = (name: string) => selectedSection === "all" || selectedSection === name;
-  const settingsSection = (name: "general" | "execution" | "context" | "permissions" | "triggers") => <Link to="/jobs/$jobId/settings/$section" params={{ jobId: initial!.id, section: name }} aria-current={selectedSection === name ? "page" : undefined} className={`rounded-lg px-3 py-2 text-sm ${selectedSection === name ? "bg-factorize-50 font-semibold text-factorize-700 dark:bg-factorize-500/10 dark:text-factorize-500" : "hover:bg-stone-100 dark:hover:bg-slate-800"}`}>{name[0].toUpperCase() + name.slice(1)}</Link>;
+  const settingsSection = (name: "general" | "execution" | "context" | "permissions" | "triggers") => <Link to="/jobs/$jobId/settings/$section" params={{ jobId: initial!.id, section: name }} aria-current={selectedSection === name ? "page" : undefined} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${selectedSection === name ? "bg-factorize-50 font-semibold text-factorize-700 dark:bg-factorize-500/10 dark:text-factorize-500" : "hover:bg-stone-100 dark:hover:bg-slate-800"}`}><NavIcon name={name} />{name[0].toUpperCase() + name.slice(1)}</Link>;
   return <Page className="max-w-6xl">
     {(remote || reconciling || refreshConflict.error) && <Card role="alert" className="my-4 border p-4"><h2>This job changed while you were editing</h2><p>Your unsaved draft is retained. Review the latest configuration before retrying.</p>
       {refreshConflict.isPending && <p>Loading latest configuration…</p>}{refreshConflict.error && <><p>{refreshConflict.error.message}</p><Button onClick={() => refreshConflict.mutate()}>Retry loading latest</Button></>}
