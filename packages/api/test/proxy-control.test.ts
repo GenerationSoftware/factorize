@@ -122,17 +122,21 @@ describe("dedicated proxy boot registration endpoint", () => {
     expect(rejected.status).toBe(400);
   });
 
-  it("returns only the current run's selected user-encrypted bearer records to its registered proxy", async () => {
+  it("returns only the current run's selected user-encrypted bearer and model records to its registered proxy", async () => {
     const integrationId = "55555555-5555-4555-8555-555555555555";
+    const modelAccountId = "77777777-7777-4777-8777-777777777777";
     const key = Buffer.alloc(32, 7).toString("base64");
     const env = envFor();
     env.CREDENTIAL_ENCRYPTION_KEY = key;
-    env.query.mockImplementation(async (sql: string) => {
+    env.query.mockImplementation(async (sql: string, values: unknown[] = []) => {
       if (sql.includes("proxy_token_digest")) return { rows: [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }], rowCount: 1 };
-      if (sql.includes("FROM app.runs r")) return { rows: [{ execution_config: { portableIntegrationIds: [integrationId] }, grant_revision: 3 }], rowCount: 1 };
-      if (sql.includes("FROM app.integration_records")) return { rows: [
+      if (sql.includes("FROM app.runs r")) return { rows: [{ execution_config: { portableIntegrationIds: [integrationId], modelAccess: "portable", modelAccountId }, grant_revision: 3 }], rowCount: 1 };
+      if (sql.includes("FROM app.integration_records")) return values[1] === "bearer" ? { rows: [
         { id: integrationId, kind: "bearer", name: "selected", origin: "https://api.example", description: null, revision: 4, encrypted_payload: await encrypt("user-ciphertext", key) },
         { id: "66666666-6666-4666-8666-666666666666", kind: "bearer", name: "not-selected", origin: "https://other.example", description: null, revision: 5, encrypted_payload: await encrypt("other-ciphertext", key) },
+      ], rowCount: 2 } : { rows: [
+        { id: modelAccountId, kind: "model", name: "selected-model", origin: null, description: "fixture account", revision: 6, encrypted_payload: await encrypt("model-user-ciphertext", key) },
+        { id: "88888888-8888-4888-8888-888888888888", kind: "model", name: "other-model", origin: null, description: null, revision: 7, encrypted_payload: await encrypt("other-model-ciphertext", key) },
       ], rowCount: 2 };
       return { rows: [], rowCount: 0 };
     });
@@ -144,7 +148,7 @@ describe("dedicated proxy boot registration endpoint", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ownerId: "11111111-1111-4111-8111-111111111111", records: [
       { id: integrationId, kind: "bearer", name: "selected", origin: "https://api.example", description: null, revision: 4, encryptedPayload: "user-ciphertext" },
-    ] });
+    ], modelAccount: { id: modelAccountId, kind: "model", name: "selected-model", origin: null, description: "fixture account", revision: 6, encryptedPayload: "model-user-ciphertext" } });
     expect(env.query.mock.calls.map((call: any[]) => call[0])).toEqual(expect.arrayContaining([expect.stringContaining("grant_revision=$5"), expect.stringContaining("FROM app.integration_records")]));
   });
 

@@ -22,7 +22,7 @@ test("boot registration uses a one-call control credential, HTTPS, exact path an
 
 test("proxy snapshot reader requests only the bound run revision and validates encrypted records", async () => {
   let request;
-  const snapshot = { ownerId: "owner-1", records: [{ id: "integration-1", kind: "bearer", origin: "https://api.example", revision: 4, encryptedPayload: "ciphertext" }] };
+  const snapshot = { ownerId: "owner-1", records: [{ id: "integration-1", kind: "bearer", origin: "https://api.example", revision: 4, encryptedPayload: "ciphertext" }], modelAccount: { id: "model-1", kind: "model", origin: null, revision: 5, encryptedPayload: "model-ciphertext" } };
   const result = await readProxyIntegrationSnapshot({ controlOrigin: "https://factorize.example", token, binding: { runId, grantRevision: 7 }, fetchImpl: async (url, init) => {
     request = { url: String(url), init, body: JSON.parse(init.body) };
     return Response.json(snapshot);
@@ -32,6 +32,7 @@ test("proxy snapshot reader requests only the bound run revision and validates e
   assert.deepEqual(request.body, { runId, grantRevision: 7 });
   assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
   await assert.rejects(readProxyIntegrationSnapshot({ controlOrigin: "https://factorize.example", token, binding: { runId, grantRevision: 7 }, fetchImpl: async () => Response.json({ ownerId: "owner-1", records: [{ ...snapshot.records[0], kind: "model" }] }) }), /invalid proxy integration snapshot response/);
+  await assert.rejects(readProxyIntegrationSnapshot({ controlOrigin: "https://factorize.example", token, binding: { runId, grantRevision: 7 }, fetchImpl: async () => Response.json({ ...snapshot, modelAccount: { ...snapshot.modelAccount, kind: "bearer" } }) }), /invalid proxy integration snapshot response/);
 });
 
 test("proxy revocation monitor applies durable run revocations and tolerates an outage", async () => {
