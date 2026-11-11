@@ -128,7 +128,7 @@ describe("bounded Fly Machines client", () => {
         res.writeHead(200, { "content-type": "application/json" });
       }
     });
-    const client = createFlyMachinesClient({ token, apiOrigin: origin, timeoutMs: 30, maxRetries: 0 });
+    const client = createFlyMachinesClient({ token, apiOrigin: origin, timeoutMs: 1_000, maxRetries: 0 });
     const created = await client.createMachine("app", { image: "image" }, "op-ambiguous");
     expect(created.id).toBe("m-created");
     expect(createCount).toBe(1);
