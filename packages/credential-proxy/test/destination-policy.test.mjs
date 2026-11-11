@@ -18,7 +18,7 @@ test("URL policy permits paths and queries only on the configured HTTPS origin",
   const result = await connect("https://api.example.test:8443/v1/items?limit=5");
   assert.equal(result.url.pathname, "/v1/items");
   assert.equal(result.url.search, "?limit=5");
-  assert.deepEqual(calls, [{ hostname: "api.example.test", port: 8443, address: "93.184.216.34", servername: "api.example.test" }]);
+  assert.deepEqual(calls, [{ hostname: "api.example.test", port: 8443, address: "93.184.216.34", servername: "api.example.test", timeoutMs: 10_000 }]);
 });
 
 test("rejects unsafe and malformed request URLs before resolution", async () => {

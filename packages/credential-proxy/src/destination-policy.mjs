@@ -109,7 +109,7 @@ async function resolveAll(hostname) {
   return lookup(hostname, { all: true, verbatim: true });
 }
 
-function openTlsSocket({ hostname, port, address }) {
+function openTlsSocket({ hostname, port, address, timeoutMs = 10_000 }) {
   return new Promise((resolve, reject) => {
     const socket = tlsConnect({
       host: address,
@@ -117,9 +117,12 @@ function openTlsSocket({ hostname, port, address }) {
       servername: isIP(hostname) ? undefined : hostname,
       checkServerIdentity: (_server, certificate) => checkServerIdentity(hostname, certificate),
     });
-    const failed = (error) => { socket.destroy(); reject(error); };
+    const timer = setTimeout(() => failed(new Error("upstream connect deadline exceeded")), timeoutMs);
+    timer.unref?.();
+    const failed = (error) => { clearTimeout(timer); socket.destroy(); reject(error); };
     socket.once("error", failed);
     socket.once("secureConnect", () => {
+      clearTimeout(timer);
       socket.removeListener("error", failed);
       resolve(socket);
     });
@@ -132,7 +135,7 @@ function openTlsSocket({ hostname, port, address }) {
  * so a second DNS lookup cannot change the destination between validation and
  * connection. Paths, queries, methods, and bodies remain available to callers.
  */
-export function createOriginConnector(configuredOrigin, { resolve = resolveAll, connect = openTlsSocket } = {}) {
+export function createOriginConnector(configuredOrigin, { resolve = resolveAll, connect = openTlsSocket, timeoutMs = 10_000 } = {}) {
   const configured = parseHttpsUrl(configuredOrigin, "configured origin");
   if (configured.url.pathname !== "/" || configured.url.search || configured.url.hash) {
     throw new TypeError("configured origin must contain only an HTTPS origin");
@@ -148,7 +151,7 @@ export function createOriginConnector(configuredOrigin, { resolve = resolveAll, 
       if (!answer || !isPublicAddress(answer.address)) throw new Error("origin resolved to a non-public address");
     }
     const address = answers[0].address;
-    const socket = await connect({ hostname: target.hostname, port: target.port, address, servername: target.hostname });
+    const socket = await connect({ hostname: target.hostname, port: target.port, address, servername: target.hostname, timeoutMs });
     const rawPeerAddress = socket?.remoteAddress ?? "";
     const peerAddress = normalizeAddress(rawPeerAddress);
     if (!peerAddress || peerAddress !== normalizeAddress(address) || !isPublicAddress(rawPeerAddress)) {
