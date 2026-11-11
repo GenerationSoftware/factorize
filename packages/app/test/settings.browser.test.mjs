@@ -50,17 +50,121 @@ test("unlock-key setup requires acknowledgement, stores ciphertext only, verifie
   assert.equal(writes, 1);
   assert.equal(saved.encryptedVerification.includes(savedKey), false);
   assert.equal(await page.evaluate(() => localStorage.length), 0);
-  await page.getByRole("textbox", { name: "Unlock key" }).fill("malformed");
+  const keySetup = page.getByRole("region", { name: "Unlock key" });
+  await keySetup.getByRole("textbox", { name: "Unlock key" }).fill("malformed");
   await page.getByRole("button", { name: "Verify unlock key" }).click();
   await page.getByRole("alert").filter({ hasText: "Unlock key could not be verified" }).waitFor();
-  await page.getByRole("textbox", { name: "Unlock key" }).fill(savedKey);
+  await keySetup.getByRole("textbox", { name: "Unlock key" }).fill(savedKey);
   await page.getByRole("button", { name: "Verify unlock key" }).click();
   await page.getByRole("status").filter({ hasText: "Unlock key verified for this account and generation." }).waitFor();
   await page.reload();
-  await page.getByRole("textbox", { name: "Unlock key" }).waitFor();
-  assert.equal(await page.getByRole("textbox", { name: "Unlock key" }).inputValue(), "");
+  await keySetup.getByRole("textbox", { name: "Unlock key" }).waitFor();
+  assert.equal(await keySetup.getByRole("textbox", { name: "Unlock key" }).inputValue(), "");
   assert.equal(await page.getByText(savedKey, { exact: true }).count(), 0);
   assert.equal(await page.evaluate(() => localStorage.length), 0);
+  await context.close();
+});
+test("bearer integrations encrypt in the browser, clear secrets, handle conflicts and delete conditionally", async () => {
+  const { context, page } = await setup();
+  await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
+  let verification = null, revision = 0, writeBody = null, updateBody = null, deleteBody = null, conflict = true, deleted = false;
+  await page.route("**/api/v1/unlock-key/verification", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { ownerId: "owner", verification } });
+    const body = route.request().postDataJSON(); verification = { generationId: body.generationId, encryptedVerification: body.encryptedVerification };
+    return route.fulfill({ json: { generationId: body.generationId } });
+  });
+  await page.route("**/api/v1/integrations/bearer", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { revision, integrations: deleted ? [] : writeBody ? [{ id: writeBody.id, name: writeBody.name, origin: writeBody.origin, description: writeBody.description, revision, encryptedPayload: writeBody.encryptedPayload }] : [] } });
+    writeBody = route.request().postDataJSON();
+    assert.deepEqual(Object.keys(writeBody).sort(), ["description", "encryptedPayload", "expectedRevision", "id", "idempotencyKey", "name", "origin"]);
+    assert.equal(writeBody.encryptedPayload.includes("plain-bearer-value"), false);
+    assert.match(writeBody.encryptedPayload, /^[A-Za-z0-9+/]+=*\.[A-Za-z0-9+/]+=*$/u);
+    if (conflict) { conflict = false; revision = 1; return route.fulfill({ status: 409, json: { error: { code: "stale_revision", message: "The integration collection changed. Current revision is 1." } } }); }
+    revision++;
+    return route.fulfill({ status: 201, json: { revision, duplicate: false } });
+  });
+  await page.route("**/api/v1/integrations/bearer/*", async route => {
+    if (route.request().method() === "PUT") {
+      updateBody = route.request().postDataJSON();
+      assert.deepEqual(Object.keys(updateBody).sort(), ["description", "encryptedPayload", "expectedRevision", "idempotencyKey", "name", "origin"]);
+      assert.equal(updateBody.encryptedPayload.includes("replacement-bearer-value"), false);
+      revision++; writeBody = { ...writeBody, ...updateBody };
+      return route.fulfill({ json: { revision, duplicate: false } });
+    }
+    assert.equal(route.request().method(), "DELETE"); deleteBody = route.request().postDataJSON();
+    assert.deepEqual(Object.keys(deleteBody).sort(), ["expectedRevision", "idempotencyKey"]);
+    deleted = true; revision++;
+    return route.fulfill({ json: { id: writeBody.id, deleted: true, revision, duplicate: false } });
+  });
+  await page.goto(origin + "/settings/integrations");
+  await page.getByRole("button", { name: "Generate unlock key" }).click();
+  const key = await page.getByLabel("New unlock key").inputValue();
+  await page.getByRole("checkbox", { name: "I saved this key somewhere safe." }).check();
+  await page.getByRole("button", { name: "I saved my key" }).click();
+  await page.getByText("Unlock key verification is set up.", { exact: false }).waitFor();
+
+  const bearer = page.getByRole("region", { name: "Bearer integrations" });
+  await bearer.getByLabel("Name").fill("Test bearer");
+  await bearer.getByLabel("HTTPS origin").fill("https://api.example.test");
+  await bearer.getByLabel("Description or help (optional)").fill("fixture help");
+  await bearer.getByLabel("Bearer token").fill("plain-bearer-value");
+  await bearer.getByLabel("Unlock key").fill("malformed-key");
+  await bearer.getByRole("button", { name: "Add integration" }).click();
+  await bearer.getByRole("alert").filter({ hasText: "Malformed unlock key" }).waitFor();
+  assert.equal(writeBody, null);
+  assert.equal(await bearer.getByLabel("Bearer token").inputValue(), "");
+  assert.equal(await bearer.getByLabel("Unlock key").inputValue(), "");
+
+  const wrongKey = `${key.slice(0, -1)}${key.endsWith("A") ? "B" : "A"}`;
+  await bearer.getByLabel("HTTPS origin").fill("https://api.example.test");
+  await bearer.getByLabel("Bearer token").fill("plain-bearer-value");
+  await bearer.getByLabel("Unlock key").fill(wrongKey);
+  await bearer.getByRole("button", { name: "Add integration" }).click();
+  await bearer.getByRole("alert").waitFor();
+  assert.equal((await bearer.getByRole("alert").innerText()).includes("plain-bearer-value"), false);
+  assert.equal(writeBody, null);
+  assert.equal(await bearer.getByLabel("Bearer token").inputValue(), "");
+  assert.equal(await bearer.getByLabel("Unlock key").inputValue(), "");
+
+  await bearer.getByLabel("HTTPS origin").fill("https://127.0.0.1");
+  await bearer.getByLabel("Bearer token").fill("plain-bearer-value");
+  await bearer.getByLabel("Unlock key").fill(key);
+  await bearer.getByRole("button", { name: "Add integration" }).click();
+  await bearer.getByRole("alert").filter({ hasText: "public HTTPS origin" }).waitFor();
+  assert.equal(writeBody, null, "private origins are rejected before any request");
+
+  await bearer.getByLabel("HTTPS origin").fill("https://api.example.test");
+  await bearer.getByLabel("Bearer token").fill("plain-bearer-value");
+  await bearer.getByLabel("Unlock key").fill(key);
+  await bearer.getByRole("button", { name: "Add integration" }).click();
+  await bearer.getByRole("alert").filter({ hasText: "collection changed" }).waitFor();
+  assert.equal(await bearer.getByLabel("Bearer token").inputValue(), "");
+  assert.equal(await bearer.getByLabel("Unlock key").inputValue(), "");
+  await bearer.getByLabel("Bearer token").fill("plain-bearer-value");
+  await bearer.getByLabel("Unlock key").fill(key);
+  await bearer.getByRole("button", { name: "Add integration" }).click();
+  await bearer.getByRole("status").filter({ hasText: "pending until the proxy is unlocked" }).waitFor();
+  assert.equal(writeBody.encryptedPayload.includes("plain-bearer-value"), false);
+  assert.equal(await page.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage)), "{}{}");
+  assert.equal(page.url().includes("plain-bearer-value"), false);
+  assert.equal(await bearer.getByText("plain-bearer-value", { exact: true }).count(), 0);
+  assert.equal(await bearer.getByLabel("Bearer token").inputValue(), "");
+  assert.equal(await bearer.getByLabel("Unlock key").inputValue(), "");
+
+  await bearer.getByRole("button", { name: "Replace or edit" }).click();
+  await bearer.getByLabel("Replacement bearer token").fill("replacement-bearer-value");
+  await bearer.getByLabel("Unlock key").fill(key);
+  await bearer.getByRole("button", { name: "Save replacement" }).click();
+  await bearer.getByRole("status").filter({ hasText: "pending until the proxy is unlocked" }).waitFor();
+  assert.equal(updateBody.expectedRevision, 2);
+  assert.equal(await bearer.getByLabel("Bearer token").inputValue(), "");
+  assert.equal(await bearer.getByLabel("Unlock key").inputValue(), "");
+
+  page.once("dialog", dialog => dialog.accept());
+  await bearer.getByRole("button", { name: "Delete" }).click();
+  await bearer.getByText("Integration deleted.", { exact: true }).waitFor();
+  assert.equal(deleteBody.expectedRevision, revision - 1);
   await context.close();
 });
 test("integration settings tolerates legacy exe connections without tags", async () => {

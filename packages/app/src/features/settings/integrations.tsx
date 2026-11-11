@@ -9,6 +9,7 @@ import { SettingsLayout } from "./navigation";
 import { IntegrationForm } from "./integration-form";
 import { messageOf } from "../auth/session";
 import { UnlockKeySetup } from "./unlock-key-setup";
+import { BearerIntegrations } from "./bearer-integrations";
 
 const linkClass = "inline-flex min-h-10 items-center rounded-lg border border-stone-200 px-3 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800";
 
@@ -52,6 +53,7 @@ export function Integrations() {
         {status.data?.cloudflareTail.installations.map(c => <div className="border-b border-stone-200 p-4 last:border-b-0 dark:border-slate-800" key={c.integrationId}><div className="flex flex-wrap items-center gap-3"><IntegrationIcon kind="tail" /><div className="min-w-40 flex-1"><p className="font-semibold">Cloudflare Tail · {c.name}</p><p className="text-sm text-slate-600 dark:text-slate-400">Referenced by {c.referencedJobCount} {c.referencedJobCount === 1 ? "job" : "jobs"}</p></div><Badge active>Connected</Badge><Button onClick={() => setOpenSetup(openSetup === `tail:${c.integrationId}` ? null : `tail:${c.integrationId}`)}>Manage</Button>{buttons("cloudflareTail", c.integrationId)}</div>{manage(`tail:${c.integrationId}`, <IntegrationForm kind="cloudflareTail" connectionId={c.integrationId} initialName={c.name} />)}</div>)}
       </div>}
     </section>
+    <BearerIntegrations />
     <section aria-labelledby="available-integrations-heading" className="mt-10"><div className="mb-4"><h2 id="available-integrations-heading" className="text-2xl font-bold">Available integrations</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Connect a provider to add it to your workspace. Connected providers remain available for additional connections.</p></div><div className="grid gap-4 sm:grid-cols-2">
       <ProviderCard kind="linear" name="Linear" description="Create and update issues from automated workflows."><SetupDisclosure title={status.data?.linear ? "Add another Linear account" : "Connect Linear"} onToggle={open => setOpenSetup(open ? "linear-new" : null)}><a className={linkClass} href="/auth/linear">{status.data?.linear ? "Add another Linear account" : "Connect Linear"}</a></SetupDisclosure></ProviderCard>
       <ProviderCard kind="clickup" name="ClickUp" description="Trigger workflows from ClickUp tasks and lists."><SetupDisclosure title={status.data?.clickup ? "Add another ClickUp workspace" : "Connect ClickUp"} onToggle={open => setOpenSetup(open ? "clickup-new" : null)}><a className={linkClass} href="/auth/clickup">{status.data?.clickup ? "Add another ClickUp workspace" : "Connect ClickUp"}</a></SetupDisclosure></ProviderCard>
