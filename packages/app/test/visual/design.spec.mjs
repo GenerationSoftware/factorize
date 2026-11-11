@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { mockApi, screens, jobId } from "./fixtures.mjs";
+import { mockApi, screens, jobId, projectId } from "./fixtures.mjs";
 let server, origin;
 test.beforeAll(async () => {
   server = createServer(async (req, res) => {
@@ -87,6 +87,30 @@ test("empty jobs", async ({ page }) => {
   await mockApi(page, { empty: true }); await page.goto(origin + "/jobs");
   await expect(page.getByRole("heading", { name: "No jobs found" })).toBeVisible();
   await expect(page).toHaveScreenshot("jobs-empty.png");
+});
+for (const [label, width, height] of [["desktop", 1721, 914], ["mobile", 390, 844]]) test(`project jobs layout ${label}`, async ({ page }) => {
+  await page.setViewportSize({ width, height }); await page.emulateMedia({ colorScheme: "light" });
+  await mockApi(page);
+  await page.goto(origin + "/projects/" + projectId);
+  await expect(page.getByRole("heading", { name: "Release automation jobs", exact: true })).toBeVisible();
+  const navigation = page.getByRole("navigation", { name: "Project navigation" });
+  await expect(navigation.getByRole("link", { name: "Jobs", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(navigation.getByRole("link", { name: "Runs", exact: true })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Project" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "List", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Graph", exact: true })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("link", { name: "Create job" })).toHaveAttribute("href", "/jobs/new?projectId=" + projectId);
+  await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
+  await page.getByRole("button", { name: "Graph", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Graph", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "List", exact: true }).click();
+  await expect(page.getByRole("button", { name: "List", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("header")).toBeVisible();
+  await expect(page).toHaveScreenshot(`project-jobs-${label}.png`, { fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(accessibility.violations).toEqual([]);
 });
 for (const theme of ["light", "dark"]) test(`additional routes and feedback ${theme}`, async ({ page }) => {
   await page.emulateMedia({ colorScheme: theme }); await page.setViewportSize({ width: 390, height: 844 });
