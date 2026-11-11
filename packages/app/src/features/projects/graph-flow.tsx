@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background, BaseEdge, Controls, EdgeLabelRenderer, MarkerType, Position, ReactFlow,
   Handle, type Edge, type EdgeProps, type Node, type NodeProps, type ReactFlowInstance,
@@ -9,7 +9,7 @@ import { routeAroundNodes, roundedPath, type GraphRect, type GraphSide } from ".
 export type GraphNode = { id: string; type: string; label: string; provider?: string; jobKind?: string; enabled?: boolean; runningCount?: number; concurrencyLimit?: number };
 export type GraphConnection = { id: string; source: string; target: string; label: string; kind: string; enabled: boolean };
 type GraphNodeData = { graphNode: GraphNode; onOpen: (id: string) => void };
-type GraphEdgeData = { connections: GraphConnection[]; nodeLabels: Record<string, string>; labels: string[]; count: number; muted: boolean; reverse: boolean; selected: boolean; onSelect: (edge: GraphConnection) => void; route: ReturnType<typeof routeAroundNodes> };
+type GraphEdgeData = { connections: GraphConnection[]; labels: string[]; count: number; muted: boolean; reverse: boolean; selected: boolean; onSelect: (edge: GraphConnection) => void; onGroup: (edges: GraphConnection[], trigger: HTMLButtonElement) => void; route: ReturnType<typeof routeAroundNodes> };
 type FlowNode = Node<GraphNodeData, "job" | "webhook" | "bounds">;
 type FlowEdge = Edge<GraphEdgeData, "routed">;
 export type ProjectFlowInstance = ReactFlowInstance<FlowNode, FlowEdge>;
@@ -34,7 +34,7 @@ const positionFor = (nodes: GraphNode[], edges: GraphConnection[]) => {
   nodes.filter(node => node.type === "webhook").forEach((node, row) => positions.set(node.id, { x: 35, y: 110 + row * 190 }));
   return positions;
 };
-function makeLayout(nodes: GraphNode[], edges: GraphConnection[], onOpen: (id: string) => void, onSelect: (edge: GraphConnection) => void) {
+function makeLayout(nodes: GraphNode[], edges: GraphConnection[], onOpen: (id: string) => void, onSelect: (edge: GraphConnection) => void, onGroup: (edges: GraphConnection[], trigger: HTMLButtonElement) => void) {
   const positions = positionFor(nodes, edges);
   const rects: GraphRect[] = nodes.map(node => ({ id: node.id, ...positions.get(node.id)!, width: width(node), height: height(node) }));
   const grouped = new Map<string, GraphConnection[]>();
@@ -49,7 +49,7 @@ function makeLayout(nodes: GraphNode[], edges: GraphConnection[], onOpen: (id: s
     const first = group[0], reverse = group.some(edge => edge.source === b && edge.target === a);
     return { id: group.map(edge => edge.id).sort().join("|"), type: "routed", source: a, target: b,
       sourceHandle: route.sourceSide, targetHandle: route.targetSide, data: { route, labels: group.map(edge => edge.label).filter(Boolean), count: group.length, muted: group.every(edge => !edge.enabled), reverse,
-        selected: false, connections: group, nodeLabels: Object.fromEntries(nodes.map(node => [node.id, node.label || node.provider || "Unknown"])), onSelect }, markerEnd: group.some(edge => edge.source === a && edge.target === b) ? { type: MarkerType.ArrowClosed, color: group.every(edge => !edge.enabled) ? "#a8a29e" : "#0f766e" } : undefined,
+        selected: false, connections: group, onSelect, onGroup }, markerEnd: group.some(edge => edge.source === a && edge.target === b) ? { type: MarkerType.ArrowClosed, color: group.every(edge => !edge.enabled) ? "#a8a29e" : "#0f766e" } : undefined,
       markerStart: reverse ? { type: MarkerType.ArrowClosed, color: group.every(edge => !edge.enabled) ? "#a8a29e" : "#0f766e" } : undefined,
       } as FlowEdge;
   });
@@ -76,20 +76,10 @@ const nodeTypes = { job: GraphCardNode, webhook: GraphCardNode };
 const BoundsNode = () => <div aria-hidden="true" className="pointer-events-none h-full w-full opacity-0" />;
 const GraphEdgeView = memo(function GraphEdgeView(props: EdgeProps<FlowEdge>) {
   const data = props.data as GraphEdgeData & { route: ReturnType<typeof routeAroundNodes> }, path = roundedPath(data.route.points);
-  const [open, setOpen] = useState(false), trigger = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const dismiss = (event: PointerEvent) => { if (!menu.current?.contains(event.target as Node) && !trigger.current?.contains(event.target as Node)) setOpen(false); };
-    const keydown = (event: KeyboardEvent) => { if (event.key === "Escape") { setOpen(false); trigger.current?.focus(); } };
-    document.addEventListener("pointerdown", dismiss); document.addEventListener("keydown", keydown);
-    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", keydown); };
-  }, [open]);
   const label = data.count > 1 ? `${data.labels.join(" · ")} · ${data.count}` : data.labels.join(" · ");
   const center = data.route.label;
   return <><BaseEdge id={props.id} path={path} markerStart={props.markerStart} markerEnd={props.markerEnd} style={{ stroke: data.muted ? "#a8a29e" : "#0f766e", strokeWidth: data.selected ? 3 : 2, strokeDasharray: data.muted ? "6 5" : undefined }} />
-    <EdgeLabelRenderer><div className="nodrag nopan pointer-events-auto absolute" style={{ transform: `translate(-50%, -50%) translate(${center.x}px,${center.y}px)` }}><button ref={trigger} type="button" data-graph-interactive className="max-w-[240px] whitespace-normal rounded-md border border-slate-300 bg-white/95 px-2 py-1 text-center text-xs text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" aria-label={`${label || "Workflow"} connection${data.count > 1 ? `, ${data.count} triggers` : ""}`} aria-haspopup={data.count > 1 ? "dialog" : undefined} aria-expanded={data.count > 1 ? open : undefined} onClick={() => data.count > 1 ? setOpen(value => !value) : data.onSelect(data.connections[0])}>{label || "Connection"}</button>
-      {open && <div ref={menu} data-graph-interactive role="dialog" aria-label="Grouped connections" className="absolute left-1/2 top-full z-50 mt-1 max-h-[55vh] w-72 -translate-x-1/2 overflow-y-auto rounded-lg border border-stone-300 bg-white p-1 shadow-xl dark:border-slate-700 dark:bg-slate-900">{[...data.connections].sort((a, b) => a.label.localeCompare(b.label) || a.source.localeCompare(b.source) || a.target.localeCompare(b.target) || a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id)).map(edge => <button key={edge.id} type="button" className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-stone-100 focus:bg-stone-100 focus:outline-none dark:hover:bg-slate-800 dark:focus:bg-slate-800" onClick={() => { data.onSelect(edge); setOpen(false); }}><span className="block font-medium">{edge.label || "Workflow"}</span><span className="block text-xs text-slate-600 dark:text-slate-400">{data.nodeLabels[edge.source]} → {data.nodeLabels[edge.target]}</span><span className="block text-xs text-slate-600 dark:text-slate-400">{edge.kind === "manual" ? "Manual invocation permission" : "Automatic trigger"} · {edge.enabled ? "Enabled" : "Disabled"}</span></button>)}</div>}
-    </div></EdgeLabelRenderer>
+    <EdgeLabelRenderer><button type="button" data-graph-interactive className="nodrag nopan pointer-events-auto absolute max-w-[240px] whitespace-normal rounded-md border border-slate-300 bg-white/95 px-2 py-1 text-center text-xs text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200" style={{ transform: `translate(-50%, -50%) translate(${center.x}px,${center.y}px)` }} aria-label={`${label || "Workflow"} connection${data.count > 1 ? `, ${data.count} triggers` : ""}`} aria-haspopup={data.count > 1 ? "dialog" : undefined} onClick={event => data.count > 1 ? data.onGroup(data.connections, event.currentTarget) : data.onSelect(data.connections[0])}>{label || "Connection"}</button></EdgeLabelRenderer>
   </>;
 });
 const edgeTypes = { routed: GraphEdgeView };
@@ -99,11 +89,15 @@ export function ProjectGraphFlow({ graphNodes, graphEdges, onOpen, onSelect, flo
   flowRef: (instance: ProjectFlowInstance) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const layout = useMemo(() => makeLayout(graphNodes, graphEdges, onOpen, onSelect), [graphNodes, graphEdges, onOpen, onSelect]);
+  const [openGroup, setOpenGroup] = useState<GraphConnection[] | null>(null), groupTrigger = useRef<HTMLButtonElement | null>(null), groupMenu = useRef<HTMLDivElement | null>(null);
+  const onGroup = useCallback((connections: GraphConnection[], trigger: HTMLButtonElement) => { groupTrigger.current = trigger; setOpenGroup(connections); }, []);
+  useEffect(() => { if (!openGroup) return; const keydown = (event: KeyboardEvent) => { if (event.key === "Escape") { setOpenGroup(null); groupTrigger.current?.focus(); } }; const dismiss = (event: PointerEvent) => { if (!groupMenu.current?.contains(event.target as globalThis.Node) && !groupTrigger.current?.contains(event.target as globalThis.Node)) setOpenGroup(null); }; document.addEventListener("keydown", keydown); document.addEventListener("pointerdown", dismiss); return () => { document.removeEventListener("keydown", keydown); document.removeEventListener("pointerdown", dismiss); }; }, [openGroup]);
+  const layout = useMemo(() => makeLayout(graphNodes, graphEdges, onOpen, onSelect, onGroup), [graphNodes, graphEdges, onOpen, onSelect, onGroup]);
   const edges: FlowEdge[] = useMemo(() => layout.edges.map(edge => ({ ...edge, data: { ...edge.data!, selected: edge.id === selected } } as FlowEdge)), [layout.edges, selected]);
-  return <div role="region" aria-label={`Workflow graph with ${graphNodes.filter(node => node.type === "job").length} jobs and ${graphEdges.length} connections`} className="h-[min(68vh,700px)] min-h-[360px] w-full overflow-hidden rounded-xl border border-stone-200 bg-stone-50 dark:border-slate-800 dark:bg-slate-950">
-    <ReactFlow nodes={layout.nodes} edges={edges} nodeTypes={{ ...nodeTypes, bounds: BoundsNode }} edgeTypes={edgeTypes} onInit={flowRef} onNodeClick={(_, node) => node.type === "job" && onOpen(node.id)} onEdgeClick={(_, edge) => { setSelected(edge.id); edge.data?.onSelect(); }} onPaneClick={() => setSelected(null)} fitView fitViewOptions={{ padding: 0.18 }} minZoom={0.15} maxZoom={2} nodesDraggable={false} nodesConnectable={false} elementsSelectable onlyRenderVisibleElements proOptions={{ hideAttribution: false }}>
+  return <div role="region" aria-label={`Workflow graph with ${graphNodes.filter(node => node.type === "job").length} jobs and ${graphEdges.length} connections`} className="relative h-[min(68vh,700px)] min-h-[360px] w-full overflow-hidden rounded-xl border border-stone-200 bg-stone-50 dark:border-slate-800 dark:bg-slate-950">
+    <ReactFlow nodes={layout.nodes} edges={edges} nodeTypes={{ ...nodeTypes, bounds: BoundsNode }} edgeTypes={edgeTypes} onInit={flowRef} onNodeClick={(_, node) => node.type === "job" && onOpen(node.id)} onEdgeClick={(_, edge) => { setSelected(edge.id); edge.data?.onSelect(edge.data.connections[0]); }} onPaneClick={() => setSelected(null)} fitView fitViewOptions={{ padding: 0.18 }} minZoom={0.15} maxZoom={2} nodesDraggable={false} nodesConnectable={false} elementsSelectable onlyRenderVisibleElements proOptions={{ hideAttribution: false }}>
       <Background color="#cbd5e1" gap={24} size={1} /><Controls position="top-right" showInteractive={false} />
     </ReactFlow>
+    {openGroup && <div ref={groupMenu} role="dialog" aria-label="Grouped connections" className="absolute left-3 top-3 z-50 max-h-[55vh] w-72 overflow-y-auto rounded-lg border border-stone-300 bg-white p-1 shadow-xl dark:border-slate-700 dark:bg-slate-900">{[...openGroup].sort((a, b) => a.label.localeCompare(b.label) || a.source.localeCompare(b.source) || a.target.localeCompare(b.target) || a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id)).map(edge => <button key={edge.id} type="button" className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-stone-100 focus:bg-stone-100 focus:outline-none dark:hover:bg-slate-800 dark:focus:bg-slate-800" onClick={() => { setSelected(edge.id); onSelect(edge); setOpenGroup(null); }}><span className="block font-medium">{edge.label || "Workflow"}</span><span className="block text-xs text-slate-600 dark:text-slate-400">{graphNodes.find(node => node.id === edge.source)?.label ?? graphNodes.find(node => node.id === edge.source)?.provider ?? "Unknown"} → {graphNodes.find(node => node.id === edge.target)?.label ?? graphNodes.find(node => node.id === edge.target)?.provider ?? "Unknown"}</span><span className="block text-xs text-slate-600 dark:text-slate-400">{edge.kind === "manual" ? "Manual invocation permission" : "Automatic trigger"} · {edge.enabled ? "Enabled" : "Disabled"}</span></button>)}</div>}
   </div>;
 }
