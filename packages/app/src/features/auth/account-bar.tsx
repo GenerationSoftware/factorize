@@ -60,8 +60,7 @@ export function AccountBar() {
         <span aria-hidden="true" className="h-8 w-px shrink-0 bg-stone-300 dark:bg-slate-700" />
         {authenticated ? <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
           <Link to="/" title={session.data?.user.email} className="max-w-[38vw] truncate text-slate-700 hover:text-factorize-700 dark:text-slate-200 dark:hover:text-factorize-500 sm:max-w-56">{displayName}</Link>
-          <span aria-hidden="true" className="text-slate-400">/</span>
-          <div ref={menu} className="relative flex min-w-0 items-center">
+          {routeProjectId && <><span aria-hidden="true" className="text-slate-400">/</span><div ref={menu} className="relative flex min-w-0 items-center">
           {currentProject ? <Link to="/projects/$projectId" params={{ projectId: currentProject.id }} className="max-w-[35vw] truncate text-slate-700 hover:text-factorize-700 dark:text-slate-200 sm:max-w-64">{currentProject.name}</Link> : routeProjectId ? <span className="truncate text-slate-600 dark:text-slate-300">{routeProject.isPending ? "Loading project…" : routeProject.error ? "Project unavailable" : "Project"}</span> : <Link to="/projects" className="truncate text-slate-600 hover:text-factorize-700 dark:text-slate-300 dark:hover:text-factorize-500">Projects</Link>}
             <button ref={trigger} type="button" aria-label="Switch project" aria-haspopup="listbox" aria-expanded={open} className="ml-1 flex size-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-factorize-500 dark:text-slate-300 dark:hover:bg-slate-800" onClick={() => { setOpen(value => !value); setSearch(""); setActive(0); requestAnimationFrame(() => searchInput.current?.focus()); }}><svg aria-hidden="true" viewBox="0 0 20 20" className="size-4 fill-current"><path d="m5 7 5 5 5-5" /></svg></button>
             {open && <div className="absolute left-0 top-full z-40 mt-2 w-[min(19rem,calc(100vw-2rem))] rounded-xl border border-stone-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900">
@@ -75,7 +74,7 @@ export function AccountBar() {
                 {options.map((project, index) => <li key={project.id} id={`project-option-${project.id}`} role="option" aria-selected={project.id === routeProjectId} className={`cursor-pointer rounded-lg px-3 py-2 text-sm ${index === active ? "bg-factorize-50 text-slate-950 dark:bg-slate-800 dark:text-white" : "text-slate-700 dark:text-slate-200"}`} onMouseEnter={() => setActive(index)} onMouseDown={event => event.preventDefault()} onClick={() => choose(project.id)}>{project.name}{project.id === routeProjectId && <span className="ml-2 text-xs text-slate-500">Current</span>}</li>)}
               </ul>
             </div>}
-          </div>
+          </div></>}
         </div> : <Link to="/" className="text-sm font-semibold">Dashboard</Link>}
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
