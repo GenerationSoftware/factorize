@@ -48,7 +48,15 @@ export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnro
       let target;
       try {
         const connection = await authenticateEnrollment({ token: match[1], vmIdentity: peerIdentity(socket), bootEpoch: runtime.bootEpoch });
-        if (!connection || connection.authenticated !== true || connection.enrollmentConsumed !== true) throw new Error("enrollment was not consumed");
+        // The production control plane returns the consumed enrollment binding.
+        // Compare its VM and boot identities with the authenticated TLS peer and
+        // this process so an adapter cannot accidentally attach another run's
+        // grants to the tunnel.
+        if (!connection || connection.authenticated !== true || connection.enrollmentConsumed !== true
+          || connection.vmIdentity !== peerIdentity(socket) || connection.bootEpoch !== runtime.bootEpoch
+          || typeof connection.connectionId !== "string" || connection.connectionId.length === 0) {
+          throw new Error("enrollment binding does not match the authenticated tunnel");
+        }
         listener = await runtime.acceptAuthenticatedConnection(connection);
         const address = listener.address;
         target = connectTcp(address.port, address.address);
