@@ -61,6 +61,7 @@ const publicVmImage = (allowBlank: boolean) => (allowBlank ? z.string().trim().m
 export const jobInputSchema = z.object({
   projectId: z.guid().optional(),
   name: z.string().trim().min(1).max(120),
+  description: z.string().max(2000).optional(),
   slug: z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/),
   executionType: z.enum(["agent", "code"]).optional(),
   promptTemplate: z.string().max(50_000).default(""),

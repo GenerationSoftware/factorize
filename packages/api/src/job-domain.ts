@@ -38,6 +38,7 @@ export interface Job {
   id: string;
   projectId?: string;
   name: string;
+  description?: string;
   slug: string;
   promptTemplate: string;
   executionType?: "agent" | "code";
