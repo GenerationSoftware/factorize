@@ -55,17 +55,17 @@ export function AccountBar() {
   return <header className="border-b border-stone-200 bg-white dark:border-slate-800 dark:bg-slate-950">
     <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-factorize-500 focus:p-3 focus:text-slate-950">Skip to content</a>
     <nav aria-label="Main navigation" className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-x-5 gap-y-3 px-4 py-3 sm:px-6 lg:px-8">
-      <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
         <Link to="/" aria-label="Factorize dashboard" className="flex shrink-0 items-center"><img src={beeMark} alt="" className="size-8 object-contain" /></Link>
         <span aria-hidden="true" className="hidden h-8 w-px shrink-0 bg-stone-300 dark:bg-slate-700" />
-        {authenticated ? <div className="flex min-w-0 flex-1 items-center gap-1 text-sm font-semibold sm:flex-initial sm:gap-2">
+        {authenticated ? <div className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold sm:flex-initial">
           {currentProjectId && <><div className="flex min-w-0 items-center">
-            {currentProject ? <Link to="/projects/$projectId" params={{ projectId: currentProject.id }} title={currentProject.name} className="-mx-2 min-w-0 max-w-[55vw] truncate rounded-md px-2 py-1 text-slate-700 transition-colors hover:bg-stone-100 hover:text-factorize-700 dark:text-slate-200 dark:hover:bg-slate-800 sm:max-w-64">{currentProject.name}</Link> : <span className="truncate text-slate-600 dark:text-slate-300">{routeProject.isPending ? "Loading project…" : routeProject.error ? "Project unavailable" : "Project"}</span>}
-            <ResourceSwitcher kind="Project" items={projects.data ?? []} currentId={currentProjectId} loading={projects.isPending} error={projects.error?.message} onSelect={chooseProject} />
+            {currentProject ? <Link to="/projects/$projectId" params={{ projectId: currentProject.id }} title={currentProject.name} className="min-w-0 max-w-[55vw] truncate rounded-md py-1 text-slate-700 transition-colors hover:bg-stone-100 hover:text-factorize-700 dark:text-slate-200 dark:hover:bg-slate-800 sm:max-w-64">{currentProject.name}</Link> : <span className="truncate text-slate-600 dark:text-slate-300">{routeProject.isPending ? "Loading project…" : routeProject.error ? "Project unavailable" : "Project"}</span>}
+            <ResourceSwitcher compact kind="Project" items={projects.data ?? []} currentId={currentProjectId} loading={projects.isPending} error={projects.error?.message} onSelect={chooseProject} />
           </div></>}
-          {currentJobId && <><span aria-hidden="true" className="hidden text-slate-400 sm:inline">/</span><div className="flex min-w-0 items-center">
-            {routeJob.data ? <Link to="/jobs/$jobId" params={{ jobId: routeJob.data.id }} title={routeJob.data.name} className="-mx-2 min-w-0 max-w-[42vw] truncate rounded-md px-2 py-1 text-slate-700 transition-colors hover:bg-stone-100 hover:text-factorize-700 dark:text-slate-200 dark:hover:bg-slate-800 sm:max-w-56">{routeJob.data.name}</Link> : <span className="truncate text-slate-600 dark:text-slate-300">{routeJob.isPending ? "Loading job…" : routeJob.error ? "Job unavailable" : "Job"}</span>}
-            <ResourceSwitcher kind="Job" items={(projectJobs.data?.items ?? []).map(job => ({ id: job.id, name: job.name }))} currentId={currentJobId} loading={projectJobs.isPending} error={projectJobs.error?.message} onSelect={chooseJob} />
+          {currentJobId && <><span aria-hidden="true" className="hidden text-slate-400 sm:mr-1 sm:inline">/</span><div className="flex min-w-0 items-center">
+            {routeJob.data ? <Link to="/jobs/$jobId" params={{ jobId: routeJob.data.id }} title={routeJob.data.name} className="min-w-0 max-w-[42vw] truncate rounded-md py-1 text-slate-700 transition-colors hover:bg-stone-100 hover:text-factorize-700 dark:text-slate-200 dark:hover:bg-slate-800 sm:max-w-56">{routeJob.data.name}</Link> : <span className="truncate text-slate-600 dark:text-slate-300">{routeJob.isPending ? "Loading job…" : routeJob.error ? "Job unavailable" : "Job"}</span>}
+            <ResourceSwitcher compact kind="Job" items={(projectJobs.data?.items ?? []).map(job => ({ id: job.id, name: job.name }))} currentId={currentJobId} loading={projectJobs.isPending} error={projectJobs.error?.message} onSelect={chooseJob} />
           </div></>}
         </div> : <Link to="/" className="text-sm font-semibold">Dashboard</Link>}
       </div>
