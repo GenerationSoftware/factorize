@@ -85,6 +85,7 @@ export function Textarea({ className = "", ...props }: ComponentProps<"textarea"
 export function Select({ className = "", ...props }: ComponentProps<"select">) { return <select {...props} className={`${fieldClasses} ${className}`} />; }
 export function Label({ className = "", ...props }: ComponentProps<"label">) { return <label {...props} className={`block min-w-0 text-sm font-medium text-slate-700 dark:text-slate-300 ${className}`} />; }
 export function Page({ className = "", ...props }: ComponentProps<"main">) { return <main {...props} id="main-content" className={`mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-12 lg:px-8 ${className}`} />; }
+export function ActionBar({ className = "", ...props }: ComponentProps<"div">) { return <div {...props} className={`mb-5 flex flex-wrap items-center justify-between gap-3 ${className}`} />; }
 export function Breadcrumb({ children }: { children?: ReactNode }) { return <nav aria-label="Breadcrumb" className="mb-4 flex min-h-6 min-w-0 flex-wrap items-center gap-2 text-sm">{children}</nav>; }
 export function ResourceHeader({ type, title, titleActions, description, children }: { type: "Project" | "Job" | "Run"; title: string; titleActions?: ReactNode; description?: ReactNode; children?: ReactNode }) {
   return <div className="mb-6 min-w-0">

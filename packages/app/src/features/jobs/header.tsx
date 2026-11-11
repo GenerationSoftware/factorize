@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { Button, ResourceHeader } from "../../shared/ui";
+import { ActionBar, Button, ResourceHeader } from "../../shared/ui";
 import { messageOf } from "../auth/session";
 import { InvokeJob } from "./invoke";
 import { JobTabs } from "./tabs";
@@ -10,7 +10,7 @@ type JobHeaderProps = {
   job: Pick<Job, "id" | "name" | "enabled">;
 };
 
-export function JobHeader({ job }: JobHeaderProps) {
+export function JobActions({ job }: JobHeaderProps) {
   const cache = useQueryClient();
   const enabled = useMutation({
     retry: false,
@@ -26,11 +26,11 @@ export function JobHeader({ job }: JobHeaderProps) {
     },
   });
 
-  return <>
-    <ResourceHeader type="Job" title={job.name}><div className="flex max-w-full shrink-0 flex-wrap items-center gap-2"><InvokeJob jobId={job.id} enabled={job.enabled} />
-      <Button className="min-h-9 px-2.5 py-1.5 text-xs" disabled={enabled.isPending} onClick={() => enabled.mutate(!job.enabled)}>{job.enabled ? "Disable job" : "Enable job"}</Button>
-    </div></ResourceHeader>
-    <JobTabs jobId={job.id} />
-    {enabled.error && <p role="alert">{enabled.error.message}</p>}
-  </>;
+  return <ActionBar><div role="group" aria-label="Job actions" className="flex max-w-full shrink-0 flex-wrap items-center gap-2"><InvokeJob jobId={job.id} enabled={job.enabled} />
+    <Button disabled={enabled.isPending} onClick={() => enabled.mutate(!job.enabled)}>{job.enabled ? "Disable job" : "Enable job"}</Button>
+  </div>{enabled.error && <p role="alert" className="basis-full">{enabled.error.message}</p>}</ActionBar>;
+}
+
+export function JobHeader({ job }: JobHeaderProps) {
+  return <><ResourceHeader type="Job" title={job.name}><JobActions job={job} /></ResourceHeader><JobTabs jobId={job.id} /></>;
 }
