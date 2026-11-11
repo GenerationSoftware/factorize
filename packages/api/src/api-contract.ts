@@ -901,7 +901,7 @@ export const API_ROUTES: RouteContract[] = [
     "runs:read",
     {
       summary: "List runs",
-      description: "Returns tenant-authorized runs. Project, job, and state filters accept repeated values and match any selected value within each filter; filters are applied before cursor pagination. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, runs remain newest-created first.",
+      description: "Returns tenant-authorized runs. Project, job, and state filters accept repeated values and match any selected value within each filter; filters are applied before cursor pagination. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, queued, reserved, and starting runs come first, running runs second, and all other states last; each group is ordered by creation time descending, then run ID descending. The opaque default cursor includes the priority group and creation time. Legacy two-field cursors resume at their original chronological boundary. Run states can change between requests and move rows across groups; restart pagination from the first page after observing a state transition if a gap-free live view is needed.",
       responses: {
         "200": {
           description: "Paginated runs",
