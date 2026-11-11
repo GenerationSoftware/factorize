@@ -55,6 +55,32 @@ describe("RunRetentionRepository", () => {
     expect(poolQuery).toHaveBeenLastCalledWith("DELETE FROM app.run_retention_cleanup WHERE id=$1", ["cleanup"]);
   });
 
+  it("retains R2 ownership when external deletion succeeds but acknowledgment fails", async () => {
+    const now = new Date("2026-11-11T12:00:00.000Z");
+    const bucketDelete = vi.fn().mockResolvedValue(undefined);
+    let claimAvailable = true;
+    const txQuery = vi.fn(async (sql: string) => {
+      if (!sql.includes("SELECT id,object_keys") || !claimAvailable) return { rows: [], rowCount: 0 };
+      claimAvailable = false;
+      return { rows: [{ id: "cleanup", object_keys: ["tenant/run/object"], attempts: 0 }], rowCount: 1 };
+    });
+    const acknowledge = vi.fn()
+      .mockRejectedValueOnce(new Error("database disconnected after R2 deletion"))
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    const poolQuery = vi.fn(async (sql: string) => {
+      if (sql.startsWith("DELETE FROM app.run_retention_cleanup")) return acknowledge(sql);
+      return { rows: [], rowCount: 1 };
+    });
+    const repository = new RunRetentionRepository({ pool: { query: poolQuery }, transaction: (work: (client: any) => unknown) => work({ query: txQuery }) } as any);
+
+    await expect(repository.processArtifactCleanup({ delete: bucketDelete } as any, now)).resolves.toEqual({ attempted: 1, completed: 0, retried: 1 });
+    expect(poolQuery).toHaveBeenCalledWith(expect.stringContaining("last_error=$3"), ["cleanup", new Date(now.getTime() + 60_000), "database disconnected after R2 deletion"]);
+    claimAvailable = true;
+    await expect(repository.processArtifactCleanup({ delete: bucketDelete } as any, now)).resolves.toEqual({ attempted: 1, completed: 1, retried: 0 });
+    expect(bucketDelete).toHaveBeenCalledTimes(2);
+    expect(acknowledge).toHaveBeenCalledTimes(2);
+  });
+
   it("reports bounded backlog counts and oldest age without exposing row identifiers", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [
       { queue: "artifact_objects", pending: 2, oldest_age_seconds: 120 },
