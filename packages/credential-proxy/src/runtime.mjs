@@ -40,6 +40,11 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       unlockMaterial = Buffer.from(key, "utf8");
       state = "unlocked";
     },
+    /** Return a transient copy only to the local grant resolver. */
+    getUnlockKey() {
+      if (shutdown || locking || state !== "unlocked" || !unlockMaterial) throw new Error("proxy is locked");
+      return unlockMaterial.toString("utf8");
+    },
     async lock() {
       locking = true;
       state = "locked";

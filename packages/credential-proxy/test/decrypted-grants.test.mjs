@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import { test } from "node:test";
-import { createDecryptedGrantResolver } from "../src/decrypted-grants.mjs";
+import { createDecryptedGrantResolver, createProxyIntegrationGrantResolver } from "../src/decrypted-grants.mjs";
+import { createProxyRuntime } from "../src/runtime.mjs";
 
 const encoder = new TextEncoder();
 const salt = encoder.encode("factorize.unlock-key.v1");
@@ -66,4 +67,32 @@ test("resolver rejects non-HTTPS destinations and invalid credential bytes", asy
   const badCredential = { ...badOrigin, origin: "https://api.example.test", encryptedPayload: await encryptCredential({ id: "integration-a", origin: "https://api.example.test", revision: 3, credential: "bad\ncredential" }) };
   const badCredentialResolver = createDecryptedGrantResolver({ readSnapshot: async () => ({ ownerId, records: [badCredential] }), getUnlockKey: async () => unlockKey });
   await assert.rejects(badCredentialResolver({ tenantId: "tenant-fixture", integrationIds: ["integration-a"] }), /credential/);
+});
+
+test("production grant resolver reads the run-bound snapshot and only decrypts while the runtime is unlocked", async () => {
+  const record = { id: "integration-a", kind: "bearer", origin: "https://api.example.test", revision: 3, deletedAt: null };
+  const encryptedPayload = await encryptCredential({ ...record, credential: "snapshot-token" });
+  const runtime = createProxyRuntime({ bootEpoch: "11111111-1111-4111-8111-111111111111" });
+  const requests = [];
+  const resolve = createProxyIntegrationGrantResolver({
+    runtime,
+    controlOrigin: "https://factorize.example",
+    controlCredential: `fzc_${"c".repeat(43)}`,
+    fetchImpl: async (url, init) => {
+      requests.push({ url: String(url), authorization: new Headers(init.headers).get("authorization"), body: JSON.parse(init.body) });
+      return Response.json({ ownerId, records: [{ ...record, encryptedPayload }] });
+    },
+  });
+  const binding = { runId: "22222222-2222-4222-8222-222222222222", grantRevision: 7 };
+  await assert.rejects(resolve(binding), /locked/);
+  runtime.unlock(unlockKey);
+  assert.deepEqual(await resolve(binding), [{ id: record.id, origin: record.origin, credential: "snapshot-token" }]);
+  assert.deepEqual(requests, [{
+    url: "https://factorize.example/internal/credential-proxy/integration-snapshot",
+    authorization: `Bearer fzc_${"c".repeat(43)}`,
+    body: binding,
+  }]);
+  await runtime.lock();
+  await assert.rejects(resolve(binding), /locked/);
+  await runtime.shutdown();
 });
