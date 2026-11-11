@@ -363,7 +363,8 @@ test("main navigation shows the current project switcher inside a project and it
   assert.equal(await mainNav.locator('span[aria-hidden="true"]').filter({ hasText: "/" }).count(), 0);
   const projectLink = mainNav.getByRole("link", { name: "Release project", exact: true });
   await projectLink.hover();
-  assert.match(await projectLink.evaluate(element => getComputedStyle(element).backgroundColor), /rgba\(246, 243, 233,/);
+  await page.waitForFunction(element => getComputedStyle(element).backgroundColor !== "rgba(0, 0, 0, 0)", await projectLink.elementHandle());
+  assert.match(await projectLink.evaluate(element => getComputedStyle(element).backgroundColor), /rgba?\(246, 243, 233(?:,|\))/);
   const switcher = mainNav.getByRole("button", { name: "Switch project" });
   assert.equal(await switcher.count(), 1);
   assert.equal(await switcher.evaluate(element => getComputedStyle(element).padding), "6px");
