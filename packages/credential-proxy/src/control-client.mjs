@@ -73,7 +73,7 @@ export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCrede
     const options = { controlOrigin, token: credential, fetchImpl };
     const requested = { runId, vmIdentity, runCredential };
     const enrollment = await issueProxyEnrollment({ ...options, body: requested });
-    const binding = await consumeProxyEnrollment({ ...options, body: { ...requested, enrollmentToken: enrollment.token } });
+    const binding = await consumeProxyEnrollment({ ...options, body: { runId, vmIdentity, enrollmentToken: enrollment.token } });
     if (binding.runId !== runId || binding.vmIdentity !== vmIdentity || binding.bootEpoch !== bootEpoch
         || typeof binding.tenantId !== "string" || typeof binding.proxyIdentity !== "string"
         || binding.enrollmentId !== enrollment.enrollmentId || binding.grantRevision !== enrollment.grantRevision) {
