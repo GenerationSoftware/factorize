@@ -33,7 +33,9 @@ describe("dedicated credential proxy control identity", () => {
     const tx = { query: vi.fn().mockImplementation((sql: string) => sql.includes("credential_proxy_control_credentials") ? credentialQuery() : sql.includes("INSERT INTO app.credential_proxy_states") ? stateQuery() : Promise.resolve({ rows: [], rowCount: 1 })) };
     (repository as any).database = { transaction: (work: (client: any) => Promise<unknown>) => work(tx) };
     const epoch = "22222222-2222-4222-8222-222222222222";
-    expect(await repository.registerBoot("fzc_" + "a".repeat(43), epoch)).toEqual({ tenantId: identity.tenant_id, proxyIdentity: identity.proxy_identity, bootEpoch: epoch });
+    const registration = await repository.registerBoot("fzc_" + "a".repeat(43), epoch);
+    expect(registration).toMatchObject({ tenantId: identity.tenant_id, proxyIdentity: identity.proxy_identity, bootEpoch: epoch });
+    expect(registration?.controlCredential).toMatch(/^fzc_[A-Za-z0-9_-]{43}$/);
     expect(tx.query.mock.calls.map(call => call[0])).toHaveLength(4);
     expect(tx.query.mock.calls[0][0]).toContain("boot_epoch=$2 AND revoked_at IS NULL AND consumed_at IS NULL");
     expect(tx.query.mock.calls[2][0]).toContain("consumed_at=now()");

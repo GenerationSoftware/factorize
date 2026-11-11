@@ -11,6 +11,7 @@ const bootstrapControl = await startProxyBootstrapControl({ runtime, socketPath:
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 let closing = false;
 let shutdownDeadline;
+let controlCredential;
 
 function respond(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -49,7 +50,8 @@ lines.on("line", async (line) => {
       command.credential = undefined;
       try {
         const registration = await registerProxyBoot({ controlOrigin: command.controlOrigin, token: credential, bootEpoch: runtime.bootEpoch });
-        respond({ type: "boot-registered", ...registration });
+        controlCredential = registration.controlCredential;
+        respond({ type: "boot-registered", proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch });
       } catch {
         respond({ type: "error", error: "proxy boot registration failed" });
       } finally { credential = ""; }

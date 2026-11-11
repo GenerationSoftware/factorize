@@ -1,6 +1,6 @@
 import type { Database } from "./database";
 
-export type RegisteredProxy = { tenantId: string; proxyIdentity: string; bootEpoch: string };
+export type RegisteredProxy = { tenantId: string; proxyIdentity: string; bootEpoch: string; controlCredential: string };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const digest = async (token: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
 
@@ -13,7 +13,7 @@ export class ProxyControlRepository {
     if (!uuid.test(tenantId) || !proxyIdentity.trim() || proxyIdentity.length > 255 || !uuid.test(bootEpoch)) throw new TypeError("Invalid proxy identity or boot epoch");
     const token = `fzc_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url")}`;
     await this.database.pool.query(`INSERT INTO app.credential_proxy_control_credentials(tenant_id,proxy_identity,boot_epoch,token_digest,revoked_at,consumed_at)
-      VALUES ($1,$2,$3,$4,NULL,NULL) ON CONFLICT (tenant_id,proxy_identity) DO UPDATE SET boot_epoch=excluded.boot_epoch,token_digest=excluded.token_digest,revoked_at=NULL,consumed_at=NULL,created_at=now()`,
+      VALUES ($1,$2,$3,$4,NULL,NULL) ON CONFLICT (tenant_id,proxy_identity) DO UPDATE SET boot_epoch=excluded.boot_epoch,token_digest=excluded.token_digest,proxy_token_digest=NULL,revoked_at=NULL,consumed_at=NULL,created_at=now()`,
     [tenantId, proxyIdentity, bootEpoch, Buffer.from(await digest(token))]);
     return token;
   }
@@ -40,12 +40,24 @@ export class ProxyControlRepository {
           AND app.credential_proxy_states.disabled_at IS NULL AND app.credential_proxy_states.revoked_at IS NULL RETURNING tenant_id`,
       [identity.tenant_id, identity.proxy_identity, bootEpoch]);
       if (!saved.rowCount) return null;
-      await client.query(`UPDATE app.credential_proxy_control_credentials SET consumed_at=now()
-        WHERE token_digest=$1 AND boot_epoch=$2 AND consumed_at IS NULL`, [tokenDigest, bootEpoch]);
+      const proxyToken = `fzc_${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url")}`;
+      await client.query(`UPDATE app.credential_proxy_control_credentials SET consumed_at=now(),proxy_token_digest=$3
+        WHERE token_digest=$1 AND boot_epoch=$2 AND consumed_at IS NULL`, [tokenDigest, bootEpoch, Buffer.from(await digest(proxyToken))]);
       await client.query(`UPDATE app.credential_run_grants SET revoked_at=now()
         WHERE tenant_id=$1 AND proxy_identity=$2 AND boot_epoch<>$3 AND revoked_at IS NULL`, [identity.tenant_id, identity.proxy_identity, bootEpoch]);
-      return { tenantId: identity.tenant_id, proxyIdentity: identity.proxy_identity, bootEpoch };
+      return { tenantId: identity.tenant_id, proxyIdentity: identity.proxy_identity, bootEpoch, controlCredential: proxyToken };
     });
+  }
+
+  /** Authenticates the proxy's memory-held control credential against its current registered boot. */
+  async authenticateProxy(token: string): Promise<Pick<RegisteredProxy, "tenantId" | "proxyIdentity" | "bootEpoch"> | null> {
+    if (typeof token !== "string" || !/^fzc_[A-Za-z0-9_-]{43}$/.test(token)) return null;
+    const result = await this.database.pool.query<{ tenant_id: string; proxy_identity: string; boot_epoch: string }>(`SELECT c.tenant_id,c.proxy_identity,c.boot_epoch
+      FROM app.credential_proxy_control_credentials c JOIN app.credential_proxy_states p
+        ON p.tenant_id=c.tenant_id AND p.proxy_identity=c.proxy_identity AND p.boot_epoch=c.boot_epoch
+      WHERE c.proxy_token_digest=$1 AND c.revoked_at IS NULL AND p.disabled_at IS NULL AND p.revoked_at IS NULL`, [Buffer.from(await digest(token))]);
+    const row = result.rows[0];
+    return row ? { tenantId: row.tenant_id, proxyIdentity: row.proxy_identity, bootEpoch: row.boot_epoch } : null;
   }
 
   async revokeCredential(tenantId: string, proxyIdentity: string): Promise<boolean> {
