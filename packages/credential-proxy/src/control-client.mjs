@@ -51,3 +51,48 @@ export async function consumeProxyEnrollment(options) {
   if (result?.consumed !== true || typeof result?.binding?.enrollmentId !== "string") throw new Error("invalid consumed enrollment response");
   return result.binding;
 }
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Create the proxy-side half of enrollment. The job VM supplies only its run
+ * ID over the already authenticated TLS connection; the proxy derives VM and
+ * boot identity locally, then issues and consumes a fresh one-use enrollment
+ * using its private control credential. Integration secrets stay in the
+ * proxy's local grant resolver and never cross this control API.
+ */
+export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCredential, bootEpoch, resolveGrants, fetchImpl = fetch } = {}) {
+  if (!/^fzc_[A-Za-z0-9_-]{43}$/.test(controlCredential ?? "")) throw new TypeError("invalid proxy control credential");
+  if (!bootEpochPattern.test(bootEpoch ?? "")) throw new TypeError("invalid proxy boot epoch");
+  if (typeof resolveGrants !== "function") throw new TypeError("proxy enrollment requires a local grant resolver");
+  validateOrigin(controlOrigin);
+  let credential = controlCredential;
+  return async function authenticateRun({ runId, vmIdentity, bootEpoch: requestedBootEpoch }) {
+    if (!uuidPattern.test(runId ?? "") || typeof vmIdentity !== "string" || !vmIdentity.trim() || vmIdentity.length > 255
+        || requestedBootEpoch !== bootEpoch) throw new Error("invalid proxy enrollment identity");
+    const options = { controlOrigin, token: credential, fetchImpl };
+    const requested = { runId, vmIdentity };
+    const enrollment = await issueProxyEnrollment({ ...options, body: requested });
+    const binding = await consumeProxyEnrollment({ ...options, body: { ...requested, enrollmentToken: enrollment.token } });
+    if (binding.runId !== runId || binding.vmIdentity !== vmIdentity || binding.bootEpoch !== bootEpoch
+        || typeof binding.tenantId !== "string" || typeof binding.proxyIdentity !== "string"
+        || binding.enrollmentId !== enrollment.enrollmentId || binding.grantRevision !== enrollment.grantRevision) {
+      throw new Error("consumed enrollment binding did not match the authenticated connection");
+    }
+    const grants = await resolveGrants(binding);
+    if (!Array.isArray(grants)) throw new Error("proxy grants are unavailable");
+    return {
+      authenticated: true,
+      enrollmentConsumed: true,
+      connectionId: binding.enrollmentId,
+      runId: binding.runId,
+      vmId: binding.vmIdentity,
+      vmIdentity: binding.vmIdentity,
+      bootEpoch: binding.bootEpoch,
+      tenantId: binding.tenantId,
+      proxyIdentity: binding.proxyIdentity,
+      grantRevision: binding.grantRevision,
+      grants,
+    };
+  };
+}

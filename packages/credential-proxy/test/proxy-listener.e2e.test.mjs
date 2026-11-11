@@ -222,3 +222,47 @@ test("VM helper uses mutual TLS and consumed enrollment to reach only its grante
     await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
   }
 });
+
+test("VM helper sends only run identity while the proxy performs authenticated enrollment", { timeout: 5_000 }, async () => {
+  const runtime = createProxyRuntime();
+  const authenticatedRuns = [];
+  const tunnel = createAuthenticatedTunnelServer({
+    tls: { key, cert, ca: cert },
+    runtime,
+    authenticateRun: async ({ runId, vmIdentity, bootEpoch }) => {
+      authenticatedRuns.push({ runId, vmIdentity, bootEpoch });
+      return {
+        authenticated: true,
+        enrollmentConsumed: true,
+        connectionId: "enrollment-from-control-api",
+        runId,
+        vmId: vmIdentity,
+        vmIdentity,
+        bootEpoch,
+        grants: [],
+      };
+    },
+  });
+  await tunnel.listening;
+  runtime.unlock("synthetic-unlock-key");
+  const local = await startVmTunnelHelper({
+    tls: { key, cert, ca: cert, servername: "api.example.test" },
+    runId: "33333333-3333-4333-8333-333333333333",
+    proxyHost: "127.0.0.1",
+    proxyPort: tunnel.address().port,
+  });
+  try {
+    const response = await fetch(`http://127.0.0.1:${local.address.port}/unrecognized`);
+    assert.equal(response.status, 404);
+    assert.equal(authenticatedRuns.length, 1);
+    assert.deepEqual(authenticatedRuns[0], {
+      runId: "33333333-3333-4333-8333-333333333333",
+      vmIdentity: "api.example.test",
+      bootEpoch: runtime.bootEpoch,
+    });
+  } finally {
+    await local.close();
+    await tunnel.close();
+    await runtime.shutdown();
+  }
+});

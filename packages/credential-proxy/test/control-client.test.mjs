@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { consumeProxyEnrollment, issueProxyEnrollment, registerProxyBoot } from "../src/control-client.mjs";
+import { consumeProxyEnrollment, createProxyEnrollmentAuthenticator, issueProxyEnrollment, registerProxyBoot } from "../src/control-client.mjs";
 
 const token = `fzc_${"A".repeat(43)}`;
 const bootEpoch = "22222222-2222-4222-8222-222222222222";
@@ -43,4 +43,60 @@ test("proxy control client requests and consumes a one-use enrollment over authe
     "https://factorize.example/internal/credential-proxy/consume-enrollment",
   ]);
   assert.ok(requests.every(request => request.init.headers.Authorization === `Bearer ${controlToken}` && request.init.redirect === "error"));
+});
+
+test("proxy enrollment authenticator binds issued and consumed state to the mTLS VM and current boot", async () => {
+  const controlToken = `fzc_${"d".repeat(43)}`;
+  const requests = [];
+  const grants = [{ id: "tool-1", origin: "https://api.example.test", credential: "synthetic-secret" }];
+  const fetchImpl = async (url, init) => {
+    const request = { url: String(url), init, body: JSON.parse(init.body) };
+    requests.push(request);
+    if (requests.length === 1) return Response.json({ enrollmentId: "enrollment-1", token: "e".repeat(43), grantRevision: 7 });
+    return Response.json({ consumed: true, binding: {
+      tenantId: "11111111-1111-4111-8111-111111111111",
+      runId: request.body.runId,
+      vmIdentity: request.body.vmIdentity,
+      proxyIdentity: "fly:proxy-1",
+      bootEpoch,
+      enrollmentId: "enrollment-1",
+      grantRevision: 7,
+    } });
+  };
+  const authenticateRun = createProxyEnrollmentAuthenticator({
+    controlOrigin: "https://factorize.example",
+    controlCredential: controlToken,
+    bootEpoch,
+    fetchImpl,
+    resolveGrants: async binding => {
+      assert.equal(binding.runId, "33333333-3333-4333-8333-333333333333");
+      return grants;
+    },
+  });
+  const connection = await authenticateRun({
+    runId: "33333333-3333-4333-8333-333333333333",
+    vmIdentity: "fly:vm-1",
+    bootEpoch,
+  });
+  assert.deepEqual(requests.map(request => request.url), [
+    "https://factorize.example/internal/credential-proxy/enroll",
+    "https://factorize.example/internal/credential-proxy/consume-enrollment",
+  ]);
+  assert.deepEqual(requests.map(request => request.body), [
+    { runId: "33333333-3333-4333-8333-333333333333", vmIdentity: "fly:vm-1" },
+    { runId: "33333333-3333-4333-8333-333333333333", vmIdentity: "fly:vm-1", enrollmentToken: "e".repeat(43) },
+  ]);
+  assert.ok(requests.every(request => request.init.headers.Authorization === `Bearer ${controlToken}`));
+  assert.equal(connection.authenticated, true);
+  assert.equal(connection.enrollmentConsumed, true);
+  assert.equal(connection.vmId, "fly:vm-1");
+  assert.equal(connection.bootEpoch, bootEpoch);
+  assert.equal(connection.connectionId, "enrollment-1");
+  assert.deepEqual(connection.grants, grants);
+  await assert.rejects(authenticateRun({
+    runId: "33333333-3333-4333-8333-333333333333",
+    vmIdentity: "fly:vm-1",
+    bootEpoch: "44444444-4444-4444-8444-444444444444",
+  }), /invalid proxy enrollment identity/);
+  assert.equal(requests.length, 2, "a stale boot cannot issue another enrollment");
 });

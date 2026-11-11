@@ -19,8 +19,8 @@ function peerIdentity(socket) {
  * enrollment, and bridge that stream to the connection-scoped HTTP listener.
  * The bridge does not expose a shell or arbitrary destination forwarding.
  */
-export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnrollment, host = "127.0.0.1", port = 0 } = {}) {
-  if (!tls || !runtime || typeof authenticateEnrollment !== "function") throw new TypeError("tunnel server requires TLS, runtime and enrollment authentication");
+export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnrollment, authenticateRun, host = "127.0.0.1", port = 0 } = {}) {
+  if (!tls || !runtime || (typeof authenticateEnrollment !== "function" && typeof authenticateRun !== "function")) throw new TypeError("tunnel server requires TLS, runtime and enrollment authentication");
   const connections = new Set();
   const server = createTlsServer({ ...tls, requestCert: true, rejectUnauthorized: true }, (socket) => {
     connections.add(socket);
@@ -46,11 +46,15 @@ export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnro
       const line = handshake.subarray(0, end).toString("utf8").replace(/\r$/, "");
       const rest = handshake.subarray(end + 1);
       const match = /^FACTORIZE-TUNNEL\/1 ([A-Za-z0-9_-]{32,128})$/.exec(line);
-      if (!match) return reject();
+      const runMatch = /^FACTORIZE-TUNNEL\/2 ([0-9a-f-]{36})$/i.exec(line);
+      if ((!match || typeof authenticateEnrollment !== "function") && (!runMatch || typeof authenticateRun !== "function")) return reject();
       let listener;
       let target;
       try {
-        const connection = await authenticateEnrollment({ token: match[1], vmIdentity: peerIdentity(socket), bootEpoch: runtime.bootEpoch });
+        const vmIdentity = peerIdentity(socket);
+        const connection = runMatch
+          ? await authenticateRun({ runId: runMatch[1], vmIdentity, bootEpoch: runtime.bootEpoch })
+          : await authenticateEnrollment({ token: match[1], vmIdentity, bootEpoch: runtime.bootEpoch });
         // The production control plane returns the consumed enrollment binding.
         // Compare its VM and boot identities with the authenticated TLS peer and
         // this process so an adapter cannot accidentally attach another run's
@@ -98,9 +102,10 @@ export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnro
 }
 
 /** Start a loopback-only HTTP tunnel helper. Each accepted stream gets fresh enrollment. */
-export async function startVmTunnelHelper({ tls, enrollment, proxyHost, proxyPort, host = "127.0.0.1", port = 0,
+export async function startVmTunnelHelper({ tls, enrollment, runId, proxyHost, proxyPort, host = "127.0.0.1", port = 0,
   now = Date.now, random = Math.random, wait = delay } = {}) {
-  if (!tls || typeof enrollment !== "function" || typeof proxyHost !== "string" || !Number.isInteger(proxyPort)) {
+  const runBasedEnrollment = typeof runId === "string" && /^[0-9a-f-]{36}$/i.test(runId);
+  if (!tls || (!runBasedEnrollment && typeof enrollment !== "function") || typeof proxyHost !== "string" || !Number.isInteger(proxyPort)) {
     throw new TypeError("VM tunnel helper requires TLS, enrollment and proxy address");
   }
   const sockets = new Set();
@@ -113,15 +118,15 @@ export async function startVmTunnelHelper({ tls, enrollment, proxyHost, proxyPor
       while (!local.destroyed) {
         let remote;
         try {
-          const grant = await enrollment();
+          const grant = runBasedEnrollment ? undefined : await enrollment();
           if (local.destroyed) return;
-          if (!grant || typeof grant.token !== "string" || !/^[A-Za-z0-9_-]{32,128}$/.test(grant.token)) throw new Error("fresh enrollment unavailable");
+          if (!runBasedEnrollment && (!grant || typeof grant.token !== "string" || !/^[A-Za-z0-9_-]{32,128}$/.test(grant.token))) throw new Error("fresh enrollment unavailable");
           remote = connectTls({ ...tls, host: proxyHost, port: proxyPort, servername: tls.servername ?? proxyHost, rejectUnauthorized: true });
           sockets.add(remote);
           const connectTimer = setTimeout(() => remote.destroy(new Error("proxy TLS connection timed out")), HANDSHAKE_TIMEOUT_MS);
           try { await once(remote, "secureConnect"); }
           finally { clearTimeout(connectTimer); }
-          remote.write(`FACTORIZE-TUNNEL/1 ${grant.token}\n`);
+          remote.write(runBasedEnrollment ? `FACTORIZE-TUNNEL/2 ${runId}\n` : `FACTORIZE-TUNNEL/1 ${grant.token}\n`);
           await waitForTunnelAcceptance(remote);
           local.pipe(remote);
           remote.pipe(local);
