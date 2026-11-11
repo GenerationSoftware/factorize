@@ -90,7 +90,7 @@ test("production grant resolver reads the run-bound snapshot and only decrypts w
   assert.deepEqual(requests, [{
     url: "https://factorize.example/internal/credential-proxy/integration-snapshot",
     authorization: `Bearer fzc_${"c".repeat(43)}`,
-    body: binding,
+    body: { runId: binding.runId, grantRevision: binding.grantRevision },
   }]);
   await runtime.lock();
   await assert.rejects(resolve(binding), /locked/);
