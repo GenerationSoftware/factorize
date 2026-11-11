@@ -117,6 +117,20 @@ const accessTokenBody = z.object({
   scopes: z.array(z.union([scopeSchema, z.enum(["flows:read", "flows:write"])] )).min(1),
   expiryDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
 });
+const bearerIntegrationMetadata = z.object({
+  id: z.uuid(), name: z.string(), origin: z.string(), description: z.string().nullable(),
+  revision: z.number().int().nonnegative(), encryptedPayload: z.string(),
+});
+const bearerIntegrationCreate = z.object({
+  id: z.uuid(), expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid(),
+  name: z.string().trim().min(1).max(120), origin: z.string().url().max(2048),
+  description: z.string().max(500).nullable(), encryptedPayload: z.string().min(1).max(65_536),
+}).strict();
+const bearerIntegrationUpdate = bearerIntegrationCreate.omit({ id: true });
+const bearerIntegrationDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
+const bearerIntegrationList = z.object({ revision: z.number().int().nonnegative(), integrations: z.array(bearerIntegrationMetadata) });
+const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
+const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 
 function route(
   method: string,
@@ -195,6 +209,26 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 }
 
 export const API_ROUTES: RouteContract[] = [
+  route("GET", "/api/v1/integrations/bearer", "flows:read", {
+    summary: "List encrypted bearer integrations",
+    description: "Requires an interactive owner browser session. Returns safe metadata and user-encrypted ciphertext; credentials are never decrypted or revealed.",
+    responses: { "200": { description: "Encrypted bearer integration records", content: { "application/json": { schema: jsonSchema(bearerIntegrationList, "output") } } } },
+  }, service => service.listBearerIntegrations(), { ownerSession: true }),
+  route("POST", "/api/v1/integrations/bearer", "flows:write", {
+    summary: "Create an encrypted bearer integration",
+    description: "Requires an interactive owner browser session. Accepts only user-encrypted ciphertext, never an unlock key or plaintext credential.",
+    responses: { "201": { description: "Created integration", content: { "application/json": { schema: jsonSchema(bearerIntegrationWriteResult, "output") } } } },
+  }, (service, { body }) => service.createBearerIntegration(body), { body: bearerIntegrationCreate, maxBodyBytes: 70_000, ownerSession: true }),
+  route("PUT", "/api/v1/integrations/bearer/{integrationId}", "flows:write", {
+    summary: "Update an encrypted bearer integration",
+    description: "Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted ciphertext.",
+    responses: { "200": { description: "Updated integration", content: { "application/json": { schema: jsonSchema(bearerIntegrationWriteResult, "output") } } } },
+  }, (service, { params, body }) => service.updateBearerIntegration(params.integrationId, body), { body: bearerIntegrationUpdate, maxBodyBytes: 70_000, ownerSession: true }),
+  route("DELETE", "/api/v1/integrations/bearer/{integrationId}", "flows:write", {
+    summary: "Delete an encrypted bearer integration",
+    description: "Requires an interactive owner browser session and the current collection revision.",
+    responses: { "200": { description: "Deleted integration", content: { "application/json": { schema: jsonSchema(bearerIntegrationDeleteResult, "output") } } } },
+  }, (service, { params, body }) => service.deleteBearerIntegration(params.integrationId, body), { body: bearerIntegrationDelete, maxBodyBytes: 4096, ownerSession: true }),
   authRoute("POST", "/api/v1/auth/connections", "connection-start", "Persist an individual validated MCP connection; sets a per-attempt browser cookie", connectionStartSuccess, connectionStartInput),
   authRoute("POST", "/api/v1/auth/connections/resume", "connection-resume", "Resume verified onboarding in the initiating browser; never grants OAuth access", continuationSuccess, connectionResumeInput),
   authRoute("GET", "/api/v1/session", "session", "Get current browser session", sessionResponse),

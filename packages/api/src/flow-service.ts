@@ -16,6 +16,7 @@ import { jobResponse } from "./job-contracts";
 import type { JobPageQuery } from "./job-contracts";
 import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
+import { EncryptedIntegrationRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./postgres/encrypted-integration-repository";
 import { decrypt, encrypt } from "./crypto";
 import { InvocationService, type Job, type Trigger } from "./job-domain";
 import { RunQueryRepository } from "./postgres/run-query-repository";
@@ -456,6 +457,44 @@ export class ApiService {
   async testAmpIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().testAmp(input); }
   async saveTailIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveTail(input); }
   async testTailIntegration(id: string) { await this.authorize("integrations:write"); const result = await this.integrations().testTail(id); if (!result) throw new ServiceError(404, "not_found", "Integration not found"); return result; }
+  private encryptedIntegrations() { return new EncryptedIntegrationRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+  private async bearerWrite(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; encryptedPayload?: string; operation: "upsert" | "delete" }) {
+    try { return await this.encryptedIntegrations().write({ ...input, kind: "bearer" }); }
+    catch (error) {
+      if (error instanceof StaleIntegrationRevisionError) throw new ServiceError(409, "stale_revision", `The integration collection changed. Current revision is ${error.currentRevision}.`);
+      if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different integration change.");
+      if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
+      throw error;
+    }
+  }
+  private validateBearerOrigin(origin: string) {
+    let parsed: URL;
+    try { parsed = new URL(origin); } catch { throw new ServiceError(400, "invalid_request", "Integration origin must be an HTTPS origin."); }
+    if (parsed.protocol !== "https:" || parsed.origin !== origin || parsed.username || parsed.password) throw new ServiceError(400, "invalid_request", "Integration origin must be an HTTPS origin without credentials, path, query, or fragment.");
+  }
+  async listBearerIntegrations() {
+    await this.authorizeOwnerSession("integrations:read");
+    const [revision, records] = await Promise.all([this.encryptedIntegrations().revision(), this.encryptedIntegrations().records("bearer")]);
+    return { revision, integrations: records };
+  }
+  async createBearerIntegration(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; encryptedPayload: string }) {
+    await this.authorizeOwnerSession("integrations:write"); this.validateBearerOrigin(input.origin);
+    if ((await this.encryptedIntegrations().records("bearer")).some(record => record.id === input.id)) throw new ServiceError(409, "conflict", "Integration already exists.");
+    return this.bearerWrite({ ...input, operation: "upsert" });
+  }
+  async updateBearerIntegration(id: string, input: { expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; encryptedPayload: string }) {
+    await this.authorizeOwnerSession("integrations:write"); this.validateBearerOrigin(input.origin);
+    const existing = (await this.encryptedIntegrations().records("bearer")).find(record => record.id === id);
+    if (!existing) throw new ServiceError(404, "not_found", "Integration not found.");
+    return this.bearerWrite({ ...input, id, operation: "upsert" });
+  }
+  async deleteBearerIntegration(id: string, input: { expectedRevision: number; idempotencyKey: string }) {
+    await this.authorizeOwnerSession("integrations:write");
+    const existing = (await this.encryptedIntegrations().records("bearer")).find(record => record.id === id && record.origin !== null);
+    if (!existing) throw new ServiceError(404, "not_found", "Integration not found.");
+    const result = await this.bearerWrite({ id, name: existing.name, origin: existing.origin!, description: existing.description, ...input, operation: "delete" });
+    return { id, deleted: true as const, ...result };
+  }
   async removeTailIntegration(id: string) { await this.authorize("integrations:write"); if (!await this.connections().delete(`cloudflare-tail:${id}`)) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
   async linearProjects() { await this.authorize("integrations:read"); return publicValue(z.array(namedOption), await this.providers().linearProjects()); }
   async linearOptions() { await this.authorize("integrations:read"); return publicValue(providerOptions, await this.providers().linearOptions()); }

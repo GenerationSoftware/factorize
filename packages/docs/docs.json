@@ -72,7 +72,8 @@
         "pages": [
           "self-hosting/deployment",
           "self-hosting/configuration",
-          "self-hosting/operations"
+          "self-hosting/operations",
+          "self-hosting/credential-proxy-security"
         ]
       }
     ]

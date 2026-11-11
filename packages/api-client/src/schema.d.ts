@@ -1,5 +1,69 @@
 // Generated from packages/docs/openapi.yaml. Do not edit.
 export interface paths {
+    "/api/v1/integrations/bearer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List encrypted bearer integrations
+         * @description Requires an interactive owner browser session. Returns safe metadata and user-encrypted ciphertext; credentials are never decrypted or revealed.
+         *
+         *     Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_integrations_bearer"];
+        put?: never;
+        /**
+         * Create an encrypted bearer integration
+         * @description Requires an interactive owner browser session. Accepts only user-encrypted ciphertext, never an unlock key or plaintext credential.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_bearer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/bearer/{integrationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update an encrypted bearer integration
+         * @description Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted ciphertext.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_integrations_bearer_integrationId"];
+        post?: never;
+        /**
+         * Delete an encrypted bearer integration
+         * @description Requires an interactive owner browser session and the current collection revision.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_integrations_bearer_integrationId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/connections": {
         parameters: {
             query?: never;
@@ -2451,6 +2515,185 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_api_v1_integrations_bearer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Encrypted bearer integration records */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        integrations: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            origin: string;
+                            description: string | null;
+                            revision: number;
+                            encryptedPayload: string;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_integrations_bearer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    id: string;
+                    expectedRevision: number;
+                    /** Format: uuid */
+                    idempotencyKey: string;
+                    name: string;
+                    /** Format: uri */
+                    origin: string;
+                    description: string | null;
+                    encryptedPayload: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created integration */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_integrations_bearer_integrationId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                    /** Format: uuid */
+                    idempotencyKey: string;
+                    name: string;
+                    /** Format: uri */
+                    origin: string;
+                    description: string | null;
+                    encryptedPayload: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated integration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_integrations_bearer_integrationId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                    /** Format: uuid */
+                    idempotencyKey: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Deleted integration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** @constant */
+                        deleted: true;
+                        revision: number;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     post_api_v1_auth_connections: {
         parameters: {
             query?: never;
