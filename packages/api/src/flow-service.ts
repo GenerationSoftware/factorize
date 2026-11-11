@@ -40,6 +40,8 @@ import { SkillRepository, SkillConflict, SkillReferenced } from "./postgres/skil
 import { RunRepository } from "./postgres/run-repository";
 import { safeDiagnosticText } from "./harness-diagnostics";
 import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput, composePrompt } from "./skills";
+import { createFlyAccountClient, FlyAccountError, flyConnectionInput } from "./fly-account-client";
+import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
 
 const PROJECT_GRAPH_LABEL_MAX_CHARS = 24;
 
@@ -65,6 +67,7 @@ export class ApiService {
 
   private jobs() { return new PostgresJobRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
   private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+  private flyConnections() { return new FlyConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private projects() { return new ProjectRepository(databaseFor(this.env), this.auth.tenantId); }
   private skills() { return new SkillRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private async executionConfig(id: string) {
@@ -168,6 +171,26 @@ export class ApiService {
 
 
   async listExeConnections() { await this.authorize("integrations:read"); return publicValue(z.array(exeConnection), (await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).status()).exeConnections); }
+  async getFlyConnection() { await this.authorizeOwnerSession("integrations:read"); return { connection: await this.flyConnections().get() }; }
+  async validateFlyConnection(input: unknown) {
+    await this.authorizeOwnerSession("integrations:write");
+    const parsed = flyConnectionInput.parse(input);
+    try { return { valid: true, connection: await createFlyAccountClient().validate(parsed.token, parsed.organizationSlug) }; }
+    catch (error) { this.throwFlyAccountError(error); }
+  }
+  async saveFlyConnection(input: unknown) {
+    await this.authorizeOwnerSession("integrations:write");
+    const parsed = flyConnectionInput.parse(input);
+    try {
+      const metadata = await createFlyAccountClient().validate(parsed.token, parsed.organizationSlug);
+      return { connection: await this.flyConnections().save(metadata, parsed.token) };
+    } catch (error) { this.throwFlyAccountError(error); }
+  }
+  async removeFlyConnection() { await this.authorizeOwnerSession("integrations:write"); return { deleted: await this.flyConnections().remove() }; }
+  private throwFlyAccountError(error: unknown): never {
+    if (error instanceof FlyAccountError) throw new ServiceError(error.kind === "auth" ? 401 : error.kind === "organization" ? 400 : 502, error.kind === "auth" ? "fly_auth_failed" : error.kind === "organization" ? "fly_organization_unavailable" : "fly_validation_failed", error.message);
+    throw error;
+  }
   async listGitHubInstallations() { await this.authorize("integrations:read"); return publicValue(z.array(githubInstallation), JSON.parse(JSON.stringify(await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).installations()))); }
   async listTailIntegrations() { await this.authorize("integrations:read"); return publicValue(z.array(tailIntegration), await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).tails()); }
   async listRuns(query: URLSearchParams) { await this.authorize("runs:read"); return publicValue(runPageResponse, JSON.parse(JSON.stringify(await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).list(query)))); }

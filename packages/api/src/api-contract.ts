@@ -27,6 +27,7 @@ import { traceReplaySchema } from "./trace-replay-schemas";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
 import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput } from "./skills";
+import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
 
 type JsonSchema = Record<string, any>;
 export interface RouteContract {
@@ -358,6 +359,26 @@ export const API_ROUTES: RouteContract[] = [
     },
     (service) => service.integrationStatus(),
   ),
+  route("GET", "/api/v1/fly/connection", "integrations:read", {
+    summary: "Read Fly account connection status",
+    description: "Owner browser session only. Returns organization metadata and never returns the provisioning token.",
+    responses: { "200": { description: "Connection status", content: { "application/json": { schema: jsonSchema(z.object({ connection: flyConnectionMetadata.nullable() }), "output") } } } },
+  }, service => service.getFlyConnection(), { ownerSession: true }),
+  route("POST", "/api/v1/fly/connection/test", "integrations:write", {
+    summary: "Validate a Fly organization token",
+    description: "Owner browser session only. Supply an org-scoped Fly deploy token with permission to manage Machines in the selected organization, created with `fly tokens create org --org <slug>`. A read-only org token is insufficient for later provisioning. Validation calls Fly's documented read-only current-token endpoint and launches no resources.",
+    responses: { "200": { description: "Validated organization", content: { "application/json": { schema: jsonSchema(z.object({ valid: z.literal(true), connection: flyConnectionMetadata }), "output") } } } },
+  }, (service, { body }) => service.validateFlyConnection(body), { body: flyConnectionInput, ownerSession: true }),
+  route("PUT", "/api/v1/fly/connection", "integrations:write", {
+    summary: "Save a Fly account connection",
+    description: "Owner browser session only. Supply an org-scoped Fly deploy token with permission to manage Machines in the selected organization, created with `fly tokens create org --org <slug>`. A read-only org token is insufficient for provisioning. The server validates the connection and encrypts the token with its credential key; the token is never returned.",
+    responses: { "200": { description: "Saved connection metadata", content: { "application/json": { schema: jsonSchema(z.object({ connection: flyConnectionMetadata }), "output") } } } },
+  }, (service, { body }) => service.saveFlyConnection(body), { body: flyConnectionInput, ownerSession: true }),
+  route("DELETE", "/api/v1/fly/connection", "integrations:write", {
+    summary: "Remove the Fly account connection",
+    description: "Owner browser session only. Deletes the tenant's encrypted provisioning token.",
+    responses: { "200": { description: "Deletion result", content: { "application/json": { schema: jsonSchema(z.object({ deleted: z.boolean() }), "output") } } } },
+  }, service => service.removeFlyConnection(), { ownerSession: true }),
   route(
     "PUT",
     "/api/v1/integrations/exe",
