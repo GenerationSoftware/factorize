@@ -4,7 +4,7 @@ import type { TraceSources } from "./trace-source";
 import { JOB_RESULT_PATH } from "./job-result";
 export type AgentKind = "codex" | "claude" | "pi";
 
-export interface AgentConfiguration { model?: string; effort?: string; }
+export interface AgentConfiguration { model?: string; effort?: string; codexModel?: { baseUrl: string; providerName?: string }; }
 export interface ArtifactLocator {
   /** Paths are interpreted inside the guest; the compute backend only transports files. */
   roots: string[];
@@ -29,7 +29,11 @@ export interface AgentDriver {
 class CodexDriver implements AgentDriver {
   readonly kind = "codex" as const;
   launch(runId: string, config: AgentConfiguration): AgentLaunchSpec {
-    const args = ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--color", "never", "-c", "model_provider=exe-llm", "-c", 'model_providers.exe-llm.name="exe-llm"', "-c", 'model_providers.exe-llm.base_url="https://llm.int.exe.xyz/v1"'];
+    const args = ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--color", "never"];
+    if (config.codexModel?.baseUrl) {
+      const provider = "factorize";
+      args.push("-c", `model_provider=${provider}`, "-c", `model_providers.${provider}.name=${JSON.stringify(config.codexModel.providerName ?? "Factorize")}`, "-c", `model_providers.${provider}.base_url=${JSON.stringify(config.codexModel.baseUrl)}`, "-c", `model_providers.${provider}.requires_openai_auth=false`);
+    }
     if (config.model?.trim()) args.push("--model", config.model.trim());
     if (config.effort?.trim()) args.push("-c", `model_reasoning_effort=${config.effort.trim()}`);
     return {

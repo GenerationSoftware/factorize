@@ -29,6 +29,8 @@ export interface Env {
   RUN_ARTIFACTS?: R2Bucket;
   TRACE_PRIMARY_MODE?: "execution_stream" | "native_session";
   TRACE_STREAM_TENANTS?: string;
+  /** OpenAI-compatible Codex endpoint configured for the execution environment. */
+  CODEX_MODEL_BASE_URL?: string;
   HYPERDRIVE?: Hyperdrive;
   /** Test-only injection point; production uses HYPERDRIVE. */
   DATABASE?: import("./postgres/database").Database;

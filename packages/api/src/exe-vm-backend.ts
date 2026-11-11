@@ -6,6 +6,7 @@ import { shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
 
 import { HARNESS_LOG_LIMIT, safeDiagnosticText } from "./harness-diagnostics";
 import { ExeRunProxy } from "./exe-run-proxy";
+import { runProxyName } from "./run-credentials";
 
 const API = "https://exe.dev/exec";
 const capabilities = ["output", "recovery", "stop"] as const;
@@ -60,6 +61,8 @@ export class ExeVmBackend implements ExecutionBackend {
   readonly capabilities = capabilities;
 
   constructor(private readonly connection: Pick<ExeConnection, "apiToken" | "tags"> & { image?: string } | ExeRunConnection) {}
+
+  reserve(runId: string): RunHandle { return { backendKind: this.kind, id: vmNameFor(runId), runProxyName: runProxyName(runId) }; }
 
   private async api(command: string): Promise<BackendCommandResult> {
     const response = await fetch(API, { method: "POST", headers: { Authorization: `Bearer ${this.connection.apiToken}`, "Content-Type": "text/plain" }, body: command });
@@ -153,8 +156,8 @@ export class ExeVmBackend implements ExecutionBackend {
     const connection = this.connection as ExeRunConnection;
     if (!request.code && (!connection.agentKind || !request.harness)) throw new Error("The job is missing its agent harness launch plan");
     if (request.traceSources) validateTraceSources(request.traceSources);
-    const vm = vmNameFor(request.runId);
-    const handle: RunHandle = { backendKind: this.kind, id: vm };
+    const handle: RunHandle = request.reservation ?? { backendKind: this.kind, id: vmNameFor(request.runId) };
+    const vm = this.vm(handle);
     let proxy: ExeRunProxy | undefined, plan: Awaited<ReturnType<ExeRunProxy["prepare"]>> | undefined;
     if (request.runProxy) {
       try {

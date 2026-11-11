@@ -4,12 +4,17 @@ import { ExeImageVerificationError, ExeVmBackend, isOwnedVmName, tagsFromInvento
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
 import { effortOptions, selectableExeTags, type ExeRunConnection } from "../src/exe";
 import { agentDriver } from "../src/agent-driver";
+import { runProxyName } from "../src/run-credentials";
 
 afterEach(() => vi.unstubAllGlobals());
 
 const connection = { apiToken: "secret", agentKind: "codex", tags: ["github", "llm"], model: "gpt-5.5", effort: "high" } satisfies ExeRunConnection;
 
 describe("ExeVmBackend", () => {
+  it("reserves its legacy VM and proxy handle for scheduler recovery", () => {
+    const runId = "00000000-0000-4000-8000-000000000001";
+    expect(new ExeVmBackend(connection).reserve(runId)).toEqual({ backendKind: "exe-vm", id: vmNameFor(runId), runProxyName: runProxyName(runId) });
+  });
   it("defines the supported effort choices by agent", () => {
     expect(effortOptions.codex).toEqual(["minimal", "low", "medium", "high", "xhigh"]);
     expect(effortOptions.claude).toEqual(["low", "medium", "high"]);
@@ -67,7 +72,7 @@ describe("ExeVmBackend", () => {
       requests.push(String(init.body));
       return new Response(requests.length === 1 ? '{"name":"factorize-run-1"}' : "started", { headers: { "X-Exe-Exit": "0" } });
     }));
-    const harness = agentDriver("codex").launch("run-1", {});
+    const harness = agentDriver("codex").launch("run-1", { codexModel: { baseUrl: "https://models.example/v1" } });
     harness.env = { FACTORIZE_RESULT_PATH: "/home/exedev/.factorize-job/results.json" };
     const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work", harness, traceSources: { primary: { kind: "execution_stream", path: "/tmp/trace/events.jsonl", mediaType: "application/x-ndjson", provider: "codex" } } });
     expect(launched.handle).toEqual({ backendKind: "exe-vm", id: "factorize-run-1" });
@@ -79,8 +84,9 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("codex");
     expect(requests[1]).toContain("--color");
     expect(requests[1]).toContain("never");
-    expect(requests[1]).toContain("model_provider=exe-llm");
-    expect(requests[1]).toContain("model_providers.exe-llm.base_url=\"https://llm.int.exe.xyz/v1\"");
+    expect(requests[1]).toContain("model_provider=factorize");
+    expect(requests[1]).toContain("model_providers.factorize.base_url=\"https://models.example/v1\"");
+    expect(requests[1]).toContain("model_providers.factorize.requires_openai_auth=false");
     expect(requests[1]).toContain("sudo systemd-run");
     expect(requests[1]).toContain("'--setenv=FACTORIZE_RESULT_PATH=/home/exedev/.factorize-job/results.json'");
     expect(requests[1]).toContain("--uid=exedev --gid=exedev");
@@ -330,11 +336,13 @@ describe("ExecutionBackend contract", () => {
   it("launches, observes, and stops a provider-neutral backend", async () => {
     class FakeBackend implements ExecutionBackend {
       readonly kind = "fake"; readonly capabilities = [] as const; state: ExecutionObservation["state"] = "queued";
-      async launch(request: LaunchRequest) { this.state = "running"; return { handle: { backendKind: this.kind, id: request.runId }, destinationUrl: `https://runs.example/${request.runId}`, capabilities: this.capabilities, observation: { state: this.state } }; }
+      reserve(runId: string) { return { backendKind: this.kind, id: `remote-${runId}` }; }
+      async launch(request: LaunchRequest) { this.state = "running"; return { handle: request.reservation!, destinationUrl: `https://runs.example/${request.runId}`, capabilities: this.capabilities, observation: { state: this.state } }; }
       async inspect(_handle: RunHandle) { return { state: this.state }; }
       async stop(_handle: RunHandle) { this.state = "stopped"; return { state: this.state }; }
     }
-    const backend = new FakeBackend(), launched = await backend.launch({ runId: "1", prompt: "work" });
+    const backend = new FakeBackend(), reservation = backend.reserve("1"), launched = await backend.launch({ runId: "1", reservation, prompt: "work" });
+    expect(reservation).toEqual({ backendKind: "fake", id: "remote-1" });
     expect(await backend.inspect(launched.handle)).toEqual({ state: "running" });
     expect(await backend.stop(launched.handle)).toEqual({ state: "stopped" });
   });
