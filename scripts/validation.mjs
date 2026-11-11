@@ -19,7 +19,10 @@ const lanes = {
     ["functional browser checks", "npm", ["run", "test:functional", "--workspace=factorize-app"], 90_000],
     ["application unit checks", "npm", ["test", "--workspace=factorize-app"], 180_000],
   ],
-  proxy: [["portable proxy harness checks", process.execPath, ["--test", "scripts/validation-runner.test.mjs"], 30_000]],
+  proxy: [
+    ["portable proxy harness checks", process.execPath, ["--test", "scripts/validation-runner.test.mjs"], 30_000],
+    ["credential proxy process checks", process.execPath, ["--test", "packages/credential-proxy/test/runtime-process.test.mjs"], 30_000],
+  ],
 };
 
 if (lane === "--check-chromium") {
