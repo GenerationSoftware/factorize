@@ -75,8 +75,8 @@ describe.skipIf(!url)("lightweight status and revision-bound traces", () => {
     const service = new ApiService(f.env, f.auth);
     try {
       const first = await service.listRuns(new URLSearchParams({ limit: "2", jobId: (await f.db.pool.query<any>("SELECT job_id FROM app.job_runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].job_id }));
-      expect(first.items.map(run => run.id)).toEqual([f.runId, completedId]);
-      expect(first.items.map(run => run.elapsed_time)).toEqual([{ duration: 40 }, { duration: 10 }]);
+      expect(first.items.map(run => run.id)).toEqual([runningId, f.runId]);
+      expect(first.items.map(run => run.elapsed_time)).toEqual([{ low: 10, high: 40 }, { duration: 40 }]);
       expect(first.nextCursor).not.toBeNull();
       const statement = query.mock.calls.find(([sql]) => typeof sql === "string" && sql.includes("duration_jobs AS MATERIALIZED"))?.[0] as string;
       expect(statement).toContain("selected AS MATERIALIZED");
@@ -84,13 +84,74 @@ describe.skipIf(!url)("lightweight status and revision-bound traces", () => {
       expect(statement).not.toContain("LEFT JOIN LATERAL");
 
       const second = await service.listRuns(new URLSearchParams({ limit: "2", jobId: (await f.db.pool.query<any>("SELECT job_id FROM app.job_runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].job_id, cursor: first.nextCursor! }));
-      expect(second.items.map(run => run.id)).toEqual([runningId]);
-      expect(second.items[0].elapsed_time).toEqual({ low: 10, high: 40 });
+      expect(second.items.map(run => run.id)).toEqual([completedId]);
+      expect(second.items[0].elapsed_time).toEqual({ duration: 10 });
       expect(second.nextCursor).toBeNull();
 
       await f.db.pool.query("UPDATE app.job_runs SET started_at=NULL WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [f.tenantId, [f.runId, completedId]]);
       const noDurations = await service.listRuns(new URLSearchParams({ limit: "10", jobId: (await f.db.pool.query<any>("SELECT job_id FROM app.job_runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].job_id }));
       expect(noDurations.items.find(run => run.id === runningId)?.elapsed_time).toBeNull();
     } finally { query.mockRestore(); }
+  });
+
+  it("orders every default priority group with stable ties, filters, cursors and live state changes", async () => {
+    const jobId = (await f.db.pool.query<any>("SELECT job_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].job_id;
+    const originals = (await f.db.pool.query<any>("SELECT id,state,created_at FROM app.runs WHERE tenant_id=$1 AND job_id=$2 ORDER BY id", [f.tenantId, jobId])).rows;
+    const otherIds = originals.map((row: any) => row.id).filter((id: string) => id !== f.runId);
+    const reservedId = otherIds[0], runningId = otherIds[1];
+    const startingId = crypto.randomUUID(), blockedId = crypto.randomUUID(), invocationIds = [crypto.randomUUID(), crypto.randomUUID()];
+    const createdAt = {
+      [f.runId]: "2029-01-02T00:00:00Z",
+      [reservedId]: "2029-01-02T00:00:00Z",
+      [runningId]: "2029-01-04T00:00:00Z",
+      [startingId]: "2029-01-03T00:00:00Z",
+      [blockedId]: "2029-01-05T00:00:00Z",
+    };
+    const states = { [f.runId]: "queued", [reservedId]: "reserved", [runningId]: "running" };
+    const insertedIds = [startingId, blockedId];
+    try {
+      for (const row of originals) {
+        const state = states[row.id as keyof typeof states] ?? "succeeded";
+        await f.db.pool.query("UPDATE app.runs SET state=$3,created_at=$4 WHERE tenant_id=$1 AND id=$2", [f.tenantId, row.id, state, createdAt[row.id as keyof typeof createdAt]]);
+        await f.db.pool.query("UPDATE app.job_runs SET state=$3,created_at=$4 WHERE tenant_id=$1 AND id=$2", [f.tenantId, row.id, state, createdAt[row.id as keyof typeof createdAt]]);
+      }
+      const triggerId = (await f.db.pool.query<any>("SELECT id FROM app.triggers WHERE tenant_id=$1 AND job_id=$2 AND kind='manual' LIMIT 1", [f.tenantId, jobId])).rows[0].id;
+      for (const [index, [id, state]] of [[startingId, "starting"], [blockedId, "blocked"]].entries()) {
+        const invocationId = invocationIds[index], time = createdAt[id as keyof typeof createdAt];
+        await f.db.pool.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context) VALUES ($1,$2,$3,'manual',$4,$5,'{}')", [f.tenantId, invocationId, jobId, `priority-${id}`, triggerId]);
+        await f.db.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,created_at) VALUES ($1,$2,$3,$4,$5,'synthetic',$6)", [f.tenantId, id, jobId, invocationId, state, time]);
+        await f.db.pool.query("INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,agent_name,state,execution_backend_kind,execution_config,created_at) VALUES ($1,$2,$3,$4,'manual',$5,'synthetic',$6,'exe-vm','{}',$7)", [f.tenantId, id, jobId, invocationId, `priority-${id}`, state, time]);
+      }
+
+      const service = new ApiService(f.env, f.auth);
+      const first = await service.listRuns(new URLSearchParams({ jobId, limit: "2" }));
+      const tied = [f.runId, reservedId].sort().reverse();
+      expect(first.items.map(run => run.id)).toEqual([startingId, tied[0]]);
+      const second = await service.listRuns(new URLSearchParams({ jobId, limit: "2", cursor: first.nextCursor! }));
+      expect(second.items.map(run => run.id)).toEqual([tied[1], runningId]);
+      const third = await service.listRuns(new URLSearchParams({ jobId, limit: "2", cursor: second.nextCursor! }));
+      expect(third.items.map(run => run.id)).toEqual([blockedId]);
+      expect(third.nextCursor).toBeNull();
+
+      const filtered = await service.listRuns(new URLSearchParams([["jobId", jobId], ["state", "queued"], ["state", "blocked"], ["limit", "1"]]));
+      expect(filtered.items.map(run => run.id)).toEqual([f.runId]);
+      expect((await service.listRuns(new URLSearchParams([["jobId", jobId], ["state", "queued"], ["state", "blocked"], ["limit", "1"], ["cursor", filtered.nextCursor!]]))).items.map(run => run.id)).toEqual([blockedId]);
+
+      const explicit = await service.listRuns(new URLSearchParams({ jobId, sort: "created", direction: "desc", limit: "1" }));
+      expect(explicit.items[0].id).toBe(blockedId);
+
+      await f.db.pool.query("UPDATE app.runs SET state='failed' WHERE tenant_id=$1 AND id=$2", [f.tenantId, startingId]);
+      await f.db.pool.query("UPDATE app.job_runs SET state='failed' WHERE tenant_id=$1 AND id=$2", [f.tenantId, startingId]);
+      const afterTransition = await service.listRuns(new URLSearchParams({ jobId, limit: "5" }));
+      expect(afterTransition.items.at(-1)?.id).toBe(startingId);
+    } finally {
+      await f.db.pool.query("DELETE FROM app.runs WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [f.tenantId, insertedIds]);
+      await f.db.pool.query("DELETE FROM app.job_runs WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [f.tenantId, insertedIds]);
+      await f.db.pool.query("DELETE FROM app.invocations WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [f.tenantId, invocationIds]);
+      for (const row of originals) {
+        await f.db.pool.query("UPDATE app.runs SET state=$3,created_at=$4 WHERE tenant_id=$1 AND id=$2", [f.tenantId, row.id, row.state, row.created_at]);
+        await f.db.pool.query("UPDATE app.job_runs SET state=$3,created_at=$4 WHERE tenant_id=$1 AND id=$2", [f.tenantId, row.id, row.state, row.created_at]);
+      }
+    }
   });
 });

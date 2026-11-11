@@ -12,6 +12,8 @@ const sortExpressions = {
   agent: "r.agent_kind",
 } as const;
 type RunSort = keyof typeof sortExpressions;
+const runPriority = (state: unknown) => state === "queued" || state === "reserved" || state === "starting" ? 0 : state === "running" ? 1 : 2;
+const runPrioritySql = "CASE WHEN r.state IN ('queued','reserved','starting') THEN 0 WHEN r.state='running' THEN 1 ELSE 2 END";
 
 export class RunQueryRepository {
   constructor(private database: Database, private tenantId: string) { if (!tenantId) throw new Error("tenantId is required"); }
@@ -24,19 +26,23 @@ export class RunQueryRepository {
     const states = query.getAll("state");
     if (states.length) { values.push(states.flatMap(state => state === "done" ? ["done", "succeeded"] : [state])); clauses.push(`r.state=ANY($${values.length}::text[])`); }
     if (query.get("contextQuery")) { values.push(`%${query.get("contextQuery")}%`); clauses.push(`i.context::text ILIKE $${values.length}`); }
-    if (sort && cursor?.length === 5 && cursor[0] === sort && cursor[1] === direction.toLowerCase()) {
+    if (!sort && cursor?.length === 3 && [0, 1, 2].includes(Number(cursor[0])) && typeof cursor[1] === "string" && typeof cursor[2] === "string") {
+      values.push(Number(cursor[0]), cursor[1], cursor[2]);
+      clauses.push(`(${runPrioritySql} > $${values.length - 2} OR (${runPrioritySql} = $${values.length - 2} AND (r.created_at,r.id)<($${values.length - 1}::timestamptz,$${values.length}::uuid)))`);
+    } else if (!sort && cursor?.length === 2) {
+      // Resume pre-priority cursors at their original chronological boundary.
+      values.push(cursor[0], cursor[1]); clauses.push(`(r.created_at,r.id)<($${values.length - 1}::timestamptz,$${values.length}::uuid)`);
+    } else if (sort && cursor?.length === 5 && cursor[0] === sort && cursor[1] === direction.toLowerCase()) {
       const expression = sortExpressions[sort], nullFlag = `(CASE WHEN ${expression} IS NULL THEN 1 ELSE 0 END)`, after = direction === "ASC" ? ">" : "<";
       values.push(Number(cursor[2]), cursor[3] ?? null, cursor[4]);
       const valuePlaceholder = sort === "created" ? `$${values.length - 1}::timestamptz` : `$${values.length - 1}`;
       clauses.push(`(${nullFlag} > $${values.length - 2} OR (${nullFlag} = $${values.length - 2} AND ((${expression} ${after} ${valuePlaceholder}) OR (${expression} IS NOT DISTINCT FROM ${valuePlaceholder} AND r.id ${after} $${values.length}::uuid))))`);
-    } else if (!sort && cursor?.length === 2) {
-      values.push(cursor[0], cursor[1]); clauses.push(`(r.created_at,r.id)<($${values.length - 1}::timestamptz,$${values.length}::uuid)`);
     }
     values.push(limit + 1);
-    const order = sort ? `CASE WHEN ${sortExpressions[sort]} IS NULL THEN 1 ELSE 0 END ASC, ${sortExpressions[sort]} ${direction} NULLS LAST, r.id ${direction}` : "r.created_at DESC,r.id DESC";
-    const selectedOrder = order.replaceAll("r.", "selected.").replaceAll("j.name", "selected.job_name");
+    const order = sort ? `CASE WHEN ${sortExpressions[sort]} IS NULL THEN 1 ELSE 0 END ASC, ${sortExpressions[sort]} ${direction} NULLS LAST, r.id ${direction}` : `${runPrioritySql} ASC,r.created_at DESC,r.id DESC`;
+    const selectedOrder = sort ? order.replaceAll("r.", "selected.").replaceAll("j.name", "selected.job_name") : "selected.priority ASC,selected.created_at DESC,selected.id DESC";
     const result = await this.database.pool.query<any>(`WITH selected AS MATERIALIZED (
-        SELECT r.id,r.job_id,j.project_id,j.name job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,coalesce(r.execution_config->>'executionType','agent') execution_type,r.state,r.failure_source,r.failure_code,r.failure_reason,
+        SELECT r.id,r.job_id,j.project_id,j.name job_name,p.name project_name,r.issue_id,r.issue_url,r.issue_title,r.run_name,r.agent_name,r.workspace_name,r.agent_kind,coalesce(r.execution_config->>'executionType','agent') execution_type,r.state,${runPrioritySql} priority,r.failure_source,r.failure_code,r.failure_reason,
           CASE WHEN r.failure_code IS NULL OR r.failure_reason IS NULL THEN NULL ELSE jsonb_build_object('source',CASE WHEN r.failure_source='agent' THEN 'run' ELSE 'system' END,'code',r.failure_code,'reason',r.failure_reason) END failure,
           CASE WHEN r.agent_error_reason IS NULL THEN NULL ELSE jsonb_build_object('reason',r.agent_error_reason,'reported_at',r.agent_error_reported_at,'reporter',jsonb_build_object('user_id',r.agent_error_reporter_user_id,'kind',r.agent_error_reporter_kind,'id',r.agent_error_reporter_id)) END agent_error,
           r.provider,r.execution_backend_kind backend_kind,r.execution_capabilities capabilities,r.destination_url,r.artifact_state,r.artifact_error,r.created_at,r.updated_at,jr.started_at,jr.updated_at job_run_updated_at
@@ -67,7 +73,7 @@ export class RunQueryRepository {
     const nextCursor = hasMore && last ? sort ? (() => {
       const value = sort === "run" ? (last.run_name || last.issue_title || "Run") : last[sort === "job" ? "job_name" : sort === "status" ? "state" : sort === "created" ? "created_at" : "agent_kind"];
       return encodeCursor([sort, direction.toLowerCase(), sort === "run" || value != null ? 0 : 1, value, last.id]);
-    })() : encodeCursor([last.created_at, last.id]) : null;
+    })() : encodeCursor([runPriority(last.state), last.created_at.toISOString(), last.id]) : null;
     return { items: rows, nextCursor };
   }
   async get(runId: string) {

@@ -28,7 +28,7 @@ export function RunDetail() {
   const tabPath = (name: "trace" | "info"): "/job-runs/$runId" | "/job-runs/$runId/info" => name === "trace" ? "/job-runs/$runId" : "/job-runs/$runId/info";
   const status = useQuery(runStatusQuery(runId!));
   const job = useQuery({ ...jobQuery(status.data?.job_id ?? ""), enabled: !!status.data?.job_id });
-  const jobRuns = useQuery({ ...runPageQuery({ jobId: status.data?.job_id, limit: 30, sort: "created", direction: "desc" }), enabled: !!status.data?.job_id });
+  const jobRuns = useQuery({ ...runPageQuery({ jobId: status.data?.job_id, limit: 30 }), enabled: !!status.data?.job_id });
   const [revision, setRevision] = useState("");
   const [renaming, setRenaming] = useState(false), [nameDraft, setNameDraft] = useState(""), [nameExpected, setNameExpected] = useState(""), [nameError, setNameError] = useState("");
   const active = !status.data || !["succeeded", "failed", "stopped"].includes(status.data.state) || status.data.finalizing;

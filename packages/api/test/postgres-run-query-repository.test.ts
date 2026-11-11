@@ -14,6 +14,35 @@ describe("run timing queries", () => {
     }
   });
 
+  it("prioritizes queued and starting runs, then running, ahead of other states", async () => {
+    const query = vi.fn(async () => ({ rows: [{ id: "run", state: "queued", created_at: new Date("2026-09-18T12:00:00Z") }] }));
+    const result = await new RunQueryRepository({ pool: { query } } as any, "tenant").list(new URLSearchParams());
+    const [sql] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain("CASE WHEN r.state IN ('queued','reserved','starting') THEN 0 WHEN r.state='running' THEN 1 ELSE 2 END ASC,r.created_at DESC,r.id DESC");
+    expect(sql).toContain("selected.priority ASC,selected.created_at DESC,selected.id DESC");
+    expect(result.nextCursor).toBeNull();
+  });
+
+  it("continues default pages by priority and deterministic timestamp and ID", async () => {
+    const query = vi.fn(async () => ({ rows: [{ id: "00000000-0000-4000-8000-000000000003", state: "running", created_at: new Date("2026-09-18T12:00:00Z") }] }));
+    const cursor = btoa(JSON.stringify([0, "2026-09-18T12:01:00.000Z", "00000000-0000-4000-8000-000000000002"]));
+    await new RunQueryRepository({ pool: { query } } as any, "tenant").list(new URLSearchParams({ cursor, limit: "1" }));
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain("CASE WHEN r.state IN ('queued','reserved','starting') THEN 0 WHEN r.state='running' THEN 1 ELSE 2 END > $2");
+    expect(sql).toContain("(r.created_at,r.id)<($3::timestamptz,$4::uuid)");
+    expect(values).toEqual(["tenant", 0, "2026-09-18T12:01:00.000Z", "00000000-0000-4000-8000-000000000002", 2]);
+  });
+
+  it("accepts legacy chronological cursors while using the prioritized default order", async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const cursor = btoa(JSON.stringify(["2026-09-18T12:01:00.000Z", "00000000-0000-4000-8000-000000000002"]));
+    await new RunQueryRepository({ pool: { query } } as any, "tenant").list(new URLSearchParams({ cursor }));
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
+    expect(sql).toContain("(r.created_at,r.id)<($2::timestamptz,$3::uuid)");
+    expect(sql).toContain("selected.priority ASC,selected.created_at DESC,selected.id DESC");
+    expect(values.slice(0, 3)).toEqual(["tenant", "2026-09-18T12:01:00.000Z", "00000000-0000-4000-8000-000000000002"]);
+  });
+
   it.each([
     ["job", "asc", "j.name ASC"],
     ["job", "desc", "j.name DESC"],
