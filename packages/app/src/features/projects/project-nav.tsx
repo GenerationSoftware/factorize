@@ -11,13 +11,15 @@ const tabs: Array<{ id: ProjectTab; label: string; to: "/projects/$projectId" | 
   { id: "settings", label: "Settings", to: "/projects/$projectId/settings", icon: <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-[18px]"><path strokeLinecap="round" strokeLinejoin="round" d="M10 3.8h4l.6 2.1 1.6.9 2.1-.6 2 3.5-1.5 1.6v1.8l1.5 1.6-2 3.5-2.1-.6-1.6.9-.6 2.1h-4l-.6-2.1-1.6-.9-2.1.6-2-3.5 1.5-1.6v-1.8L3.7 9.7l2-3.5 2.1.6 1.6-.9z"/><circle cx="12" cy="12" r="3"/></svg> },
 ];
 
-export function ProjectNav({ tab, children }: { tab: ProjectTab; children?: React.ReactNode }) {
-  const { projectId } = useParams({ strict: false }) as { projectId: string };
+export function ProjectNav({ tab, projectId: projectIdProp, children }: { tab: ProjectTab; projectId?: string; children?: React.ReactNode }) {
+  const params = useParams({ strict: false }) as { projectId?: string };
+  const projectId = projectIdProp ?? params.projectId;
+  if (!projectId) return null;
   const project = useQuery(projectQuery(projectId));
   return <>
     <nav aria-label="Project navigation" className="border-y border-stone-200 bg-white dark:border-slate-800 dark:bg-slate-950">
       <div className="mx-auto flex w-full max-w-6xl gap-1 overflow-x-auto px-4 sm:px-6 lg:px-8">
-        {tabs.map(item => <Link key={item.id} to={item.to} params={{ projectId }} className={`inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-factorize-500 ${tab === item.id ? "border-factorize-500 text-factorize-700 dark:text-factorize-400" : "border-transparent text-slate-600 hover:border-stone-300 hover:text-slate-950 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:text-white"}`} aria-current={tab === item.id ? "page" : undefined}>{item.icon}{item.label}</Link>)}
+        {tabs.map(item => <Link key={item.id} to={item.to} params={{ projectId }} className={`inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-factorize-500 ${tab === item.id ? "border-factorize-500 text-factorize-700 dark:text-factorize-500" : "border-transparent text-slate-600 hover:border-stone-300 hover:text-slate-950 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:text-white"}`} aria-current={tab === item.id ? "page" : undefined}>{item.icon}{item.label}</Link>)}
       </div>
     </nav>
     <Page className="pt-6 sm:pt-8">

@@ -7,6 +7,8 @@ import { Link, useLocation, useParams, useNavigate } from "@tanstack/react-route
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { runStatusQuery } from "./queries";
+import { jobQuery } from "../jobs/queries";
+import { ProjectNav } from "../projects/project-nav";
 import { messageOf } from "../auth/session";
 function RuntimeInfo({ startedAt, updatedAt, active }: { startedAt: string | null; updatedAt: string; active: boolean }) {
   const [now, setNow] = useState(() => Date.now());
@@ -24,6 +26,7 @@ export function RunDetail() {
   const fullTrace = location.pathname.endsWith("/trace");
   const tabPath = (name: "trace" | "info"): "/job-runs/$runId" | "/job-runs/$runId/info" => name === "trace" ? "/job-runs/$runId" : "/job-runs/$runId/info";
   const status = useQuery(runStatusQuery(runId!));
+  const job = useQuery({ ...jobQuery(status.data?.job_id ?? ""), enabled: !!status.data?.job_id });
   const [revision, setRevision] = useState("");
   const [renaming, setRenaming] = useState(false), [nameDraft, setNameDraft] = useState(""), [nameExpected, setNameExpected] = useState(""), [nameError, setNameError] = useState("");
   const active = !status.data || !["succeeded", "failed", "stopped"].includes(status.data.state) || status.data.finalizing;
@@ -58,9 +61,9 @@ export function RunDetail() {
   }, onError: error => setNameError(error.message) });
   const startRename = () => { const currentName = status.data?.run_name ?? ""; setNameExpected(currentName); setNameDraft(currentName); setNameError(""); rename.reset(); setRenaming(true); };
   const cancelRename = () => { setRenaming(false); setNameError(""); rename.reset(); };
-  return <Page className="max-w-6xl">
+  const content = <>
     {status.isPending && <p role="status">Loading run…</p>}{status.error && <p role="alert">{status.error.message}</p>}
-    <Breadcrumb>{status.data ? <Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: status.data.job_id }}>{status.data.job_name}</Link> : <Link to="/projects">Projects</Link>}</Breadcrumb>
+    {!job.data?.projectId && <Breadcrumb>{status.data ? <Link className="break-words min-w-0" to="/jobs/$jobId" params={{ jobId: status.data.job_id }}>{status.data.job_name}</Link> : <Link to="/projects">Projects</Link>}</Breadcrumb>}
     {status.data && <>
       <ResourceHeader type="Run" title={status.data.run_name || "Run"} titleActions={renaming ? <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); setNameError(""); rename.mutate(); }}><label className="sr-only" htmlFor="run-name">Run name</label><input autoFocus id="run-name" className="w-64 rounded-lg border border-stone-300 bg-white px-3 py-2 text-base font-normal dark:border-slate-700 dark:bg-slate-950" value={nameDraft} maxLength={120} aria-invalid={!!nameError} aria-describedby={nameError ? "run-name-error" : undefined} onChange={event => { setNameDraft(event.target.value); setNameError(""); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); cancelRename(); } }} /><Button type="submit" disabled={rename.isPending}>Save</Button><Button type="button" disabled={rename.isPending} onClick={cancelRename}>Cancel</Button>{nameError && <span id="run-name-error" role="alert" className="basis-full text-sm text-red-700 dark:text-red-300">{nameError}</span>}</form> : <Button type="button" onClick={startRename}>Rename</Button>} description={<p role="status"><RunStatusLabel state={status.data.state} failureSource={status.data.failure_source} failure={status.data.failure} />{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}{(status.data.failure?.reason || (status.data.agent_error as any)?.reason) && <span className="mt-1 block max-w-3xl text-left">{status.data.failure?.reason || (status.data.agent_error as any).reason}</span>}</p>}>{["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button className="shrink-0" disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}</ResourceHeader>
     </>}
@@ -90,5 +93,8 @@ export function RunDetail() {
     {fullTrace ? <><Breadcrumb><Link to="/job-runs/$runId" params={{ runId: runId! }}>Run overview</Link></Breadcrumb><h2 className="my-4 text-xl font-semibold">Full trace</h2></> : <div className="my-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Trace</h2><a className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800" href={`/job-runs/${encodeURIComponent(runId!)}/trace`} target="_blank" rel="noopener noreferrer">Show full trace</a></div>}
     <ContinuousTrace key={`${revision}:${fullTrace}`} runId={runId!} revision={revision} active={active} visible={fullTrace || tab === "trace"} preview={!fullTrace} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />
     </section>}
-  </Page>;
+  </>;
+  return job.data?.projectId
+    ? <ProjectNav tab="runs" projectId={job.data.projectId}>{content}</ProjectNav>
+    : <Page className="max-w-6xl">{content}</Page>;
 }

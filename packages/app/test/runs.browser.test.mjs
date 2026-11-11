@@ -8,6 +8,19 @@ const jobId = "00000000-0000-4000-8000-000000000001", projectId = "00000000-0000
 before(async () => { server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } }); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 async function setup() { const context = await browser.newContext(), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
+test("project child run selects project runs and omits the old breadcrumb", async () => {
+  const { context, page } = await setup();
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Review builds", run_name: "Project run", state: "succeeded", finalizing: false, trace_revision: "rev", artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Review builds", projectId, enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: 0, promptTemplate: "Prompt", triggers: [] } }));
+  await page.route(`**/api/v1/projects/${projectId}`, route => route.fulfill({ json: { id: projectId, name: "Release project", description: "", jobCount: 1 } }));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [], nextCursor: null, revision: "rev", reset: false } }));
+  await page.goto(origin + `/job-runs/${runId}`);
+  const nav = page.getByRole("navigation", { name: "Project navigation" });
+  await nav.getByRole("link", { name: "Runs", exact: true }).waitFor();
+  assert.equal(await nav.getByRole("link", { name: "Runs", exact: true }).getAttribute("aria-current"), "page");
+  assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
+  await context.close();
+});
 test("run page polling backs off when idle, discovers runs, and stays fast while active", async () => {
   const idle = await setup(); let idleCount = 0;
   await idle.page.clock.install({ time: new Date(time) });
