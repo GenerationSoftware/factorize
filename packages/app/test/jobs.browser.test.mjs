@@ -303,9 +303,10 @@ test("project tabs omit redundant headings while job detail selects project jobs
   assert.equal(await page.getByText("Job", { exact: true }).count(), 1);
   await context.close();
 });
-test("main navigation shows the project switcher only inside a project", async () => {
+test("main navigation shows the current project switcher inside a project and its jobs", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
+  await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
   const mainNav = page.getByRole("navigation", { name: "Main navigation" });
   await page.goto(origin + "/");
@@ -318,6 +319,13 @@ test("main navigation shows the project switcher only inside a project", async (
   assert.equal(await switcher.count(), 1);
   await switcher.click();
   await page.getByRole("option", { name: /Release project/ }).waitFor();
+  await page.goto(origin + `/jobs/${jobId}`);
+  await mainNav.getByRole("link", { name: "Release project", exact: true }).waitFor();
+  const jobSwitcher = mainNav.getByRole("button", { name: "Switch project" });
+  assert.equal(await jobSwitcher.count(), 1);
+  await jobSwitcher.click();
+  const currentProject = page.getByRole("option", { name: /Release project.*Current/ });
+  await currentProject.waitFor();
   await context.close();
 });
 test("mobile main navigation truncates the account and project names without the logo divider", async () => {
