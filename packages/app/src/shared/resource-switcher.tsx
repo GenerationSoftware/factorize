@@ -36,7 +36,7 @@ export function ResourceSwitcher({
   const select = (id: string) => { setOpen(false); setSearch(""); onSelect(id); };
   return <div ref={root} className="relative flex min-w-0 items-center">
     <button ref={trigger} type="button" aria-label={`Switch ${kind.toLocaleLowerCase()}`} aria-haspopup="listbox" aria-expanded={open}
-      className="ml-0 flex size-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-factorize-500 dark:text-slate-300 dark:hover:bg-slate-800 sm:ml-1"
+      className="ml-0 flex size-8 shrink-0 items-center justify-center rounded-md p-1.5 text-slate-600 hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-factorize-500 dark:text-slate-300 dark:hover:bg-slate-800 sm:ml-1"
       onClick={() => { setOpen(value => !value); setSearch(""); setActive(0); requestAnimationFrame(() => input.current?.focus()); }}>
       <svg aria-hidden="true" viewBox="0 0 20 20" className="size-4 fill-current"><path d="m5 7 5 5 5-5" /></svg>
     </button>

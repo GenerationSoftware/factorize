@@ -360,12 +360,18 @@ test("main navigation shows the current project switcher inside a project and it
   assert.equal(await mainNav.getByRole("button", { name: "Switch project" }).count(), 0);
   await page.goto(origin + `/projects/${projectId}`);
   await mainNav.getByRole("link", { name: "Release project", exact: true }).waitFor();
+  assert.equal(await mainNav.locator('span[aria-hidden="true"]').filter({ hasText: "/" }).count(), 0);
+  const projectLink = mainNav.getByRole("link", { name: "Release project", exact: true });
+  await projectLink.hover();
+  assert.equal(await projectLink.evaluate(element => getComputedStyle(element).backgroundColor), "rgb(245, 245, 244)");
   const switcher = mainNav.getByRole("button", { name: "Switch project" });
   assert.equal(await switcher.count(), 1);
+  assert.equal(await switcher.evaluate(element => getComputedStyle(element).padding), "6px");
   await switcher.click();
   await page.getByRole("option", { name: /Release project/ }).waitFor();
   await page.goto(origin + `/jobs/${jobId}`);
   await mainNav.getByRole("link", { name: "Release project", exact: true }).waitFor();
+  assert.equal(await mainNav.locator('span[aria-hidden="true"]').filter({ hasText: "/" }).count(), 1);
   const jobSwitcher = mainNav.getByRole("button", { name: "Switch project" });
   assert.equal(await jobSwitcher.count(), 1);
   await jobSwitcher.click();
