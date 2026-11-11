@@ -5,6 +5,7 @@ import { useInfiniteQuery, useQuery, type InfiniteData } from "@tanstack/react-q
 import { api } from "factorize-api-client";
 import { messageOf } from "../auth/session";
 import type { operations } from "factorize-api-client";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 
 type Event = operations["get_api_v1_runs_runId_trace_pages"]["responses"][200]["content"]["application/json"]["items"][number];
 type TracePage = { items: Event[]; nextCursor: number | null; previousCursor?: number | null; revision: string; reset: boolean };
@@ -25,11 +26,12 @@ function conversation(events: Event[]): ConversationItem[] {
   return result;
 }
 
-export function ContinuousTrace({ runId, revision, active, onReset, preview = false }: { runId: string; revision: string; active: boolean; onReset: (revision: string) => void; preview?: boolean }) {
+export function ContinuousTrace({ runId, revision, active, onReset, preview = false, visible = true }: { runId: string; revision: string; active: boolean; onReset: (revision: string) => void; preview?: boolean; visible?: boolean }) {
   const [liveItems, setLiveItems] = useState<Event[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [pullDistance, setPullDistance] = useState(0);
   const [pullLoading, setPullLoading] = useState(false);
+  const [retainedRows, setRetainedRows] = useState<number[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const historyLoadingRef = useRef(false);
@@ -45,15 +47,29 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
       if (!data || error) throw new Error(messageOf(error));
       return data;
     },
-    enabled: !!revision, getNextPageParam: page => page.previousCursor == null ? undefined : { mode: "before", cursor: page.previousCursor, revision: page.revision } as PageParam,
+    enabled: visible && !!revision, getNextPageParam: page => page.previousCursor == null ? undefined : { mode: "before", cursor: page.previousCursor, revision: page.revision } as PageParam,
     staleTime: Infinity, retry: 1,
   });
   const pages = trace.data?.pages ?? [];
-  const items = useMemo(() => [...pages.flatMap(page => page.items), ...liveItems].filter((event, index, all) => all.findIndex(candidate => candidate.id === event.id) === index).sort((a, b) => a.sequence - b.sequence), [pages, liveItems]);
+  const items = useMemo(() => {
+    const byId = new Map<string, Event>();
+    for (const event of [...pages.flatMap(page => page.items), ...liveItems]) if (!byId.has(event.id)) byId.set(event.id, event);
+    return [...byId.values()].sort((a, b) => a.sequence - b.sequence);
+  }, [pages, liveItems]);
+  const grouped = useMemo(() => conversation(preview ? items.slice(-10) : items), [items, preview]);
+  const groupKey = (item: ConversationItem) => item.kind === "assistant" ? `assistant:${item.event.id}` : `tools:${item.events[0]?.id}`;
+  const virtualizer = useVirtualizer({
+    count: visible && !preview ? grouped.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 180,
+    overscan: 5,
+    getItemKey: index => groupKey(grouped[index]),
+    rangeExtractor: range => [...new Set([...defaultRangeExtractor(range), ...retainedRows])].sort((a, b) => a - b),
+  });
   const latestSequence = items.at(-1)?.sequence ?? 0;
   const live = useQuery({
     queryKey: ["runs", runId, "conversation-tail", revision, latestSequence],
-    enabled: !preview && active && !!trace.data && !trace.isFetching,
+    enabled: !preview && active && visible && !!trace.data && !trace.isFetching,
     queryFn: async ({ signal }) => {
       const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: latestSequence, revision, limit: 100 } } });
       if (!data || error) throw new Error(messageOf(error)); return data;
@@ -64,13 +80,34 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
   useEffect(() => { if (live.data && !live.data.reset && live.data.revision === revision) setLiveItems(previous => [...previous, ...live.data!.items]); }, [live.data, revision]);
   useEffect(() => { setLiveItems([]); setExpanded(new Set()); }, [revision]);
   useEffect(() => { initialAlignedRevision.current = null; followRef.current = true; }, [revision]);
+  const updateRetainedRows = () => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const indices = new Set<number>();
+    const add = (node: Node | null) => {
+      const element = node instanceof Element ? node : node?.parentElement;
+      const row = element?.closest<HTMLElement>("[data-trace-index]");
+      const index = Number(row?.dataset.traceIndex);
+      if (Number.isInteger(index) && index >= 0) indices.add(index);
+    };
+    add(document.activeElement);
+    const selection = window.getSelection();
+    if (selection?.rangeCount) { add(selection.anchorNode); add(selection.focusNode); }
+    setRetainedRows(previous => previous.length === indices.size && previous.every(index => indices.has(index)) ? previous : [...indices]);
+  };
   const updateScrollState = () => {
     const element = scrollRef.current;
     if (!element) return;
+    updateRetainedRows();
     const bottom = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
     followRef.current = bottom;
     if (element.scrollTop <= 8 && trace.hasNextPage && !trace.isFetching && !historyLoadingRef.current) void loadHistory(3);
   };
+  useEffect(() => {
+    document.addEventListener("selectionchange", updateRetainedRows);
+    return () => document.removeEventListener("selectionchange", updateRetainedRows);
+  });
+  useLayoutEffect(() => { updateRetainedRows(); }, [items]);
   const loadHistory = async (pageCount = 1) => {
     const element = scrollRef.current;
     if (!element || !trace.hasNextPage || trace.isFetching || historyLoadingRef.current) return;
@@ -135,17 +172,24 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
     observer.observe(element);
     return () => { window.removeEventListener("resize", resize); observer.disconnect(); };
   }, []);
-  const grouped = conversation(preview ? items.slice(-10) : items);
   if (preview) return <div data-run-trace data-run-trace-preview aria-label="Recent run trace" className="space-y-4">
     {trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
     {!trace.isPending && !grouped.length && <p className="text-sm text-slate-600 dark:text-slate-400">No assistant messages yet.</p>}
-    {grouped.map((item, index) => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={item.events[0]?.id + ":" + index} className={traceClasses("tool_call")} open={expanded.has(item.events[0]?.id + ":" + index)} onToggle={event => { const key = item.events[0]?.id + ":" + index; const open = event.currentTarget.open; setExpanded(previous => { const next = new Set(previous); open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary><div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div></Disclosure>)}
+    {grouped.map(item => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={groupKey(item)} className={traceClasses("tool_call")} open={expanded.has(groupKey(item))} onToggle={event => { const key = groupKey(item); const open = event.currentTarget.open; setExpanded(previous => { const next = new Set(previous); open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary>{expanded.has(groupKey(item)) && <div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div>}</Disclosure>)}
   </div>;
+  const virtualItems = virtualizer.getVirtualItems();
   return <>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
     <div ref={scrollRef} data-run-trace-scroll aria-label="Run trace" className="-mx-4 h-[min(60rem,calc(100svh-18rem))] min-h-64 w-[calc(100%+2rem)] min-w-0 overflow-y-auto overscroll-contain p-0 sm:mx-0 sm:h-[min(60rem,calc(100svh-18rem))] sm:w-auto" onScroll={updateScrollState} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
       {(pullDistance > 0 || pullLoading) && <p data-run-trace-pull role="status" aria-live="polite" className="sticky top-0 z-10 -mb-8 flex h-8 items-center justify-center bg-stone-50/90 text-xs font-medium text-slate-600 backdrop-blur dark:bg-slate-950/90 dark:text-slate-400">{pullLoading ? "Loading older events…" : pullDistance >= 56 ? "Release to load older events" : `Pull to load older events · ${Math.round((pullDistance / 56) * 100)}%`}</p>}
       {!trace.isPending && !grouped.length && <p className="text-sm text-slate-600 dark:text-slate-400">No assistant messages yet.</p>}
-      <div data-run-trace className="flex min-h-full min-w-0 flex-col justify-end space-y-4" aria-live={active ? "polite" : undefined}>{grouped.map((item, index) => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={item.events[0]?.id + ":" + index} className={traceClasses("tool_call")} open={expanded.has(item.events[0]?.id + ":" + index)} onToggle={event => { const key = item.events[0]?.id + ":" + index; const open = event.currentTarget.open; setExpanded(previous => { const next = new Set(previous); open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary><div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div></Disclosure>)}</div>
+      <div data-run-trace className="relative min-w-0" style={{ height: virtualizer.getTotalSize() }} aria-live={active ? "polite" : undefined}>{virtualItems.map(row => {
+        const item = grouped[row.index];
+        if (!item) return null;
+        const key = groupKey(item);
+        return <div key={row.key} ref={virtualizer.measureElement} data-index={row.index} data-trace-index={row.index} className="absolute left-0 top-0 w-full pb-4" style={{ transform: `translateY(${row.start}px)` }}>
+          {item.kind === "assistant" ? <article className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure className={traceClasses("tool_call")} open={expanded.has(key)} onToggle={event => { const open = event.currentTarget.open; setExpanded(previous => { const next = new Set(previous); open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary>{expanded.has(key) && <div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div>}</Disclosure>}
+        </div>;
+      })}</div>
     </div>
     {active && <p role="status" className="mt-5 text-sm font-medium"><span aria-hidden="true" className="mr-2 inline-block motion-safe:animate-pulse">●</span>Running…</p>}
   </>;

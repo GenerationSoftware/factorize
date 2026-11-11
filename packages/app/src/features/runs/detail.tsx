@@ -8,6 +8,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { runStatusQuery } from "./queries";
 import { messageOf } from "../auth/session";
+function RuntimeInfo({ startedAt, updatedAt, active }: { startedAt: string | null; updatedAt: string; active: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!startedAt || !active) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [startedAt, active]);
+  return <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Runtime</dt><dd className="text-sm text-slate-600 dark:text-slate-400">{startedAt ? `${Math.max(0, Math.round(((active ? now : Date.parse(updatedAt)) - Date.parse(startedAt)) / 1000))}s` : "Not available until the run starts"}</dd></div>;
+}
 export function RunDetail() {
   const { runId } = useParams({ strict: false });
   const location = useLocation(), navigate = useNavigate(), cache = useQueryClient();
@@ -17,13 +26,7 @@ export function RunDetail() {
   const status = useQuery(runStatusQuery(runId!));
   const [revision, setRevision] = useState("");
   const [renaming, setRenaming] = useState(false), [nameDraft, setNameDraft] = useState(""), [nameExpected, setNameExpected] = useState(""), [nameError, setNameError] = useState("");
-  const [now, setNow] = useState(() => Date.now());
   const active = !status.data || !["succeeded", "failed", "stopped"].includes(status.data.state) || status.data.finalizing;
-  useEffect(() => {
-    if (!status.data?.started_at || !active) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [status.data?.started_at, active]);
   const finalizedSnapshot = useRef("");
   useEffect(() => {
     if (!status.data) return;
@@ -77,7 +80,7 @@ export function RunDetail() {
         <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Created</dt><dd className="break-words text-sm text-slate-600 dark:text-slate-400">{new Date(status.data.created_at).toLocaleString()}</dd></div>
         <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Started</dt><dd className="break-words text-sm text-slate-600 dark:text-slate-400">{status.data.started_at ? new Date(status.data.started_at).toLocaleString() : "Not started yet"}</dd></div>
         <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Queue time</dt><dd className="text-sm text-slate-600 dark:text-slate-400">{status.data.started_at ? `${Math.max(0, Math.round((Date.parse(status.data.started_at) - Date.parse(status.data.created_at)) / 1000))}s` : "Not available until the run starts"}</dd></div>
-        <div><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Runtime</dt><dd className="text-sm text-slate-600 dark:text-slate-400">{status.data.started_at ? `${Math.max(0, Math.round(((active ? now : Date.parse(status.data.updated_at)) - Date.parse(status.data.started_at)) / 1000))}s` : "Not available until the run starts"}</dd></div>
+        <RuntimeInfo startedAt={status.data.started_at} updatedAt={status.data.updated_at} active={active} />
         <div className="sm:col-span-2"><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Execution destination</dt><dd className="break-words text-sm text-slate-600 dark:text-slate-400">{status.data.destination_url && /^https?:\/\//.test(status.data.destination_url) ? <><a className="break-all underline" href={status.data.destination_url} target="_blank" rel="noopener noreferrer">{status.data.destination_url}</a><span className="mt-1 block text-xs">The location where this run executes.</span></> : "Not available for this run"}</dd></div>
       </dl>}
       <ExpandedRunDetail runId={runId!} />
@@ -85,7 +88,7 @@ export function RunDetail() {
     </section>}
     {(fullTrace || tab === "trace") && <section role="tabpanel" id="run-panel-trace" aria-labelledby="run-tab-trace" hidden={!fullTrace && tab !== "trace"} tabIndex={0} className="flex min-h-0 flex-col">
     {fullTrace ? <><Breadcrumb><Link to="/job-runs/$runId" params={{ runId: runId! }}>Run overview</Link></Breadcrumb><h2 className="my-4 text-xl font-semibold">Full trace</h2></> : <div className="my-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Trace</h2><a className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800" href={`/job-runs/${encodeURIComponent(runId!)}/trace`} target="_blank" rel="noopener noreferrer">Show full trace</a></div>}
-    <ContinuousTrace key={`${revision}:${fullTrace}`} runId={runId!} revision={revision} active={active} preview={!fullTrace} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />
+    <ContinuousTrace key={`${revision}:${fullTrace}`} runId={runId!} revision={revision} active={active} visible={fullTrace || tab === "trace"} preview={!fullTrace} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />
     </section>}
   </Page>;
 }
