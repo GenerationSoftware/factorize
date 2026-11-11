@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { createBearerForwarder } from "../src/bearer-forwarder.mjs";
 import { createAuthenticatedProxyListener } from "../src/proxy-listener.mjs";
 import { createProxyRuntime } from "../src/runtime.mjs";
+import { createAuthenticatedTunnelServer, startVmTunnelHelper } from "../src/tunnel-transport.mjs";
 
 const fixtures = new URL("./fixtures/", import.meta.url);
 const key = await readFile(new URL("upstream-key.pem", fixtures));
@@ -114,4 +115,69 @@ test("listener refuses an unconsumed or unauthenticated connection", async () =>
   await assert.rejects(createAuthenticatedProxyListener({ connection: {
     authenticated: true, connectionId: "connection", runId: "run", vmId: "vm", grants: [],
   } }), /authenticated consumed connection/);
+});
+
+test("VM helper uses mutual TLS and consumed enrollment to reach only its granted integration listener", { timeout: 5_000 }, async () => {
+  let observedAuthorization;
+  let enrollmentCount = 0;
+  let authenticationCount = 0;
+  const upstream = createHttpsServer({ key, cert }, (request, response) => {
+    observedAuthorization = request.headers.authorization;
+    response.end("transport-ok");
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamPort = upstream.address().port;
+  const forwarder = createBearerForwarder({
+    connectorFactory: origin => async requestUrl => {
+      assert.equal(origin, `https://api.example.test:${upstreamPort}`);
+      const url = new URL(requestUrl);
+      const socket = tlsConnect({ host: "127.0.0.1", port: upstreamPort, servername: url.hostname, ca: cert });
+      await once(socket, "secureConnect");
+      return { socket, url };
+    },
+  });
+  const runtime = createProxyRuntime({ listenerFactory: ({ connection }) => createAuthenticatedProxyListener({ connection, forwarder }) });
+  const tunnel = createAuthenticatedTunnelServer({
+    tls: { key, cert, ca: cert },
+    runtime,
+    authenticateEnrollment: async ({ token, vmIdentity }) => {
+      authenticationCount++;
+      assert.equal(token, (authenticationCount === 1 ? "A" : "B").repeat(43));
+      assert.equal(vmIdentity, "api.example.test");
+      return {
+        authenticated: true,
+        enrollmentConsumed: true,
+        connectionId: "transport-enrollment-1",
+        runId: "run-transport-1",
+        vmId: vmIdentity,
+        grants: [{ id: "tool-1", origin: `https://api.example.test:${upstreamPort}`, credential: "synthetic-bearer" }],
+      };
+    },
+  });
+  await tunnel.listening;
+  runtime.unlock("synthetic-unlock-key");
+  const local = await startVmTunnelHelper({
+    tls: { key, cert, ca: cert, servername: "api.example.test" },
+    enrollment: async () => ({ token: (++enrollmentCount === 1 ? "A" : "B").repeat(43) }),
+    proxyHost: "127.0.0.1",
+    proxyPort: tunnel.address().port,
+  });
+  try {
+    const response = await fetch(`http://127.0.0.1:${local.address.port}/integrations/tool-1/echo`, {
+      headers: { authorization: "Bearer caller-token" },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "transport-ok");
+    assert.equal(observedAuthorization, "Bearer synthetic-bearer");
+    const denied = await fetch(`http://127.0.0.1:${local.address.port}/integrations/other-tool/echo`);
+    assert.equal(denied.status, 403);
+    assert.equal(enrollmentCount, 2, "each local connection gets fresh one-use enrollment");
+    assert.equal(authenticationCount, 2, "each enrollment is independently consumed by the proxy transport");
+  } finally {
+    await local.close();
+    await tunnel.close();
+    await runtime.shutdown();
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
 });
