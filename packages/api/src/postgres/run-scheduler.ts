@@ -33,8 +33,33 @@ export class RunScheduler {
     for (const run of await this.runs.dueForPoll()) await this.poll(run).catch(error => this.fail(run, error, "poll"));
     for (let count = 0; count < 20; count++) { const run = await this.runs.claimNext(); if (!run) break; await this.launch(run).catch(error => this.fail(run, error, "launch")); }
     const retention = new RunRetentionRepository(this.database);
+    await this.reconcileProviderCleanup();
     await retention.sweep(runRetentionCutoff(new Date()), 50);
     await retention.processArtifactCleanup(this.env.RUN_ARTIFACTS);
+  }
+
+  /** Retry terminal provider cleanup independently from run polling, including old stuck records. */
+  private async reconcileProviderCleanup(): Promise<void> {
+    for (const item of await this.runs.claimProviderCleanup()) {
+      if (!item.executionHandle) {
+        if (item.startedAt) {
+          // A started run without its provider handle cannot be proven absent; retain it for reconciliation.
+          await this.runs.retryProviderCleanup(item.tenantId, item.id, item.attempt, new Error("Started run has no persisted execution handle; provider absence cannot be verified"));
+        } else {
+          // A terminal run with no start timestamp never reached provider launch.
+          await this.runs.completeProviderCleanup(item.tenantId, item.id);
+        }
+        continue;
+      }
+      try {
+        const run = { tenantId: item.tenantId, id: item.id, executionConfig: item.executionConfig, executionHandle: item.executionHandle, backendKind: item.backendKind } as PersistedRun;
+        const result = await (await this.backend(run)).stop(item.executionHandle);
+        if (result.state !== "stopped") throw new Error(result.detail ?? "Execution provider did not confirm cleanup");
+        await this.runs.completeProviderCleanup(item.tenantId, item.id);
+      } catch (error) {
+        await this.runs.retryProviderCleanup(item.tenantId, item.id, item.attempt, error);
+      }
+    }
   }
 
   private connections(run: PersistedRun) { return new ConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
