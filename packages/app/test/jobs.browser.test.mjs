@@ -112,12 +112,13 @@ test("project settings can rename and describe a project", async () => {
   });
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
   await page.goto(origin + `/projects/${projectId}`);
-  await page.getByRole("heading", { name: "Release project", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Release project jobs", exact: true }).waitFor();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
+  assert.equal(await page.getByRole("navigation", { name: "Project navigation" }).getByRole("link", { name: "Settings", exact: true }).getAttribute("aria-current"), "page");
   await page.getByLabel("Name", { exact: true }).fill("Renamed project");
   await page.locator("form textarea").fill("Updated details");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await page.getByRole("heading", { name: "Renamed project", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Renamed project settings", exact: true }).waitFor();
   assert.deepEqual(saved, [{ name: "Renamed project", description: "Updated details" }]);
   assert.match(await page.locator("main").textContent(), /Updated details/);
   await context.close();
@@ -281,7 +282,7 @@ test("project graph keeps opaque webhook resource IDs out of labels and availabl
   await page.getByText(`Linear · ${projectUuid}`, { exact: true }).waitFor();
   await context.close();
 });
-test("project and job detail pages use the appropriate breadcrumbs", async () => {
+test("project tabs omit redundant headings while job detail keeps its project breadcrumb", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
@@ -289,10 +290,11 @@ test("project and job detail pages use the appropriate breadcrumbs", async () =>
   await page.getByRole("heading", { name: "Projects", exact: true }).waitFor();
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 1);
   await page.goto(origin + `/projects/${projectId}`);
-  await page.getByRole("heading", { name: "Release project", exact: true }).waitFor();
-  const projectBreadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
-  assert.deepEqual(await projectBreadcrumb.getByRole("link").allTextContents(), ["Projects"]);
-  assert.equal(await page.getByText("Project", { exact: true }).count(), 2);
+  await page.getByRole("heading", { name: "Release project jobs", exact: true }).waitFor();
+  assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
+  assert.equal(await page.getByRole("heading", { name: "Release project", exact: true }).count(), 0);
+  const projectNavigation = page.getByRole("navigation", { name: "Project navigation" });
+  assert.equal(await projectNavigation.getByRole("link", { name: "Jobs", exact: true }).getAttribute("aria-current"), "page");
   await page.goto(origin + `/jobs/${jobId}`);
   await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
   const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
@@ -329,8 +331,9 @@ for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) tes
   );
   assert.equal(await page.getByLabel("Search jobs", { exact: true }).count(), 0);
   assert.equal(await page.getByText("Your software factory. Configure prompts, connect triggers, and follow every run.").count(), 0);
-  const heading = await page.getByRole("heading", { name: "Release project", exact: true }).boundingBox(), create = await page.getByRole("link", { name: "Create job", exact: true }).boundingBox();
-  if (width >= 1280) assert.ok(create.x > heading.x + heading.width && Math.abs(create.y - heading.y) < 12);
+  const controls = await page.getByRole("group", { name: "Project jobs view" }).boundingBox(), create = await page.getByRole("link", { name: "Create job", exact: true }).boundingBox(), tableBox = await table.boundingBox();
+  assert.ok(create.x > controls.x + controls.width && Math.abs(create.y - controls.y) < 12);
+  assert.ok(Math.abs((create.x + create.width) - (tableBox.x + tableBox.width)) < 2);
   const longLink = table.getByRole("link", { name: longTitle, exact: true });
   assert.equal(await longLink.evaluate(el => el.scrollWidth > el.clientWidth && getComputedStyle(el).whiteSpace === "nowrap"), true);
   const first = table.locator("tbody tr").first(), idleColor = await first.evaluate(el => getComputedStyle(el).backgroundColor);
@@ -360,7 +363,6 @@ test("mobile jobs list only navigates when a job title is tapped", async () => {
   const table = page.getByRole("table", { name: "Jobs", exact: true });
   await table.getByRole("link", { name: "Security Checker Dispatcher", exact: true }).waitFor();
 
-  await page.getByRole("heading", { name: "Release project", exact: true }).click();
   await table.locator("tbody tr").nth(1).locator("td").first().click();
   assert.match(page.url(), /\/projects\/[^/]+(?:\?|$)/);
 
