@@ -56,6 +56,19 @@ publishing a new digest, followed by repeating this sequence.
 
 | Field | Value |
 | --- | --- |
-| Public image digest | Pending publication and fresh-VM validation |
+| Public image digest | `ghcr.io/generationsoftware/factorize-validation-runner@sha256:1333c4a7bb49c4cbcdd28ca2b57331dfcbff7cf611db1aaeaa4830517aacf6d4` |
 | Node / npm / Playwright | 24.12.0 / 11.19.0 / 1.64.0 |
-| Fresh-VM smoke and full suite | Pending |
+| Image smoke and full suite | Passed in a Docker container pulled anonymously from the immutable digest; not fresh-VM evidence |
+| Fresh Dev VM and Dev job image pin | Pending; keep PR #392 draft and GEN-2889 In Progress until this gate passes |
+
+The checkpoint pull and container validation were repeated on 2026-11-11.
+An unauthenticated GHCR manifest request returned HTTP 200 for the digest,
+and `docker pull` with an empty Docker config downloaded the same digest. In a
+container from that image, the PostgreSQL authentication helper and image smoke
+passed, followed by `npm ci` and `npm run test:local` on Factorize commit
+`02f96e9e23908537fffc2584b26abe85c34b1090` (backend 569 passed / 5 skipped,
+browser 102 passed / 1 skipped, proxy checks and builds passed). The container
+test starts PostgreSQL and invokes the image's authentication helper as setup;
+it does not verify exe.dev VM boot behavior. The Dev job remains on
+`ghcr.io/generationsoftware/anarack:latest`. A fresh Dev VM must still boot
+from the digest and pass these checks before the job image is pinned.
