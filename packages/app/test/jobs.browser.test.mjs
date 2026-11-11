@@ -249,6 +249,38 @@ test("project graph renders dense cyclic, webhook and self-loop routes and fits 
   for (const box of labelBoxes) assert.ok(box.x >= graphBox.x && box.y >= graphBox.y && box.x + box.width <= graphBox.x + graphBox.width && box.y + box.height <= graphBox.y + graphBox.height, "fit view clips an edge label");
   await context.close();
 });
+test("project graph keeps opaque webhook resource IDs out of labels and available in details", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+  const projectUuid = "00000000-0000-4000-8000-000000000099", linearSource = `webhook:linear:${projectUuid}`, clickupSource = "webhook:clickup:123456789";
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  await page.route(`**/api/v1/projects/${projectId}/graph`, route => route.fulfill({ json: {
+    nodes: [
+      { id: jobId, type: "job", label: "Build", jobKind: "Agent", enabled: true, runningCount: 0 },
+      { id: linearSource, type: "webhook", label: "Linear", provider: "linear", resource: projectUuid },
+      { id: clickupSource, type: "webhook", label: "ClickUp", provider: "clickup", resource: "123456789" },
+    ], edges: [
+      { id: `trigger:${linearSource}:${jobId}`, source: linearSource, target: jobId, label: "Linear", details: `Linear · ${projectUuid}`, kind: "webhook", enabled: true },
+      { id: `trigger-copy:${linearSource}:${jobId}`, source: linearSource, target: jobId, label: "Linear", details: "Linear · 00000000-0000-4000-8000-000000000098", kind: "webhook", enabled: true },
+      { id: `trigger:${clickupSource}:${jobId}`, source: clickupSource, target: jobId, label: "ClickUp", details: "ClickUp · 123456789", kind: "webhook", enabled: true },
+    ],
+  } }));
+  await page.goto(origin + `/projects/${projectId}`);
+  await page.getByRole("button", { name: "Graph", exact: true }).click();
+  const graph = page.getByRole("region", { name: /1 jobs and 3 connections/ });
+  await graph.waitFor();
+  const labels = await graph.locator(".react-flow__edgelabel-renderer button").allTextContents();
+  assert.ok(labels.some(label => label.includes("Linear")));
+  assert.ok(labels.some(label => label.includes("ClickUp")));
+  assert.ok(labels.every(value => !value.includes(projectUuid) && !value.includes("123456789")));
+  await graph.getByRole("button", { name: /2 triggers/ }).click();
+  await page.getByRole("dialog", { name: "Grouped connections" }).getByRole("button", { name: /Linear/ }).first().click();
+  await page.getByText("Linear · 00000000-0000-4000-8000-000000000098", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close connection details" }).click();
+  await graph.getByRole("button", { name: /2 triggers/ }).click();
+  await page.getByRole("dialog", { name: "Grouped connections" }).getByRole("button", { name: /Linear/ }).nth(1).click();
+  await page.getByText(`Linear · ${projectUuid}`, { exact: true }).waitFor();
+  await context.close();
+});
 test("project and job detail pages use the appropriate breadcrumbs", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));

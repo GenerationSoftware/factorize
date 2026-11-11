@@ -8,7 +8,7 @@ import { RunStatusLabel } from "../../shared/ui";
 import { routeAroundNodes, roundedPath, type GraphRect, type GraphSide } from "./graph-geometry";
 
 export type GraphNode = { id: string; type: string; label: string; provider?: string; jobKind?: string; enabled?: boolean; runningCount?: number; concurrencyLimit?: number };
-export type GraphConnection = { id: string; source: string; target: string; label: string; kind: string; enabled: boolean };
+export type GraphConnection = { id: string; source: string; target: string; label: string; details?: string; kind: string; enabled: boolean };
 type GraphNodeData = { graphNode: GraphNode; onOpen: (id: string) => void };
 type GraphEdgeData = { connections: GraphConnection[]; labels: string[]; count: number; muted: boolean; reverse: boolean; selected: boolean; onSelect: (edge: GraphConnection) => void; onGroup: (edges: GraphConnection[], trigger: HTMLButtonElement) => void; route: ReturnType<typeof routeAroundNodes> };
 type FlowNode = Node<GraphNodeData, "job" | "webhook" | "bounds">;
