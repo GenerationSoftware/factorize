@@ -28,6 +28,9 @@ export type FlyCredentialProxyMachineClient = {
 export type FlyCredentialProxyGuest = {
   /** The reviewed image startup command consumes this payload from stdin only. */
   startProxy(input: ProxyBootstrapProvisioning & { credential: string }): Promise<void>;
+  /** Signs a VM-generated CSR over the provider's private guest channel. Only
+   * the public certificate and CA trust bundle return to the caller. */
+  issueVmCertificate(input: { bootEpoch: string; vmIdentity: string; csr: string }): Promise<{ certificate: string; trustBundle: string }>;
 };
 
 /** Provider exec adapter: the bootstrap record is the command's stdin payload. */
@@ -42,12 +45,29 @@ export function createFlyCredentialProxyGuest(options: {
   return {
     async startProxy(input) {
       const result = await transport.run(["/usr/local/bin/factorize-proxy-startup"], `${JSON.stringify({
+        type: "register-boot",
         controlOrigin: input.controlOrigin,
         bootEpoch: input.bootEpoch,
         credential: input.credential,
       })}\n`);
       if (!result.ok) throw new Error("Credential proxy startup command failed");
       if (result.stdout.trim() !== "Credential proxy started") throw new Error("Credential proxy startup was not confirmed");
+    },
+    async issueVmCertificate(input) {
+      if (!input || !UUID_V4.test(input.bootEpoch) || !/^[A-Za-z0-9:._-]{1,255}$/.test(input.vmIdentity)
+          || typeof input.csr !== "string" || input.csr.length < 100 || input.csr.length > 16_384) throw new TypeError("Invalid VM certificate provisioning request");
+      const result = await transport.run(["/usr/local/bin/factorize-proxy-certify-vm"], `${JSON.stringify(input)}\n`);
+      if (!result.ok) throw new Error("Credential proxy VM certificate provisioning failed");
+      let response: unknown;
+      try { response = JSON.parse(result.stdout); } catch { throw new Error("Credential proxy returned an invalid VM certificate response"); }
+      if (!response || typeof response !== "object" || Array.isArray(response)
+          || Object.keys(response).sort().join(",") !== "bootEpoch,certificate,trustBundle,vmIdentity"
+          || (response as any).bootEpoch !== input.bootEpoch || (response as any).vmIdentity !== input.vmIdentity
+          || typeof (response as any).certificate !== "string" || !(response as any).certificate.startsWith("-----BEGIN CERTIFICATE-----")
+          || typeof (response as any).trustBundle !== "string" || !(response as any).trustBundle.startsWith("-----BEGIN CERTIFICATE-----")) {
+        throw new Error("Credential proxy returned an invalid VM certificate response");
+      }
+      return { certificate: (response as any).certificate, trustBundle: (response as any).trustBundle };
     },
   };
 }
@@ -62,6 +82,7 @@ export type FlyCredentialProxyProvisionerOptions = {
 
 function validate(input: FlyCredentialProxyConfig): void {
   if (!input.tenantId || !input.app || !input.operationId || input.operationId.length > 200) throw new TypeError("Invalid credential proxy provisioning identity");
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(input.app)) throw new TypeError("Invalid credential proxy Fly app name");
   if (!IMAGE_DIGEST.test(input.image)) throw new TypeError("Credential proxy image must be pinned by sha256 digest");
   if (!/^[a-z0-9]{3}$/.test(input.region)) throw new TypeError("Invalid credential proxy region");
   if (!/^[a-z0-9-]{1,64}$/.test(input.size)) throw new TypeError("Invalid credential proxy size");
@@ -89,6 +110,10 @@ export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyP
         region: input.region,
         cmd: ["/usr/local/bin/factorize-credential-proxy", "--boot-epoch", candidateBootEpoch],
         guest: { cpu_kind: "shared", cpus: 1, memory_mb: input.memoryMb ?? 512 },
+        env: {
+          FACTORIZE_PROXY_TUNNEL_SERVER_NAME: `${input.app}.internal`,
+          FACTORIZE_PROXY_TUNNEL_PORT: "9090",
+        },
         metadata: {
           factorize_role: "credential-proxy",
           factorize_tenant_id: input.tenantId,

@@ -23,7 +23,7 @@ function fixture() {
     startMachine: vi.fn(async () => undefined),
     destroyMachine: vi.fn(async () => undefined),
   };
-  const guest = vi.fn(() => ({ startProxy: vi.fn(async () => undefined) }));
+  const guest = vi.fn(() => ({ startProxy: vi.fn(async () => undefined), issueVmCertificate: vi.fn(async () => ({ certificate: "", trustBundle: "" })) }));
   const provisioner = createFlyCredentialProxyProvisioner({ control, machines, guest, newBootEpoch: () => epoch });
   return { control, machines, guest, provisioner };
 }
@@ -37,6 +37,7 @@ describe("Fly credential proxy startup", () => {
       image: input.image,
       region: input.region,
       cmd: ["/usr/local/bin/factorize-credential-proxy", "--boot-epoch", epoch],
+      env: { FACTORIZE_PROXY_TUNNEL_SERVER_NAME: "factorize-proxies.internal", FACTORIZE_PROXY_TUNNEL_PORT: "9090" },
       restart: { policy: "no" },
       auto_start: false,
       metadata: expect.objectContaining({ factorize_role: "credential-proxy", factorize_tenant_id: input.tenantId }),
@@ -57,7 +58,7 @@ describe("Fly credential proxy startup", () => {
 
   it("revokes bootstrap authority and removes a Machine when startup fails", async () => {
     const { control, machines, guest } = fixture();
-    guest.mockReturnValue({ startProxy: vi.fn().mockRejectedValue(new Error("private startup channel failed")) });
+    guest.mockReturnValue({ startProxy: vi.fn().mockRejectedValue(new Error("private startup channel failed")), issueVmCertificate: vi.fn() });
     const provisioner = createFlyCredentialProxyProvisioner({ control, machines, guest, newBootEpoch: () => epoch });
     await expect(provisioner.start(input)).rejects.toThrow("private startup channel failed");
     expect(control.revokeCredential).toHaveBeenCalledWith(input.tenantId, "fly:factorize-proxies:machine-1");
@@ -68,6 +69,7 @@ describe("Fly credential proxy startup", () => {
     const { machines, provisioner } = fixture();
     await expect(provisioner.start({ ...input, image: "ghcr.io/example/proxy:latest" })).rejects.toThrow("pinned by sha256 digest");
     await expect(provisioner.start({ ...input, controlOrigin: "http://factorize.example" })).rejects.toThrow("HTTPS origin");
+    await expect(provisioner.start({ ...input, app: "invalid/app" })).rejects.toThrow("Fly app name");
     expect(machines.createMachine).not.toHaveBeenCalled();
   });
 });
@@ -88,6 +90,29 @@ describe("Fly credential proxy guest adapter", () => {
     const guest = createFlyCredentialProxyGuest({ app: input.app, machine: machine.id, token: "server-token-fixture", spawnProcess });
     await guest.startProxy({ tenantId: input.tenantId, proxyIdentity: "fly:factorize-proxies:machine-1", bootEpoch: epoch, controlOrigin: input.controlOrigin, credential: `fzc_${"c".repeat(43)}` });
     expect(calls[0]?.[1]).toContain("/usr/local/bin/factorize-proxy-startup");
+    expect(String(calls[1]?.[1])).toContain(`"type":"register-boot"`);
     expect(String(calls[1]?.[1])).toContain(`"credential":"fzc_${"c".repeat(43)}"`);
+  });
+
+  it("requests a VM CSR signature through the private guest channel and verifies both bindings", async () => {
+    const calls: unknown[][] = [];
+    const spawnProcess = ((command: string, args: string[], options: { stdio: string[] }) => {
+      calls.push([command, args, options]);
+      const stdoutHandlers: Array<(chunk: Buffer) => void> = [];
+      const child: any = { pid: undefined, stdin: { end: (value: string) => { calls.push(["stdin", value]); } },
+        stdout: { on: (_event: string, callback: (chunk: Buffer) => void) => stdoutHandlers.push(callback) },
+        stderr: { on: () => undefined }, on: (event: string, callback: (code: number) => void) => {
+          if (event === "close") queueMicrotask(() => { stdoutHandlers.forEach(handler => handler(Buffer.from(JSON.stringify({
+            bootEpoch: epoch, vmIdentity: "fly:job-1", certificate: "-----BEGIN CERTIFICATE-----cert", trustBundle: "-----BEGIN CERTIFICATE-----ca",
+          }) + "\n"))); callback(0); });
+        }, kill: () => undefined };
+      return child;
+    }) as any;
+    const guest = createFlyCredentialProxyGuest({ app: input.app, machine: machine.id, token: "server-token-fixture", spawnProcess });
+    await expect(guest.issueVmCertificate({ bootEpoch: epoch, vmIdentity: "fly:job-1", csr: `-----BEGIN CERTIFICATE REQUEST-----\n${"A".repeat(120)}\n-----END CERTIFICATE REQUEST-----` }))
+      .resolves.toEqual({ certificate: "-----BEGIN CERTIFICATE-----cert", trustBundle: "-----BEGIN CERTIFICATE-----ca" });
+    expect(calls[0]?.[1]).toContain("/usr/local/bin/factorize-proxy-certify-vm");
+    expect(String(calls[1]?.[1])).toContain("\"vmIdentity\":\"fly:job-1\"");
+    await expect(guest.issueVmCertificate({ bootEpoch: epoch, vmIdentity: "fly:job-1", csr: "bad" })).rejects.toThrow("Invalid VM certificate provisioning request");
   });
 });

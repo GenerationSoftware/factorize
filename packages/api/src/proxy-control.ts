@@ -9,7 +9,7 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 /** Dedicated service-to-service endpoint. The run API credential is intentionally not accepted here. */
 export async function proxyControlFetch(request: Request, env: Parameters<typeof databaseFor>[0]): Promise<Response> {
   const url = new URL(request.url);
-  if (!["/internal/credential-proxy/register-boot", "/internal/credential-proxy/enroll", "/internal/credential-proxy/consume-enrollment", "/internal/credential-proxy/integration-snapshot"].includes(url.pathname)) return json({ error: "not_found" }, 404);
+  if (!["/internal/credential-proxy/register-boot", "/internal/credential-proxy/enroll", "/internal/credential-proxy/consume-enrollment", "/internal/credential-proxy/integration-snapshot", "/internal/credential-proxy/revocations"].includes(url.pathname)) return json({ error: "not_found" }, 404);
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return json({ error: "unsupported_media_type" }, 415);
   const authorization = request.headers.get("authorization") ?? "";
@@ -41,6 +41,14 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
 
   const proxy = await repository.authenticateProxy(token);
   if (!proxy) return json({ error: "unauthorized" }, 401);
+  if (url.pathname === "/internal/credential-proxy/revocations") {
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "bootEpoch")
+        || typeof (body as any).bootEpoch !== "string" || (body as any).bootEpoch !== proxy.bootEpoch) return json({ error: "invalid_request" }, 400);
+    const revoked = await databaseFor(env).pool.query<{ run_id: string }>(`SELECT run_id FROM app.credential_run_grants
+      WHERE tenant_id=$1 AND proxy_identity=$2 AND boot_epoch=$3 AND revoked_at IS NOT NULL ORDER BY revoked_at,run_id`,
+    [proxy.tenantId, proxy.proxyIdentity, proxy.bootEpoch]);
+    return json({ revokedRunIds: revoked.rows.map(row => row.run_id) });
+  }
   if (url.pathname === "/internal/credential-proxy/integration-snapshot") {
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["runId", "grantRevision"].includes(key))
         || typeof (body as any).runId !== "string" || !Number.isSafeInteger((body as any).grantRevision) || (body as any).grantRevision < 0) return json({ error: "invalid_request" }, 400);
