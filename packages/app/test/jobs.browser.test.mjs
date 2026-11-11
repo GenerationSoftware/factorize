@@ -303,6 +303,23 @@ test("project tabs omit redundant headings while job detail selects project jobs
   assert.equal(await page.getByText("Job", { exact: true }).count(), 1);
   await context.close();
 });
+test("main navigation shows the project switcher only inside a project", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
+  await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  const mainNav = page.getByRole("navigation", { name: "Main navigation" });
+  await page.goto(origin + "/");
+  await mainNav.getByRole("link", { name: "owner" }).waitFor();
+  assert.equal(await mainNav.getByRole("link", { name: "Projects", exact: true }).count(), 0);
+  assert.equal(await mainNav.getByRole("button", { name: "Switch project" }).count(), 0);
+  await page.goto(origin + `/projects/${projectId}`);
+  await mainNav.getByRole("link", { name: "Release project", exact: true }).waitFor();
+  const switcher = mainNav.getByRole("button", { name: "Switch project" });
+  assert.equal(await switcher.count(), 1);
+  await switcher.click();
+  await page.getByRole("option", { name: /Release project/ }).waitFor();
+  await context.close();
+});
 for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) test(`compact jobs grouping, pagination, focus and long titles at ${width} ${theme}`, async () => {
   const { page, context } = await contextFor({ viewport: { width, height: 844 }, colorScheme: theme });
   const longTitle = "Zulu " + "long title ".repeat(30);
