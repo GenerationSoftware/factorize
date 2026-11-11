@@ -81,13 +81,13 @@ describe("dedicated proxy boot registration endpoint", () => {
   });
 
   it("refuses enrollment when the run credential is absent, invalid, cross-tenant, mismatched, or lacks integration scope", async () => {
-    for (const body of [
-      { runId, vmIdentity: "fly:vm-123" },
-      { runId, vmIdentity: "fly:vm-123", runCredential: "fzt_run_invalid" },
-      { runId: "44444444-4444-4444-8444-444444444444", vmIdentity: "fly:vm-123", runCredential },
-    ]) {
+    for (const [body, expectedStatus] of [
+      [{ runId, vmIdentity: "fly:vm-123" }, 400],
+      [{ runId, vmIdentity: "fly:vm-123", runCredential: "fzt_run_invalid" }, 403],
+      [{ runId: "44444444-4444-4444-8444-444444444444", vmIdentity: "fly:vm-123", runCredential }, 403],
+    ] as const) {
       const env = envFor();
-      expect((await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/enroll", body }), env)).status).toBe(403);
+      expect((await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/enroll", body }), env)).status).toBe(expectedStatus);
       expect(env.transactionQuery).not.toHaveBeenCalled();
     }
     const crossTenant = envFor();
