@@ -122,11 +122,11 @@ describe("bounded Fly Machines client", () => {
       if (req.method === "GET") return json(res, 200, machines);
       if (req.method === "POST") {
         createCount++;
-        markCreateReceived();
         let raw = ""; for await (const chunk of req) raw += chunk;
         const body = JSON.parse(raw);
         const machine = { id: "m-created", config: body.config };
         machines.push(machine);
+        markCommitted();
         markCommitted();
         // Commit the resource but leave the response stalled past the client's deadline.
         res.writeHead(200, { "content-type": "application/json" });
