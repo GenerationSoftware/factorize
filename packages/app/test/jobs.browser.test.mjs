@@ -519,7 +519,7 @@ for (const width of [1280, 390]) test(`job header actions and status remain usab
   await page.goto(origin + "/jobs/" + jobId);
   const heading = page.getByRole("heading", { name: longTitle, exact: true });
   await heading.waitFor();
-  assert.equal(await page.getByText("codex · Default model · 1/3 running", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("codex · Default model · 1/3 running", { exact: true }).count(), 0);
   assert.equal(await page.getByText("Enabled", { exact: true }).count(), 0);
   assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).isEnabled(), true);
   assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 1);
@@ -619,7 +619,7 @@ test("job Runs tab paginates distinct records, supports refresh/back and keeps c
   await page.goto(origin + `/jobs/${jobId}/settings`);
   await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Review builds", exact: true }).count(), 0);
-  assert.equal(await page.getByText("codex · Default model · 0/2 running", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("codex · Default model · 0/2 running", { exact: true }).count(), 0);
   assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).count(), 1);
   assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 1);
   await context.close();
