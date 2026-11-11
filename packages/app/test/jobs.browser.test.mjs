@@ -282,7 +282,7 @@ test("project graph keeps opaque webhook resource IDs out of labels and availabl
   await page.getByText(`Linear · ${projectUuid}`, { exact: true }).waitFor();
   await context.close();
 });
-test("project tabs omit redundant headings while job detail keeps its project breadcrumb", async () => {
+test("project tabs omit redundant headings while job detail selects project jobs", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
@@ -297,8 +297,8 @@ test("project tabs omit redundant headings while job detail keeps its project br
   assert.equal(await projectNavigation.getByRole("link", { name: "Jobs", exact: true }).getAttribute("aria-current"), "page");
   await page.goto(origin + `/jobs/${jobId}`);
   await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
-  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
-  assert.deepEqual(await breadcrumb.getByRole("link").allTextContents(), ["Release project"]);
+  assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
+  assert.equal(await page.getByRole("navigation", { name: "Project navigation" }).getByRole("link", { name: "Jobs", exact: true }).getAttribute("aria-current"), "page");
   assert.equal(await page.getByRole("navigation", { name: "Job navigation" }).count(), 0);
   assert.equal(await page.getByText("Job", { exact: true }).count(), 1);
   await context.close();
