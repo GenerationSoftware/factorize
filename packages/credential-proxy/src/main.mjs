@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import { createProxyRuntime } from "./runtime.mjs";
+import { registerProxyBoot } from "./control-client.mjs";
 
 const runtime = createProxyRuntime();
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -37,6 +38,15 @@ lines.on("line", async (line) => {
     } else if (command?.type === "lock") {
       await runtime.lock();
       respond({ type: "status", state: runtime.state });
+    } else if (command?.type === "register-boot") {
+      let credential = command.credential;
+      command.credential = undefined;
+      try {
+        const registration = await registerProxyBoot({ controlOrigin: command.controlOrigin, token: credential, bootEpoch: runtime.bootEpoch });
+        respond({ type: "boot-registered", ...registration });
+      } catch {
+        respond({ type: "error", error: "proxy boot registration failed" });
+      } finally { credential = ""; }
     } else if (command?.type === "stop") stop();
     else respond({ type: "error", error: "unsupported command" });
   } catch {
