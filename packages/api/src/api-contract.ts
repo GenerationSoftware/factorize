@@ -28,6 +28,7 @@ import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
 import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput } from "./skills";
 import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
+import { flyExecutionConfiguration, flyExecutionConfigurationInput } from "./fly-execution-configurations";
 
 type JsonSchema = Record<string, any>;
 export interface RouteContract {
@@ -379,6 +380,23 @@ export const API_ROUTES: RouteContract[] = [
     description: "Owner browser session only. Deletes the tenant's encrypted provisioning token.",
     responses: { "200": { description: "Deletion result", content: { "application/json": { schema: jsonSchema(z.object({ deleted: z.boolean() }), "output") } } } },
   }, service => service.removeFlyConnection(), { ownerSession: true }),
+  route("GET", "/api/v1/fly/execution-configurations", "integrations:read", {
+    summary: "List Fly execution configurations", description: "Returns tenant-owned image, region, and VM size selections without connection credentials.",
+    responses: { "200": { description: "Configurations", content: { "application/json": { schema: jsonSchema(z.object({ configurations: z.array(flyExecutionConfiguration) }), "output") } } } },
+  }, service => service.listFlyExecutionConfigurations(), { ownerSession: true }),
+  route("POST", "/api/v1/fly/execution-configurations", "integrations:write", {
+    summary: "Create a Fly execution configuration", description: "Requires a saved Fly connection and validates region and VM size against bounded provider metadata.",
+    responses: { "200": { description: "Created configuration", content: { "application/json": { schema: jsonSchema(z.object({ configuration: flyExecutionConfiguration }), "output") } } } },
+  }, (service, { body }) => service.saveFlyExecutionConfiguration(body), { body: flyExecutionConfigurationInput, ownerSession: true }),
+  route("GET", "/api/v1/fly/execution-configurations/{id}", "integrations:read", {
+    summary: "Read a Fly execution configuration", responses: { "200": { description: "Configuration", content: { "application/json": { schema: jsonSchema(z.object({ configuration: flyExecutionConfiguration }), "output") } } } },
+  }, (service, { params }) => service.getFlyExecutionConfiguration(params.id!), { ownerSession: true, parameters: z.object({ id: z.uuid() }) }),
+  route("PUT", "/api/v1/fly/execution-configurations/{id}", "integrations:write", {
+    summary: "Update a Fly execution configuration", responses: { "200": { description: "Updated configuration", content: { "application/json": { schema: jsonSchema(z.object({ configuration: flyExecutionConfiguration }), "output") } } } },
+  }, (service, { params, body }) => service.saveFlyExecutionConfiguration(body, params.id), { body: flyExecutionConfigurationInput, ownerSession: true, parameters: z.object({ id: z.uuid() }) }),
+  route("DELETE", "/api/v1/fly/execution-configurations/{id}", "integrations:write", {
+    summary: "Delete a Fly execution configuration", responses: { "200": { description: "Deletion result", content: { "application/json": { schema: jsonSchema(z.object({ id: z.string(), deleted: z.literal(true) }), "output") } } } },
+  }, (service, { params }) => service.removeFlyExecutionConfiguration(params.id!), { ownerSession: true, parameters: z.object({ id: z.uuid() }) }),
   route(
     "PUT",
     "/api/v1/integrations/exe",

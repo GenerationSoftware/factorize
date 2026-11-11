@@ -42,6 +42,8 @@ import { safeDiagnosticText } from "./harness-diagnostics";
 import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput, composePrompt } from "./skills";
 import { createFlyAccountClient, FlyAccountError, flyConnectionInput } from "./fly-account-client";
 import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
+import { FlyExecutionConfigurationRepository } from "./postgres/fly-execution-configuration-repository";
+import { flyExecutionConfigurationInput, getFlyExecutionMetadata, type FlyExecutionMetadataLoader } from "./fly-execution-configurations";
 
 const PROJECT_GRAPH_LABEL_MAX_CHARS = 24;
 
@@ -63,7 +65,7 @@ type Scope = "projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "
 
 export class ApiService {
   authorizationDuration = 0;
-  constructor(private env: Env, private auth: OAuthProps, private ctx?: ExecutionContext) {}
+  constructor(private env: Env, private auth: OAuthProps, private ctx?: ExecutionContext, private flyMetadata: FlyExecutionMetadataLoader = getFlyExecutionMetadata) {}
 
   private jobs() { return new PostgresJobRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
   private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
@@ -187,6 +189,17 @@ export class ApiService {
     } catch (error) { this.throwFlyAccountError(error); }
   }
   async removeFlyConnection() { await this.authorizeOwnerSession("integrations:write"); return { deleted: await this.flyConnections().remove() }; }
+  private flyExecutionConfigs() { return new FlyExecutionConfigurationRepository(databaseFor(this.env), this.auth.tenantId); }
+  async listFlyExecutionConfigurations() { await this.authorizeOwnerSession("integrations:read"); return { configurations: await this.flyExecutionConfigs().list() }; }
+  async getFlyExecutionConfiguration(id: string) { await this.authorizeOwnerSession("integrations:read"); const value = await this.flyExecutionConfigs().get(id); if (!value) throw new ServiceError(404, "not_found", "Fly execution configuration not found"); return { configuration: value }; }
+  async saveFlyExecutionConfiguration(input: unknown, id?: string) {
+    await this.authorizeOwnerSession("integrations:write");
+    if (!await this.flyConnections().get()) throw new ServiceError(409, "fly_connection_required", "Connect a Fly account before saving execution configurations.");
+    const parsed = flyExecutionConfigurationInput.parse(input), metadata = await this.flyMetadata();
+    if (!metadata.regions.includes(parsed.region) || !metadata.sizes.includes(parsed.size)) throw new ServiceError(400, "invalid_fly_configuration", "The selected Fly region or VM size is unavailable.");
+    return { configuration: await this.flyExecutionConfigs().save(parsed, id) };
+  }
+  async removeFlyExecutionConfiguration(id: string) { await this.authorizeOwnerSession("integrations:write"); const deleted = await this.flyExecutionConfigs().remove(id); if (!deleted) throw new ServiceError(404, "not_found", "Fly execution configuration not found"); return { id, deleted: true }; }
   private throwFlyAccountError(error: unknown): never {
     if (error instanceof FlyAccountError) throw new ServiceError(error.kind === "auth" ? 401 : error.kind === "organization" ? 400 : 502, error.kind === "auth" ? "fly_auth_failed" : error.kind === "organization" ? "fly_organization_unavailable" : "fly_validation_failed", error.message);
     throw error;
