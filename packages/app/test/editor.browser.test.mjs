@@ -169,9 +169,9 @@ test("provider editor fetches only the selected provider and submits project/mat
   const savedRequest = page.waitForRequest(request => request.method() === "PUT" && request.url().endsWith(`/api/v1/jobs/${id}`) && request.postDataJSON().triggers[1]?.config.conditions);
   await page.getByLabel("Name", { exact: true }).fill(initial.name);
   const submitted = (await savedRequest).postDataJSON();
-  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
+  await page.getByRole("status").filter({ hasText: "Saving job settings…" }).waitFor(); await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   // Saving assigns trigger IDs and can remount the trigger editor. Open it afterwards.
-  await page.getByText("Test webhook conditions", { exact: true }).click(); await page.getByRole("button", { name: "Test conditions", exact: true }).click(); await page.getByRole("status").filter({ hasText: "Conditions match the example webhook." }).waitFor();
+  await page.getByText("Test webhook conditions", { exact: true }).click(); await page.getByRole("button", { name: "Test conditions", exact: true }).waitFor({ state: "visible" }); await page.getByRole("button", { name: "Test conditions", exact: true }).click(); await page.getByRole("status").filter({ hasText: "Conditions match the example webhook." }).waitFor();
   assert.equal(conditionTests, 1);
   assert.equal(await page.getByText('"decision": "match"', { exact: false }).count(), 0);
   assert.ok(reads.every(path => path.startsWith("/api/v1/providers/linear/"))); assert.deepEqual(submitted.triggers[1].config, { provider: "linear", projectId: "project", matchRules: [{ type: "status", targetId: "done" }], conditions: { all: [{ fact: "webhook", path: "$.issue.id", operator: "equal", value: "i1" }] } }); assert.equal(submitted.triggers[0].id, triggerId); await context.close();

@@ -140,32 +140,33 @@ test("project graph groups every connection with directions, state, selection, a
   } }));
   await page.goto(origin + `/projects/${projectId}`);
   await page.getByRole("button", { name: "Graph", exact: true }).click();
-  const svg = page.getByRole("img", { name: /2 jobs and 5 connections/ });
-  await svg.waitFor();
+  const graph = page.getByRole("region", { name: /2 jobs and 5 connections/ });
+  await graph.waitFor();
   const running = page.getByRole("img", { name: "Status: Running", exact: true });
   await running.waitFor();
   assert.match(await running.locator("[aria-hidden]").getAttribute("class"), /bg-blue-500.*motion-safe:animate-pulse/);
   assert.match(await running.locator("..").textContent(), /running · 2\/4/i);
   await page.getByText("Not running", { exact: true }).waitFor();
-  const badge = page.getByRole("button", { name: "5 connections" });
+  const badge = page.getByRole("button", { name: /5 triggers/ });
   await badge.waitFor();
-  assert.equal(await page.getByRole("button", { name: /connections/ }).count(), 1);
-  assert.equal(await svg.locator("path[marker-start='url(#graph-arrow-start)']").count(), 1);
-  assert.equal(await svg.locator("path[marker-end='url(#graph-arrow)']").count(), 1);
+  assert.equal(await page.getByRole("button", { name: /triggers/ }).count(), 1);
+  assert.equal(await graph.locator(".react-flow__edge").count(), 1);
+  assert.equal(await graph.locator(".react-flow__edge path[marker-start]").count(), 1);
+  assert.equal(await graph.locator(".react-flow__edge path[marker-end]").count(), 1);
   await badge.tap();
   const dropdown = page.getByRole("dialog", { name: "Grouped connections" });
   await dropdown.waitFor();
   const dropdownBox = await dropdown.boundingBox(), viewport = page.viewportSize();
-  assert.ok(dropdownBox.x >= 0 && dropdownBox.y >= 0 && dropdownBox.x + dropdownBox.width <= viewport.width && dropdownBox.y + dropdownBox.height <= viewport.height);
+  assert.ok(dropdownBox.x >= 0 && dropdownBox.y >= 0 && dropdownBox.x + dropdownBox.width <= viewport.width);
   assert.equal(await dropdown.getByRole("button").count(), 5);
   assert.equal(await dropdown.getByRole("button", { name: /Idle/ }).count(), 2);
   assert.equal(await dropdown.getByText("Build → Deploy", { exact: true }).count(), 3);
   assert.equal(await dropdown.getByText("Deploy → Build", { exact: true }).count(), 2);
   assert.equal(await dropdown.getByText("Manual invocation permission · Disabled", { exact: true }).count(), 1);
   assert.equal(await dropdown.getByText("Automatic trigger · Enabled", { exact: true }).count(), 2);
-  const graphTransform = await svg.locator(":scope > g").getAttribute("transform");
+  const graphTransform = await graph.locator(".react-flow__viewport").getAttribute("style");
   await dropdown.getByRole("button", { name: /Failed, Stopped/ }).click();
-  assert.equal(await svg.locator(":scope > g").getAttribute("transform"), graphTransform);
+  assert.equal(await graph.locator(".react-flow__viewport").getAttribute("style"), graphTransform);
   await page.getByRole("button", { name: "Close connection details" }).click();
   await badge.click();
   const idleChoices = dropdown.getByRole("button", { name: /Idle/ });
@@ -187,7 +188,7 @@ test("project graph groups every connection with directions, state, selection, a
   await dropdown.waitFor({ state: "detached" });
   assert.equal(await badge.evaluate(el => el === document.activeElement), true);
   await badge.click();
-  await page.getByRole("button", { name: "Zoom in" }).click();
+  await graph.locator(".react-flow__controls-button").last().click();
   await dropdown.waitFor({ state: "detached" });
   await badge.click();
   await page.getByRole("link", { name: "Deploy, disabled, not running" }).click();
@@ -208,6 +209,44 @@ test("single graph connections keep a readable label and open details", async ()
   await page.getByRole("heading", { name: "Manual", exact: true }).waitFor();
   await page.getByRole("button", { name: "Close connection details" }).click();
   assert.equal(await page.getByRole("heading", { name: "Manual", exact: true }).count(), 0);
+  await context.close();
+});
+test("project graph renders dense cyclic, webhook and self-loop routes and fits their labels", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
+  const ids = [jobId, "00000000-0000-4000-8000-000000000012", "00000000-0000-4000-8000-000000000013", "00000000-0000-4000-8000-000000000014"];
+  const nodes = [
+    { id: ids[0], type: "webhook", label: "Deploy hook", provider: "GitHub", enabled: true },
+    ...ids.slice(1).map((id, index) => ({ id, type: "job", label: ["Build", "Test", "Deploy"][index], jobKind: "Agent", enabled: true, runningCount: 0, concurrencyLimit: 1 })),
+  ];
+  const edges = [
+    { id: "hook", source: ids[0], target: ids[1], label: "push", kind: "webhook", enabled: true },
+    { id: "skip", source: ids[1], target: ids[3], label: "success", kind: "lifecycle", enabled: true },
+    { id: "cycle-a", source: ids[3], target: ids[2], label: "rollback", kind: "lifecycle", enabled: true },
+    { id: "cycle-b", source: ids[2], target: ids[1], label: "retry", kind: "lifecycle", enabled: true },
+    { id: "self", source: ids[2], target: ids[2], label: "repeat", kind: "lifecycle", enabled: true },
+    { id: "branch-a", source: ids[1], target: ids[2], label: "passed", kind: "lifecycle", enabled: true },
+    { id: "branch-b", source: ids[1], target: ids[2], label: "failed", kind: "lifecycle", enabled: true },
+  ];
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  await page.route(`**/api/v1/projects/${projectId}/graph`, route => route.fulfill({ json: { nodes, edges } }));
+  await page.goto(origin + `/projects/${projectId}`);
+  await page.getByRole("button", { name: "Graph", exact: true }).click();
+  const graph = page.getByRole("region", { name: /3 jobs and 7 connections/ });
+  await graph.waitFor();
+  assert.equal(await page.locator(".react-flow__node-webhook").count(), 1);
+  await page.waitForFunction(() => document.querySelectorAll(".react-flow__edge-path").length === 5);
+  assert.equal(await page.locator(".react-flow__edge-path").count(), 5);
+  assert.equal(await page.getByRole("button", { name: /3 triggers/ }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "Fit graph to view" }).count(), 1);
+  await graph.locator(".react-flow__controls-button").first().click();
+  await page.getByRole("button", { name: "Fit graph to view" }).click();
+  const view = await page.locator(".react-flow__viewport").getAttribute("style");
+  assert.match(view, /transform/);
+  await page.waitForTimeout(250);
+  const graphBox = await graph.boundingBox();
+  const labelBoxes = await graph.locator(".react-flow__edgelabel-renderer button").evaluateAll(labels => labels.map(label => { const { x, y, width, height } = label.getBoundingClientRect(); return { x, y, width, height }; }));
+  assert.equal(labelBoxes.length, 5);
+  for (const box of labelBoxes) assert.ok(box.x >= graphBox.x && box.y >= graphBox.y && box.x + box.width <= graphBox.x + graphBox.width && box.y + box.height <= graphBox.y + graphBox.height, "fit view clips an edge label");
   await context.close();
 });
 test("project and job detail pages use the appropriate breadcrumbs", async () => {

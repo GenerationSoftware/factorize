@@ -101,11 +101,15 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       const service = new ApiService(f.env, f.auth);
       const job = await service.createJob({ name: "Editor fixture", slug: "editor-fixture", promptTemplate: "Original", executionConfigId: "local", concurrencyLimit: 1, triggers: [{ kind: "manual", enabled: true, config: {} }] });
       expect(jobResponse.safeParse(job).success).toBe(true);
+      let releaseBrowserWrite!: () => void, browserWriteStarted!: () => void;
+      const browserWriteGate = new Promise<void>(resolve => { releaseBrowserWrite = resolve; });
+      const browserWriteRequest = new Promise<void>(resolve => { browserWriteStarted = resolve; });
       const context = await browser.newContext();
       await context.addCookies([{ name: "factorize_session", value: f.cookie.slice("factorize_session=".length), domain: "factorize.test", path: "/", secure: true, httpOnly: true, sameSite: "Lax" }]);
       await context.route("**/*", async route => {
         const request = route.request(), target = new URL(request.url());
         if (target.pathname.startsWith("/api/v1/")) {
+          if (target.pathname === `/api/v1/jobs/${job.id}` && request.method() === "PUT") { browserWriteStarted(); await browserWriteGate; }
           const response = await worker.fetch(new Request(target.toString(), { method: request.method(), headers: await request.allHeaders(), ...(request.postData() ? { body: request.postData()! } : {}) }), f.env, { waitUntil() {} } as any);
           return route.fulfill({ status: response.status, contentType: "application/json", body: await response.text() });
         }
@@ -118,7 +122,9 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       await page.goto(`https://factorize.test/jobs/${job.id}/edit`);
       await page.waitForURL(`**/jobs/${job.id}/settings`);
       await page.getByLabel("Prompt template", { exact: true }).fill("My edited prompt");
+      await browserWriteRequest;
       await service.updateJob(job.id, { name: "Concurrent name", slug: job.slug, promptTemplate: job.promptTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: 1, triggers: [{ id: job.triggers[0].id, slug: job.triggers[0].slug, kind: "manual", enabled: true, config: {} }], expectedUpdatedAt: job.updatedAt });
+      releaseBrowserWrite();
       await page.getByRole("button", { name: "Reconcile my changes" }).waitFor();
       await page.getByRole("button", { name: "Reconcile my changes" }).click();
       expect(await page.getByLabel("Name", { exact: true }).inputValue()).toBe("Concurrent name");
