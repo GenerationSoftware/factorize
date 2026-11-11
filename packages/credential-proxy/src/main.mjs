@@ -1,8 +1,13 @@
 import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
 import { createProxyRuntime } from "./runtime.mjs";
 import { registerProxyBoot } from "./control-client.mjs";
+import { startProxyBootstrapControl } from "./bootstrap-control.mjs";
 
-const runtime = createProxyRuntime();
+const epochIndex = process.argv.indexOf("--boot-epoch");
+const bootEpoch = epochIndex < 0 ? randomUUID() : process.argv[epochIndex + 1];
+const runtime = createProxyRuntime({ bootEpoch });
+const bootstrapControl = await startProxyBootstrapControl({ runtime, socketPath: process.env.FACTORIZE_PROXY_BOOTSTRAP_SOCKET });
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 let closing = false;
 let shutdownDeadline;
@@ -15,6 +20,7 @@ async function stop() {
   if (closing) return;
   closing = true;
   await runtime.shutdown();
+  await bootstrapControl.close();
   lines.close();
   clearTimeout(shutdownDeadline);
   process.exit(0);
