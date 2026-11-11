@@ -52,3 +52,17 @@ export function validateJobInput(input: JobInput): string | undefined {
   }
   return undefined;
 }
+
+// A save acknowledges its submitted snapshot, not edits made while it was in flight.
+export function applySavedJob(snapshot: JobInput, current: JobInput, saved: JobInput): JobInput {
+  const merged = { ...saved };
+  for (const key of Object.keys(current) as (keyof JobInput)[]) {
+    if (JSON.stringify(current[key]) !== JSON.stringify(snapshot[key])) Object.assign(merged, { [key]: current[key] });
+  }
+  // New triggers acquire server IDs on their first save, even if edited meanwhile.
+  merged.triggers = merged.triggers.map(trigger => {
+    const accepted = saved.triggers.find(value => value.slug === trigger.slug);
+    return !trigger.id && accepted?.id ? { ...trigger, id: accepted.id } : trigger;
+  });
+  return merged;
+}

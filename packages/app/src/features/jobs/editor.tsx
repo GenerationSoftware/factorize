@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { jobQuery } from "./queries";
 import { metadataQuery, targetsQuery } from "./editor-queries";
-import { canonicalizeVmImage, editableJob, emptyJob, reconcile, validateJobInput, writeInput, type Job, type JobInput } from "./editor-state";
+import { canonicalizeVmImage, applySavedJob, editableJob, emptyJob, reconcile, validateJobInput, writeInput, type Job, type JobInput } from "./editor-state";
 import { TemplateField } from "./template-field";
 import { TriggerEditor } from "./trigger-editor";
 import { InvocationPermissionEditor } from "./invocation-permission-editor";
@@ -58,18 +58,29 @@ function EditorForm({ initial }: { initial?: Job }) {
     const { data, error } = await api.GET("/api/v1/jobs/{jobId}", { params: { path: { jobId: initial.id } } });
     if (!data || error) throw new Error(messageOf(error)); return data;
   }, onSuccess: value => { setRemote(value); setReconciling(false); } });
-  const save = useMutation({ retry: false, mutationFn: async () => {
+  const save = useMutation({ retry: false, mutationFn: async (snapshot: JobInput) => {
     if (remote || conflicts.length) throw new Error("Resolve the stale edit before saving.");
     if (!initial && !selectedProjectId) throw new Error("Choose a project before creating the job.");
-    const input = { ...writeInput(draft), ...(selectedProjectId ? { projectId: selectedProjectId } : {}) };
+    const input = { ...writeInput(snapshot), ...(selectedProjectId ? { projectId: selectedProjectId } : {}) };
     const result = initial ? await api.PUT("/api/v1/jobs/{jobId}", { params: { path: { jobId: initial.id } }, body: { ...input, expectedUpdatedAt: revision } }) : await api.POST("/api/v1/jobs", { body: input });
     if (result.error || !result.data) {
       if (result.error?.error.code === "stale_job") { setReconciling(true); refreshConflict.mutate(); }
       throw new Error(validationMessage(result.error));
     }
     return result.data;
-  }, onSuccess: async value => { savingNavigation.current = true; setSaved(true); if (!initial && verificationRef && verificationRef.fingerprint === currentVerificationFingerprint.current) localStorage.setItem(`factorize-vm-image-verification:${value.id}`, JSON.stringify(verificationRef)); setBase(editableJob(value)); setDraft(editableJob(value)); setRevision(value.updatedAt); cache.setQueryData(jobQuery(value.id).queryKey, value); await cache.invalidateQueries({ queryKey: ["jobs"] }); if (!initial) void navigate({ to: "/jobs/$jobId", params: { jobId: value.id } }); else savingNavigation.current = false; } });
-  const autosave = useDebouncedAutosave({ value: draft, enabled: Boolean(initial) && dirty && !invalidForm && !remote && !reconciling && !conflicts.length, validate: validateJobInput, save: async () => { await save.mutateAsync(); } });
+  }, onSuccess: async (value, snapshot) => {
+    savingNavigation.current = !initial;
+    setSaved(true);
+    if (!initial && verificationRef && verificationRef.fingerprint === currentVerificationFingerprint.current) localStorage.setItem(`factorize-vm-image-verification:${value.id}`, JSON.stringify(verificationRef));
+    const accepted = editableJob(value);
+    setBase(accepted);
+    setDraft(current => applySavedJob(snapshot, current, accepted));
+    setRevision(value.updatedAt);
+    cache.setQueryData(jobQuery(value.id).queryKey, value);
+    await cache.invalidateQueries({ queryKey: ["jobs"] });
+    if (!initial) void navigate({ to: "/jobs/$jobId", params: { jobId: value.id } });
+  } });
+  const autosave = useDebouncedAutosave({ value: draft, enabled: Boolean(initial) && dirty && !invalidForm && !remote && !reconciling && !conflicts.length, validate: validateJobInput, save: async snapshot => { await save.mutateAsync(snapshot); } });
   const acceptRemote = () => { if (!remote) return; const value = editableJob(remote); setDraft(value); setBase(value); setRevision(remote.updatedAt); setRemote(undefined); setConflicts([]); save.reset(); };
   const merge = () => { if (!remote) return; const value = editableJob(remote), result = reconcile(base, draft, value); setDraft(result.merged); setConflicts(result.conflicts); setBase(value); setRevision(remote.updatedAt); if (!result.conflicts.length) setRemote(undefined); save.reset(); };
   const resolve = (field: keyof JobInput, local: boolean) => {
@@ -84,7 +95,7 @@ function EditorForm({ initial }: { initial?: Job }) {
       {remote && !conflicts.length && <><pre className="max-h-64 overflow-auto whitespace-pre-wrap">{JSON.stringify(editableJob(remote), null, 2)}</pre><Button onClick={acceptRemote}>Reload latest and discard my changes</Button><Button onClick={() => { setLocalConflictDraft(draft); merge(); }}>Reconcile my changes</Button></>}
       {conflicts.map(field => <fieldset key={field}><legend>Both versions changed {field}</legend><pre className="max-h-40 overflow-auto">Mine: {JSON.stringify(localConflictDraft[field], null, 2)}<br />Latest: {JSON.stringify(base[field], null, 2)}</pre><Button onClick={() => resolve(field, true)}>Keep my {field}</Button><Button onClick={() => resolve(field, false)}>Keep latest {field}</Button></fieldset>)}
     </Card>}
-    <form className="my-4 grid gap-4" onSubmit={e => { e.preventDefault(); save.mutate(); }}>
+    <form className="my-4 grid gap-4" onSubmit={e => { e.preventDefault(); save.mutate(draft); }}>
       <Card><h2>Job details</h2><p className="mb-5 text-sm text-slate-600 dark:text-slate-400">Name this job and set its stable identifier.</p><div className="grid gap-5 sm:grid-cols-2">{!initial && <div><Label>Project <Select required aria-label="Project" value={selectedProjectId ?? ""} onChange={e => update("projectId", e.target.value || undefined)}><option value="">Choose a project</option>{projects.data?.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</Select></Label><Button type="button" className="mt-2" onClick={() => setProjectDialog(true)}>Create new project</Button>{projects.isPending && <p role="status">Loading projects…</p>}{projects.error && <p role="alert">{projects.error.message}</p>}</div>}<Label>Name <Input required maxLength={120} value={draft.name} onChange={e => update("name", e.target.value)} /></Label>
       <Label>Slug <Input required pattern="[a-z][a-z0-9_-]{0,29}" value={draft.slug} onChange={e => update("slug", e.target.value)} /></Label>
       </div></Card><Card><h2>Execution</h2><p className="mb-5 text-sm text-slate-600 dark:text-slate-400">Choose an integration for this job, then configure its VM tags, model, effort, and concurrency.</p><div className="grid gap-5 sm:grid-cols-2"><Label>Execution type <Select value={draft.executionType ?? "agent"} onChange={e => update("executionType", e.target.value as "agent" | "code")}><option value="agent">Agent</option><option value="code">Code script</option></Select></Label><Label>Integration <Select required value={draft.executionConfigId} onChange={e => { update("executionConfigId", e.target.value); update("model", ""); update("effort", ""); }}><option value="">Choose an integration</option>{targets.data?.map(t => <option key={t.id} value={t.id}>{t.name} · {t.agentKind}</option>)}{draft.executionConfigId && !target && <option value={draft.executionConfigId}>Unavailable integration: {draft.executionConfigId}</option>}</Select></Label>

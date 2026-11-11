@@ -148,23 +148,33 @@ test("image verification is explicit, autosave never provisions, and stale verif
   await page.getByLabel("VM tags").selectOption(["github"]);
   await page.getByRole("status").filter({ hasText: "Not verified" }).waitFor(); await context.close();
 });
-test("template insertion escapes values and navigation protects unsaved work", async () => {
-  const { context, page } = await setup(); await page.route(`**/api/v1/jobs/${id}`, route => route.fulfill({ json: initial }));
+test("template insertion escapes values and navigation protects unsaved work", async t => {
+  const { context, page } = await setup(); t.after(() => context.close());
+  // Keep a save in flight so navigation always exercises a genuinely dirty draft.
+  await page.route(`**/api/v1/jobs/${id}`, route => route.request().method() === "GET" ? route.fulfill({ json: initial }) : undefined);
   await page.goto(origin + `/jobs/${id}/edit`); await page.getByText("Insert a prompt template variable", { exact: true }).click(); await page.getByLabel("Prompt template", { exact: true }).focus(); await page.getByLabel("Prompt template", { exact: true }).press("End"); await page.getByRole("button", { name: "trigger-1.prompt", exact: true }).click();
   assert.equal(await page.getByLabel("Prompt template", { exact: true }).inputValue(), "Original prompt{{trigger-1.prompt}}");
-  await page.locator("main").getByRole("link", { name: "Projects", exact: true }).click(); assert.equal(new URL(page.url()).pathname, `/jobs/${id}/settings`, page.url()); await context.close();
+  let blocked = false; page.once("dialog", async dialog => { blocked = true; await dialog.dismiss(); }); await page.locator("main").getByRole("link", { name: "Projects", exact: true }).click(); assert.equal(blocked, true); assert.ok(page.url().includes("/settings")); await context.close();
 });
 test("provider editor fetches only the selected provider and submits project/matching/conditions configuration explicitly", async () => {
   const { context, page } = await setup(); const reads = [], writes = []; let current = structuredClone(initial);
   await page.route(`**/api/v1/jobs/${id}`, route => { if (route.request().method() === "GET") return route.fulfill({ json: current }); const body = route.request().postDataJSON(); writes.push(body); current = { ...current, ...body, triggers: body.triggers.map((trigger, index) => ({ ...trigger, id: trigger.id ?? `00000000-0000-4000-8000-00000000000${index + 4}`, jobId: id, createdAt: initial.createdAt, updatedAt: initial.updatedAt })) }; return route.fulfill({ json: current }); });
   await page.route("**/api/v1/providers/**", route => { reads.push(new URL(route.request().url()).pathname); return route.fulfill({ json: route.request().url().endsWith("/projects") ? [{ id: "project", name: "Release" }] : { statuses: [{ id: "done", name: "Done" }], users: [], labels: [] } }); });
   let conditionTests = 0; await page.route("**/api/v1/job-conditions/test", route => { conditionTests++; return route.fulfill({ json: { decision: "match", details: [] } }); });
-  await page.goto(origin + `/jobs/${id}/edit`); assert.equal(reads.length, 0); await page.getByLabel("New trigger kind").selectOption("webhook"); await page.getByRole("button", { name: "Add trigger" }).click();
+  await page.goto(origin + `/jobs/${id}/edit`); assert.equal(reads.length, 0);
+  // Invalid input suspends autosave while this test assembles the complete configuration.
+  await page.getByLabel("Name", { exact: true }).fill("");
+  await page.getByLabel("New trigger kind").selectOption("webhook"); await page.getByRole("button", { name: "Add trigger" }).click();
   await page.getByLabel("Linear project").selectOption("project"); await page.getByRole("button", { name: "Add matching rule" }).click(); await page.getByLabel("Match value").selectOption("done"); await page.getByLabel("Conditions JSON (optional)").fill('{"all":[{"fact":"webhook","path":"$.issue.id","operator":"equal","value":"i1"}]}');
+  const savedRequest = page.waitForRequest(request => request.method() === "PUT" && request.url().endsWith(`/api/v1/jobs/${id}`) && request.postDataJSON().triggers[1]?.config.conditions);
+  await page.getByLabel("Name", { exact: true }).fill(initial.name);
+  const submitted = (await savedRequest).postDataJSON();
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
-  await page.getByText("Test webhook conditions", { exact: true }).click(); const testButton = page.getByRole("button", { name: "Test conditions", exact: true }); await page.waitForFunction(() => { const button = [...document.querySelectorAll("button")].find(element => element.textContent?.trim() === "Test conditions"); return button && !button.disabled; }); await testButton.click(); await page.getByRole("status").filter({ hasText: "Conditions match the example webhook." }).waitFor(); assert.equal(conditionTests, 1); assert.equal(await page.getByText('"decision": "match"', { exact: false }).count(), 0);
-  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
-  assert.ok(reads.every(path => path.startsWith("/api/v1/providers/linear/"))); assert.deepEqual(writes[0].triggers[1].config, { provider: "linear", projectId: "project", matchRules: [{ type: "status", targetId: "done" }], conditions: { all: [{ fact: "webhook", path: "$.issue.id", operator: "equal", value: "i1" }] } }); assert.equal(writes[0].triggers[0].id, triggerId); await context.close();
+  // Saving assigns trigger IDs and can remount the trigger editor. Open it afterwards.
+  await page.getByText("Test webhook conditions", { exact: true }).click(); await page.getByRole("button", { name: "Test conditions", exact: true }).click(); await page.getByRole("status").filter({ hasText: "Conditions match the example webhook." }).waitFor();
+  assert.equal(conditionTests, 1);
+  assert.equal(await page.getByText('"decision": "match"', { exact: false }).count(), 0);
+  assert.ok(reads.every(path => path.startsWith("/api/v1/providers/linear/"))); assert.deepEqual(submitted.triggers[1].config, { provider: "linear", projectId: "project", matchRules: [{ type: "status", targetId: "done" }], conditions: { all: [{ fact: "webhook", path: "$.issue.id", operator: "equal", value: "i1" }] } }); assert.equal(submitted.triggers[0].id, triggerId); await context.close();
 });
 test("search dialog keeps keyboard focus, escapes results and leaves a draft intact after chunk failure", async () => {
   const { context, page } = await setup();
@@ -282,4 +292,34 @@ test("Settings edits and saves repeatedly, preserves revision, protects dirty ta
   page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "Delete job", exact: true }).click();
   await page.waitForURL("**/jobs?q=*"); assert.equal(deleting, true);
   await context.close();
+});
+
+test("delayed autosave preserves newer edits and saves them with the acknowledged revision", async t => {
+  const { context, page } = await setup(); t.after(() => context.close());
+  let current = structuredClone(initial), releaseFirst;
+  const writes = [];
+  await page.route(`**/api/v1/jobs/${id}`, async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: current });
+    const body = route.request().postDataJSON(); writes.push(body);
+    current = { ...current, ...body, updatedAt: `2026-11-11T00:00:0${writes.length}Z` };
+    const response = structuredClone(current);
+    if (writes.length === 1) await new Promise(resolve => { releaseFirst = resolve; });
+    return route.fulfill({ json: response });
+  });
+  await page.goto(origin + `/jobs/${id}/edit`);
+  const first = page.waitForRequest(request => request.method() === "PUT");
+  await page.getByLabel("Name", { exact: true }).fill("First save");
+  await first;
+  await page.getByLabel("Name", { exact: true }).fill("Newer name");
+  await page.getByLabel("Prompt template", { exact: true }).fill("Newer prompt");
+  const second = page.waitForRequest(request => request.method() === "PUT" && request.postDataJSON().name === "Newer name");
+  releaseFirst();
+  const body = (await second).postDataJSON();
+  assert.equal(body.promptTemplate, "Newer prompt");
+  assert.equal(body.expectedUpdatedAt, "2026-11-11T00:00:01Z");
+  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
+  await page.reload();
+  await page.getByLabel("Name", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), "Newer name");
+  assert.equal(await page.getByLabel("Prompt template", { exact: true }).inputValue(), "Newer prompt");
 });
