@@ -33,4 +33,25 @@ describe("RunRetentionRepository", () => {
     await expect(repository.sweep(new Date(), 501)).rejects.toThrow(RangeError);
     expect(query).not.toHaveBeenCalled();
   });
+
+  it("removes R2 cleanup receipts after deletion and backs failures off", async () => {
+    const now = new Date("2026-11-11T12:00:00.000Z");
+    const bucketDelete = vi.fn().mockRejectedValueOnce(new Error("provider unavailable")).mockResolvedValueOnce(undefined);
+    let claim: { id: string; object_keys: string[]; attempts: number } | undefined = { id: "cleanup", object_keys: ["tenant/run/object"], attempts: 0 };
+    const txQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("SELECT id,object_keys")) { const row = claim; claim = undefined; return { rows: row ? [row] : [], rowCount: row ? 1 : 0 }; }
+      return { rows: [], rowCount: 1 };
+    });
+    const poolQuery = vi.fn(async () => ({ rows: [], rowCount: 1 }));
+    const database = { pool: { query: poolQuery }, transaction: (work: (client: any) => unknown) => work({ query: txQuery }) } as any;
+    const repository = new RunRetentionRepository(database);
+
+    await expect(repository.processArtifactCleanup({ delete: bucketDelete } as any, now)).resolves.toEqual({ attempted: 1, completed: 0, retried: 1 });
+    expect(poolQuery).toHaveBeenCalledWith(expect.stringContaining("last_error=$3"), ["cleanup", new Date(now.getTime() + 60_000), "provider unavailable"]);
+
+    claim = { id: "cleanup", object_keys: ["tenant/run/object"], attempts: 1 };
+    await expect(repository.processArtifactCleanup({ delete: bucketDelete } as any, now)).resolves.toEqual({ attempted: 1, completed: 1, retried: 0 });
+    expect(bucketDelete).toHaveBeenCalledWith(["tenant/run/object"]);
+    expect(poolQuery).toHaveBeenLastCalledWith("DELETE FROM app.run_retention_cleanup WHERE id=$1", ["cleanup"]);
+  });
 });

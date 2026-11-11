@@ -1,6 +1,12 @@
 import { Database } from "./database";
+import { safeDiagnosticText } from "../harness-diagnostics";
 
 export type RetentionSweepResult = { selected: number; deleted: number; cleanupQueued: number };
+export type ArtifactCleanupResult = { attempted: number; completed: number; retried: number };
+
+const CLEANUP_BATCH_SIZE = 20;
+const CLEANUP_LEASE_MS = 10 * 60_000;
+const CLEANUP_MAX_BACKOFF_MS = 6 * 60 * 60_000;
 
 /**
  * Bounded retention deletion. The fixed cutoff is supplied by the caller so a
@@ -10,6 +16,46 @@ export type RetentionSweepResult = { selected: number; deleted: number; cleanupQ
  */
 export class RunRetentionRepository {
   constructor(private readonly database: Database) {}
+
+  /**
+   * Delete retained R2 objects outside the run-deletion transaction. A short
+   * lease prevents concurrent alarms from doing duplicate work; if an alarm
+   * stops after claiming an item, it becomes eligible again when the lease
+   * expires. Successful receipts are removed so the queue stays bounded.
+   */
+  async processArtifactCleanup(bucket: Pick<R2Bucket, "delete"> | undefined, now = new Date()): Promise<ArtifactCleanupResult> {
+    if (!bucket) return { attempted: 0, completed: 0, retried: 0 };
+    let attempted = 0;
+    let completed = 0;
+    let retried = 0;
+    for (let count = 0; count < CLEANUP_BATCH_SIZE; count++) {
+      const item = await this.database.transaction(async client => {
+        const claimed = await client.query<{ id: string; object_keys: string[]; attempts: number }>(`
+          SELECT id,object_keys,attempts FROM app.run_retention_cleanup
+          WHERE completed_at IS NULL AND next_attempt_at <= $1
+          ORDER BY next_attempt_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`, [now]);
+        const row = claimed.rows[0];
+        if (!row) return null;
+        await client.query(`UPDATE app.run_retention_cleanup
+          SET attempts=attempts+1,next_attempt_at=$2 WHERE id=$1`, [row.id, new Date(now.getTime() + CLEANUP_LEASE_MS)]);
+        return { ...row, attempts: row.attempts + 1 };
+      });
+      if (!item) break;
+      attempted++;
+      try {
+        const keys = Array.isArray(item.object_keys) ? item.object_keys : [];
+        if (keys.length) await bucket.delete(keys);
+        await this.database.pool.query("DELETE FROM app.run_retention_cleanup WHERE id=$1", [item.id]);
+        completed++;
+      } catch (error) {
+        const delay = Math.min(CLEANUP_MAX_BACKOFF_MS, 60_000 * 2 ** Math.min(item.attempts - 1, 8));
+        await this.database.pool.query(`UPDATE app.run_retention_cleanup
+          SET next_attempt_at=$2,last_error=$3 WHERE id=$1`, [item.id, new Date(now.getTime() + delay), safeDiagnosticText(error instanceof Error ? error.message : "R2 cleanup failed")]);
+        retried++;
+      }
+    }
+    return { attempted, completed, retried };
+  }
 
   async sweep(cutoff: Date, limit = 50): Promise<RetentionSweepResult> {
     if (!Number.isFinite(cutoff.getTime())) throw new TypeError("Retention cutoff must be a valid date");

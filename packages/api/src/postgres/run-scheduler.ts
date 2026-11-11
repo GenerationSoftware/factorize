@@ -12,6 +12,8 @@ import type { Env } from "../types";
 import { ConnectionRepository } from "./connection-repository";
 import type { Database } from "./database";
 import { RunRepository, type PersistedRun } from "./run-repository";
+import { RunRetentionRepository } from "./run-retention-repository";
+import { runRetentionCutoff } from "./run-retention";
 import { AutomationScheduler } from "./automation-scheduler";
 import { agentDriver, driverTraceSources, type AgentKind } from "../agent-driver";
 import { traceMetric } from "../trace-observability";
@@ -30,6 +32,9 @@ export class RunScheduler {
     await new AutomationScheduler(this.database, this.env).process();
     for (const run of await this.runs.dueForPoll()) await this.poll(run).catch(error => this.fail(run, error, "poll"));
     for (let count = 0; count < 20; count++) { const run = await this.runs.claimNext(); if (!run) break; await this.launch(run).catch(error => this.fail(run, error, "launch")); }
+    const retention = new RunRetentionRepository(this.database);
+    await retention.sweep(runRetentionCutoff(new Date()), 50);
+    await retention.processArtifactCleanup(this.env.RUN_ARTIFACTS);
   }
 
   private connections(run: PersistedRun) { return new ConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
