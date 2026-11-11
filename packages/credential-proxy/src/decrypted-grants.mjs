@@ -1,4 +1,5 @@
 import { webcrypto } from "node:crypto";
+import { readProxyIntegrationSnapshot } from "./control-client.mjs";
 
 const KEY_PREFIX = "fzk1.";
 const KEY_BYTES = 32;
@@ -65,15 +66,21 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
   return async function resolveGrants(binding) {
     if (!binding || typeof binding.tenantId !== "string" || !binding.tenantId
         || (binding.integrationIds !== undefined && !Array.isArray(binding.integrationIds))) throw new TypeError("invalid run integration selection");
-    const integrationIds = binding.integrationIds ?? await resolveIntegrationIds?.(binding);
-    if (!Array.isArray(integrationIds) || integrationIds.some(id => typeof id !== "string" || !id)
-        || new Set(integrationIds).size !== integrationIds.length) throw new TypeError("invalid run integration selection");
-    if (integrationIds.length === 0) return [];
     const snapshot = await readSnapshot(binding);
     if (!snapshot || !Array.isArray(snapshot.records) || typeof snapshot.ownerId !== "string" || !snapshot.ownerId) throw new Error("integration snapshot is unavailable");
+    // Production snapshots are already filtered by the control plane using the
+    // active run's immutable selection and grant revision. Local callers may
+    // still provide IDs explicitly for additional narrowing.
+    const integrationIds = binding.integrationIds ?? await resolveIntegrationIds?.(binding) ?? snapshot.records.map(record => record?.id);
+    if (!Array.isArray(integrationIds) || integrationIds.some(id => typeof id !== "string" || !id)
+        || new Set(integrationIds).size !== integrationIds.length) throw new TypeError("invalid run integration selection");
+    if (integrationIds.length === 0) {
+      if (snapshot.records.length) throw new Error("integration snapshot does not match the run selection");
+      return [];
+    }
     const selected = new Set(integrationIds);
     const records = snapshot.records.filter(record => selected.has(record?.id) && record.kind === "bearer" && record.deletedAt == null);
-    if (records.length !== selected.size) throw new Error("selected integration is unavailable");
+    if (records.length !== selected.size || snapshot.records.length !== records.length) throw new Error("selected integration is unavailable");
     const unlockKey = await getUnlockKey();
     if (typeof unlockKey !== "string" || !unlockKey) throw new Error("proxy is locked");
     const aesKey = await deriveKey(unlockKey);
@@ -95,4 +102,15 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
     }
     return grants;
   };
+}
+
+/** Compose the boot-registered control client, current snapshot reader, and
+ * process-local unlock key into the resolver used by authenticated tunnels. */
+export function createProxyIntegrationGrantResolver({ runtime, controlOrigin, controlCredential, fetchImpl = fetch } = {}) {
+  if (!runtime || typeof runtime.getUnlockKey !== "function") throw new TypeError("proxy runtime does not expose its unlocked key to the grant resolver");
+  if (typeof controlOrigin !== "string" || typeof controlCredential !== "string") throw new TypeError("proxy control registration is required");
+  return createDecryptedGrantResolver({
+    readSnapshot: binding => readProxyIntegrationSnapshot({ controlOrigin, token: controlCredential, binding, fetchImpl }),
+    getUnlockKey: () => runtime.getUnlockKey(),
+  });
 }
