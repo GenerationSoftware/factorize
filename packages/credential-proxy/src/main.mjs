@@ -7,19 +7,33 @@ import { startProxyBootstrapControl } from "./bootstrap-control.mjs";
 const epochIndex = process.argv.indexOf("--boot-epoch");
 const bootEpoch = epochIndex < 0 ? randomUUID() : process.argv[epochIndex + 1];
 const runtime = createProxyRuntime({ bootEpoch });
-const bootstrapControl = await startProxyBootstrapControl({ runtime, socketPath: process.env.FACTORIZE_PROXY_BOOTSTRAP_SOCKET });
+let controlCredential;
+let controlOrigin;
+const bootstrapControl = await startProxyBootstrapControl({
+  runtime,
+  socketPath: process.env.FACTORIZE_PROXY_BOOTSTRAP_SOCKET,
+  onRegistered(registration, request) {
+    controlCredential = registration.controlCredential;
+    controlOrigin = request.controlOrigin;
+  },
+});
 const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
 let closing = false;
 let shutdownDeadline;
-let controlCredential;
 
 function respond(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
+function respondStatus() {
+  respond({ type: "status", state: runtime.state, proxyControlRegistered: Boolean(controlCredential && controlOrigin) });
+}
+
 async function stop() {
   if (closing) return;
   closing = true;
+  controlCredential = undefined;
+  controlOrigin = undefined;
   await runtime.shutdown();
   await bootstrapControl.close();
   lines.close();
@@ -38,19 +52,20 @@ lines.on("line", async (line) => {
   let command;
   try {
     command = JSON.parse(line);
-    if (command?.type === "status") respond({ type: "status", state: runtime.state });
+    if (command?.type === "status") respondStatus();
     else if (command?.type === "unlock") {
       runtime.unlock(command.key);
-      respond({ type: "status", state: runtime.state });
+      respondStatus();
     } else if (command?.type === "lock") {
       await runtime.lock();
-      respond({ type: "status", state: runtime.state });
+      respondStatus();
     } else if (command?.type === "register-boot") {
       let credential = command.credential;
       command.credential = undefined;
       try {
         const registration = await registerProxyBoot({ controlOrigin: command.controlOrigin, token: credential, bootEpoch: runtime.bootEpoch });
         controlCredential = registration.controlCredential;
+        controlOrigin = command.controlOrigin;
         respond({ type: "boot-registered", proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch });
       } catch {
         respond({ type: "error", error: "proxy boot registration failed" });
