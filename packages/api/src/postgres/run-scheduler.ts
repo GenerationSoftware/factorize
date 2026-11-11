@@ -5,7 +5,8 @@ import { artifactKey } from "../artifacts";
 import { ArtifactRepository } from "./artifact-repository";
 import { safeDiagnosticText } from "../harness-diagnostics";
 import { decrypt } from "../crypto";
-import { ExeVmBackend, vmNameFor } from "../exe-vm-backend";
+import { ExeVmBackend } from "../exe-vm-backend";
+import type { ExecutionBackend } from "../execution";
 import type { ExeRunConnection } from "../exe";
 import type { Env } from "../types";
 import { ConnectionRepository } from "./connection-repository";
@@ -18,7 +19,7 @@ import { rolloutTraceSources } from "../trace-source";
 import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./trace-projection-repository";
 import { LiveTraceRepository } from "./live-trace-repository";
 import { JOB_RESULT_INSTRUCTIONS, parseJobResult } from "../job-result";
-import { issueRunCredential, runProxyInstructions, runProxyName } from "../run-credentials";
+import { issueRunCredential, runProxyInstructions } from "../run-credentials";
 
 export class RunScheduler {
   private runs: RunRepository;
@@ -32,9 +33,11 @@ export class RunScheduler {
   }
 
   private connections(run: PersistedRun) { return new ConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
-  private async backend(run: PersistedRun) {
+  private async backend(run: PersistedRun): Promise<ExecutionBackend> {
     const id = String(run.executionConfig.connectionId ?? "");
-    if (run.executionConfig.agentKind === "Amp") { const connection = await this.connections(run).get<AmpConnection>(`amp:${id}`); if (!connection) throw new Error("Amp connection is unavailable"); return new AmpBackend(connection); }
+    const kind = run.executionConfig.backendKind ?? (run.executionConfig.agentKind === "Amp" ? "amp" : "exe-vm");
+    if (kind === "amp") { const connection = await this.connections(run).get<AmpConnection>(`amp:${id}`); if (!connection) throw new Error("Amp connection is unavailable"); return new AmpBackend(connection); }
+    if (kind !== "exe-vm") throw new Error(`Unsupported execution backend: ${String(kind)}`);
     const connection = await this.connections(run).get<ExeRunConnection>(`exe:${id}`); if (!connection) throw new Error("exe.dev connection is unavailable");
     return new ExeVmBackend({ ...connection, tags: Array.isArray(run.executionConfig.tags) ? run.executionConfig.tags : [], image: typeof run.executionConfig.image === "string" ? run.executionConfig.image : undefined, model: String(run.executionConfig.model ?? ""), effort: String(run.executionConfig.effort ?? "") });
   }
@@ -45,20 +48,22 @@ export class RunScheduler {
       const backend = await this.backend(run), context = run.executionConfig.inputContext;
       if (!context || typeof context !== "object" || Array.isArray(context)) throw new Error("The code job input context snapshot is missing");
       const runToken = await issueRunCredential(this.env, run.tenantId, run.id, run.executionConfig.runScopes);
-      await this.runs.recordLaunchHandle(run, { backendKind: backend.kind, id: vmNameFor(run.id), runProxyName: runProxyName(run.id) });
-      const launched = await backend.launch({ runId: run.id, prompt: "", runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, code: { script: run.executionConfig.script, context } });
+      const reservation = backend.reserve?.(run.id) ?? null;
+      if (reservation) await this.runs.recordLaunchHandle(run, reservation);
+      const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: "", runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, code: { script: run.executionConfig.script, context } });
       await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities);
       if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
       return;
     }
     if (run.executionConfig.agentKind === "Amp") throw new Error("Amp execution is unavailable for new runs because it cannot deliver the required structured result file. Choose an exe.dev agent integration.");
-    const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, { model: run.executionConfig.model, effort: run.executionConfig.effort });
+    const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, { model: run.executionConfig.model, effort: run.executionConfig.effort, ...(driver.kind === "codex" ? { codexModel: { baseUrl: this.env.CODEX_MODEL_BASE_URL ?? "https://llm.int.exe.xyz/v1" } } : {}) });
     const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
     validateTraceSources(sources);
     const runToken = await issueRunCredential(this.env, run.tenantId, run.id, run.executionConfig.runScopes);
     const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    await this.runs.recordLaunchHandle(run, { backendKind: backend.kind, id: vmNameFor(run.id), runProxyName: runProxyName(run.id) });
-    const launched = await backend.launch({ runId: run.id, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runProxyInstructions(run.id)}`, runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
+    const reservation = backend.reserve?.(run.id) ?? null;
+    if (reservation) await this.runs.recordLaunchHandle(run, reservation);
+    const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runProxyInstructions(run.id)}`, runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
     if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
   }

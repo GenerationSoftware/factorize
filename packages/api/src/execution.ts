@@ -13,6 +13,8 @@ export interface BackendCommandResult {
 
 export interface LaunchRequest {
   runId: string;
+  /** Backend-owned provisional handle, persisted before provisioning when supported. */
+  reservation?: RunHandle;
   prompt: string;
   /** Control-plane only: provisioned into an exe.dev proxy, never the guest. */
   runProxy?: { targetOrigin: string; credential: string };
@@ -54,6 +56,8 @@ export interface ArtifactCollectionReceipt { ok: boolean; detail?: string; comma
 export interface ExecutionBackend {
   readonly kind: string;
   readonly capabilities: readonly ExecutionCapability[];
+  /** Reserve a cleanup handle before provisioning, or return null when the provider allocates one during launch. */
+  reserve?(runId: string): RunHandle | null;
   launch(request: LaunchRequest): Promise<LaunchReceipt>;
   inspect(handle: RunHandle): Promise<ExecutionObservation>;
   stop(handle: RunHandle): Promise<ExecutionObservation>;
