@@ -80,14 +80,22 @@ describe("bounded Fly Machines client", () => {
 
   it("bounds a stalled response body and reports a secret-safe timeout", async () => {
     let count = 0;
+    let markRequestReceived!: () => void;
+    const requestReceived = new Promise<void>(resolve => { markRequestReceived = resolve; });
     const origin = await fakeFly((_req, res) => {
       count++;
+      markRequestReceived();
       res.writeHead(200, { "content-type": "application/json" });
       res.flushHeaders();
       // Deliberately leave the body open until the client deadline aborts it.
     });
-    const client = createFlyMachinesClient({ token, apiOrigin: origin, timeoutMs: 30, maxRetries: 0 });
-    await expect(client.inspectMachine("app", "machine")).rejects.toMatchObject({ kind: "timeout" });
+    const client = createFlyMachinesClient({ token, apiOrigin: origin, timeoutMs: 1_000, maxRetries: 0 });
+    const inspection = client.inspectMachine("app", "machine");
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([requestReceived, new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error("Fake Fly server did not receive the bounded request")), 5_000); })]);
+    } finally { if (deadline) clearTimeout(deadline); }
+    await expect(inspection).rejects.toMatchObject({ kind: "timeout" });
     expect(count).toBe(1);
   });
 
