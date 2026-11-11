@@ -21,7 +21,7 @@ const lanes = {
   ],
   proxy: [
     ["portable proxy harness checks", process.execPath, ["--test", "scripts/validation-runner.test.mjs"], 30_000],
-    ["credential proxy process checks", process.execPath, ["--test", "packages/credential-proxy/test/runtime-process.test.mjs"], 30_000],
+    ["credential proxy checks", process.execPath, ["--test", "packages/credential-proxy/test/*.test.mjs"], 30_000],
   ],
 };
 
