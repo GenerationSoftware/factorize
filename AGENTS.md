@@ -11,10 +11,12 @@ check` is an alias for the same suite. Targeted workspace commands remain
 available for iteration, but do not replace the root suite before handoff.
 
 For a fresh local VM, install PostgreSQL and Chromium as needed, then run
-`npm run bootstrap:test`. It creates an isolated local database, applies
-migrations, and prints the variables to export before `npm test`. Never point
-validation at production or a shared database. A missing database, Node
-version, or Chromium prerequisite is a hard failure with a recovery command.
+`npm run test:local` to create an isolated local database, apply migrations,
+and run the complete root suite with the required database variables. To
+prepare the database without running tests, use `npm run bootstrap:test`; it
+prints the variables to export before `npm test`. Never point validation at
+production or a shared database. A missing database, Node version, or Chromium
+prerequisite is a hard failure with a recovery command.
 
 ## API architecture
 

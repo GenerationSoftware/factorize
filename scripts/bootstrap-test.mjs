@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import process from "node:process";
 
 const exec = promisify(execFile);
+const runTests = process.argv.includes("--test");
 const databaseUrl = process.env.VALIDATION_DATABASE_URL ?? "postgresql://postgres:local-validation-only@localhost:5432/factorize_validation";
 const adminUrl = process.env.VALIDATION_DATABASE_ADMIN_URL ?? "postgresql://postgres:local-validation-only@localhost:5432/postgres";
 const url = new URL(databaseUrl);
@@ -18,7 +19,11 @@ await exec("psql", [admin.href, "-v", "ON_ERROR_STOP=1", "-c", `CREATE DATABASE 
 const env = { ...process.env, DATABASE_URL: databaseUrl, AUTH_TEST_DATABASE_URL: databaseUrl, QUEUE_TEST_DATABASE_URL: databaseUrl };
 await exec("npm", ["run", "db:migrate", "--workspace=factorize"], { env, stdio: "inherit" });
 console.log(`Isolated validation database ready: ${databaseUrl.replace(/:[^:@/]+@/, ":***@")}`);
+if (runTests) {
+  await exec("npm", ["test"], { env, stdio: "inherit" });
+} else {
 console.log(`export DATABASE_URL=${JSON.stringify(databaseUrl)}`);
 console.log(`export AUTH_TEST_DATABASE_URL=${JSON.stringify(databaseUrl)}`);
 console.log(`export QUEUE_TEST_DATABASE_URL=${JSON.stringify(databaseUrl)}`);
 console.log("Then run: npm test");
+}
