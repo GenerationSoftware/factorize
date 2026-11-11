@@ -3,6 +3,8 @@ import { proxyControlFetch } from "../src/proxy-control";
 
 const token = `fzc_${"A".repeat(43)}`;
 const bootEpoch = "22222222-2222-4222-8222-222222222222";
+const runId = "33333333-3333-4333-8333-333333333333";
+const runCredential = `fzt_run_${Buffer.from(runId).toString("base64url")}_${"R".repeat(43)}`;
 
 function envFor({ credentialFound = true, stateSaved = true } = {}) {
   const transactionQuery = vi.fn(async (sql: string) => {
@@ -12,7 +14,9 @@ function envFor({ credentialFound = true, stateSaved = true } = {}) {
   });
   const query = vi.fn(async (sql: string) => sql.includes("proxy_token_digest")
     ? { rows: credentialFound ? [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }] : [], rowCount: credentialFound ? 1 : 0 }
-    : { rows: [], rowCount: 0 });
+    : sql.includes("FROM app.run_credentials")
+      ? { rows: credentialFound ? [{ tenant_id: "11111111-1111-4111-8111-111111111111", user_id: "owner-fixture", session_version: 1, job_id: "job-fixture", scopes: ["integrations:read"] }] : [], rowCount: credentialFound ? 1 : 0 }
+      : { rows: [], rowCount: 0 });
   return { DATABASE: { pool: { query }, transaction: (work: (client: any) => Promise<unknown>) => work({ query: transactionQuery }) }, transactionQuery, query } as any;
 }
 
@@ -67,12 +71,38 @@ describe("dedicated proxy boot registration endpoint", () => {
     const response = await proxyControlFetch(request({
       authorization: `Bearer ${token}`,
       path: "/internal/credential-proxy/enroll",
-      body: { runId: "33333333-3333-4333-8333-333333333333", vmIdentity: "fly:vm-123" },
+      body: { runId, vmIdentity: "fly:vm-123", runCredential },
     }), env);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ grantRevision: 3, enrollmentId: expect.any(String), token: expect.any(String) });
     expect(env.query).toHaveBeenCalled();
+    expect(env.query.mock.calls.some((call: any[]) => call[0].includes("FROM app.run_credentials"))).toBe(true);
     expect(env.transactionQuery.mock.calls[0][0]).toContain("JOIN app.credential_proxy_states");
+  });
+
+  it("refuses enrollment when the run credential is absent, invalid, cross-tenant, mismatched, or lacks integration scope", async () => {
+    for (const body of [
+      { runId, vmIdentity: "fly:vm-123" },
+      { runId, vmIdentity: "fly:vm-123", runCredential: "fzt_run_invalid" },
+      { runId: "44444444-4444-4444-8444-444444444444", vmIdentity: "fly:vm-123", runCredential },
+    ]) {
+      const env = envFor();
+      expect((await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/enroll", body }), env)).status).toBe(403);
+      expect(env.transactionQuery).not.toHaveBeenCalled();
+    }
+    const crossTenant = envFor();
+    crossTenant.query.mockImplementation(async (sql: string) => sql.includes("proxy_token_digest")
+      ? { rows: [{ tenant_id: "other-tenant", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }], rowCount: 1 }
+      : { rows: [], rowCount: 0 });
+    expect((await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/enroll", body: { runId, vmIdentity: "fly:vm-123", runCredential } }), crossTenant)).status).toBe(403);
+    const noScope = envFor();
+    noScope.query.mockImplementation(async (sql: string) => sql.includes("proxy_token_digest")
+      ? { rows: [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }], rowCount: 1 }
+      : sql.includes("FROM app.run_credentials")
+        ? { rows: [{ tenant_id: "11111111-1111-4111-8111-111111111111", user_id: "owner-fixture", session_version: 1, job_id: "job-fixture", scopes: ["runs:read"] }], rowCount: 1 }
+        : { rows: [], rowCount: 0 });
+    expect((await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/enroll", body: { runId, vmIdentity: "fly:vm-123", runCredential } }), noScope)).status).toBe(403);
+    expect(noScope.transactionQuery).not.toHaveBeenCalled();
   });
 
   it("consumes enrollment against the authenticated proxy boot and rejects untrusted extra bindings", async () => {

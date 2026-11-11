@@ -67,11 +67,11 @@ export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCrede
   if (typeof resolveGrants !== "function") throw new TypeError("proxy enrollment requires a local grant resolver");
   validateOrigin(controlOrigin);
   let credential = controlCredential;
-  return async function authenticateRun({ runId, vmIdentity, bootEpoch: requestedBootEpoch }) {
+  return async function authenticateRun({ runId, vmIdentity, runCredential, bootEpoch: requestedBootEpoch }) {
     if (!uuidPattern.test(runId ?? "") || typeof vmIdentity !== "string" || !vmIdentity.trim() || vmIdentity.length > 255
-        || requestedBootEpoch !== bootEpoch) throw new Error("invalid proxy enrollment identity");
+        || !/^fzt_run_[A-Za-z0-9_-]{43,200}$/.test(runCredential ?? "") || requestedBootEpoch !== bootEpoch) throw new Error("invalid proxy enrollment identity");
     const options = { controlOrigin, token: credential, fetchImpl };
-    const requested = { runId, vmIdentity };
+    const requested = { runId, vmIdentity, runCredential };
     const enrollment = await issueProxyEnrollment({ ...options, body: requested });
     const binding = await consumeProxyEnrollment({ ...options, body: { ...requested, enrollmentToken: enrollment.token } });
     if (binding.runId !== runId || binding.vmIdentity !== vmIdentity || binding.bootEpoch !== bootEpoch
