@@ -96,6 +96,13 @@ export const runs = app.table("runs", {
 export const runArtifacts = app.table("run_artifacts", {
   tenantId: uuid("tenant_id").notNull(), runId: uuid("run_id").notNull(), id: uuid("id").notNull(), kind: text("kind").$type<ArtifactKind>().notNull(), objectKey: text("object_key").notNull(), provider: text("provider").notNull(), format: text("format").notNull(), formatVersion: text("format_version"), cliVersion: text("cli_version"), nativeSessionId: text("native_session_id"), sourceGeneration: text("source_generation"), sourcePath: text("source_path"), mediaType: text("media_type"), harnessVersion: text("harness_version"), byteSize: bigint("byte_size", { mode: "number" }).notNull(), sha256: text("sha256").notNull(), state: text("state").$type<ArtifactState>().notNull(), createdAt: createdAt(),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.objectKey), foreignKey({ columns: [t.tenantId, t.runId], foreignColumns: [runs.tenantId, runs.id] }).onDelete("cascade"), index("run_artifacts_by_run").on(t.tenantId, t.runId, t.createdAt, t.id)]);
+/** External cleanup ownership intentionally has no FK to a run, job, or tenant. */
+export const runRetentionCleanup = app.table("run_retention_cleanup", {
+  id: uuid("id").primaryKey(), tenantId: uuid("tenant_id").notNull(), runId: uuid("run_id").notNull(),
+  objectKeys: jsonb("object_keys").$type<string[]>().notNull().default([]), executionBackendKind: text("execution_backend_kind"), executionHandle: jsonb("execution_handle").$type<Record<string, unknown>>(),
+  attempts: integer("attempts").notNull().default(0), nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }), lastError: text("last_error"), createdAt: createdAt(),
+}, t => [index("run_retention_cleanup_due").on(t.nextAttemptAt, t.id).where(sql`${t.completedAt} IS NULL`)]);
 export const runTraceEvents = app.table("run_trace_events", {
   tenantId: uuid("tenant_id").notNull(), runId: uuid("run_id").notNull(), sequence: bigint("sequence", { mode: "number" }).notNull(), id: text("id").notNull(), parentId: text("parent_id"), eventType: text("event_type").notNull(), role: text("role"), title: text("title").notNull(), previewText: text("preview_text").notNull(), displayData: jsonb("display_data").$type<Record<string, unknown>>().notNull().default({}), occurredAt: timestamp("occurred_at", { withTimezone: true }), createdAt: createdAt(), searchVector: tsvector("search_vector").generatedAlwaysAs(sql`to_tsvector('english', title || ' ' || preview_text)`),
 }, t => [primaryKey({ columns: [t.tenantId, t.runId, t.sequence] }), foreignKey({ columns: [t.tenantId, t.runId], foreignColumns: [runs.tenantId, runs.id] }).onDelete("cascade"), index("run_trace_events_search").using("gin", t.searchVector), index("run_trace_events_by_type").on(t.tenantId, t.runId, t.eventType, t.sequence)]);
@@ -155,7 +162,7 @@ export const runRelations = relations(runs, ({ one, many }) => ({
 
 export const databaseSchema = {
   schemaMigrations, tenants, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
-  connections, integrationCollections, integrationRecords, integrationChanges, credentialProxyStates, credentialRunGrants, credentialRunEnrollments, linearWorkspaces, githubInstallations, githubSetupStates, projects, jobs, vmImageVerifications, skills, jobSkills, triggers, webhookConditionsCutover, invocations, manualInvocationPermissions, jobRuns, runCredentials, runs, runArtifacts,
+  connections, integrationCollections, integrationRecords, integrationChanges, credentialProxyStates, credentialRunGrants, credentialRunEnrollments, linearWorkspaces, githubInstallations, githubSetupStates, projects, jobs, vmImageVerifications, skills, jobSkills, triggers, webhookConditionsCutover, invocations, manualInvocationPermissions, jobRuns, runCredentials, runs, runArtifacts, runRetentionCleanup,
   runTraceEvents, runActivity, activeClaims, scheduleState, automaticWakes, lifecycleDeliveries, lifecycleEvents, jobEditDeliveries, jobEvents,
   webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints, runTraceCursors, runTraceChunks,
   runTraceProjections, traceReplayLimits, traceReplayOperations,
