@@ -1,6 +1,7 @@
 import { connect as connectTls, createServer as createTlsServer } from "node:tls";
 import { connect as connectTcp, createServer as createTcpServer } from "node:net";
 import { once } from "node:events";
+import { createProxyEnrollmentAuthenticator } from "./control-client.mjs";
 
 const HANDSHAKE_LIMIT = 4096;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -99,6 +100,24 @@ export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnro
       await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     },
   };
+}
+
+/** Start the proxy's production-shaped mTLS listener using its boot-registered
+ * control credential and process-local decrypted integration grants. */
+export async function startAuthenticatedProxyTunnel({
+  tls, runtime, controlOrigin, controlCredential, resolveGrants, fetchImpl = fetch, host = "127.0.0.1", port = 0,
+} = {}) {
+  const authenticateRun = createProxyEnrollmentAuthenticator({
+    controlOrigin, controlCredential, bootEpoch: runtime?.bootEpoch, resolveGrants, fetchImpl,
+  });
+  const tunnel = createAuthenticatedTunnelServer({ tls, runtime, authenticateRun, host, port });
+  try {
+    await tunnel.listening;
+    return tunnel;
+  } catch (error) {
+    await tunnel.close().catch(() => {});
+    throw error;
+  }
 }
 
 /** Start a loopback-only HTTP tunnel helper. Each accepted stream gets fresh enrollment. */
