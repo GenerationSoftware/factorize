@@ -6,8 +6,8 @@ import { registerProxyBoot } from "./control-client.mjs";
 const MAX_BOOTSTRAP_BYTES = 4096;
 
 /** Local-only receiver for a provider exec channel; credentials never enter env or files. */
-export async function startProxyBootstrapControl({ runtime, socketPath = "/run/factorize-proxy/bootstrap.sock", register = registerProxyBoot } = {}) {
-  if (!runtime || typeof register !== "function") throw new TypeError("proxy bootstrap control requires a runtime and registrar");
+export async function startProxyBootstrapControl({ runtime, socketPath = "/run/factorize-proxy/bootstrap.sock", register = registerProxyBoot, onRegistered = () => {} } = {}) {
+  if (!runtime || typeof register !== "function" || typeof onRegistered !== "function") throw new TypeError("proxy bootstrap control requires a runtime, registrar, and registration callback");
   await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 });
   await chmod(dirname(socketPath), 0o700);
   await rm(socketPath, { force: true });
@@ -43,6 +43,9 @@ export async function startProxyBootstrapControl({ runtime, socketPath = "/run/f
       let credential = request.credential;
       try {
         const registration = await register({ controlOrigin: request.controlOrigin, token: credential, bootEpoch: runtime.bootEpoch });
+        // Keep the exchanged proxy credential inside the proxy process. The
+        // one-shot startup command receives only the public registration result.
+        await onRegistered(registration, { controlOrigin: request.controlOrigin, bootEpoch: runtime.bootEpoch });
         finish({ registered: true, proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch });
       } catch {
         finish({ error: "proxy boot registration failed" });

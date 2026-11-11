@@ -17,11 +17,11 @@ afterEach(async () => {
   directory = undefined;
 });
 
-async function fixture(register) {
+async function fixture(register, onRegistered) {
   directory = await mkdtemp(join(tmpdir(), "factorize-proxy-startup-"));
   const socketPath = join(directory, "control.sock");
   const runtime = { bootEpoch: epoch };
-  service = await startProxyBootstrapControl({ runtime, socketPath, register });
+  service = await startProxyBootstrapControl({ runtime, socketPath, register, onRegistered });
   return socketPath;
 }
 
@@ -37,10 +37,19 @@ async function request(socketPath, payload) {
 
 test("local startup control redeems the one-use credential and leaves a private socket", async () => {
   const calls = [];
-  const socketPath = await fixture(async value => { calls.push(value); return { proxyIdentity: "fly:app:machine", bootEpoch: epoch }; });
+  const registered = [];
+  const socketPath = await fixture(
+    async value => { calls.push(value); return { proxyIdentity: "fly:app:machine", bootEpoch: epoch, controlCredential: token }; },
+    (value, request) => registered.push({ value, request }),
+  );
   const result = await request(socketPath, { controlOrigin: "https://factorize.example", bootEpoch: epoch, credential: token });
   assert.deepEqual(result, { registered: true, proxyIdentity: "fly:app:machine", bootEpoch: epoch });
   assert.deepEqual(calls, [{ controlOrigin: "https://factorize.example", token, bootEpoch: epoch }]);
+  assert.deepEqual(registered, [{
+    value: { proxyIdentity: "fly:app:machine", bootEpoch: epoch, controlCredential: token },
+    request: { controlOrigin: "https://factorize.example", bootEpoch: epoch },
+  }]);
+  assert.equal(JSON.stringify(result).includes(token), false, "startup response never returns the proxy control credential");
   assert.equal((await stat(socketPath)).mode & 0o777, 0o600);
 });
 
