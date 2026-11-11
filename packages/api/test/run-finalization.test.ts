@@ -21,6 +21,7 @@ function fixture(exit = 42) {
     events.push("observation"); saved ??= terminalDiagnostics(observation); return saved;
   });
   const terminal = vi.spyOn(RunRepository.prototype, "terminal").mockResolvedValue();
+  vi.spyOn(RunRepository.prototype, "recordFailureOutcome").mockImplementation(async (_run, failure) => { run.failureCode = failure.code; run.failureReason = failure.reason; });
   const retry = vi.spyOn(RunRepository.prototype, "retryFinalization").mockImplementation(async () => { run.finalizationAttempt++; });
   const schedule = vi.spyOn(RunRepository.prototype, "schedulePoll").mockResolvedValue();
   vi.spyOn(ArtifactRepository.prototype, "list").mockImplementation(async () => artifacts);
@@ -41,7 +42,7 @@ describe("durable run finalization", () => {
     expect(f.scheduler.sources(f.run).primary).toMatchObject({ kind: "native_session", provider: "claude", discoverCommand: expect.stringContaining(".claude/projects") });
     await f.scheduler.poll(f.run);
     expect(f.native).toHaveBeenCalledOnce();
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "stored", undefined, true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "stored", undefined, true, undefined);
   });
   it("stores real nonzero harness stderr and exit metadata before deleting the VM", async () => {
     const f = fixture();
@@ -50,14 +51,14 @@ describe("durable run finalization", () => {
     expect([...f.blobs.values()]).toEqual(["recognizable harness error\n"]);
     expect(f.artifacts.find(a => a.kind === "terminal_log")).toMatchObject({ objectKey: "tenants/tenant/runs/run/harness/stderr.txt", format: "text", byteSize: 27, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
     expect(f.events).toEqual(["observation", "log", "native", "cleanup"]);
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", undefined, true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", undefined, true, expect.objectContaining({ source: "run", code: "process_exit" }));
   });
   it("keeps successful native sessions and normal cleanup", async () => {
     const f = fixture(0);
     await f.scheduler.poll(f.run);
     expect(f.native).toHaveBeenCalledOnce();
     expect(f.stop).toHaveBeenCalledOnce();
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "stored", undefined, true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "stored", undefined, true, undefined);
   });
   it("requires and persists a valid structured result before marking a new run succeeded", async () => {
     const f = fixture(0); f.run.resultProtocolVersion = 1;
@@ -67,7 +68,7 @@ describe("durable run finalization", () => {
     f.terminal.mockImplementation(async () => { expect(f.events.indexOf("result")).toBeLessThan(f.events.indexOf("cleanup")); });
     await f.scheduler.poll(f.run);
     expect(saved).toHaveBeenCalledWith(f.run, { status: "succeeded", summary: "ready", outputs: { count: 3 } });
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "stored", undefined, true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "stored", undefined, true, undefined);
   });
   it("retains regular job files before VM cleanup", async () => {
     const f = fixture(0); f.run.resultProtocolVersion = 1;
@@ -90,7 +91,7 @@ describe("durable run finalization", () => {
     vi.spyOn(f.backend, "listJobFiles").mockResolvedValue([]);
     vi.spyOn(RunRepository.prototype, "recordJobResult").mockResolvedValue();
     await f.scheduler.poll(f.run);
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", expect.stringContaining(reason), true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", undefined, true, expect.objectContaining({ source: "run", reason: expect.stringContaining(reason) }));
   });
   it.each(["native", "put"] as const)("bounds %s upload retries without replacing the primary failure", async target => {
     const f = fixture();
@@ -103,7 +104,7 @@ describe("durable run finalization", () => {
     expect(f.saved()).toEqual(first);
     expect(f.retry).toHaveBeenCalledTimes(2);
     expect(f.stop).toHaveBeenCalledOnce();
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "partial", expect.stringContaining(target === "put" ? "Harness" : "Native"), true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "partial", expect.stringContaining(target === "put" ? "Harness" : "Native"), true, expect.objectContaining({ source: "run", code: "process_exit" }));
     expect(JSON.stringify(f.terminal.mock.calls)).not.toContain("sensitive");
   });
   it("retries cleanup using the original observation even if inspection later reports missing", async () => {
@@ -117,16 +118,16 @@ describe("durable run finalization", () => {
     expect(f.saved()).toEqual(first);
     expect(f.put).toHaveBeenCalledOnce();
     expect(f.native).toHaveBeenCalledOnce();
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", undefined, true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", undefined, true, expect.objectContaining({ source: "run", code: "process_exit" }));
   });
   it("persists missing supervisor as the original cause even if artifact collection also fails", async () => {
     const f = fixture();
-    vi.spyOn(f.backend, "inspect").mockResolvedValue({ state: "failed", detail: "The run supervisor disappeared before recording a result." });
+    vi.spyOn(f.backend, "inspect").mockResolvedValue({ state: "failed", detail: "The run supervisor disappeared before recording a result.", failure: { source: "system", code: "supervisor_disappeared", reason: "The run supervisor disappeared before recording a result." } });
     f.native.mockRejectedValue(new Error("missing session"));
     f.run.finalizationAttempt = 2;
     await f.scheduler.poll(f.run);
     expect(f.saved()?.detail).toContain("supervisor disappeared");
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "partial", expect.any(String), true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "partial", expect.any(String), true, expect.objectContaining({ source: "system", code: "supervisor_disappeared" }));
   });
   it("does not finalize or delete on a temporary inspection failure", async () => {
     const f = fixture();
@@ -147,7 +148,7 @@ describe("durable run finalization", () => {
     await f.scheduler.poll(f.run);
     expect(f.events).toEqual(["observation", "log", "stream", "cleanup"]);
     expect((f.native.mock.calls as any)[0].slice(2)).toEqual([source, true]);
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", undefined, true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "failed", "stored", undefined, true, expect.objectContaining({ source: "run", code: "process_exit" }));
   });
 
   it.each(["succeeded", "failed", "stopped"])("retains the canonical source for %s before cleanup", async state => {
@@ -160,7 +161,7 @@ describe("durable run finalization", () => {
     await f.scheduler.poll(f.run);
     expect(f.native).toHaveBeenCalledOnce();
     expect(f.native.mock.calls[0].slice(2)).toEqual([source, true]);
-    expect(f.terminal).toHaveBeenCalledWith(f.run, state, "stored", undefined, true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, state, "stored", undefined, true, undefined);
   });
   it("shows incomplete Codex traces as partial and retries without recapturing stored bytes", async () => {
     const f = fixture(0);
@@ -171,7 +172,7 @@ describe("durable run finalization", () => {
     await f.scheduler.poll(f.run); await f.scheduler.poll(f.run); await f.scheduler.poll(f.run);
     expect(f.native).not.toHaveBeenCalled();
     expect(f.stop).toHaveBeenCalledOnce();
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "partial", expect.stringContaining("missing turn.completed"), true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "partial", expect.stringContaining("missing turn.completed"), true, undefined);
   });
   it("stops the Codex writer before collecting a cancelled run", async () => {
     const f = fixture(0);
@@ -184,7 +185,7 @@ describe("durable run finalization", () => {
     await f.scheduler.poll(f.run);
     expect(terminate).toHaveBeenCalledOnce();
     expect(f.events[0]).toBe("terminate");
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "stopped", "stored", undefined, true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "stopped", "stored", undefined, true, undefined);
   });
 
   it("bounds canonical collection failures, exposes the exact path, and never collects native", async () => {
@@ -198,7 +199,7 @@ describe("durable run finalization", () => {
     expect(f.native).toHaveBeenCalledTimes(3);
     expect(f.native.mock.calls.every(call => call[2] === source)).toBe(true);
     expect(f.stop).toHaveBeenCalledOnce();
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "partial", expect.stringContaining(source.path), true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "partial", expect.stringContaining(source.path), true, undefined);
   });
 
   it("does not create artifacts for an in-flight historical native-only Codex run", async () => {
@@ -208,7 +209,7 @@ describe("durable run finalization", () => {
     f.run.finalizationAttempt = 2;
     await f.scheduler.poll(f.run);
     expect(f.native).not.toHaveBeenCalled();
-    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "partial", expect.stringContaining("read-only"), true);
+    expect(f.terminal).toHaveBeenCalledWith(f.run, "succeeded", "partial", expect.stringContaining("read-only"), true, undefined);
   });
 
 });

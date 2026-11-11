@@ -29,6 +29,8 @@ export interface ExecutionObservation {
   state: ExecutionState;
   detail?: string;
   command?: BackendCommandResult;
+  /** Backend evidence only; guest supplied result documents cannot set this. */
+  failure?: { source: "run" | "system"; code: string; reason: string };
 }
 
 export interface LaunchReceipt {

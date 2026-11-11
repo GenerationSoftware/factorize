@@ -37,7 +37,8 @@ test("run page errors back off for ten seconds and recover to the idle interval"
   await page.clock.runFor(16_100); await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
   assert.equal(count, 3, "the idle refetch and its single retry should expose an error");
   await page.clock.runFor(9000); assert.equal(count, 3, "errors should wait about ten seconds before another query");
-  await page.clock.runFor(1100); await page.getByRole("link", { name: "Polling run", exact: true }).waitFor(); assert.equal(count, 4, "the ten-second error interval should retry and recover");
+  const recoveredResponse = page.waitForResponse(response => response.url().includes("/api/v1/runs?") && response.status() === 200);
+  await page.clock.runFor(1100); await recoveredResponse; await page.getByRole("link", { name: "Polling run", exact: true }).waitFor(); assert.equal(count, 4, "the ten-second error interval should retry and recover");
   await page.clock.runFor(14999); assert.equal(count, 4, "a successful response should return to the 15-second idle interval");
   await page.clock.runFor(1); assert.equal(count, 5);
   await context.close();
@@ -103,7 +104,10 @@ test("all-runs status header supports multi-select filtering, independent sortin
   await page.mouse.click(1200, 700);
   await dialog.waitFor({ state: "hidden" });
   await page.getByRole("button", { name: /Status, 2 statuses selected/ }).click();
-  await page.getByRole("dialog", { name: "Status filter and sort" }).getByRole("button", { name: "Clear filters and reset sort" }).click(); await page.waitForFunction(() => { const params = new URLSearchParams(location.search); return location.pathname === "/job-runs" && !params.has("state") && !params.has("states"); }); assert.equal(requests.at(-1).searchParams.has("state"), false); await context.close();
+  const requestCountBeforeClear = requests.length;
+  await page.getByRole("dialog", { name: "Status filter and sort" }).getByRole("button", { name: "Clear filters and reset sort" }).click(); await page.waitForFunction(() => { const params = new URLSearchParams(location.search); return location.pathname === "/job-runs" && !params.has("state") && !params.has("states"); });
+  assert.equal(await page.getByRole("link", { name: "Run", exact: true }).count(), 1);
+  assert.ok(requests.slice(requestCountBeforeClear).every(url => !url.searchParams.has("state")), "clearing statuses must not issue a request with stale status filters"); await context.close();
 });
 test("all-runs combines independent project and job filters, preserves them through pagination, and toggles row filters", async () => {
   const { context, page } = await setup(); const requests = [], projectA = "00000000-0000-4000-8000-000000000003", jobA = "00000000-0000-4000-8000-000000000001";
@@ -116,15 +120,32 @@ test("all-runs combines independent project and job filters, preserves them thro
   await page.getByRole("button", { name: "Remove project Project Alpha" }).click(); await page.waitForFunction(() => !new URL(location.href).searchParams.has("projects")); await page.getByRole("button", { name: "Filter by project Project Alpha" }).click(); await page.waitForURL(/projects=/); await context.close();
 });
 test("shared run status dots show running transitions in both tables", async () => {
-  const { context, page } = await setup(); let state = "running";
+  const { context, page } = await setup(); let state = "running", failure = null;
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Job", enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: state === "running" ? 1 : 0, promptTemplate: "Prompt", triggers: [] } }));
-  await page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [{ id: runId, run_name: "Transition run", state, created_at: time, agent_kind: "codex" }], nextCursor: null } }));
+  await page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [{ id: runId, run_name: "Transition run", state, failure, created_at: time, agent_kind: "codex" }], nextCursor: null } }));
   await page.goto(origin + "/job-runs"); await page.getByRole("img", { name: "Status: Running" }).waitFor();
   assert.match(await page.getByRole("img", { name: "Status: Running" }).getAttribute("class"), /animate-pulse/);
   state = "succeeded"; await page.reload(); await page.getByRole("img", { name: "Status: Succeeded" }).waitFor();
   assert.doesNotMatch(await page.getByRole("img", { name: "Status: Succeeded" }).getAttribute("class"), /animate-pulse/);
   state = "failed"; await page.goto(origin + `/jobs/${jobId}`); await page.getByRole("img", { name: "Status: Failed" }).waitFor();
-  assert.doesNotMatch(await page.getByRole("img", { name: "Status: Failed" }).getAttribute("class"), /animate-pulse/); await context.close();
+  assert.doesNotMatch(await page.getByRole("img", { name: "Status: Failed" }).getAttribute("class"), /animate-pulse/);
+  failure = { source: "run", code: "task_reported_failure", reason: "test assertion failed" }; await page.goto(origin + "/job-runs"); await page.getByRole("img", { name: "Status: Run failed" }).waitFor();
+  failure = { source: "system", code: "vm_unavailable", reason: "VM unavailable" }; await page.reload(); await page.getByRole("img", { name: "Status: System failed" }).waitFor(); await context.close();
+});
+test("run detail exposes the primary failure and keeps artifact warnings separate", async () => {
+  const { context, page } = await setup();
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Job", run_name: "Failed run", state: "failed", failure_source: "agent", failure: { source: "run", code: "result_invalid", reason: "Required result JSON was invalid" }, finalizing: false, trace_revision: "rev", artifact_state: "partial", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [], nextCursor: null, revision: "rev", reset: false } }));
+  await page.route(`**/api/v1/runs/${runId}`, route => route.fulfill({ json: { prompt: "Prompt", invocation: { source: "manual", context: {}, trigger_id: "trigger-fixture", created_at: time }, activity: [] } }));
+  await page.route(`**/api/v1/runs/${runId}/diagnostics`, route => route.fulfill({ json: { state: "failed", artifact: { state: "partial", error: "Trace collection also failed" }, execution: { detail: "Process exited successfully" } } }));
+  await page.goto(origin + "/job-runs/" + runId);
+  await page.getByRole("status").filter({ hasText: "Run failed" }).waitFor();
+  await page.getByText("Required result JSON was invalid", { exact: true }).waitFor();
+  await page.getByRole("tab", { name: "Info", exact: true }).click();
+  await page.getByText("Diagnostics and artifacts", { exact: true }).click();
+  await page.getByText(/Trace collection also failed/).waitFor();
+  assert.equal(await page.getByRole("status").getByText(/Trace collection also failed/).count(), 0);
+  await context.close();
 });
 test("job run history restores its cursor on direct refresh and ignores legacy filters", async () => {
   const { context, page } = await setup(); const requests = [];

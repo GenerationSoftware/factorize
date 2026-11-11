@@ -217,7 +217,7 @@ export class ApiService {
       execution_handle: run.execution_handle ? { backendKind: run.execution_handle.backendKind, id: run.execution_handle.id } : null,
       provider: run.provider, issue_id: run.issue_id, issue_url: run.issue_url, issue_title: run.issue_title,
       run_name: run.run_name, agent_name: run.agent_name, workspace_name: run.workspace_name, agent_kind: run.agent_kind, execution_type: run.execution_type ?? run.execution_config?.executionType ?? "agent",
-      state: run.state, failure_source: run.failure_source ?? null, agent_error: agentError, execution_backend_kind: run.execution_backend_kind, backend_kind: run.backend_kind,
+      state: run.state, failure_source: run.failure_source ?? null, failure: run.failure_code && run.failure_reason ? { source: run.failure_source === "agent" ? "run" : "system", code: run.failure_code, reason: run.failure_reason } : null, agent_error: agentError, execution_backend_kind: run.execution_backend_kind, backend_kind: run.backend_kind,
       execution_capabilities: run.execution_capabilities, capabilities: run.capabilities, destination_url: run.destination_url,
       artifact_state: run.artifact_state, artifact_error: run.artifact_error,
       claim_released: run.claim_released, vm_cleanup_attempt: run.vm_cleanup_attempt, cleanup_next_at: run.cleanup_next_at, vm_cleanup_complete: run.vm_cleanup_complete, execution_script: typeof run.execution_config?.script === "string" ? run.execution_config.script : null, execution_configuration: run.execution_config,
@@ -245,7 +245,7 @@ export class ApiService {
       new ArtifactRepository(database, this.auth.tenantId).list(runId),
     ]);
     const primary = run.trace_sources?.primary ?? null;
-    return { runId: run.id, jobId: run.job_id, state: run.state, failureSource: run.failure_source, agentError: run.agent_error, provider: run.provider, backendKind: run.execution_backend_kind,
+    return { runId: run.id, jobId: run.job_id, state: run.state, failureSource: run.failure_source, failure: run.failure, agentError: run.agent_error, provider: run.provider, backendKind: run.execution_backend_kind,
       execution: run.execution_diagnostics, traceSources: run.trace_sources,
       trace: { ...evidence, provider: primary?.provider ?? artifacts.find(item => item.kind === "native_session")?.provider ?? run.agent_kind ?? null, primarySource: primary?.kind ?? "native_session", sourceVersion: primary?.formatVersion ?? null,
         artifacts: artifacts.filter(item => ["execution_stream", "native_session"].includes(item.kind)),

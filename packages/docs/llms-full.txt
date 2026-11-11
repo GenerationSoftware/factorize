@@ -170,7 +170,28 @@ New agent runs must write a JSON result envelope to the absolute path in `FACTOR
 
 For missing output or execution failures, call `get_run_diagnostics` and follow [failed-run troubleshooting](https://docs.factorize.sh/troubleshooting/runs).
 
-Failed runs keep the existing `failed` state filter and expose `failure_source` as `system` or `agent`. Historical failed runs read as system failures. An agent-reported reason appears in run detail and history; execution observer diagnostics remain available separately, and artifact/cleanup errors are separate diagnostics.
+Failed runs keep the existing `failed` state filter and legacy `failure_source` enum (`system` or `agent`); `agent` maps to the canonical `failure.source: "run"`. New read responses include nullable `failure: { source: "run" | "system", code, reason }`. A null value means the historical evidence is unknown, not that the row was successful. Old rows that only have `failure_source="system"` are not treated as confirmed infrastructure failures.
+
+Classification is based on execution evidence, never text in agent-controlled JSON. A failed structured result, missing/invalid required result, or unsuccessful agent process exit is a run failure. Launch/provisioning failure, unavailable run-owned VM, or disappeared supervisor is a system failure. A successful process and successful result has no failure. A successful result cannot override an unsuccessful process or an accepted `report_run_error`; when multiple task reasons disagree the first persisted execution/result failure is primary and explicit report provenance remains in `agent_error`. Independent infrastructure evidence takes system precedence. Result protocol failures are recorded as the failure reason, not as `artifact_error`. `artifact_error` remains reserved for artifact, trace projection and cleanup diagnostics.
+
+Protocol version 0 runs keep optional-result compatibility. Protocol version 1 requires a valid result envelope (strict fields, maximum 64 KiB); malformed, oversized, missing or schema-invalid files fail the run. The result and report-error schemas do not accept a failure source or infrastructure provenance.
+
+Historical repair is evidence based. Migration `0032_run_failure_outcomes.sql` only repairs failed rows with `job_result.status="failed"`, a successful execution diagnostic, systemd `Result=success`, and exit status 0. It clears `artifact_error` only when it exactly equals the structured task reason. Before rollout, run this read-only audit and retain its counts with a database snapshot:
+
+```sql
+SELECT count(*) AS proven_run_failures,
+       count(*) FILTER (WHERE artifact_error=job_result->>'reason') AS exact_misplaced_artifact_reasons,
+       count(*) FILTER (WHERE artifact_error IS NOT NULL AND artifact_error IS DISTINCT FROM job_result->>'reason') AS retained_artifact_diagnostics
+FROM app.runs
+WHERE state='failed' AND failure_source='system'
+  AND job_result->>'status'='failed'
+  AND execution_diagnostics->>'state'='succeeded'
+  AND execution_diagnostics->'systemd'->>'result'='success'
+  AND execution_diagnostics->'systemd'->>'execMainStatus'='0'
+  AND coalesce(job_result->>'reason','') <> '';
+```
+
+Roll forward with the additive migration before serving the new UI/API. Roll back application code separately and leave repaired outcome data intact; the old API ignores the new columns. Do not reverse the repair by changing every `agent` source back to `system`; unknown historical rows remain unknown.
 
 ## Stop and retry runs
 Source: https://docs.factorize.sh/work/stop-retry
@@ -426,6 +447,9 @@ Call `get_run({"runId":"RUN_ID"})` then `get_run_diagnostics({"runId":"RUN_ID"})
 
 | Evidence | Recovery |
 | --- | --- |
+| `failure.source` is `run` | The agent/script could not complete, including required result protocol errors and process exits. Read the primary failure reason, result and trace. |
+| `failure.source` is `system` | Positive launch, VM or supervisor evidence prevented execution or supervision. Use execution diagnostics and contact the operator if it persists. |
+| Failed with `failure: null` | Historical failure evidence is unknown. Do not infer system failure from legacy `failure_source` alone. |
 | Queued | Inspect active runs/concurrency with `get_job`; wait for a slot. |
 | Launch or permission failure | Browser-test the execution connection; check repository/model access and tags. Use `list_exe_connections` then `diagnose_exe_integration({"connectionId":"CONNECTION_ID"})` if appropriate. This probe uses a disposable VM. |
 | Wrong/empty prompt values | Read actual trigger slug/reflection and persisted context; safely replace the full job configuration. |
@@ -433,7 +457,7 @@ Call `get_run({"runId":"RUN_ID"})` then `get_run_diagnostics({"runId":"RUN_ID"})
 | Starting/running/blocked but stuck | Request `stop_run`, poll, and inspect cleanup. `kill_run` currently has identical semantics. Escalate persistently stuck runs to the hosted operator with run ID and safe diagnostics. |
 | Missing/partial trace | Inspect output and artifact state; ask the owner/operator about REST-only retained-artifact replay. See [advanced operations](https://docs.factorize.sh/self-hosting/operations). |
 
-Worked recovery configuration: use the original job ID and `invoke_job({"jobId":"JOB_ID","prompt":"Retry after correcting repository access","idempotencyKey":"investigation-RUN_ID-retry-1"})` only after fixing the cause and confirming the old run is terminal. Expected result is a **new** run ID. Verify its rendered prompt/state with `get_run` and successful output in the browser trace; a diagnostic probe passing does not itself prove the job succeeds.
+Worked recovery configuration: use the original job ID and `invoke_job({"jobId":"JOB_ID","prompt":"Retry after correcting repository access","idempotencyKey":"investigation-RUN_ID-retry-1"})` only after fixing the cause and confirming the old run is terminal. Expected result is a **new** run ID. Verify its rendered prompt/state with `get_run` and successful output in the browser trace; a diagnostic probe passing does not itself prove the job succeeds. Artifact and cleanup diagnostics are separate from the primary failure and never change an already resolved outcome.
 
 ## MCP tool reference
 Source: https://docs.factorize.sh/mcp/tools

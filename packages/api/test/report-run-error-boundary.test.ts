@@ -67,21 +67,21 @@ describe("report persistence lock and retry behavior", () => {
 
   it.each([
     ["succeeded", "running", "reported problem", "failed", "agent"],
-    ["failed", "running", "reported problem", "failed", "system"],
+    ["failed", "running", "reported problem", "failed", "agent"],
     ["succeeded", "stopping", "reported problem", "stopped", null],
   ] as const)("finalizes observer %s from %s with report precedence", async (observation, existingState, reason, expectedState, expectedSource) => {
     const calls: Array<[string, unknown[]]> = [];
     const query = vi.fn(async (sql: string, values: unknown[] = []) => {
       calls.push([sql, values]);
       if (sql.includes("FROM app.job_runs") && sql.includes("FOR UPDATE")) return { rows: [{ state: existingState }] };
-      if (sql.includes("SELECT agent_error_reason")) return { rows: [{ agent_error_reason: reason }] };
+      if (sql.includes("agent_error_reason")) return { rows: [{ agent_error_reason: reason, job_result: null, failure_source: null, failure_code: null, failure_reason: null }] };
       return { rows: [] };
     });
     const repo = new RunRepository({ transaction: (work: any) => work({ query }) } as any);
     await repo.terminal({ tenantId: "tenant", id: runId } as any, observation, "partial", "artifact failed", true);
     const runUpdate = calls.find(([sql]) => sql.startsWith("UPDATE app.runs SET state="))!;
     expect(runUpdate[0]).toContain("failure_source=$4");
-    expect(runUpdate[1].slice(2, 7)).toEqual([expectedState, expectedSource, "partial", "artifact failed", true]);
+    expect(runUpdate[1].slice(2)).toEqual([expectedState, expectedSource, expectedState === "failed" ? "task_reported_failure" : null, expectedState === "failed" ? "reported problem" : null, "partial", "artifact failed", true]);
   });
 });
 

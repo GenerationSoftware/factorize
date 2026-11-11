@@ -122,6 +122,25 @@ components:
                 - system
                 - agent
             - type: "null"
+        failure:
+          anyOf:
+            - type: object
+              properties:
+                source:
+                  type: string
+                  enum:
+                    - run
+                    - system
+                code:
+                  type: string
+                reason:
+                  type: string
+              required:
+                - source
+                - code
+                - reason
+              additionalProperties: false
+            - type: "null"
         agent_error:
           anyOf:
             - type: object
@@ -292,6 +311,25 @@ components:
                     enum:
                       - system
                       - agent
+                  - type: "null"
+              failure:
+                anyOf:
+                  - type: object
+                    properties:
+                      source:
+                        type: string
+                        enum:
+                          - run
+                          - system
+                      code:
+                        type: string
+                      reason:
+                        type: string
+                    required:
+                      - source
+                      - code
+                      - reason
+                    additionalProperties: false
                   - type: "null"
               agent_error:
                 anyOf:
@@ -798,6 +836,25 @@ components:
               enum:
                 - system
                 - agent
+            - type: "null"
+        failure:
+          anyOf:
+            - type: object
+              properties:
+                source:
+                  type: string
+                  enum:
+                    - run
+                    - system
+                code:
+                  type: string
+                reason:
+                  type: string
+              required:
+                - source
+                - code
+                - reason
+              additionalProperties: false
             - type: "null"
         agent_error:
           anyOf:
@@ -10978,6 +11035,25 @@ paths:
                         enum:
                           - system
                           - agent
+                      - type: "null"
+                  failure:
+                    anyOf:
+                      - type: object
+                        properties:
+                          source:
+                            type: string
+                            enum:
+                              - run
+                              - system
+                          code:
+                            type: string
+                          reason:
+                            type: string
+                        required:
+                          - source
+                          - code
+                          - reason
+                        additionalProperties: false
                       - type: "null"
                   agent_error:
                     anyOf:

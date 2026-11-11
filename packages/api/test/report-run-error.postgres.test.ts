@@ -39,7 +39,7 @@ describe.skipIf(!url)("agent run error persistence (PostgreSQL)", () => {
     const runs = new RunRepository(f.db), provenance = { userId: f.auth.userId, reporterKind: "api_key", reporterId: "stable-token" };
     await activate();
     expect(await runs.reportAgentError({ tenantId: f.tenantId, runId: f.runId, reason: "agent finding", ...provenance })).toBe("reported");
-    await runs.terminal({ tenantId: f.tenantId, id: f.runId } as any, "failed", "partial", "artifact upload failed", true);
+    await runs.terminal({ tenantId: f.tenantId, id: f.runId } as any, "failed", "partial", "artifact upload failed", true, { source: "system", code: "vm_unavailable", reason: "The run-owned VM became unavailable during supervision" });
     let final = (await f.db.pool.query<any>("SELECT jr.state job_state,r.state,r.failure_source,r.agent_error_reason,r.agent_error_reporter_id,r.artifact_error FROM app.job_runs jr JOIN app.runs r USING (tenant_id,id) WHERE r.tenant_id=$1 AND r.id=$2", [f.tenantId, f.runId])).rows[0];
     expect(final).toMatchObject({ job_state: "failed", state: "failed", failure_source: "system", agent_error_reason: "agent finding", agent_error_reporter_id: "stable-token", artifact_error: "artifact upload failed" });
 

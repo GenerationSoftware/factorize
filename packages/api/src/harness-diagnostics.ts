@@ -6,6 +6,7 @@ export interface ExecutionDiagnostics {
   state: "succeeded" | "failed" | "stopped";
   detail: string | null;
   systemd: { loadState: string; activeState: string; subState: string; result: string; execMainCode: number | null; execMainStatus: number | null } | null;
+  failure?: { source: "run" | "system"; code: string; reason: string };
 }
 
 /** Redact before truncation so a cut cannot expose part of a recognized credential. */
@@ -30,5 +31,6 @@ export function terminalDiagnostics(observation: ExecutionObservation): Executio
     state: observation.state === "succeeded" ? "succeeded" : observation.state === "stopped" ? "stopped" : "failed",
     detail: observation.detail ? safeDiagnosticText(observation.detail) : null,
     systemd: observation.systemd ?? null,
+    ...(observation.failure ? { failure: { ...observation.failure, reason: safeDiagnosticText(observation.failure.reason) } } : {}),
   };
 }
