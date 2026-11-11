@@ -19,8 +19,8 @@ async function waitFor(predicate, label) {
   }
 }
 
-async function startProxy() {
-  const child = spawn(process.execPath, [entry], { stdio: ["pipe", "pipe", "pipe"] });
+async function startProxy(directory) {
+  const child = spawn(process.execPath, [entry], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, FACTORIZE_PROXY_BOOTSTRAP_SOCKET: join(directory, "bootstrap.sock") } });
   let pending = "";
   let log = "";
   let stderr = "";
@@ -59,7 +59,7 @@ test("process starts locked, unlocks in memory, shuts down bounded, and restarts
   try {
     await writeFile(join(directory, "identity.json"), JSON.stringify({ identity: "public-fixture", generation: 1 }));
     await writeFile(join(directory, "public-metadata.json"), JSON.stringify({ displayName: "fixture" }));
-    const first = await startProxy();
+    const first = await startProxy(directory);
     processes.push(first);
     assert.deepEqual(await first.command({ type: "status" }), { type: "status", state: "locked" });
     assert.deepEqual(await first.command({ type: "unlock", key: keyMarker }), { type: "status", state: "unlocked" });
@@ -67,7 +67,7 @@ test("process starts locked, unlocks in memory, shuts down bounded, and restarts
     await waitFor(() => first.child.exitCode !== null || first.child.signalCode !== null, "first process stop");
     assert.equal(first.child.exitCode, 0);
 
-    const restarted = await startProxy();
+    const restarted = await startProxy(directory);
     processes.push(restarted);
     assert.notEqual(restarted.bootEpoch, first.bootEpoch, "every process restart gets a fresh enrollment epoch");
     assert.deepEqual(await restarted.command({ type: "status" }), { type: "status", state: "locked" });
@@ -76,14 +76,14 @@ test("process starts locked, unlocks in memory, shuts down bounded, and restarts
     await waitFor(() => restarted.child.exitCode !== null || restarted.child.signalCode !== null, "command shutdown");
     assert.equal(restarted.child.exitCode, 0);
 
-    const crashed = await startProxy();
+    const crashed = await startProxy(directory);
     processes.push(crashed);
     assert.deepEqual(await crashed.command({ type: "unlock", key: keyMarker }), { type: "status", state: "unlocked" });
     crashed.child.kill("SIGKILL");
     await waitFor(() => crashed.child.exitCode !== null || crashed.child.signalCode !== null, "crash stop");
     assert.equal(crashed.child.signalCode, "SIGKILL");
 
-    const afterCrash = await startProxy();
+    const afterCrash = await startProxy(directory);
     processes.push(afterCrash);
     assert.deepEqual(await afterCrash.command({ type: "status" }), { type: "status", state: "locked" });
     afterCrash.child.kill("SIGTERM");
