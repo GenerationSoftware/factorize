@@ -129,7 +129,6 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       releaseBrowserWrite();
       await page.getByRole("button", { name: "Reconcile my changes" }).waitFor();
       await page.getByRole("button", { name: "Reconcile my changes" }).click();
-      await page.getByRole("button", { name: "Keep latest name" }).click();
       await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
       expect(new URL(page.url()).pathname).toBe(`/jobs/${job.id}/settings/context`);
       const saved = await service.getJob(job.id); expect(saved.name).toBe("Concurrent name"); expect(saved.promptTemplate).toBe("My edited prompt"); expect(saved.triggers[0].id).toBe(job.triggers[0].id);
