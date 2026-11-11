@@ -106,9 +106,10 @@ test("all-runs status header supports multi-select filtering, independent sortin
   await dialog.waitFor({ state: "hidden" });
   await page.getByRole("button", { name: /Status, 2 statuses selected/ }).click();
   const requestCountBeforeClear = requests.length;
-  await page.getByRole("dialog", { name: "Status filter and sort" }).getByRole("button", { name: "Clear filters and reset sort" }).click(); await page.waitForFunction(() => { const params = new URLSearchParams(location.search); return location.pathname === "/job-runs" && !params.has("state") && !params.has("states"); });
+  await page.getByRole("dialog", { name: "Status filter and sort" }).getByRole("button", { name: "Clear filters and reset sort" }).click(); await page.waitForFunction(() => { const params = new URLSearchParams(location.search); return location.pathname === "/job-runs" && !params.has("state") && !params.has("states") && !params.has("sort") && !params.has("direction"); });
   await page.getByRole("link", { name: "Run", exact: true }).waitFor();
-  assert.ok(requests.slice(requestCountBeforeClear).every(url => !url.searchParams.has("state")), "clearing statuses must not issue a request with stale status filters"); await context.close();
+  assert.ok(requests.slice(requestCountBeforeClear).every(url => !url.searchParams.has("state") && !url.searchParams.has("states")), "clearing filters must not issue a request with stale status filters");
+  assert.ok(requests.some(url => url.pathname === "/api/v1/runs" && !url.searchParams.has("state") && !url.searchParams.has("states")), "clearing filters should fetch the unfiltered run list"); await context.close();
 });
 test("all-runs combines independent project and job filters, preserves them through pagination, and toggles row filters", async () => {
   const { context, page } = await setup(); const requests = [], projectA = "00000000-0000-4000-8000-000000000003", jobA = "00000000-0000-4000-8000-000000000001";

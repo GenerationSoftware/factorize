@@ -63,8 +63,10 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
         await page.getByRole("img", { name: "Status: Succeeded", exact: true }).waitFor();
       }
       await page.goto(`https://factorize.test/projects/${f.projectId}`);
-      await page.getByRole("link", { name: "owner@example.test", exact: true }).waitFor();
-      await page.locator("#project-switcher").waitFor();
+      await page.getByRole("link", { name: "owner", exact: true }).waitFor();
+      await page.getByRole("link", { name: "Default", exact: true }).waitFor();
+      await page.getByRole("button", { name: "Switch project", exact: true }).click();
+      await page.getByRole("combobox", { name: "Search projects", exact: true }).waitFor();
       expect(await page.getByRole("link", { name: "Factorize", exact: true }).count()).toBe(0);
       expect(await page.locator("html").getAttribute("data-theme")).toBe("light");
       expect(await page.locator("body").evaluate((element: any) => (globalThis as any).getComputedStyle(element).backgroundColor)).toBe("rgb(252, 251, 246)");
