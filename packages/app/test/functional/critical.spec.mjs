@@ -120,7 +120,8 @@ test("project and job child requests start after session but do not wait for the
   expect(historySearch).toContain("state=failed");
   releaseJob();
   await jobNavigation;
-  await expect(page.getByRole("heading", { name: job.name, exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: job.name, exact: true })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Job actions" }).getByRole("button", { name: "Run job", exact: true })).toBeVisible();
   expect(await page.getByRole("status").filter({ hasText: "Loading run history…" }).isVisible()).toBe(true);
   releaseHistory();
   await expect(page.getByRole("status").filter({ hasText: "Loading run history…" })).toHaveCount(0);
@@ -155,7 +156,8 @@ test("intent preloading reuses project detail and jobs queries on click", async 
   await expect.poll(() => requestCounts.get(`/api/v1/jobs/${jobId}`) ?? 0).toBe(1);
   await expect.poll(() => requestCounts.get("/api/v1/runs") ?? 0).toBe(1);
   await jobLink.click();
-  await expect(page.getByRole("heading", { name: job.name, exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: job.name, exact: true })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Job actions" }).getByRole("button", { name: "Run job", exact: true })).toBeVisible();
   expect(requestCounts.get(`/api/v1/jobs/${jobId}`)).toBe(1);
   expect(requestCounts.get("/api/v1/runs")).toBe(1);
 });

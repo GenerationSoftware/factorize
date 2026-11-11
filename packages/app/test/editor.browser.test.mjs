@@ -269,7 +269,7 @@ test("Settings edits and saves repeatedly, preserves revision, protects dirty ta
     return route.fulfill({ json: current });
   });
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
-  await page.goto(origin + `/jobs/${id}`);
+  await page.goto(origin + `/jobs/${id}/settings`);
   const tabs = page.getByRole("navigation", { name: "Job views" });
   await tabs.getByRole("link", { name: "Settings", exact: true }).focus(); await page.keyboard.press("Enter");
   await page.waitForURL(`**/jobs/${id}/settings`);
