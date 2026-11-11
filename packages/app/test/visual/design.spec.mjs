@@ -100,7 +100,15 @@ for (const [label, width, height] of [["desktop", 1721, 914], ["mobile", 390, 84
   await expect(page.getByRole("heading", { name: "Project" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "List", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Graph", exact: true })).toHaveAttribute("aria-pressed", "false");
-  await expect(page.getByRole("link", { name: "Create job" })).toHaveAttribute("href", "/jobs/new?projectId=" + projectId);
+  const viewGroup = page.getByRole("group", { name: "Project jobs view" });
+  const actionRow = viewGroup.locator("..");
+  const viewBox = await viewGroup.boundingBox();
+  const actionRowBox = await actionRow.boundingBox();
+  const createJob = page.getByRole("link", { name: "Create job" });
+  const createJobBox = await createJob.boundingBox();
+  expect(Math.abs(viewBox.x - actionRowBox.x)).toBeLessThan(2);
+  expect(Math.abs(createJobBox.x + createJobBox.width - actionRowBox.x - actionRowBox.width)).toBeLessThan(2);
+  await expect(createJob).toHaveAttribute("href", "/jobs/new?projectId=" + projectId);
   await expect(page.getByRole("table", { name: "Jobs" })).toBeVisible();
   await page.getByRole("button", { name: "Graph", exact: true }).click();
   await expect(page.getByRole("button", { name: "Graph", exact: true })).toHaveAttribute("aria-pressed", "true");
