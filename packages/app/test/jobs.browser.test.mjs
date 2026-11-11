@@ -274,8 +274,11 @@ test("project graph keeps opaque webhook resource IDs out of labels and availabl
   assert.ok(labels.every(value => !value.includes(projectUuid) && !value.includes("123456789")));
   await graph.getByRole("button", { name: /2 triggers/ }).click();
   await page.getByRole("dialog", { name: "Grouped connections" }).getByRole("button", { name: /Linear/ }).first().click();
-  await page.getByText(`Linear · ${projectUuid}`, { exact: true }).waitFor();
   await page.getByText("Linear · 00000000-0000-4000-8000-000000000098", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close connection details" }).click();
+  await graph.getByRole("button", { name: /2 triggers/ }).click();
+  await page.getByRole("dialog", { name: "Grouped connections" }).getByRole("button", { name: /Linear/ }).nth(1).click();
+  await page.getByText(`Linear · ${projectUuid}`, { exact: true }).waitFor();
   await context.close();
 });
 test("project and job detail pages use the appropriate breadcrumbs", async () => {
