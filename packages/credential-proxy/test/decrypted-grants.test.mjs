@@ -83,7 +83,7 @@ test("production grant resolver reads the run-bound snapshot and only decrypts w
       return Response.json({ ownerId, records: [{ ...record, encryptedPayload }] });
     },
   });
-  const binding = { runId: "22222222-2222-4222-8222-222222222222", grantRevision: 7 };
+  const binding = { tenantId: ownerId, runId: "22222222-2222-4222-8222-222222222222", grantRevision: 7 };
   await assert.rejects(resolve(binding), /locked/);
   runtime.unlock(unlockKey);
   assert.deepEqual(await resolve(binding), [{ id: record.id, origin: record.origin, credential: "snapshot-token" }]);
