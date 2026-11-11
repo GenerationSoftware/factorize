@@ -4,6 +4,9 @@ import { once } from "node:events";
 
 const HANDSHAKE_LIMIT = 4096;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
+const CONTROL_RETRY_WINDOW_MS = 5 * 60_000;
+const CONTROL_RETRY_MAX_MS = 30_000;
+const CONTROL_RETRY_SLOW_MS = 60_000;
 
 function peerIdentity(socket) {
   const certificate = socket.getPeerCertificate();
@@ -62,6 +65,7 @@ export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnro
         target = connectTcp(address.port, address.address);
         await once(target, "connect");
         if (rest.length) target.write(rest);
+        socket.write("FACTORIZE-TUNNEL/1 ACCEPTED\n");
         socket.pipe(target);
         target.pipe(socket);
         socket.resume();
@@ -94,32 +98,50 @@ export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnro
 }
 
 /** Start a loopback-only HTTP tunnel helper. Each accepted stream gets fresh enrollment. */
-export async function startVmTunnelHelper({ tls, enrollment, proxyHost, proxyPort, host = "127.0.0.1", port = 0 } = {}) {
+export async function startVmTunnelHelper({ tls, enrollment, proxyHost, proxyPort, host = "127.0.0.1", port = 0,
+  now = Date.now, random = Math.random, wait = delay } = {}) {
   if (!tls || typeof enrollment !== "function" || typeof proxyHost !== "string" || !Number.isInteger(proxyPort)) {
     throw new TypeError("VM tunnel helper requires TLS, enrollment and proxy address");
   }
   const sockets = new Set();
   const server = createTcpServer((local) => {
     sockets.add(local);
+    local.pause();
     void (async () => {
-      let remote;
-      try {
-        const grant = await enrollment();
-        if (!grant || typeof grant.token !== "string" || !/^[A-Za-z0-9_-]{32,128}$/.test(grant.token)) throw new Error("fresh enrollment unavailable");
-        remote = connectTls({ ...tls, host: proxyHost, port: proxyPort, servername: tls.servername ?? proxyHost, rejectUnauthorized: true });
-        sockets.add(remote);
-        const connectTimer = setTimeout(() => remote.destroy(new Error("proxy TLS connection timed out")), HANDSHAKE_TIMEOUT_MS);
-        try { await once(remote, "secureConnect"); }
-        finally { clearTimeout(connectTimer); }
-        remote.write(`FACTORIZE-TUNNEL/1 ${grant.token}\n`);
-        local.pipe(remote);
-        remote.pipe(local);
-        local.resume();
-        remote.once("close", () => { sockets.delete(remote); local.destroy(); });
-        local.once("close", () => remote.destroy());
-      } catch {
-        local.destroy();
-        remote?.destroy();
+      const startedAt = now();
+      let attempt = 0;
+      while (!local.destroyed) {
+        let remote;
+        try {
+          const grant = await enrollment();
+          if (local.destroyed) return;
+          if (!grant || typeof grant.token !== "string" || !/^[A-Za-z0-9_-]{32,128}$/.test(grant.token)) throw new Error("fresh enrollment unavailable");
+          remote = connectTls({ ...tls, host: proxyHost, port: proxyPort, servername: tls.servername ?? proxyHost, rejectUnauthorized: true });
+          sockets.add(remote);
+          const connectTimer = setTimeout(() => remote.destroy(new Error("proxy TLS connection timed out")), HANDSHAKE_TIMEOUT_MS);
+          try { await once(remote, "secureConnect"); }
+          finally { clearTimeout(connectTimer); }
+          remote.write(`FACTORIZE-TUNNEL/1 ${grant.token}\n`);
+          await waitForTunnelAcceptance(remote);
+          local.pipe(remote);
+          remote.pipe(local);
+          local.resume();
+          remote.once("close", () => { sockets.delete(remote); local.destroy(); });
+          local.once("close", () => remote.destroy());
+          return;
+        } catch {
+          remote?.destroy();
+          if (remote) sockets.delete(remote);
+          if (local.destroyed) return;
+          const elapsed = now() - startedAt;
+          const base = elapsed < CONTROL_RETRY_WINDOW_MS
+            ? Math.min(1000 * (2 ** Math.min(attempt, 5)), CONTROL_RETRY_MAX_MS)
+            : CONTROL_RETRY_SLOW_MS;
+          const jittered = Math.round(base * (0.5 + random()));
+          const delayMs = Math.max(1, elapsed < CONTROL_RETRY_WINDOW_MS ? Math.min(CONTROL_RETRY_MAX_MS, jittered) : jittered);
+          attempt++;
+          try { await wait(delayMs); } catch { local.destroy(); return; }
+        }
       }
     })();
     const remove = () => { sockets.delete(local); };
@@ -135,5 +157,38 @@ export async function startVmTunnelHelper({ tls, enrollment, proxyHost, proxyPor
       for (const socket of sockets) socket.destroy();
       await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     },
+  });
+}
+
+function delay(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+function waitForTunnelAcceptance(socket) {
+  return new Promise((resolve, reject) => {
+    let response = Buffer.alloc(0);
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.removeListener("data", onData);
+      socket.removeListener("error", onError);
+      socket.removeListener("close", onClose);
+    };
+    const onError = error => { cleanup(); reject(error); };
+    const onClose = () => { cleanup(); reject(new Error("proxy closed before accepting the tunnel")); };
+    const onData = chunk => {
+      response = Buffer.concat([response, chunk]);
+      if (response.length > HANDSHAKE_LIMIT) { cleanup(); reject(new Error("invalid proxy tunnel response")); return; }
+      const end = response.indexOf(10);
+      if (end < 0) return;
+      const accepted = response.subarray(0, end).toString("utf8") === "FACTORIZE-TUNNEL/1 ACCEPTED";
+      const trailingData = response.subarray(end + 1);
+      cleanup();
+      if (!accepted || trailingData.length) reject(new Error("proxy tunnel was rejected"));
+      else resolve();
+    };
+    const timer = setTimeout(() => { cleanup(); socket.destroy(); reject(new Error("proxy tunnel acceptance timed out")); }, HANDSHAKE_TIMEOUT_MS);
+    socket.on("data", onData);
+    socket.once("error", onError);
+    socket.once("close", onClose);
   });
 }

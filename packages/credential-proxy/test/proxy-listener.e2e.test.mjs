@@ -140,6 +140,8 @@ test("VM helper uses mutual TLS and consumed enrollment to reach only its grante
   let observedAuthorization;
   let enrollmentCount = 0;
   let authenticationCount = 0;
+  let mismatchReachedResolve;
+  const mismatchReached = new Promise(resolve => { mismatchReachedResolve = resolve; });
   const upstream = createHttpsServer({ key, cert }, (request, response) => {
     observedAuthorization = request.headers.authorization;
     response.end("transport-ok");
@@ -162,13 +164,15 @@ test("VM helper uses mutual TLS and consumed enrollment to reach only its grante
     runtime,
     authenticateEnrollment: async ({ token, vmIdentity, bootEpoch }) => {
       authenticationCount++;
-      assert.equal(token, (authenticationCount === 1 ? "A" : authenticationCount === 2 ? "B" : "C").repeat(43));
+      assert.ok(["A", "B", "C", "X"].some(value => token === value.repeat(43)));
       assert.equal(vmIdentity, "api.example.test");
       assert.equal(bootEpoch, runtime.bootEpoch);
+      if (token === "A".repeat(43)) throw new Error("temporary control-plane outage");
+      if (token === "X".repeat(43)) mismatchReachedResolve();
       return {
         authenticated: true,
         enrollmentConsumed: true,
-        vmIdentity: token === "C".repeat(43) ? "other-vm" : vmIdentity,
+        vmIdentity: token === "X".repeat(43) ? "other-vm" : vmIdentity,
         bootEpoch,
         connectionId: "transport-enrollment-1",
         runId: "run-transport-1",
@@ -181,9 +185,10 @@ test("VM helper uses mutual TLS and consumed enrollment to reach only its grante
   runtime.unlock("synthetic-unlock-key");
   const local = await startVmTunnelHelper({
     tls: { key, cert, ca: cert, servername: "api.example.test" },
-    enrollment: async () => ({ token: (++enrollmentCount === 1 ? "A" : enrollmentCount === 2 ? "B" : "C").repeat(43) }),
+    enrollment: async () => ({ token: ["A", "B", "C"][enrollmentCount++ % 3].repeat(43) }),
     proxyHost: "127.0.0.1",
     proxyPort: tunnel.address().port,
+    wait: async () => {},
   });
   let mismatchLocal;
   try {
@@ -195,21 +200,20 @@ test("VM helper uses mutual TLS and consumed enrollment to reach only its grante
     assert.equal(observedAuthorization, "Bearer synthetic-bearer");
     const denied = await fetch(`http://127.0.0.1:${local.address.port}/integrations/other-tool/echo`);
     assert.equal(denied.status, 403);
-    assert.equal(enrollmentCount, 2, "each local connection gets fresh one-use enrollment");
-    assert.equal(authenticationCount, 2, "each enrollment is independently consumed by the proxy transport");
+    assert.ok(enrollmentCount >= 3, "failed setup and local connections get fresh one-use enrollment");
+    assert.equal(enrollmentCount, authenticationCount, "each enrollment is independently consumed by the proxy transport");
     mismatchLocal = await startVmTunnelHelper({
       tls: { key, cert, ca: cert, servername: "api.example.test" },
-      enrollment: async () => ({ token: (++enrollmentCount === 3 ? "C" : "D").repeat(43) }),
+      enrollment: async () => ({ token: (enrollmentCount++, "X".repeat(43)) }),
       proxyHost: "127.0.0.1",
       proxyPort: tunnel.address().port,
     });
-    await assert.rejects(
-      fetch(`http://127.0.0.1:${mismatchLocal.address.port}/integrations/tool-1/echo`),
-      /fetch failed/,
-      "mismatched VM binding is rejected",
-    );
-    assert.equal(enrollmentCount, 3);
-    assert.equal(authenticationCount, 3);
+    const rejectedRequest = fetch(`http://127.0.0.1:${mismatchLocal.address.port}/integrations/tool-1/echo`);
+    await mismatchReached;
+    await mismatchLocal.close();
+    mismatchLocal = undefined;
+    await assert.rejects(rejectedRequest, /fetch failed/, "mismatched VM binding is rejected");
+    assert.equal(authenticationCount, enrollmentCount);
   } finally {
     await mismatchLocal?.close();
     await local.close();
