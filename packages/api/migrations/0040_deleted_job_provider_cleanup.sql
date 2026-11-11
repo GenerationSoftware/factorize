@@ -16,4 +16,4 @@ CREATE TABLE app.deleted_job_provider_cleanup (
 CREATE INDEX deleted_job_provider_cleanup_due
   ON app.deleted_job_provider_cleanup(next_attempt_at, tenant_id, run_id);
 
-INSERT INTO app.schema_migrations(version) VALUES ('0039_deleted_job_provider_cleanup') ON CONFLICT DO NOTHING;
+INSERT INTO app.schema_migrations(version) VALUES ('0040_deleted_job_provider_cleanup') ON CONFLICT DO NOTHING;

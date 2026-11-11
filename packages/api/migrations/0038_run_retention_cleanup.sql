@@ -25,4 +25,4 @@ CREATE INDEX lifecycle_deliveries_by_source_run ON app.lifecycle_deliveries(tena
 CREATE INDEX credential_run_enrollments_by_run ON app.credential_run_enrollments(tenant_id, run_id);
 CREATE INDEX webhook_delivery_events_by_delivery ON app.webhook_delivery_events(tenant_id, delivery_id);
 
-INSERT INTO app.schema_migrations(version) VALUES ('0037_run_retention_cleanup') ON CONFLICT DO NOTHING;
+INSERT INTO app.schema_migrations(version) VALUES ('0038_run_retention_cleanup') ON CONFLICT DO NOTHING;

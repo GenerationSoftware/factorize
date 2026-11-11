@@ -3,6 +3,7 @@ import { safeDiagnosticText } from "../harness-diagnostics";
 
 export type RetentionSweepResult = { selected: number; deleted: number; cleanupQueued: number };
 export type ArtifactCleanupResult = { attempted: number; completed: number; retried: number };
+export type RetentionBacklog = { queue: string; pending: number; oldestAgeSeconds: number | null };
 
 const CLEANUP_BATCH_SIZE = 20;
 const CLEANUP_LEASE_MS = 10 * 60_000;
@@ -16,6 +17,30 @@ const CLEANUP_MAX_BACKOFF_MS = 6 * 60 * 60_000;
  */
 export class RunRetentionRepository {
   constructor(private readonly database: Database) {}
+
+  /** Aggregate cleanup pressure without emitting tenant, run, or object identifiers. */
+  async backlogSnapshot(): Promise<RetentionBacklog[]> {
+    const result = await this.database.pool.query<{ queue: string; pending: number; oldest_age_seconds: number | null }>(`
+      SELECT queue,pending,oldest_age_seconds FROM (
+        SELECT 'terminal_provider'::text queue,count(*)::int pending,
+          floor(extract(epoch FROM now()-min(created_at)))::int oldest_age_seconds
+        FROM app.runs WHERE state IN ('succeeded','failed','stopped') AND NOT vm_cleanup_complete
+        UNION ALL
+        SELECT 'deleted_job_provider'::text,count(*)::int,
+          floor(extract(epoch FROM now()-min(created_at)))::int
+        FROM app.deleted_job_provider_cleanup
+        UNION ALL
+        SELECT 'artifact_objects'::text,count(*)::int,
+          floor(extract(epoch FROM now()-min(created_at)))::int
+        FROM app.run_retention_cleanup WHERE completed_at IS NULL
+        UNION ALL
+        SELECT 'overdue_nonterminal'::text,count(*)::int,
+          floor(extract(epoch FROM now()-min(created_at)))::int
+        FROM app.runs WHERE state IN ('queued','reserved','starting','running','blocked','stopping')
+          AND created_at < now()-interval '14 days'
+      ) backlog ORDER BY queue`);
+    return result.rows.map(row => ({ queue: row.queue, pending: row.pending, oldestAgeSeconds: row.oldest_age_seconds }));
+  }
 
   /**
    * Delete retained R2 objects outside the run-deletion transaction. A short

@@ -34,8 +34,17 @@ export class RunScheduler {
     for (let count = 0; count < 20; count++) { const run = await this.runs.claimNext(); if (!run) break; await this.launch(run).catch(error => this.fail(run, error, "launch")); }
     const retention = new RunRetentionRepository(this.database);
     await this.reconcileProviderCleanup();
-    await retention.sweep(runRetentionCutoff(new Date()), 50);
-    await retention.processArtifactCleanup(this.env.RUN_ARTIFACTS);
+    const cutoff = runRetentionCutoff(new Date());
+    const sweep = await retention.sweep(cutoff, 50);
+    const artifacts = await retention.processArtifactCleanup(this.env.RUN_ARTIFACTS);
+    // Aggregate observability is best effort: a metrics query failure must not
+    // turn a successful maintenance pass into a failed scheduler alarm.
+    try {
+      const backlog = await retention.backlogSnapshot();
+      console.info(JSON.stringify({ event: "run_retention_maintenance", cutoff: cutoff.toISOString(), sweep, artifacts, backlog }));
+    } catch (error) {
+      console.warn(JSON.stringify({ event: "run_retention_backlog_snapshot_failed", message: error instanceof Error ? error.message : "unknown error" }));
+    }
   }
 
   /** Retry terminal provider cleanup independently from run polling, including old stuck records. */

@@ -54,4 +54,22 @@ describe("RunRetentionRepository", () => {
     expect(bucketDelete).toHaveBeenCalledWith(["tenant/run/object"]);
     expect(poolQuery).toHaveBeenLastCalledWith("DELETE FROM app.run_retention_cleanup WHERE id=$1", ["cleanup"]);
   });
+
+  it("reports bounded backlog counts and oldest age without exposing row identifiers", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [
+      { queue: "artifact_objects", pending: 2, oldest_age_seconds: 120 },
+      { queue: "deleted_job_provider", pending: 0, oldest_age_seconds: null },
+      { queue: "overdue_nonterminal", pending: 1, oldest_age_seconds: 90_000 },
+      { queue: "terminal_provider", pending: 3, oldest_age_seconds: 600 },
+    ] });
+    const repository = new RunRetentionRepository({ pool: { query } } as any);
+    await expect(repository.backlogSnapshot()).resolves.toEqual([
+      { queue: "artifact_objects", pending: 2, oldestAgeSeconds: 120 },
+      { queue: "deleted_job_provider", pending: 0, oldestAgeSeconds: null },
+      { queue: "overdue_nonterminal", pending: 1, oldestAgeSeconds: 90_000 },
+      { queue: "terminal_provider", pending: 3, oldestAgeSeconds: 600 },
+    ]);
+    expect(query.mock.calls[0]![0]).toContain("'overdue_nonterminal'");
+    expect(query.mock.calls[0]![0]).not.toContain("run_id");
+  });
 });

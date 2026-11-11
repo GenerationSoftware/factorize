@@ -65,6 +65,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
   });
   afterEach(async () => {
     vi.restoreAllMocks();
+    // Provider cleanup ownership deliberately has no tenant FK, so this test
+    // database must remove its retained queue rows explicitly.
+    await database.pool.query("DELETE FROM app.deleted_job_provider_cleanup WHERE tenant_id=ANY($1::uuid[])", [tenants]);
     await database.pool.query("DELETE FROM app.tenants WHERE id=ANY($1::uuid[])", [tenants]);
     await runs.consumeWakeHint();
     tenants.length = 0;
@@ -181,6 +184,37 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     await repository(a).delete(source.id);
     const edges = await database.pool.query("SELECT 1 FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2", [a, source.id]);
     expect(edges.rowCount).toBe(0);
+  });
+
+  it("commits provider cleanup ownership with job deletion and rolls both back on failure", async () => {
+    const a = await tenant(), source = await job(a);
+    const run = await start(a, source);
+    const handle = { backendKind: "exe-vm", id: `factorize-${run.id}` };
+    await runs.recordLaunchHandle(run, handle);
+    await runs.markLaunched(run, handle, "https://vm.example", ["stop"]);
+
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const functionName = `reject_job_delete_${suffix}`;
+    const triggerName = `reject_job_delete_${suffix}`;
+    await database.pool.query(`CREATE FUNCTION app.${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected job delete failure'; END $$`);
+    await database.pool.query(`CREATE TRIGGER ${triggerName} BEFORE DELETE ON app.jobs FOR EACH ROW EXECUTE FUNCTION app.${functionName}()`);
+    try {
+      await expect(repository(a).delete(source.id)).rejects.toThrow("injected job delete failure");
+      expect((await database.pool.query("SELECT id FROM app.jobs WHERE tenant_id=$1 AND id=$2", [a, source.id])).rowCount).toBe(1);
+      expect((await database.pool.query("SELECT run_id FROM app.deleted_job_provider_cleanup WHERE tenant_id=$1 AND run_id=$2", [a, run.id])).rowCount).toBe(0);
+    } finally {
+      await database.pool.query(`DROP TRIGGER ${triggerName} ON app.jobs`);
+      await database.pool.query(`DROP FUNCTION app.${functionName}()`);
+    }
+
+    expect(await repository(a).delete(source.id)).toBe(true);
+    expect((await database.pool.query("SELECT execution_config,execution_backend_kind,execution_handle,started_at FROM app.deleted_job_provider_cleanup WHERE tenant_id=$1 AND run_id=$2", [a, run.id])).rows[0]).toMatchObject({
+      execution_config: expect.objectContaining({ connectionId: "test" }),
+      execution_backend_kind: "exe-vm",
+      execution_handle: handle,
+      started_at: expect.any(Date),
+    });
+    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, run.id])).rowCount).toBe(0);
   });
 
   it("stores and revokes an explicit self-invocation permission", async () => {

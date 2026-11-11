@@ -12,7 +12,7 @@ Terminal runs whose execution-provider cleanup is incomplete use a separate boun
 
 Explicit job deletion also snapshots every incomplete run's provider configuration, handle, and start evidence into `app.deleted_job_provider_cleanup` in the same transaction as the job cascade. This independent queue lets the maintenance lane stop or reconcile provider resources after the source job and run rows are gone. A started run without a saved handle stays queued for retry and manual reconciliation; a never-started run can be removed from the queue safely. R2 artifacts for explicit job deletion continue to be deleted before the database cascade so a storage failure leaves the authoritative keys available for retry.
 
-Successful cleanup removes its retry state from the run. Failed work retains only a bounded diagnostic string and retry timestamp; operator metrics and backlog dashboards remain follow-up work for this rollout.
+Successful cleanup removes its retry state from the run. Failed work retains only a bounded diagnostic string and retry timestamp. Each maintenance alarm emits a structured `run_retention_maintenance` log with sweep and artifact-cleanup progress plus pending counts and oldest age for terminal-provider cleanup, deleted-job provider cleanup, artifact objects, and overdue nonterminal runs. The snapshot contains no tenant, run, or object identifiers. A failed snapshot is logged separately and does not fail maintenance. These logs provide rollout evidence; a retained time-series dashboard and independent-history cleanup remain follow-up work.
 
 ## Rollout and recovery
 
