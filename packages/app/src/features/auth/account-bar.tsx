@@ -28,24 +28,24 @@ export function AccountBar() {
     },
   });
   const [open, setOpen] = useState(false), [search, setSearch] = useState(""), [active, setActive] = useState(0);
-  const [accountOpen, setAccountOpen] = useState(false);
-  const menu = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null), searchInput = useRef<HTMLInputElement>(null), accountMenu = useRef<HTMLDivElement>(null), accountTrigger = useRef<HTMLButtonElement>(null);
+  const [accountOpen, setAccountOpen] = useState(false), [mobileAccountOpen, setMobileAccountOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null), searchInput = useRef<HTMLInputElement>(null), accountMenu = useRef<HTMLDivElement>(null), accountTrigger = useRef<HTMLButtonElement>(null), mobileAccountMenu = useRef<HTMLDivElement>(null), mobileAccountTrigger = useRef<HTMLButtonElement>(null);
   const options = useMemo(() => (projects.data ?? []).filter(project => project.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [projects.data, search]);
   useEffect(() => {
     if (!open && !accountOpen) return;
     const click = (event: PointerEvent) => {
       if (open && !menu.current?.contains(event.target as Node)) setOpen(false);
-      if (accountOpen && !accountMenu.current?.contains(event.target as Node)) setAccountOpen(false);
+      if (accountOpen && !accountMenu.current?.contains(event.target as Node) && !mobileAccountMenu.current?.contains(event.target as Node)) setAccountOpen(false);
     };
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (open) { setOpen(false); trigger.current?.focus(); }
-        if (accountOpen) { setAccountOpen(false); accountTrigger.current?.focus(); }
+        if (accountOpen) { setAccountOpen(false); (mobileAccountOpen ? mobileAccountTrigger : accountTrigger).current?.focus(); }
       }
     };
     document.addEventListener("pointerdown", click); document.addEventListener("keydown", key);
     return () => { document.removeEventListener("pointerdown", click); document.removeEventListener("keydown", key); };
-  }, [open, accountOpen]);
+  }, [open, accountOpen, mobileAccountOpen]);
   const choose = (id: string) => { setOpen(false); setSearch(""); void navigate({ to: "/projects/$projectId", params: { projectId: id } }); };
   const email = session.data?.authenticated ? session.data.user.email ?? "" : "";
   const initials = (email || "?").split("@")[0].split(/[._-]/).filter(Boolean).slice(0, 2).map((part: string) => part[0]).join("").toUpperCase() || "?";
@@ -57,12 +57,20 @@ export function AccountBar() {
     <nav aria-label="Main navigation" className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-x-5 gap-y-3 px-4 py-3 sm:px-6 lg:px-8">
       <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
         <Link to="/" aria-label="Factorize dashboard" className="flex shrink-0 items-center"><img src={beeMark} alt="" className="size-8 object-contain" /></Link>
-        <span aria-hidden="true" className="h-8 w-px shrink-0 bg-stone-300 dark:bg-slate-700" />
-        {authenticated ? <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-          <Link to="/" title={session.data?.user.email} className="max-w-[38vw] truncate text-slate-700 hover:text-factorize-700 dark:text-slate-200 dark:hover:text-factorize-500 sm:max-w-56">{displayName}</Link>
-          {routeProjectId && <><span aria-hidden="true" className="text-slate-400">/</span><div ref={menu} className="relative flex min-w-0 items-center">
-          {currentProject ? <Link to="/projects/$projectId" params={{ projectId: currentProject.id }} className="max-w-[35vw] truncate text-slate-700 hover:text-factorize-700 dark:text-slate-200 sm:max-w-64">{currentProject.name}</Link> : routeProjectId ? <span className="truncate text-slate-600 dark:text-slate-300">{routeProject.isPending ? "Loading project…" : routeProject.error ? "Project unavailable" : "Project"}</span> : <Link to="/projects" className="truncate text-slate-600 hover:text-factorize-700 dark:text-slate-300 dark:hover:text-factorize-500">Projects</Link>}
-            <button ref={trigger} type="button" aria-label="Switch project" aria-haspopup="listbox" aria-expanded={open} className="ml-1 flex size-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-factorize-500 dark:text-slate-300 dark:hover:bg-slate-800" onClick={() => { setOpen(value => !value); setSearch(""); setActive(0); requestAnimationFrame(() => searchInput.current?.focus()); }}><svg aria-hidden="true" viewBox="0 0 20 20" className="size-4 fill-current"><path d="m5 7 5 5 5-5" /></svg></button>
+        <span aria-hidden="true" className="hidden h-8 w-px shrink-0 bg-stone-300 dark:bg-slate-700 sm:block" />
+        {authenticated ? <div className="flex min-w-0 flex-1 items-center gap-1 text-sm font-semibold sm:flex-initial sm:gap-2">
+          <Link to="/" title={session.data?.user.email} className="hidden max-w-[38vw] truncate text-slate-700 hover:text-factorize-700 dark:text-slate-200 dark:hover:text-factorize-500 sm:block sm:max-w-56">{displayName}</Link>
+          <div ref={mobileAccountMenu} className="relative min-w-0 sm:hidden">
+            <Button ref={mobileAccountTrigger} aria-expanded={accountOpen} aria-controls="mobile-profile-menu" onClick={() => { setMobileAccountOpen(true); setAccountOpen(!accountOpen); }} aria-label="Your account" className="!h-8 !min-h-8 !max-w-[24vw] !gap-1 !overflow-hidden !border-0 !bg-transparent !px-1 !py-0 text-sm font-semibold text-slate-700 dark:text-slate-200"><span className="truncate">{displayName}</span><svg aria-hidden="true" viewBox="0 0 20 20" className="size-4 shrink-0 fill-current"><path d="m5 7 5 5 5-5" /></svg></Button>
+            {accountOpen && mobileAccountOpen && <div id="mobile-profile-menu" className="absolute left-0 z-30 mt-2 w-64 rounded-xl border border-stone-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+              <p className="mb-3 break-all px-2 text-xs text-slate-600 dark:text-slate-300">{session.data?.user.email ?? ""}</p>
+              <Link to="/settings" onClick={() => setAccountOpen(false)} className="block rounded-lg px-3 py-3 text-sm hover:bg-stone-100 dark:hover:bg-slate-800">Settings</Link>
+              <Button className="mt-2 w-full" onClick={() => logout.mutate()} disabled={logout.isPending}>{logout.isPending ? "Signing out…" : "Sign out"}</Button>
+            </div>}
+          </div>
+          {routeProjectId && <><span aria-hidden="true" className="hidden text-slate-400 sm:inline">/</span><div ref={menu} className="relative flex min-w-0 items-center">
+          {currentProject ? <Link to="/projects/$projectId" params={{ projectId: currentProject.id }} className="min-w-0 max-w-[55vw] truncate text-slate-700 hover:text-factorize-700 dark:text-slate-200 sm:max-w-64">{currentProject.name}</Link> : <span className="truncate text-slate-600 dark:text-slate-300">{routeProject.isPending ? "Loading project…" : routeProject.error ? "Project unavailable" : "Project"}</span>}
+            <button ref={trigger} type="button" aria-label="Switch project" aria-haspopup="listbox" aria-expanded={open} className="ml-0 flex size-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-factorize-500 dark:text-slate-300 dark:hover:bg-slate-800 sm:ml-1" onClick={() => { setOpen(value => !value); setSearch(""); setActive(0); requestAnimationFrame(() => searchInput.current?.focus()); }}><svg aria-hidden="true" viewBox="0 0 20 20" className="size-4 fill-current"><path d="m5 7 5 5 5-5" /></svg></button>
             {open && <div className="absolute left-0 top-full z-40 mt-2 w-[min(19rem,calc(100vw-2rem))] rounded-xl border border-stone-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900">
               <label className="sr-only" htmlFor="project-switcher-search">Search projects</label>
               <input ref={searchInput} id="project-switcher-search" role="combobox" aria-autocomplete="list" aria-controls="project-switcher-options" aria-expanded="true" aria-activedescendant={options[active] ? `project-option-${options[active].id}` : undefined} value={search} onChange={event => { setSearch(event.target.value); setActive(0); }} onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); setActive(index => Math.min(index + 1, options.length - 1)); } else if (event.key === "ArrowUp") { event.preventDefault(); setActive(index => Math.max(index - 1, 0)); } else if (event.key === "Enter" && options[active]) { event.preventDefault(); choose(options[active].id); } }} placeholder="Search projects…" className="h-10 w-full rounded-lg border border-stone-300 bg-white px-3 text-sm outline-none focus:border-factorize-500 focus:ring-2 focus:ring-factorize-500/30 dark:border-slate-700 dark:bg-slate-950" />
@@ -80,8 +88,8 @@ export function AccountBar() {
       <div className="flex shrink-0 items-center gap-2 sm:gap-4">
         {authenticated && <SearchLauncher />}
         <ThemeToggle />
-        {authenticated ? <div ref={accountMenu} className="relative">
-          <Button ref={accountTrigger} aria-expanded={accountOpen} aria-controls="profile-menu" onClick={() => setAccountOpen(!accountOpen)} aria-label="Your account" className="!size-10 !min-h-10 !rounded-full !border-0 !bg-factorize-500 !p-0 text-sm font-semibold text-slate-950">{initials}</Button>
+        {authenticated ? <div ref={accountMenu} className="relative hidden sm:block">
+          <Button ref={accountTrigger} aria-expanded={accountOpen} aria-controls="profile-menu" onClick={() => { setMobileAccountOpen(false); setAccountOpen(!accountOpen); }} aria-label="Your account" className="!size-10 !min-h-10 !rounded-full !border-0 !bg-factorize-500 !p-0 text-sm font-semibold text-slate-950">{initials}</Button>
           {accountOpen && <div id="profile-menu" className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-stone-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
             <p className="mb-3 break-all px-2 text-xs text-slate-600 dark:text-slate-300">{session.data?.user.email ?? ""}</p>
             <Link to="/settings" onClick={() => setAccountOpen(false)} className="block rounded-lg px-3 py-3 text-sm hover:bg-stone-100 dark:hover:bg-slate-800">Settings</Link>
