@@ -320,6 +320,26 @@ test("main navigation shows the project switcher only inside a project", async (
   await page.getByRole("option", { name: /Release project/ }).waitFor();
   await context.close();
 });
+test("mobile main navigation truncates the account and project names without the logo divider", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
+  const longName = "long.username.for.mobile.navigation";
+  await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: `${longName}@example.test` }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } }));
+  await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "A very long release project name for mobile", description: "Project jobs", jobCount: 1 }] }));
+  await page.goto(origin + `/projects/${projectId}`);
+  const mainNav = page.getByRole("navigation", { name: "Main navigation" });
+  const divider = mainNav.locator("span.w-px");
+  assert.equal(await divider.evaluate(element => getComputedStyle(element).display), "none");
+  const account = mainNav.getByRole("button", { name: "Your account" });
+  await account.waitFor();
+  assert.equal(await account.locator("span").evaluate(element => getComputedStyle(element).textOverflow), "ellipsis");
+  assert.equal(await account.locator("span").evaluate(element => element.scrollWidth > element.clientWidth), true);
+  await account.click();
+  await page.locator("#mobile-profile-menu").getByRole("link", { name: "Settings", exact: true }).waitFor();
+  const project = mainNav.getByRole("link", { name: "A very long release project name for mobile" });
+  assert.equal(await project.evaluate(element => Number.parseFloat(getComputedStyle(element).maxWidth) > window.innerWidth * 0.35), true);
+  assert.equal(await mainNav.getByRole("button", { name: "Switch project" }).evaluate(element => getComputedStyle(element).marginLeft), "0px");
+  await context.close();
+});
 for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) test(`compact jobs grouping, pagination, focus and long titles at ${width} ${theme}`, async () => {
   const { page, context } = await contextFor({ viewport: { width, height: 844 }, colorScheme: theme });
   const longTitle = "Zulu " + "long title ".repeat(30);
