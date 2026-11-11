@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { runStatusQuery } from "./queries";
 import { jobQuery } from "../jobs/queries";
-import { ProjectNav } from "../projects/project-nav";
+import { JobNav } from "../jobs/job-nav";
 import { messageOf } from "../auth/session";
 function RuntimeInfo({ startedAt, updatedAt, active }: { startedAt: string | null; updatedAt: string; active: boolean }) {
   const [now, setNow] = useState(() => Date.now());
@@ -94,7 +94,5 @@ export function RunDetail() {
     <ContinuousTrace key={`${revision}:${fullTrace}`} runId={runId!} revision={revision} active={active} visible={fullTrace || tab === "trace"} preview={!fullTrace} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />
     </section>}
   </>;
-  return job.data?.projectId
-    ? <ProjectNav tab="runs" projectId={job.data.projectId}>{content}</ProjectNav>
-    : <Page className="max-w-6xl">{content}</Page>;
+  return <>{job.data?.projectId && <JobNav jobId={job.data.id} tab="runs" />}<Page className="max-w-6xl pt-6 sm:pt-8">{content}</Page></>;
 }

@@ -18,12 +18,13 @@ import { messageOf } from "../auth/session";
 import { projectQuery, projectsQuery } from "../projects/queries";
 import { AutosaveStatus, useDebouncedAutosave } from "../../shared/use-debounced-autosave";
 import { skillsQuery } from "../skills/queries";
+import { JobNav } from "./job-nav";
 export function JobEditor() {
   const { jobId } = useParams({ strict: false });
   const job = useQuery({ ...jobQuery(jobId ?? ""), enabled: !!jobId });
   if (jobId && job.isPending) return <Page className="p-6"><p role="status">Loading job configuration…</p></Page>;
   if (jobId && job.error) return <Page className="p-6"><p role="alert">{job.error.message}</p></Page>;
-  return <EditorForm key={jobId ?? "new"} initial={job.data} />;
+  return <>{job.data?.projectId && <JobNav jobId={job.data.id} tab="settings" />}<EditorForm key={jobId ?? "new"} initial={job.data} /></>;
 }
 function EditorForm({ initial }: { initial?: Job }) {
   const location = useLocation(), navigate = useNavigate(), cache = useQueryClient();
