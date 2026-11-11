@@ -4,6 +4,8 @@ import { consumeProxyEnrollment, createProxyEnrollmentAuthenticator, issueProxyE
 
 const token = `fzc_${"A".repeat(43)}`;
 const bootEpoch = "22222222-2222-4222-8222-222222222222";
+const runId = "33333333-3333-4333-8333-333333333333";
+const runCredential = `fzt_run_${Buffer.from(runId).toString("base64url")}_${"R".repeat(43)}`;
 
 test("boot registration uses a one-call control credential, HTTPS, exact path and fresh process epoch", async () => {
   let request;
@@ -74,7 +76,8 @@ test("proxy enrollment authenticator binds issued and consumed state to the mTLS
     },
   });
   const connection = await authenticateRun({
-    runId: "33333333-3333-4333-8333-333333333333",
+    runId,
+    runCredential,
     vmIdentity: "fly:vm-1",
     bootEpoch,
   });
@@ -83,8 +86,8 @@ test("proxy enrollment authenticator binds issued and consumed state to the mTLS
     "https://factorize.example/internal/credential-proxy/consume-enrollment",
   ]);
   assert.deepEqual(requests.map(request => request.body), [
-    { runId: "33333333-3333-4333-8333-333333333333", vmIdentity: "fly:vm-1" },
-    { runId: "33333333-3333-4333-8333-333333333333", vmIdentity: "fly:vm-1", enrollmentToken: "e".repeat(43) },
+    { runId, vmIdentity: "fly:vm-1", runCredential },
+    { runId, vmIdentity: "fly:vm-1", enrollmentToken: "e".repeat(43) },
   ]);
   assert.ok(requests.every(request => request.init.headers.Authorization === `Bearer ${controlToken}`));
   assert.equal(connection.authenticated, true);
@@ -94,9 +97,12 @@ test("proxy enrollment authenticator binds issued and consumed state to the mTLS
   assert.equal(connection.connectionId, "enrollment-1");
   assert.deepEqual(connection.grants, grants);
   await assert.rejects(authenticateRun({
-    runId: "33333333-3333-4333-8333-333333333333",
+    runId,
+    runCredential,
     vmIdentity: "fly:vm-1",
     bootEpoch: "44444444-4444-4444-8444-444444444444",
   }), /invalid proxy enrollment identity/);
   assert.equal(requests.length, 2, "a stale boot cannot issue another enrollment");
+  await assert.rejects(authenticateRun({ runId, vmIdentity: "fly:vm-1", bootEpoch }), /invalid proxy enrollment identity/);
+  assert.equal(requests.length, 2, "a missing job run credential cannot issue enrollment");
 });

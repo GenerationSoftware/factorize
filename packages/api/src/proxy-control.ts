@@ -1,6 +1,7 @@
 import { databaseFor } from "./postgres/database";
 import { ProxyControlRepository } from "./postgres/proxy-control-repository";
 import { RunEnrollmentRepository } from "./postgres/run-enrollment-repository";
+import { authenticateRunCredential } from "./run-credentials";
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
@@ -41,9 +42,18 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
   if (!proxy) return json({ error: "unauthorized" }, 401);
   const enrollments = new RunEnrollmentRepository(databaseFor(env));
   if (url.pathname === "/internal/credential-proxy/enroll") {
-    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["runId", "vmIdentity"].includes(key))
-      || typeof (body as any).runId !== "string" || typeof (body as any).vmIdentity !== "string") return json({ error: "invalid_request" }, 400);
-    const enrollment = await enrollments.issue({ tenantId: proxy.tenantId, runId: (body as any).runId, vmIdentity: (body as any).vmIdentity, proxyIdentity: proxy.proxyIdentity, bootEpoch: proxy.bootEpoch }, new Date(Date.now() + 30_000));
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["runId", "vmIdentity", "runCredential"].includes(key))
+      || typeof (body as any).runId !== "string" || typeof (body as any).vmIdentity !== "string" || typeof (body as any).runCredential !== "string"
+      || (body as any).vmIdentity.length === 0 || (body as any).vmIdentity.length > 255) return json({ error: "invalid_request" }, 400);
+    // A proxy-authenticated request alone must not let a peer that can reach
+    // the proxy claim another active run. The VM's distinct run credential is
+    // validated against the current run and tenant before issuing enrollment.
+    const runAuth = await authenticateRunCredential(new Request(request.url, {
+      headers: { Authorization: `Bearer ${(body as any).runCredential}` },
+    }), env);
+    if (!runAuth || runAuth.runId !== (body as any).runId || runAuth.tenantId !== proxy.tenantId
+        || !runAuth.scopes.includes("integrations:read")) return json({ error: "enrollment_unavailable" }, 403);
+    const enrollment = await enrollments.issue({ tenantId: proxy.tenantId, runId: runAuth.runId, vmIdentity: (body as any).vmIdentity, proxyIdentity: proxy.proxyIdentity, bootEpoch: proxy.bootEpoch }, new Date(Date.now() + 30_000));
     return enrollment ? json(enrollment) : json({ error: "enrollment_unavailable" }, 403);
   }
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["runId", "vmIdentity", "enrollmentToken"].includes(key))

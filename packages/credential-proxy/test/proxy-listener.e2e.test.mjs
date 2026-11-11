@@ -223,11 +223,12 @@ test("VM helper uses mutual TLS and consumed enrollment to reach only its grante
   }
 });
 
-test("VM helper sends only run identity while the proxy performs authenticated enrollment", { timeout: 5_000 }, async () => {
+test("VM helper authenticates the active run while the proxy performs authenticated enrollment", { timeout: 5_000 }, async () => {
   const runtime = createProxyRuntime();
   const requests = [];
   const enrollmentId = "11111111-1111-4111-8111-111111111111";
   const runId = "33333333-3333-4333-8333-333333333333";
+  const runCredential = `fzt_run_${Buffer.from(runId).toString("base64url")}_${"R".repeat(43)}`;
   const tunnel = await startAuthenticatedProxyTunnel({
     tls: { key, cert, ca: cert },
     runtime,
@@ -259,6 +260,7 @@ test("VM helper sends only run identity while the proxy performs authenticated e
   const local = await startVmTunnelHelper({
     tls: { key, cert, ca: cert, servername: "api.example.test" },
     runId,
+    runCredential,
     proxyHost: "127.0.0.1",
     proxyPort: tunnel.address().port,
   });
@@ -268,7 +270,7 @@ test("VM helper sends only run identity while the proxy performs authenticated e
     assert.deepEqual(requests.map(({ url, authorization, body }) => ({
       path: new URL(url).pathname, authorization, body,
     })), [
-      { path: "/internal/credential-proxy/enroll", authorization: `Bearer fzc_${"c".repeat(43)}`, body: { runId, vmIdentity: "api.example.test" } },
+      { path: "/internal/credential-proxy/enroll", authorization: `Bearer fzc_${"c".repeat(43)}`, body: { runId, vmIdentity: "api.example.test", runCredential } },
       { path: "/internal/credential-proxy/consume-enrollment", authorization: `Bearer fzc_${"c".repeat(43)}`, body: { runId, vmIdentity: "api.example.test", enrollmentToken: "e".repeat(43) } },
     ]);
   } finally {
