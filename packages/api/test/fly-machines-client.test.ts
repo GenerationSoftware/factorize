@@ -116,10 +116,13 @@ describe("bounded Fly Machines client", () => {
   it("times out a stalled response and reconciles an ambiguous create by operation id", async () => {
     const machines: FlyMachine[] = [];
     let createCount = 0;
+    let markCreateReceived!: () => void;
+    const createReceived = new Promise<void>(resolve => { markCreateReceived = resolve; });
     const origin = await fakeFly(async (req, res) => {
       if (req.method === "GET") return json(res, 200, machines);
       if (req.method === "POST") {
         createCount++;
+        markCreateReceived();
         let raw = ""; for await (const chunk of req) raw += chunk;
         const body = JSON.parse(raw);
         const machine = { id: "m-created", config: body.config };
@@ -129,7 +132,15 @@ describe("bounded Fly Machines client", () => {
       }
     });
     const client = createFlyMachinesClient({ token, apiOrigin: origin, timeoutMs: 1_000, maxRetries: 0 });
-    const created = await client.createMachine("app", { image: "image" }, "op-ambiguous");
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let created: FlyMachine;
+    try {
+      const creation = client.createMachine("app", { image: "image" }, "op-ambiguous");
+      await Promise.race([createReceived, new Promise<never>((_, reject) => {
+        deadline = setTimeout(() => reject(new Error("Fake Fly server did not receive the ambiguous create")), 5_000);
+      })]);
+      created = await creation;
+    } finally { if (deadline) clearTimeout(deadline); }
     expect(created.id).toBe("m-created");
     expect(createCount).toBe(1);
   });
