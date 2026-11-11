@@ -37,7 +37,8 @@ test("run page errors back off for ten seconds and recover to the idle interval"
   await page.clock.runFor(16_100); await page.getByRole("alert").filter({ hasText: "Try again" }).waitFor();
   assert.equal(count, 3, "the idle refetch and its single retry should expose an error");
   await page.clock.runFor(9000); assert.equal(count, 3, "errors should wait about ten seconds before another query");
-  await page.clock.runFor(1100); await page.getByRole("link", { name: "Polling run", exact: true }).waitFor(); assert.equal(count, 4, "the ten-second error interval should retry and recover");
+  const recoveredResponse = page.waitForResponse(response => response.url().includes("/api/v1/runs?") && response.status() === 200);
+  await page.clock.runFor(1100); await recoveredResponse; await page.getByRole("link", { name: "Polling run", exact: true }).waitFor(); assert.equal(count, 4, "the ten-second error interval should retry and recover");
   await page.clock.runFor(14999); assert.equal(count, 4, "a successful response should return to the 15-second idle interval");
   await page.clock.runFor(1); assert.equal(count, 5);
   await context.close();
@@ -103,7 +104,10 @@ test("all-runs status header supports multi-select filtering, independent sortin
   await page.mouse.click(1200, 700);
   await dialog.waitFor({ state: "hidden" });
   await page.getByRole("button", { name: /Status, 2 statuses selected/ }).click();
-  await page.getByRole("dialog", { name: "Status filter and sort" }).getByRole("button", { name: "Clear filters and reset sort" }).click(); await page.waitForFunction(() => { const params = new URLSearchParams(location.search); return location.pathname === "/job-runs" && !params.has("state") && !params.has("states"); }); assert.equal(requests.at(-1).searchParams.has("state"), false); await context.close();
+  const requestCountBeforeClear = requests.length;
+  await page.getByRole("dialog", { name: "Status filter and sort" }).getByRole("button", { name: "Clear filters and reset sort" }).click(); await page.waitForFunction(() => { const params = new URLSearchParams(location.search); return location.pathname === "/job-runs" && !params.has("state") && !params.has("states"); });
+  assert.equal(await page.getByRole("link", { name: "Run", exact: true }).count(), 1);
+  assert.ok(requests.slice(requestCountBeforeClear).every(url => !url.searchParams.has("state")), "clearing statuses must not issue a request with stale status filters"); await context.close();
 });
 test("all-runs combines independent project and job filters, preserves them through pagination, and toggles row filters", async () => {
   const { context, page } = await setup(); const requests = [], projectA = "00000000-0000-4000-8000-000000000003", jobA = "00000000-0000-4000-8000-000000000001";
