@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { mockApi, screens, jobId, projectId } from "../visual/fixtures.mjs";
+import { mockApi, screens, jobId, projectId, project, job } from "../visual/fixtures.mjs";
 
 let server;
 let origin;
@@ -76,6 +76,88 @@ test("loading, search, error and no-result states are actionable", async ({ page
   await expect(page.getByRole("option")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("project and job child requests start after session but do not wait for their detail requests", async ({ page }) => {
+  const requests = [];
+  let releaseProject, releaseJobs, releaseJob, releaseHistory;
+  const projectGate = new Promise(resolve => { releaseProject = resolve; });
+  const jobsGate = new Promise(resolve => { releaseJobs = resolve; });
+  const jobGate = new Promise(resolve => { releaseJob = resolve; });
+  const historyGate = new Promise(resolve => { releaseHistory = resolve; });
+  await page.route("**/api/v1/**", async route => {
+    const url = new URL(route.request().url()), path = url.pathname;
+    requests.push({ path, search: url.search });
+    if (path === "/api/v1/session") return route.fulfill({ json: { authenticated: true, user: { id: "owner" }, workspace: { id: "tenant", name: "Release" }, capabilities: [] } });
+    if (path === `/api/v1/projects/${projectId}`) { await projectGate; return route.fulfill({ json: project }); }
+    if (path === "/api/v1/job-summaries") { await jobsGate; return route.fulfill({ json: { items: [], nextCursor: null } }); }
+    if (path === `/api/v1/jobs/${jobId}`) { await jobGate; return route.fulfill({ json: job }); }
+    if (path === "/api/v1/runs") { await historyGate; return route.fulfill({ json: { items: [], nextCursor: null } }); }
+    return route.fulfill({ json: [] });
+  });
+
+  const projectNavigation = page.goto(`${origin}/projects/${projectId}?q=release&sort=title&order=desc`);
+  await expect.poll(() => requests.map(request => request.path)).toContain("/api/v1/session");
+  await expect.poll(() => requests.map(request => request.path)).toContain(`/api/v1/projects/${projectId}`);
+  await expect.poll(() => requests.map(request => request.path)).toContain("/api/v1/job-summaries");
+  expect(requests.find(request => request.path === "/api/v1/job-summaries").search).toContain(`projectId=${projectId}`);
+  expect(requests.find(request => request.path === "/api/v1/job-summaries").search).toContain("q=release");
+  releaseProject();
+  await projectNavigation;
+  await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
+  expect(await page.getByRole("status").filter({ hasText: "Loading jobs…" }).isVisible()).toBe(true);
+  releaseJobs();
+  await expect(page.getByRole("status").filter({ hasText: "Loading jobs…" })).toHaveCount(0);
+
+  const jobNavigation = page.goto(`${origin}/jobs/${jobId}?cursor=cursor-1&sort=created&direction=desc&states=failed`);
+  await expect.poll(() => requests.map(request => request.path)).toContain(`/api/v1/jobs/${jobId}`);
+  await expect.poll(() => requests.filter(request => request.path === "/api/v1/runs").length).toBe(1);
+  const historySearch = requests.find(request => request.path === "/api/v1/runs").search;
+  expect(historySearch).toContain("jobId=");
+  expect(historySearch).toContain("cursor=cursor-1");
+  expect(historySearch).toContain("sort=created");
+  expect(historySearch).toContain("direction=desc");
+  expect(historySearch).toContain("state=failed");
+  releaseJob();
+  await jobNavigation;
+  await expect(page.getByRole("heading", { name: job.name, exact: true })).toBeVisible();
+  expect(await page.getByRole("status").filter({ hasText: "Loading run history…" }).isVisible()).toBe(true);
+  releaseHistory();
+  await expect(page.getByRole("status").filter({ hasText: "Loading run history…" })).toHaveCount(0);
+});
+
+test("intent preloading reuses project detail and jobs queries on click", async ({ page }) => {
+  const requestCounts = new Map();
+  await page.route("**/api/v1/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    requestCounts.set(path, (requestCounts.get(path) ?? 0) + 1);
+    if (path === "/api/v1/session") return route.fulfill({ json: { authenticated: true, user: { id: "owner" }, workspace: { id: "tenant", name: "Release" }, capabilities: [] } });
+    if (path === "/api/v1/projects") return route.fulfill({ json: [project] });
+    if (path === `/api/v1/projects/${projectId}`) return route.fulfill({ json: project });
+    if (path === "/api/v1/job-summaries") return route.fulfill({ json: { items: new URL(route.request().url()).searchParams.has("projectId") ? [] : [job], nextCursor: null } });
+    if (path === `/api/v1/jobs/${jobId}`) return route.fulfill({ json: job });
+    if (path === "/api/v1/runs") return route.fulfill({ json: { items: [], nextCursor: null } });
+    return route.fulfill({ json: [] });
+  });
+  await page.goto(`${origin}/projects`);
+  const projectLink = page.getByRole("link", { name: new RegExp(project.name) });
+  await projectLink.hover();
+  await expect.poll(() => requestCounts.get(`/api/v1/projects/${projectId}`) ?? 0).toBe(1);
+  await expect.poll(() => requestCounts.get("/api/v1/job-summaries") ?? 0).toBe(1);
+  await projectLink.click();
+  await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
+  expect(requestCounts.get(`/api/v1/projects/${projectId}`)).toBe(1);
+  expect(requestCounts.get("/api/v1/job-summaries")).toBe(1);
+
+  await page.goto(`${origin}/jobs`);
+  const jobLink = page.getByRole("link", { name: job.name, exact: true });
+  await jobLink.hover();
+  await expect.poll(() => requestCounts.get(`/api/v1/jobs/${jobId}`) ?? 0).toBe(1);
+  await expect.poll(() => requestCounts.get("/api/v1/runs") ?? 0).toBe(1);
+  await jobLink.click();
+  await expect(page.getByRole("heading", { name: job.name, exact: true })).toBeVisible();
+  expect(requestCounts.get(`/api/v1/jobs/${jobId}`)).toBe(1);
+  expect(requestCounts.get("/api/v1/runs")).toBe(1);
 });
 
 test("conversation trace renders assistant messages and uses document scrolling", async ({ page }) => {

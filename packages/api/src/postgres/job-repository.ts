@@ -23,10 +23,17 @@ export class PostgresJobRepository implements JobRepository {
     return result.rows[0].id as string;
   }
   private async mapped(row: JobRow, db: any = this.database.orm, loadedTriggers?: TriggerRow[], loadedSkills?: any[]): Promise<Job> {
-    const triggerRows: TriggerRow[] = loadedTriggers ?? await db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
-    const skillRows = loadedSkills?.filter(skill => skill.job_id === row.id) ?? (db === this.database.orm
-      ? (await this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.job_id=$2 ORDER BY js.position", [this.tenantId, row.id])).rows
-      : (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.job_id=${row.id}::uuid ORDER BY js.position`)).rows);
+    let triggerRows: TriggerRow[];
+    let skillRows: any[];
+    if (db === this.database.orm) {
+      [triggerRows, skillRows] = await Promise.all([
+        loadedTriggers ?? db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id),
+        loadedSkills?.filter(skill => skill.job_id === row.id) ?? this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.job_id=$2 ORDER BY js.position", [this.tenantId, row.id]).then(result => result.rows),
+      ]);
+    } else {
+      triggerRows = loadedTriggers ?? await db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
+      skillRows = loadedSkills?.filter(skill => skill.job_id === row.id) ?? (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.job_id=${row.id}::uuid ORDER BY js.position`)).rows;
+    }
     return { id: row.id, runScopes: row.runScopes ?? [...DEFAULT_RUN_SCOPES], projectId: row.projectId, name: row.name, slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), executionType: row.executionConfig.executionType ?? "agent", script: row.executionConfig.script, runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), selectedSkills: await Promise.all(skillRows.map(async (skill: any) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: await this.decrypt(skill.encrypted_body), position: skill.position }))), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
