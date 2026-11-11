@@ -1310,6 +1310,9 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        description:
+          type: string
+          maxLength: 2000
         slug:
           type: string
           pattern: ^[a-z][a-z0-9_-]{0,29}$
@@ -7730,6 +7733,8 @@ paths:
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   name:
                     type: string
+                  description:
+                    type: string
                   slug:
                     type: string
                   enabled:
@@ -8554,6 +8559,8 @@ paths:
                       pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                     name:
                       type: string
+                    description:
+                      type: string
                     slug:
                       type: string
                     enabled:
@@ -9144,6 +9151,8 @@ paths:
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   name:
+                    type: string
+                  description:
                     type: string
                   slug:
                     type: string
@@ -10229,6 +10238,8 @@ paths:
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   name:
                     type: string
+                  description:
+                    type: string
                   slug:
                     type: string
                   enabled:
@@ -10833,6 +10844,8 @@ paths:
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   name:
                     type: string
+                  description:
+                    type: string
                   slug:
                     type: string
                   enabled:
@@ -11425,6 +11438,9 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 120
+                description:
+                  type: string
+                  maxLength: 2000
                 slug:
                   type: string
                   pattern: ^[a-z][a-z0-9_-]{0,29}$

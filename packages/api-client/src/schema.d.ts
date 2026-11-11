@@ -2441,6 +2441,7 @@ export interface components {
             /** Format: uuid */
             projectId?: string;
             name: string;
+            description?: string;
             slug: string;
             /** @enum {string} */
             executionType?: "agent" | "code";
@@ -5837,6 +5838,7 @@ export interface operations {
                         /** Format: uuid */
                         projectId?: string;
                         name: string;
+                        description?: string;
                         slug: string;
                         enabled: boolean;
                         /** @enum {string} */
@@ -6133,6 +6135,7 @@ export interface operations {
                         /** Format: uuid */
                         projectId?: string;
                         name: string;
+                        description?: string;
                         slug: string;
                         enabled: boolean;
                         /** @enum {string} */
@@ -6341,6 +6344,7 @@ export interface operations {
                         /** Format: uuid */
                         projectId?: string;
                         name: string;
+                        description?: string;
                         slug: string;
                         enabled: boolean;
                         /** @enum {string} */
@@ -6831,6 +6835,7 @@ export interface operations {
                         /** Format: uuid */
                         projectId?: string;
                         name: string;
+                        description?: string;
                         slug: string;
                         enabled: boolean;
                         /** @enum {string} */
@@ -7029,6 +7034,7 @@ export interface operations {
                     /** Format: uuid */
                     projectId?: string;
                     name: string;
+                    description?: string;
                     slug: string;
                     /** @enum {string} */
                     executionType?: "agent" | "code";
@@ -7166,6 +7172,7 @@ export interface operations {
                         /** Format: uuid */
                         projectId?: string;
                         name: string;
+                        description?: string;
                         slug: string;
                         enabled: boolean;
                         /** @enum {string} */
