@@ -705,11 +705,16 @@ test("job Runs tab paginates distinct records, supports refresh/back and keeps c
   const region = page.getByRole("region", { name: "Runs table" }); await region.focus(); assert.equal(await region.evaluate(el => el === document.activeElement), true);
   assert.ok(cursors.includes("page-2") && cursors.includes("page-3"));
   await page.goto(origin + `/jobs/${jobId}/settings`);
-  await page.getByRole("heading", { name: "Review builds", exact: true }).waitFor();
-  assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Review builds", exact: true }).count(), 0);
-  assert.equal(await page.getByText("codex · Default model · 0/2 running", { exact: true }).count(), 0);
-  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).count(), 1);
-  assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 1);
+  await page.getByRole("heading", { name: "General", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).pathname, `/jobs/${jobId}/settings/general`);
+  assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
+  assert.equal(await page.getByRole("navigation", { name: "Job settings sections" }).getByRole("link").count(), 5);
+  assert.equal(await page.getByRole("navigation", { name: "Job views" }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Run job", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Disable job", exact: true }).count(), 0);
+  await page.getByRole("navigation", { name: "Job settings sections" }).getByRole("link", { name: "Execution" }).click();
+  await page.getByRole("heading", { name: "Execution", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("VM image").count(), 1);
   await context.close();
 });
 

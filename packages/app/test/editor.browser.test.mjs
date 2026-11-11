@@ -25,15 +25,15 @@ test("stale editor reconciles non-overlapping fields, requires explicit conflict
   await page.route(`**/api/v1/jobs/${id}`, route => {
     if (route.request().method() === "GET") return route.fulfill({ json: current });
     const body = route.request().postDataJSON(); writes.push(body);
-    if (writes.length === 1) { current = { ...current, name: "Someone else's name", concurrencyLimit: 4, updatedAt: "2026-10-09T13:00:00.000Z" }; return route.fulfill({ status: 409, json: { error: { code: "stale_job", message: "This job changed" } } }); }
+    if (writes.length === 1) { current = { ...current, name: "Someone else's name", description: "Latest description", updatedAt: "2026-10-09T13:00:00.000Z" }; return route.fulfill({ status: 409, json: { error: { code: "stale_job", message: "This job changed" } } }); }
     current = { ...current, ...body }; return route.fulfill({ json: current });
   });
-  await page.goto(origin + `/jobs/${id}/edit`); await page.getByLabel("Name", { exact: true }).fill("My name"); await page.getByLabel("Prompt template", { exact: true }).fill("My prompt");
+  await page.goto(origin + `/jobs/${id}/settings/general`); await page.getByLabel("Name", { exact: true }).fill("My name"); await page.getByLabel("Slug").fill("my-slug");
   await page.getByRole("alert").filter({ hasText: "This job changed while you were editing" }).waitFor(); await page.getByRole("button", { name: "Reconcile my changes" }).click();
   await page.getByRole("button", { name: "Keep latest name" }).click();
-  assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), "Someone else's name"); assert.equal(await page.getByLabel("Prompt template", { exact: true }).inputValue(), "My prompt"); assert.equal(await page.getByLabel("Concurrency limit").inputValue(), "4");
+  assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), "Someone else's name"); assert.equal(await page.getByLabel("Slug").inputValue(), "my-slug");
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
-  assert.equal(writes[0].expectedUpdatedAt, initial.updatedAt); assert.equal(writes[1].expectedUpdatedAt, "2026-10-09T13:00:00.000Z"); assert.equal(writes[1].triggers[0].id, triggerId); assert.equal(writes[1].triggers[0].slug, "trigger-1"); assert.equal(writes[1].promptTemplate, "My prompt"); await context.close();
+  assert.equal(writes[0].expectedUpdatedAt, initial.updatedAt); assert.equal(writes[1].expectedUpdatedAt, "2026-10-09T13:00:00.000Z"); assert.equal(writes[1].triggers[0].id, triggerId); assert.equal(writes[1].triggers[0].slug, "trigger-1"); assert.equal(writes[1].slug, "my-slug"); await context.close();
 });
 test("All runs complete source jobs stay within the edited job project during search and save", async () => {
   const { context, page } = await setup();
@@ -54,16 +54,20 @@ test("All runs complete source jobs stay within the edited job project during se
     ];
     return route.fulfill({ json: { items: allJobs.filter(job => job.projectId === projectId && job.name.toLowerCase().includes(q.toLowerCase())).map(({ projectId: _projectId, ...job }) => job), nextCursor: null } });
   });
-  await page.goto(origin + `/jobs/${id}/edit`);
+  await page.goto(origin + `/jobs/${id}/settings/triggers`);
   await page.getByLabel("Search source jobs").fill("Alpha");
   await page.getByLabel("Alpha source", { exact: true }).check();
   assert.equal(await page.getByLabel("Alpha other", { exact: true }).count(), 0);
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   assert.ok(selectorRequests.length > 0);
   assert.ok(selectorRequests.filter(url => url.searchParams.has("projectId")).every(url => url.searchParams.get("projectId") === projectA));
-  assert.ok(selectorRequests.some(url => !url.searchParams.has("projectId")), "manual permission selector lists tenant jobs across projects");
   assert.ok(selectorRequests.some(url => url.searchParams.get("q") === "Alpha"));
   assert.deepEqual(saved.triggers[0].config.sourceJobIds, [sameProjectJob]);
+  const manualSelector = page.waitForResponse(response => { const url = new URL(response.url()); return url.pathname === "/api/v1/job-selector" && !url.searchParams.has("projectId"); });
+  await page.goto(origin + `/jobs/${id}/settings/permissions`);
+  await page.getByRole("heading", { name: "Manual invocation permissions" }).waitFor();
+  await manualSelector;
+  assert.ok(selectorRequests.some(url => !url.searchParams.has("projectId")), "manual permission selector lists tenant jobs across projects");
   assert.equal(projectA, current.projectId); assert.notEqual(projectA, projectB);
   await context.close();
 });
@@ -76,7 +80,7 @@ test("run permission scopes autosave and survive reload", async () => {
     current = { ...current, ...saved, updatedAt: "2026-11-06T00:00:00.000Z" };
     return route.fulfill({ json: current });
   });
-  await page.goto(origin + `/jobs/${id}/edit`);
+  await page.goto(origin + `/jobs/${id}/settings/permissions`);
   await page.getByRole("checkbox", { name: "Run scope jobs:write", exact: true }).check();
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   assert.deepEqual(saved.runScopes, ["jobs:read", "runs:read", "jobs:write"]);
@@ -98,7 +102,7 @@ test("manual invocation permissions include the current job and tenant jobs from
     saved = route.request().postDataJSON(); return route.fulfill({ json: { sourceJobId: id, ...saved } });
   });
   await page.route("**/api/v1/job-selector?**", route => { selectorUrl = new URL(route.request().url()); return route.fulfill({ json: { items: [{ id: destination, name: "Cross project destination", slug: "cross-project", enabled: true }], nextCursor: null } }); });
-  await page.goto(origin + `/jobs/${id}/edit`);
+  await page.goto(origin + `/jobs/${id}/settings/permissions`);
   await page.getByLabel("Current job (allow this job to invoke itself)", { exact: true }).check();
   await page.getByLabel("Cross project destination", { exact: true }).check();
   await page.getByRole("button", { name: "Save permissions" }).click();
@@ -136,7 +140,7 @@ test("image verification is explicit, autosave never provisions, and stale verif
     return route.fulfill({ json: { id: "00000000-0000-4000-8000-000000000112", status: "queued", phase: "queued", errorKind: null, error: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } });
   });
   await page.route("**/api/v1/vm-image-verifications/*", route => route.fulfill({ json: { id: "00000000-0000-4000-8000-000000000112", status: "succeeded", phase: "Verification passed. Image pull, SSH, and agent prerequisites worked at this time.", errorKind: null, error: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }));
-  await page.goto(origin + `/jobs/${id}/edit`); await page.getByLabel("VM image").fill("ghcr.io/acme/base:one");
+  await page.goto(origin + `/jobs/${id}/settings/execution`); await page.getByLabel("VM image").fill("ghcr.io/acme/base:one");
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor(); assert.equal(createCount, 0);
   await page.getByRole("button", { name: "Verify image" }).click(); await page.getByText("Starting verification…").waitFor(); await page.getByLabel("VM image").fill("ghcr.io/acme/base:two"); releaseCreate();
   await page.getByRole("status").filter({ hasText: "Not verified" }).waitFor(); assert.equal(createCount, 1);
@@ -151,23 +155,21 @@ test("image verification is explicit, autosave never provisions, and stale verif
 test("template insertion escapes values and navigation protects unsaved work", async t => {
   const { context, page } = await setup(); t.after(() => context.close());
   // Keep a save in flight so navigation always exercises a genuinely dirty draft.
-  await page.route(`**/api/v1/jobs/${id}`, route => route.request().method() === "GET" ? route.fulfill({ json: initial }) : undefined);
-  await page.goto(origin + `/jobs/${id}/edit`); await page.getByText("Insert a prompt template variable", { exact: true }).click(); await page.getByLabel("Prompt template", { exact: true }).focus(); await page.getByLabel("Prompt template", { exact: true }).press("End"); await page.getByRole("button", { name: "trigger-1.prompt", exact: true }).click();
+  await page.route(`**/api/v1/jobs/${id}`, route => route.request().method() === "GET" ? route.fulfill({ json: { ...initial, projectId: "project" } }) : undefined);
+  await page.goto(origin + `/jobs/${id}/settings/context`); await page.getByText("Insert a prompt template variable", { exact: true }).click(); await page.getByLabel("Prompt template", { exact: true }).focus(); await page.getByLabel("Prompt template", { exact: true }).press("End"); await page.getByRole("button", { name: "trigger-1.prompt", exact: true }).click();
   assert.equal(await page.getByLabel("Prompt template", { exact: true }).inputValue(), "Original prompt{{trigger-1.prompt}}");
-  let blocked = false; page.once("dialog", async dialog => { blocked = true; await dialog.dismiss(); }); await page.locator("main").getByRole("link", { name: "Projects", exact: true }).click(); assert.equal(blocked, true); assert.ok(page.url().includes("/settings")); await context.close();
+  let blocked = false; page.once("dialog", async dialog => { blocked = true; await dialog.dismiss(); }); await page.getByRole("navigation", { name: "Job navigation" }).getByRole("link", { name: "Runs", exact: true }).click(); assert.equal(blocked, true); assert.ok(page.url().includes("/settings")); await context.close();
 });
 test("provider editor fetches only the selected provider and submits project/matching/conditions configuration explicitly", async () => {
   const { context, page } = await setup(); const reads = [], writes = []; let current = structuredClone(initial);
   await page.route(`**/api/v1/jobs/${id}`, route => { if (route.request().method() === "GET") return route.fulfill({ json: current }); const body = route.request().postDataJSON(); writes.push(body); current = { ...current, ...body, triggers: body.triggers.map((trigger, index) => ({ ...trigger, id: trigger.id ?? `00000000-0000-4000-8000-00000000000${index + 4}`, jobId: id, createdAt: initial.createdAt, updatedAt: initial.updatedAt })) }; return route.fulfill({ json: current }); });
   await page.route("**/api/v1/providers/**", route => { reads.push(new URL(route.request().url()).pathname); return route.fulfill({ json: route.request().url().endsWith("/projects") ? [{ id: "project", name: "Release" }] : { statuses: [{ id: "done", name: "Done" }], users: [], labels: [] } }); });
   let conditionTests = 0; await page.route("**/api/v1/job-conditions/test", route => { conditionTests++; return route.fulfill({ json: { decision: "match", details: [] } }); });
-  await page.goto(origin + `/jobs/${id}/edit`); assert.equal(reads.length, 0);
+  await page.goto(origin + `/jobs/${id}/settings/triggers`); assert.equal(reads.length, 0);
   // Invalid input suspends autosave while this test assembles the complete configuration.
-  await page.getByLabel("Name", { exact: true }).fill("");
   await page.getByLabel("New trigger kind").selectOption("webhook"); await page.getByRole("button", { name: "Add trigger" }).click();
   await page.getByLabel("Linear project").selectOption("project"); await page.getByRole("button", { name: "Add matching rule" }).click(); await page.getByLabel("Match value").selectOption("done"); await page.getByLabel("Conditions JSON (optional)").fill('{"all":[{"fact":"webhook","path":"$.issue.id","operator":"equal","value":"i1"}]}');
   const savedRequest = page.waitForRequest(request => request.method() === "PUT" && request.url().endsWith(`/api/v1/jobs/${id}`) && request.postDataJSON().triggers[1]?.config.conditions);
-  await page.getByLabel("Name", { exact: true }).fill(initial.name);
   const submitted = (await savedRequest).postDataJSON();
   await page.getByRole("status").filter({ hasText: "Saving job settings…" }).waitFor(); await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   // Saving assigns trigger IDs and can remount the trigger editor. Open it afterwards.
@@ -180,7 +182,7 @@ test("search dialog keeps keyboard focus, escapes results and leaves a draft int
   const { context, page } = await setup();
   await page.route("**/api/v1/jobs/" + id, route => route.request().method() === "PUT" ? route.fulfill({ json: { ...initial, ...route.request().postDataJSON() } }) : route.fulfill({ json: initial }));
   await page.route("**/api/v1/search?**", route => route.fulfill({ json: { items: [{ kind: "job", id, title: "<script>unsafe</script> Build", subtitle: "Matching job", url: "/jobs/" + id, source: { kind: "job", label: "<script>unsafe</script> Build", id }, match: { text: "<script>unsafe</script> Build", ranges: [{ start: 24, end: 29 }] } }] } }));
-  await page.goto(origin + "/jobs/" + id + "/edit");
+  await page.goto(origin + "/jobs/" + id + "/settings/general");
   await page.getByLabel("Name", { exact: true }).fill("Unsaved draft");
   await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
   await page.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true }).fill("build");
@@ -207,11 +209,11 @@ test("provider changes load ClickUp, GitHub and Tail resources lazily and submit
   });
   await page.route("**/api/v1/integrations/cloudflare-tail", route => { reads.push("tail"); return route.fulfill({ json: [{ integrationId: "tail", name: "Worker logs" }] }); });
   await page.route("**/api/v1/jobs/" + id, route => { if (route.request().method() === "PUT") { written = route.request().postDataJSON(); return route.fulfill({ json: { ...value, ...written } }); } return route.fulfill({ json: value }); });
-  await page.goto(origin + "/jobs/" + id + "/edit"); await page.getByLabel("ClickUp list", { exact: true }).selectOption("list");
+  await page.goto(origin + "/jobs/" + id + "/settings/triggers"); await page.getByLabel("ClickUp list", { exact: true }).selectOption("list");
   assert.ok(reads.some(path => path.endsWith("/clickup/lists"))); assert.ok(!reads.some(path => path.includes("github") || path === "tail" || path.includes("linear")));
   await page.getByLabel("Provider", { exact: true }).selectOption("github"); await page.getByLabel("GitHub installation", { exact: true }).selectOption("123"); await page.getByLabel("GitHub repository", { exact: true }).selectOption("456");
   await page.getByLabel("Provider", { exact: true }).selectOption("cloudflareTail"); await page.getByLabel("Tail integration", { exact: true }).selectOption("tail"); await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
-  await page.getByRole("heading", { name: initial.name, exact: true }).waitFor(); assert.deepEqual(written.triggers[1].config, { provider: "cloudflareTail", integrationId: "tail", conditions: value.triggers[1].config.conditions }); assert.equal(written.expectedUpdatedAt, initial.updatedAt);
+  assert.deepEqual(written.triggers[1].config, { provider: "cloudflareTail", integrationId: "tail", conditions: value.triggers[1].config.conditions }); assert.equal(written.expectedUpdatedAt, initial.updatedAt);
   await context.close();
 });
 for (const config of [
@@ -229,12 +231,11 @@ for (const config of [
   await page.route("**/api/v1/integrations/cloudflare-tail", route => route.fulfill({ json: [] }));
   await page.route("**/api/v1/jobs/" + id, route => { if (route.request().method() === "PUT") { written = route.request().postDataJSON(); return route.fulfill({ json: { ...value, ...written } }); } return route.fulfill({ json: value }); });
   await page.route("**/api/v1/job-conditions/test", route => { preview = route.request().postDataJSON(); return route.fulfill({ json: { decision: "match", details: [] } }); });
-  await page.goto(origin + "/jobs/" + id + "/edit");
+  await page.goto(origin + "/jobs/" + id + "/settings/triggers");
   if (config.provider === "cloudflareTail") await page.getByText("https://tail.example.test/webhook", { exact: true }).waitFor();
   assert.deepEqual(JSON.parse(await page.getByLabel("Conditions JSON (optional)").inputValue()), conditions);
   if (config.provider === "github") { assert.equal(await page.getByLabel("GitHub event").inputValue(), "check_suite"); assert.equal(await page.getByLabel("GitHub action").inputValue(), "completed"); }
   await page.getByLabel("Conditions JSON (optional)").fill("{");
-  await page.getByLabel("Name", { exact: true }).fill("Draft name");
   assert.equal(written, undefined); await page.getByText("Conditions must be valid JSON before saving.").waitFor();
   await page.getByLabel("Conditions JSON (optional)").fill(JSON.stringify(changed));
   await page.getByText("Test webhook conditions", { exact: true }).click();
@@ -251,14 +252,14 @@ test("conditions save surfaces strict server validation errors", async () => {
   const value = { ...initial, triggers: [...initial.triggers, { ...initial.triggers[0], id: "00000000-0000-4000-8000-000000000004", slug: "trigger-2", kind: "webhook", config: { provider: "cloudflareTail", integrationId: "tail" } }] };
   await page.route("**/api/v1/integrations/cloudflare-tail", route => route.fulfill({ json: [] }));
   await page.route("**/api/v1/jobs/" + id, route => route.request().method() === "PUT" ? route.fulfill({ status: 400, json: { error: { code: "invalid_request", message: "Request validation failed", details: [{ path: ["triggers", 1, "config", "conditions"], message: "Condition groups must not be empty." }] } } }) : route.fulfill({ json: value }));
-  await page.goto(origin + "/jobs/" + id + "/edit"); await page.getByLabel("Conditions JSON (optional)").fill('{"all":[]}');
+  await page.goto(origin + "/jobs/" + id + "/settings/triggers"); await page.getByLabel("Conditions JSON (optional)").fill('{"all":[]}');
   await page.getByRole("alert").filter({ hasText: "Condition groups must not be empty." }).first().waitFor();
   await context.close();
 });
 
 test("Settings edits and saves repeatedly, preserves revision, protects dirty tab navigation and deletes from Settings on mobile", async () => {
   const { page, context } = await setup({ viewport: { width: 390, height: 844 } });
-  let current = structuredClone(initial), deleting, finishSave;
+  let current = { ...structuredClone(initial), projectId: "project" }, deleting, finishSave;
   const writes = [];
   await page.route(`**/api/v1/jobs/${id}`, route => {
     if (route.request().method() === "GET") return route.fulfill({ json: current });
@@ -269,23 +270,23 @@ test("Settings edits and saves repeatedly, preserves revision, protects dirty ta
     return route.fulfill({ json: current });
   });
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
-  await page.goto(origin + `/jobs/${id}/settings`);
-  const tabs = page.getByRole("navigation", { name: "Job views" });
+  await page.goto(origin + `/jobs/${id}/settings/general`);
+  const tabs = page.getByRole("navigation", { name: "Job navigation" });
   await tabs.getByRole("link", { name: "Settings", exact: true }).focus(); await page.keyboard.press("Enter");
-  await page.waitForURL(`**/jobs/${id}/settings`);
+  await page.waitForURL(`**/jobs/${id}/settings/general`);
   await page.getByLabel("Name", { exact: true }).fill("Renamed job");
-  await page.getByLabel("Prompt template", { exact: true }).fill("Updated instructions");
   page.once("dialog", dialog => dialog.dismiss()); await tabs.getByRole("link", { name: "Runs", exact: true }).click();
-  assert.ok(page.url().endsWith("/settings"));
+  assert.ok(page.url().endsWith("/settings/general"));
   await page.getByRole("status").filter({ hasText: "Saving job settings" }).waitFor();
   await finishSave(); await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
-  assert.equal(writes[0].name, "Renamed job"); assert.equal(writes[0].promptTemplate, "Updated instructions");
-  assert.ok(page.url().endsWith("/settings"));
-  await page.getByLabel("Prompt template", { exact: true }).fill("Second update");
+  assert.equal(writes[0].name, "Renamed job");
+  assert.ok(page.url().endsWith("/settings/general"));
+  await page.goto(origin + `/jobs/${id}/settings/general`);
+  await page.locator("textarea").fill("Second update");
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   assert.equal(writes[1].expectedUpdatedAt, "2026-10-09T11:00:00.000Z");
-  await page.reload(); await page.getByLabel("Prompt template", { exact: true }).waitFor();
-  assert.equal(await page.getByLabel("Prompt template", { exact: true }).inputValue(), "Second update");
+  await page.reload(); await page.locator("textarea").waitFor();
+  assert.equal(await page.locator("textarea").inputValue(), "Second update");
   await page.getByRole("heading", { name: "Delete this job", exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.getByLabel("Name", { exact: true }).fill("Unsaved name before deletion");
@@ -306,20 +307,20 @@ test("delayed autosave preserves newer edits and saves them with the acknowledge
     if (writes.length === 1) await new Promise(resolve => { releaseFirst = resolve; });
     return route.fulfill({ json: response });
   });
-  await page.goto(origin + `/jobs/${id}/edit`);
+  await page.goto(origin + `/jobs/${id}/settings/general`);
   const first = page.waitForRequest(request => request.method() === "PUT");
   await page.getByLabel("Name", { exact: true }).fill("First save");
   await first;
   await page.getByLabel("Name", { exact: true }).fill("Newer name");
-  await page.getByLabel("Prompt template", { exact: true }).fill("Newer prompt");
+  await page.locator("textarea").fill("Newer description");
   const second = page.waitForRequest(request => request.method() === "PUT" && request.postDataJSON().name === "Newer name");
   releaseFirst();
   const body = (await second).postDataJSON();
-  assert.equal(body.promptTemplate, "Newer prompt");
+  assert.equal(body.description, "Newer description");
   assert.equal(body.expectedUpdatedAt, "2026-11-11T00:00:01Z");
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   await page.reload();
   await page.getByLabel("Name", { exact: true }).waitFor();
   assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), "Newer name");
-  assert.equal(await page.getByLabel("Prompt template", { exact: true }).inputValue(), "Newer prompt");
+  assert.equal(await page.locator("textarea").inputValue(), "Newer description");
 });
