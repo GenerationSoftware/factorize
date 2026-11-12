@@ -28,6 +28,10 @@ test("model account settings issue short-lived capabilities and display the boun
     const action = route.request().postDataJSON().action;
     return route.fulfill({ json: { endpoint: `${proxyOrigin}/model-accounts/${accountId}/${action}`, capability: `one-use-${action}` } });
   });
+  await page.route("**/api/v1/model-accounts/*/browser-capability", async route => {
+    const action = route.request().postDataJSON().action;
+    return route.fulfill({ json: { endpoint: `${proxyOrigin}/model-accounts/${accountId}/${action}`, capability: `one-use-${action}` } });
+  });
   const proxyCalls = [];
   await page.route(`${proxyOrigin}/model-accounts/**`, async route => {
     const request = route.request();
