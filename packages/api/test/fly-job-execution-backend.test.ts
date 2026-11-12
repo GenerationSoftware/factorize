@@ -6,7 +6,7 @@ const machine = { id: "machine-1", state: "created" };
 function fixture() {
   const machines = {
     findMachineByOperationId: vi.fn(async () => machine),
-    createMachine: vi.fn(async () => machine),
+    createMachine: vi.fn(async (_app: string, _config: any, _operationId: string) => machine),
     inspectMachine: vi.fn(async () => machine),
     startMachine: vi.fn(async () => undefined),
     stopMachine: vi.fn(async () => undefined),
