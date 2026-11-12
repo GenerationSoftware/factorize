@@ -86,22 +86,33 @@ export async function artifactUpload(request: Request, env: Env, token: string):
   const stored = await env.RUN_ARTIFACTS.get(key);
   if (!stored) return new Response("Artifact disappeared after upload", { status: 502 });
   if (stored.size !== size) { await stored.body.cancel(); return new Response("Retained artifact size does not match upload receipt", { status: 422 }); }
+  const objectWasUnreceipted = Boolean(object && !existing.some(item => item.object_key === key));
   const database = databaseFor(env);
   const conflict = await database.transaction(async client => {
+    // R2 writes cannot participate in the database transaction. If the run
+    // disappears or changes generation while the upload is in flight, retain
+    // independent cleanup ownership for the newly written object before
+    // returning the conflict. Retention may already have removed the run and
+    // its artifact receipt, so this queue intentionally has no run FK.
+    const queueUnrecordedObject = async () => {
+      if (!objectWasUnreceipted) return;
+      await client.query(`INSERT INTO app.run_retention_cleanup(id,tenant_id,run_id,object_keys,last_error)
+        VALUES ($1,$2,$3,$4::jsonb,'Artifact upload lost a race with run retention')`, [crypto.randomUUID(), grant.tenantId, grant.runId, JSON.stringify([key])]);
+    };
     // Shares the lock with incremental ingestion: terminal projection wins atomically.
     const run = (await client.query("SELECT id,trace_sources FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [grant.tenantId, grant.runId])).rows[0];
-    if (!run) return "Run not found";
+    if (!run) { await queueUnrecordedObject(); return "Run not found"; }
     if (grant.artifactType !== "job_file" && (grant.sourceKind === "execution_stream" || grant.primary === true)) {
       const primary = run.trace_sources?.primary;
-      if (primary && (primary.kind !== (grant.sourceKind ?? "native_session") || (primary.provider && primary.provider !== grant.provider) || (primary.path && primary.path !== grant.sourcePath))) return "Terminal trace source mismatch";
+      if (primary && (primary.kind !== (grant.sourceKind ?? "native_session") || (primary.provider && primary.provider !== grant.provider) || (primary.path && primary.path !== grant.sourcePath))) { await queueUnrecordedObject(); return "Terminal trace source mismatch"; }
       const cursor = (await client.query("SELECT generation FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2", [grant.tenantId, grant.runId])).rows[0];
-      if ((cursor?.generation ?? null) !== grant.traceGeneration) return "Stale terminal trace generation";
+      if ((cursor?.generation ?? null) !== grant.traceGeneration) { await queueUnrecordedObject(); return "Stale terminal trace generation"; }
     }
     const artifacts = await repository.list(grant.runId, client);
     const terminal = artifacts.find(item => item.kind === "execution_stream" && item.state === "stored");
-    if (grant.sourceKind === "execution_stream" && terminal && terminal.sha256 !== sha256) return "Terminal trace stream is immutable";
+    if (grant.sourceKind === "execution_stream" && terminal && terminal.sha256 !== sha256) { await queueUnrecordedObject(); return "Terminal trace stream is immutable"; }
     const native = artifacts.find(item => item.kind === "native_session" && item.state === "stored");
-    if (grant.artifactType !== "job_file" && grant.sourceKind !== "execution_stream" && native && native.sha256 !== sha256) return "Terminal native session is immutable";
+    if (grant.artifactType !== "job_file" && grant.sourceKind !== "execution_stream" && native && native.sha256 !== sha256) { await queueUnrecordedObject(); return "Terminal native session is immutable"; }
     const primary = grant.artifactType !== "job_file" && (grant.sourceKind === "execution_stream" || (grant.primary !== false && !terminal && run?.trace_sources?.primary?.kind !== "execution_stream"));
     const projection = (await client.query("SELECT source_kind,artifact_sha256,parser_version FROM app.run_trace_projections WHERE tenant_id=$1 AND run_id=$2", [grant.tenantId, grant.runId])).rows[0];
     await record(client);

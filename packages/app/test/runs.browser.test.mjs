@@ -31,6 +31,21 @@ test("individual run keeps its parent project and job navigation context", async
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
   await context.close();
 });
+test("an expired run shows a missing state, stops polling, and never loads retained details", async () => {
+  const { context, page } = await setup(); let statusReads = 0, detailReads = 0, traceReads = 0;
+  await page.clock.install({ time: new Date(time) });
+  await page.route(`**/api/v1/runs/${runId}/status`, route => { statusReads++; return route.fulfill({ status: 404, json: { error: { code: "not_found", message: "Not found" } } }); });
+  await page.route(`**/api/v1/runs/${runId}`, route => { detailReads++; return route.fulfill({ status: 404, json: { error: { code: "not_found", message: "Not found" } } }); });
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => { traceReads++; return route.fulfill({ status: 404, json: { error: { code: "not_found", message: "Not found" } } }); });
+  await page.goto(origin + `/job-runs/${runId}`);
+  await page.getByRole("alert").filter({ hasText: "This run is no longer available" }).waitFor();
+  const readsAtMissingState = statusReads;
+  await page.clock.runFor(30_000);
+  assert.equal(statusReads, readsAtMissingState, "a definitive 404 must not poll again");
+  assert.equal(detailReads, 0, "an expired run must not load prompt or provenance data");
+  assert.equal(traceReads, 0, "an expired run must not load trace data");
+  await context.close();
+});
 test("run page polling backs off when idle, discovers runs, and stays fast while active", async () => {
   const idle = await setup(); let idleCount = 0;
   await idle.page.clock.install({ time: new Date(time) });

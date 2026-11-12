@@ -4,6 +4,7 @@ import { Database } from "../src/postgres/database";
 import { PostgresJobRepository } from "../src/postgres/job-repository";
 import { AutomationScheduler } from "../src/postgres/automation-scheduler";
 import { RunRepository } from "../src/postgres/run-repository";
+import { RunRetentionRepository } from "../src/postgres/run-retention-repository";
 import { RunQueryRepository } from "../src/postgres/run-query-repository";
 import { InvocationService, type Job, type Trigger } from "../src/job-domain";
 import { decrypt, encrypt } from "../src/crypto";
@@ -65,6 +66,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
   });
   afterEach(async () => {
     vi.restoreAllMocks();
+    // Provider cleanup ownership deliberately has no tenant FK, so this test
+    // database must remove its retained queue rows explicitly.
+    await database.pool.query("DELETE FROM app.deleted_job_provider_cleanup WHERE tenant_id=ANY($1::uuid[])", [tenants]);
     await database.pool.query("DELETE FROM app.tenants WHERE id=ANY($1::uuid[])", [tenants]);
     await runs.consumeWakeHint();
     tenants.length = 0;
@@ -82,6 +86,83 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect(await invocations(a, target.id)).toMatchObject([{ context: { "trigger-1": { sourceRunId: runId, sourceJobId: source.id, state: "succeeded" } } }]);
     expect(await invocations(a, target.id)).toHaveLength(1);
     expect(await deliveries()).toHaveLength(1);
+  });
+
+  it("retains an expired source run until its enabled lifecycle delivery is acknowledged", async () => {
+    const a = await tenant(), source = await job(a);
+    const target = await job(a, { sourceJobIds: [source.id], states: ["succeeded"] });
+    const sourceRunId = await complete(a, source);
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60_000);
+    await database.pool.query("UPDATE app.runs SET created_at=$3 WHERE tenant_id=$1 AND id=$2", [a, sourceRunId, new Date(cutoff.getTime() - 60_000)]);
+
+    const retention = new RunRetentionRepository(database);
+    await expect(retention.sweep(cutoff, 10)).resolves.toMatchObject({ deleted: 0 });
+    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, sourceRunId])).rowCount).toBe(1);
+    expect(await deliveries()).toHaveLength(0);
+
+    await deliver();
+    expect(await invocations(a, target.id)).toMatchObject([{ context: { "trigger-1": { sourceRunId, state: "succeeded" } } }]);
+    expect(await deliveries()).toHaveLength(1);
+    await expect(retention.sweep(cutoff, 10)).resolves.toMatchObject({ deleted: 1 });
+    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, sourceRunId])).rowCount).toBe(0);
+    expect(await invocations(a, target.id)).toHaveLength(1);
+  });
+
+  it("rolls back aggregate deletion with its artifact receipt, then expires replay deduplication with the run", async () => {
+    const a = await tenant(), source = await job(a);
+    const runId = await complete(a, source);
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60_000);
+    await database.pool.query("UPDATE app.runs SET created_at=$3 WHERE tenant_id=$1 AND id=$2", [a, runId, new Date(cutoff.getTime() - 60_000)]);
+    const artifactId = crypto.randomUUID(), requestId = crypto.randomUUID();
+    await database.pool.query(`INSERT INTO app.run_artifacts
+      (tenant_id,id,run_id,kind,object_key,provider,format,byte_size,sha256,state)
+      VALUES ($1,$2,$3,'execution_stream',$4,'codex','jsonl',1,$5,'stored')`,
+    [a, artifactId, runId, `${a}/${runId}/trace.jsonl`, "a".repeat(64)]);
+    await database.pool.query(`INSERT INTO app.trace_replay_operations
+      (tenant_id,request_id,run_id,source,actor_id,result)
+      VALUES ($1,$2,$3,'primary','owner','{"status":"projected"}')`, [a, requestId, runId]);
+
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const functionName = `reject_retention_delete_${suffix}`, triggerName = `reject_retention_delete_${suffix}`;
+    await database.pool.query(`CREATE FUNCTION app.${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected retention delete failure'; END $$`);
+    await database.pool.query(`CREATE TRIGGER ${triggerName} BEFORE DELETE ON app.invocations FOR EACH ROW EXECUTE FUNCTION app.${functionName}()`);
+    const retention = new RunRetentionRepository(database);
+    try {
+      await expect(retention.sweep(cutoff, 10)).rejects.toThrow("injected retention delete failure");
+    } finally {
+      await database.pool.query(`DROP TRIGGER ${triggerName} ON app.invocations`);
+      await database.pool.query(`DROP FUNCTION app.${functionName}()`);
+    }
+    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, runId])).rowCount).toBe(1);
+    expect((await database.pool.query("SELECT 1 FROM app.run_artifacts WHERE tenant_id=$1 AND id=$2", [a, artifactId])).rowCount).toBe(1);
+    expect((await database.pool.query("SELECT 1 FROM app.run_retention_cleanup WHERE tenant_id=$1 AND run_id=$2", [a, runId])).rowCount).toBe(0);
+
+    await expect(retention.sweep(cutoff, 10)).resolves.toMatchObject({ deleted: 1, cleanupQueued: 1 });
+    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, runId])).rowCount).toBe(0);
+    expect((await database.pool.query("SELECT 1 FROM app.trace_replay_operations WHERE tenant_id=$1 AND request_id=$2", [a, requestId])).rowCount).toBe(0);
+    expect((await database.pool.query("SELECT object_keys FROM app.run_retention_cleanup WHERE tenant_id=$1 AND run_id=$2", [a, runId])).rows[0]).toEqual({ object_keys: [`${a}/${runId}/trace.jsonl`] });
+  });
+
+  it("retains old webhook history while mergeability verification is pending", async () => {
+    const a = await tenant(), target = await job(a, { sourceJobIds: [] }, true, "webhook");
+    const triggerId = target.triggers[0]!.id, deliveryPk = crypto.randomUUID(), deliveryId = "retention-pending-verification";
+    await database.pool.query(`INSERT INTO app.webhook_deliveries(tenant_id,id,provider,delivery_id,outcome,detail,received_at)
+      VALUES ($1,$2,'github',$3,'verification_pending','Mergeability is not available yet',now()-interval '15 days')`, [a, deliveryPk, deliveryId]);
+    await database.pool.query(`INSERT INTO app.webhook_delivery_events(tenant_id,id,delivery_id,job_id,outcome,detail,created_at)
+      VALUES ($1,$2,$3,$4,'verification_pending','Waiting for mergeability',now()-interval '15 days')`, [a, crypto.randomUUID(), deliveryPk, target.id]);
+    await database.pool.query(`INSERT INTO app.pending_verifications
+      (tenant_id,id,job_id,trigger_id,delivery_id,installation_id,repository_id,repository_owner,repository_name,pull_number,next_attempt_at,payload)
+      VALUES ($1,$2,$3,$4,$5,1,1,'owner','repo',1,now(),'{}')`, [a, crypto.randomUUID(), target.id, triggerId, deliveryId]);
+
+    const retention = new RunRetentionRepository(database);
+    await Promise.all([retention.cleanupIndependentHistory(), retention.cleanupIndependentHistory()]);
+    expect((await database.pool.query("SELECT outcome FROM app.webhook_deliveries WHERE tenant_id=$1 AND id=$2", [a, deliveryPk])).rows).toEqual([{ outcome: "verification_pending" }]);
+    expect((await database.pool.query("SELECT 1 FROM app.webhook_delivery_events WHERE tenant_id=$1 AND delivery_id=$2", [a, deliveryPk])).rowCount).toBe(1);
+
+    await database.pool.query("DELETE FROM app.pending_verifications WHERE tenant_id=$1 AND delivery_id=$2", [a, deliveryId]);
+    await retention.cleanupIndependentHistory();
+    expect((await database.pool.query("SELECT 1 FROM app.webhook_deliveries WHERE tenant_id=$1 AND id=$2", [a, deliveryPk])).rowCount).toBe(0);
+    expect((await database.pool.query("SELECT 1 FROM app.webhook_delivery_events WHERE tenant_id=$1 AND delivery_id=$2", [a, deliveryPk])).rowCount).toBe(0);
   });
 
   it("does not replay terminal history when a trigger is created disabled then enabled", async () => {
@@ -181,6 +262,37 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     await repository(a).delete(source.id);
     const edges = await database.pool.query("SELECT 1 FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2", [a, source.id]);
     expect(edges.rowCount).toBe(0);
+  });
+
+  it("commits provider cleanup ownership with job deletion and rolls both back on failure", async () => {
+    const a = await tenant(), source = await job(a);
+    const run = await start(a, source);
+    const handle = { backendKind: "exe-vm", id: `factorize-${run.id}` };
+    await runs.recordLaunchHandle(run, handle);
+    await runs.markLaunched(run, handle, "https://vm.example", ["stop"]);
+
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const functionName = `reject_job_delete_${suffix}`;
+    const triggerName = `reject_job_delete_${suffix}`;
+    await database.pool.query(`CREATE FUNCTION app.${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected job delete failure'; END $$`);
+    await database.pool.query(`CREATE TRIGGER ${triggerName} BEFORE DELETE ON app.jobs FOR EACH ROW EXECUTE FUNCTION app.${functionName}()`);
+    try {
+      await expect(repository(a).delete(source.id)).rejects.toThrow("injected job delete failure");
+      expect((await database.pool.query("SELECT id FROM app.jobs WHERE tenant_id=$1 AND id=$2", [a, source.id])).rowCount).toBe(1);
+      expect((await database.pool.query("SELECT run_id FROM app.deleted_job_provider_cleanup WHERE tenant_id=$1 AND run_id=$2", [a, run.id])).rowCount).toBe(0);
+    } finally {
+      await database.pool.query(`DROP TRIGGER ${triggerName} ON app.jobs`);
+      await database.pool.query(`DROP FUNCTION app.${functionName}()`);
+    }
+
+    expect(await repository(a).delete(source.id)).toBe(true);
+    expect((await database.pool.query("SELECT execution_config,execution_backend_kind,execution_handle,started_at FROM app.deleted_job_provider_cleanup WHERE tenant_id=$1 AND run_id=$2", [a, run.id])).rows[0]).toMatchObject({
+      execution_config: expect.objectContaining({ connectionId: "test" }),
+      execution_backend_kind: "exe-vm",
+      execution_handle: handle,
+      started_at: expect.any(Date),
+    });
+    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, run.id])).rowCount).toBe(0);
   });
 
   it("stores and revokes an explicit self-invocation permission", async () => {

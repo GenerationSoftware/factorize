@@ -9,6 +9,8 @@ import type { Env, OAuthProps } from "../../src/types";
 
 export async function loadingFixture(url: string) {
   let admin!: Database, db!: Database, env!: Env, auth!: OAuthProps, cookie!: string;
+  let tearingDown = false;
+  let unexpectedPoolError: Error | undefined;
   const name = `loading_test_${crypto.randomUUID().replaceAll("-", "")}`;
   const tenantId = crypto.randomUUID(), userId = crypto.randomUUID(), otherTenant = crypto.randomUUID(), projectId = crypto.randomUUID();
   const jobIds = Array.from({ length: 10 }, () => crypto.randomUUID());
@@ -18,6 +20,10 @@ export async function loadingFixture(url: string) {
     await admin.pool.query(`CREATE DATABASE ${name}`);
     const address = new URL(url!); address.pathname = `/${name}`;
     db = new Database({ connectionString: address.toString() });
+    db.pool.on("error", error => {
+      if (tearingDown && (error as NodeJS.ErrnoException).code === "57P01") return;
+      unexpectedPoolError = error;
+    });
     const dir = new URL("../../migrations/", import.meta.url);
     for (const file of (await readdir(dir)).filter(f => f.endsWith(".sql")).sort()) await db.pool.query(await readFile(new URL(file, dir), "utf8"));
     env = { ASSETS: { fetch: async (request: Request) => {
@@ -51,7 +57,15 @@ export async function loadingFixture(url: string) {
     await connections.put("amp:local", { accessToken: "private-amp-token", project: "project" });
     await connections.put("cloudflare-tail:local", { signingSecret: "private-tail-secret", name: "Local" });
   }
-  async function cleanup() { await db?.close(); if (admin) { await admin.pool.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`); await admin.close(); } }
+  async function cleanup() {
+    tearingDown = true;
+    await db?.close();
+    if (admin) {
+      await admin.pool.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+      await admin.close();
+    }
+    if (unexpectedPoolError) throw unexpectedPoolError;
+  }
   const request = (path: string, value = cookie) => worker.fetch(new Request(`https://factorize.test${path}`, { headers: { Cookie: value } }), env, { waitUntil() {} } as any);
 
   try { await setup(); } catch (error) { await cleanup(); throw error; }

@@ -30,6 +30,8 @@ export interface Env {
   POSTMARK_FROM_EMAIL?: string;
   POSTMARK_MESSAGE_STREAM?: string;
   RUN_ARTIFACTS?: R2Bucket;
+  /** Pause automatic retention and artifact-history deletion while retaining maintenance visibility. */
+  RUN_HISTORY_RETENTION_PAUSED?: string;
   TRACE_PRIMARY_MODE?: "execution_stream" | "native_session";
   TRACE_STREAM_TENANTS?: string;
   /** OpenAI-compatible Codex endpoint configured for the execution environment. */

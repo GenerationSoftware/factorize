@@ -12,6 +12,8 @@ import type { Env } from "../types";
 import { ConnectionRepository } from "./connection-repository";
 import type { Database } from "./database";
 import { RunRepository, type PersistedRun } from "./run-repository";
+import { RunRetentionRepository } from "./run-retention-repository";
+import { runRetentionCutoff } from "./run-retention";
 import { AutomationScheduler } from "./automation-scheduler";
 import { agentDriver, driverTraceSources, type AgentKind } from "../agent-driver";
 import { traceMetric } from "../trace-observability";
@@ -35,6 +37,78 @@ export class RunScheduler {
       await this.launch(run).catch(error => error instanceof ProxyLaunchBlockedError
         ? this.runs.blockLaunch(run, `Credential proxy ${error.reason}; resolve the prerequisite and manually retry this run.`)
         : this.fail(run, error, "launch"));
+    }
+    const retention = new RunRetentionRepository(this.database);
+    await this.reconcileProviderCleanup();
+    await this.runRetentionMaintenance(retention);
+  }
+
+  private async runRetentionMaintenance(retention = new RunRetentionRepository(this.database)): Promise<void> {
+    const cutoff = runRetentionCutoff(new Date());
+    if (this.env.RUN_HISTORY_RETENTION_PAUSED?.trim().toLowerCase() === "true") {
+      // Keep the read-only backlog signal while pausing all automatic history
+      // and object deletion. Provider cleanup above remains active because it
+      // is required resource finalization, not history expiration.
+      try {
+        const backlog = await retention.backlogSnapshot();
+        console.info(JSON.stringify({ event: "run_retention_maintenance", cutoff: cutoff.toISOString(), paused: true, backlog }));
+      } catch (error) {
+        console.warn(JSON.stringify({ event: "run_retention_backlog_snapshot_failed", message: error instanceof Error ? error.message : "unknown error", paused: true }));
+      }
+      return;
+    }
+    const sweep = await retention.sweep(cutoff, 50);
+    const artifacts = await retention.processArtifactCleanup(this.env.RUN_ARTIFACTS);
+    const independentHistory = await retention.cleanupIndependentHistory();
+    // Aggregate observability is best effort: a metrics query failure must not
+    // turn a successful maintenance pass into a failed scheduler alarm.
+    try {
+      const backlog = await retention.backlogSnapshot();
+      console.info(JSON.stringify({ event: "run_retention_maintenance", cutoff: cutoff.toISOString(), paused: false, sweep, artifacts, independentHistory, backlog }));
+    } catch (error) {
+      console.warn(JSON.stringify({ event: "run_retention_backlog_snapshot_failed", message: error instanceof Error ? error.message : "unknown error" }));
+    }
+  }
+
+  /** Retry terminal provider cleanup independently from run polling, including old stuck records. */
+  private async reconcileProviderCleanup(): Promise<void> {
+    for (const item of await this.runs.claimProviderCleanup()) {
+      if (!item.executionHandle) {
+        if (item.startedAt) {
+          // A started run without its provider handle cannot be proven absent; retain it for reconciliation.
+          await this.runs.retryProviderCleanup(item.tenantId, item.id, item.attempt, new Error("Started run has no persisted execution handle; provider absence cannot be verified"));
+        } else {
+          // A terminal run with no start timestamp never reached provider launch.
+          await this.runs.completeProviderCleanup(item.tenantId, item.id);
+        }
+        continue;
+      }
+      try {
+        const run = { tenantId: item.tenantId, id: item.id, executionConfig: item.executionConfig, executionHandle: item.executionHandle, backendKind: item.backendKind } as PersistedRun;
+        const result = await (await this.backend(run)).stop(item.executionHandle);
+        if (result.state !== "stopped") throw new Error(result.detail ?? "Execution provider did not confirm cleanup");
+        await this.runs.completeProviderCleanup(item.tenantId, item.id);
+      } catch (error) {
+        await this.runs.retryProviderCleanup(item.tenantId, item.id, item.attempt, error);
+      }
+    }
+    for (const item of await this.runs.claimDeletedJobProviderCleanup()) {
+      if (!item.executionHandle) {
+        if (item.startedAt) {
+          await this.runs.retryDeletedJobProviderCleanup(item.tenantId, item.id, item.attempt, new Error("Deleted job run started without a persisted provider handle; provider absence cannot be verified"));
+        } else {
+          await this.runs.completeDeletedJobProviderCleanup(item.tenantId, item.id);
+        }
+        continue;
+      }
+      try {
+        const run = { tenantId: item.tenantId, id: item.id, executionConfig: item.executionConfig, executionHandle: item.executionHandle, backendKind: item.backendKind } as PersistedRun;
+        const result = await (await this.backend(run)).stop(item.executionHandle);
+        if (result.state !== "stopped") throw new Error(result.detail ?? "Execution provider did not confirm cleanup");
+        await this.runs.completeDeletedJobProviderCleanup(item.tenantId, item.id);
+      } catch (error) {
+        await this.runs.retryDeletedJobProviderCleanup(item.tenantId, item.id, item.attempt, error);
+      }
     }
   }
 

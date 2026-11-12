@@ -531,7 +531,7 @@ export class ApiService {
   private async bearerWrite(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; encryptedPayload?: string; operation: "upsert" | "delete" }) {
     try { return await this.encryptedIntegrations().write({ ...input, kind: "bearer" }); }
     catch (error) {
-      if (error instanceof StaleIntegrationRevisionError) throw new ServiceError(409, "stale_revision", `The integration collection changed. Current revision is ${error.currentRevision}.`);
+      if (error instanceof StaleIntegrationRevisionError) throw new ServiceError(409, "stale_revision", `${error.resyncRequired ? "Integration change history expired; fetch the current collection to resynchronize. " : "The integration collection changed. "}Current revision is ${error.currentRevision}.`);
       if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different integration change.");
       if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
       throw error;

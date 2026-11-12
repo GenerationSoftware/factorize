@@ -1,0 +1,146 @@
+import { describe, expect, it, vi } from "vitest";
+import { RunRetentionRepository } from "../src/postgres/run-retention-repository";
+
+describe("RunRetentionRepository", () => {
+  it("bounds selection and rechecks eligibility under aggregate locks", async () => {
+    const cutoff = new Date("2026-10-28T12:00:00.000Z");
+    const statements: string[] = [];
+    const poolQuery = vi.fn(async (sql: string) => {
+      statements.push(sql);
+      return { rows: [{ tenant_id: "tenant", invocation_id: "invocation" }], rowCount: 1 };
+    });
+    const txQuery = vi.fn(async (sql: string) => {
+      statements.push(sql);
+      if (sql.includes("SELECT r.id run_id")) return { rows: [{ run_id: "run" }], rowCount: 1 };
+      if (sql.includes("SELECT object_key")) return { rows: [{ object_key: "tenant/run/trace.jsonl" }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    });
+    const database = { pool: { query: poolQuery }, transaction: (work: (client: any) => unknown) => work({ query: txQuery }) } as any;
+
+    await expect(new RunRetentionRepository(database).sweep(cutoff, 8)).resolves.toEqual({ selected: 1, deleted: 1, cleanupQueued: 1 });
+    expect(poolQuery).toHaveBeenCalledWith(expect.stringContaining("LIMIT $2"), [cutoff, 8]);
+    expect(poolQuery.mock.calls[0]![0]).toContain("r.created_at < $1");
+    expect(poolQuery.mock.calls[0]![0]).toContain("jr.state=r.state");
+    expect(poolQuery.mock.calls[0]![0]).toContain("NOT EXISTS");
+    expect(statements.findIndex(sql => sql.includes("INSERT INTO app.run_retention_cleanup"))).toBeLessThan(statements.findIndex(sql => sql.includes("DELETE FROM app.invocations")));
+    expect(txQuery.mock.calls.find(([sql]) => sql.includes("SELECT r.id run_id"))![0]).toContain("FOR UPDATE OF i,jr,r SKIP LOCKED");
+  });
+
+  it("skips a candidate that loses eligibility before its aggregate lock is acquired", async () => {
+    const cutoff = new Date("2026-10-28T12:00:00.000Z");
+    const poolQuery = vi.fn(async () => ({ rows: [{ tenant_id: "tenant", invocation_id: "invocation" }], rowCount: 1 }));
+    const txQuery = vi.fn(async (sql: string) => {
+      // A finalizer or another retention worker changed the aggregate after
+      // the bounded candidate scan. The locked eligibility recheck sees it
+      // as unavailable, so no artifacts or aggregate rows may be removed.
+      if (sql.includes("SELECT r.id run_id")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 0 };
+    });
+    const database = { pool: { query: poolQuery }, transaction: (work: (client: any) => unknown) => work({ query: txQuery }) } as any;
+
+    await expect(new RunRetentionRepository(database).sweep(cutoff, 8)).resolves.toEqual({ selected: 1, deleted: 0, cleanupQueued: 0 });
+    expect(txQuery).toHaveBeenCalledTimes(1);
+    expect(txQuery.mock.calls[0]![0]).toContain("FOR UPDATE OF i,jr,r SKIP LOCKED");
+  });
+
+  it("rejects invalid cutoffs and unbounded batch sizes before database access", async () => {
+    const query = vi.fn();
+    const repository = new RunRetentionRepository({ pool: { query }, transaction: vi.fn() } as any);
+    await expect(repository.sweep(new Date(Number.NaN))).rejects.toThrow(TypeError);
+    await expect(repository.sweep(new Date(), 501)).rejects.toThrow(RangeError);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("removes R2 cleanup receipts after deletion and backs failures off", async () => {
+    const now = new Date("2026-11-11T12:00:00.000Z");
+    const bucketDelete = vi.fn().mockRejectedValueOnce(new Error("provider unavailable")).mockResolvedValueOnce(undefined);
+    let claim: { id: string; object_keys: string[]; attempts: number } | undefined = { id: "cleanup", object_keys: ["tenant/run/object"], attempts: 0 };
+    const txQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("SELECT id,object_keys")) { const row = claim; claim = undefined; return { rows: row ? [row] : [], rowCount: row ? 1 : 0 }; }
+      return { rows: [], rowCount: 1 };
+    });
+    const poolQuery = vi.fn(async () => ({ rows: [], rowCount: 1 }));
+    const database = { pool: { query: poolQuery }, transaction: (work: (client: any) => unknown) => work({ query: txQuery }) } as any;
+    const repository = new RunRetentionRepository(database);
+
+    await expect(repository.processArtifactCleanup({ delete: bucketDelete } as any, now)).resolves.toEqual({ attempted: 1, completed: 0, retried: 1 });
+    expect(poolQuery).toHaveBeenCalledWith(expect.stringContaining("last_error=$3"), ["cleanup", new Date(now.getTime() + 60_000), "provider unavailable"]);
+
+    claim = { id: "cleanup", object_keys: ["tenant/run/object"], attempts: 1 };
+    await expect(repository.processArtifactCleanup({ delete: bucketDelete } as any, now)).resolves.toEqual({ attempted: 1, completed: 1, retried: 0 });
+    expect(bucketDelete).toHaveBeenCalledWith(["tenant/run/object"]);
+    expect(poolQuery).toHaveBeenLastCalledWith("DELETE FROM app.run_retention_cleanup WHERE id=$1", ["cleanup"]);
+  });
+
+  it("retains R2 ownership when external deletion succeeds but acknowledgment fails", async () => {
+    const now = new Date("2026-11-11T12:00:00.000Z");
+    const bucketDelete = vi.fn().mockResolvedValue(undefined);
+    let claimAvailable = true;
+    const txQuery = vi.fn(async (sql: string) => {
+      if (!sql.includes("SELECT id,object_keys") || !claimAvailable) return { rows: [], rowCount: 0 };
+      claimAvailable = false;
+      return { rows: [{ id: "cleanup", object_keys: ["tenant/run/object"], attempts: 0 }], rowCount: 1 };
+    });
+    const acknowledge = vi.fn()
+      .mockRejectedValueOnce(new Error("database disconnected after R2 deletion"))
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    const poolQuery = vi.fn(async (sql: string) => {
+      if (sql.startsWith("DELETE FROM app.run_retention_cleanup")) return acknowledge(sql);
+      return { rows: [], rowCount: 1 };
+    });
+    const repository = new RunRetentionRepository({ pool: { query: poolQuery }, transaction: (work: (client: any) => unknown) => work({ query: txQuery }) } as any);
+
+    await expect(repository.processArtifactCleanup({ delete: bucketDelete } as any, now)).resolves.toEqual({ attempted: 1, completed: 0, retried: 1 });
+    expect(poolQuery).toHaveBeenCalledWith(expect.stringContaining("last_error=$3"), ["cleanup", new Date(now.getTime() + 60_000), "database disconnected after R2 deletion"]);
+    claimAvailable = true;
+    await expect(repository.processArtifactCleanup({ delete: bucketDelete } as any, now)).resolves.toEqual({ attempted: 1, completed: 1, retried: 0 });
+    expect(bucketDelete).toHaveBeenCalledTimes(2);
+    expect(acknowledge).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports bounded backlog counts and oldest age without exposing row identifiers", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [
+      { queue: "artifact_objects", pending: 2, oldest_age_seconds: 120 },
+      { queue: "deleted_job_provider", pending: 0, oldest_age_seconds: null },
+      { queue: "finalization_pending", pending: 1, oldest_age_seconds: 240 },
+      { queue: "lifecycle_handoff", pending: 2, oldest_age_seconds: 300 },
+      { queue: "overdue_nonterminal", pending: 1, oldest_age_seconds: 90_000 },
+      { queue: "terminal_provider", pending: 3, oldest_age_seconds: 600 },
+      { queue: "webhook_processing", pending: 1, oldest_age_seconds: 45 },
+      { queue: "webhook_verification", pending: 1, oldest_age_seconds: 0 },
+    ] });
+    const repository = new RunRetentionRepository({ pool: { query } } as any);
+    const snapshot = await repository.backlogSnapshot();
+    expect(snapshot).toEqual([
+      { queue: "artifact_objects", pending: 2, oldestAgeSeconds: 120 },
+      { queue: "deleted_job_provider", pending: 0, oldestAgeSeconds: null },
+      { queue: "finalization_pending", pending: 1, oldestAgeSeconds: 240 },
+      { queue: "lifecycle_handoff", pending: 2, oldestAgeSeconds: 300 },
+      { queue: "overdue_nonterminal", pending: 1, oldestAgeSeconds: 90_000 },
+      { queue: "terminal_provider", pending: 3, oldestAgeSeconds: 600 },
+      { queue: "webhook_processing", pending: 1, oldestAgeSeconds: 45 },
+      { queue: "webhook_verification", pending: 1, oldestAgeSeconds: 0 },
+    ]);
+    expect(query.mock.calls[0]![0]).toContain("'overdue_nonterminal'");
+    expect(query.mock.calls[0]![0]).toContain("'finalization_pending'");
+    expect(query.mock.calls[0]![0]).toContain("'lifecycle_handoff'");
+    expect(query.mock.calls[0]![0]).toContain("'webhook_processing'");
+    expect(query.mock.calls[0]![0]).toContain("'webhook_verification'");
+    expect(query.mock.calls[0]![0]).toContain("SELECT queue,pending,oldest_age_seconds");
+    expect(snapshot.every(item => !("runId" in item) && !("tenantId" in item))).toBe(true);
+  });
+
+  it("cleans independent histories in bounded lanes and protects pending work", async () => {
+    const statements: string[] = [];
+    const query = vi.fn(async (sql: string) => { statements.push(sql); return { rows: [], rowCount: 7 }; });
+    const result = await new RunRetentionRepository({ pool: { query } } as any).cleanupIndependentHistory();
+    expect(result).toHaveLength(12);
+    expect(result.every(lane => lane.deleted === 7)).toBe(true);
+    expect(query).toHaveBeenCalledTimes(12);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("FOR UPDATE SKIP LOCKED"), [500]);
+    expect(statements.find(sql => sql.includes("webhook_deliveries d"))).toContain("d.outcome <> 'received'");
+    expect(statements.find(sql => sql.includes("webhook_deliveries d"))).toContain("app.pending_verifications");
+    expect(statements.find(sql => sql.includes("vm_image_verifications"))).toContain("status IN ('succeeded','failed')");
+    expect(statements.find(sql => sql.includes("access_tokens"))).toContain("expires_at < now() OR revoked_at IS NOT NULL");
+  });
+});
