@@ -121,6 +121,14 @@ export function createModelAccountLifecycle({
               return { state: "unsaved", attempts };
             }
             await sleep(retryDelaysMs[attempt]);
+            if (currentGeneration(id) !== generation) throw new Error("model account changed before token persistence");
+            let latest;
+            try { latest = await getAccount(id); }
+            catch { throw new Error("model account changed before token persistence"); }
+            if (!latest || latest.id !== id || latest.kind !== "model" || latest.ownerId !== account.ownerId
+                || latest.keyGeneration !== account.keyGeneration) {
+              throw new Error("model account changed before token persistence");
+            }
           }
         }
         if (!retryWithLatestRevision) {
