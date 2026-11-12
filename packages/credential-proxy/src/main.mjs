@@ -6,6 +6,10 @@ import { startProxyBootstrapControl } from "./bootstrap-control.mjs";
 import { createProxyIntegrationGrantResolver } from "./decrypted-grants.mjs";
 import { startAuthenticatedProxyTunnel } from "./tunnel-transport.mjs";
 import { createProxyTlsAuthority } from "./tls-identity.mjs";
+import { createCodexAuthHelper } from "./codex-auth-helper.mjs";
+import { createModelAccountLifecycle } from "./model-account-lifecycle.mjs";
+import { createModelAccountPersistenceAdapter } from "./control-client.mjs";
+import { decryptModelAccountCache, encryptModelAccountCache } from "./model-account-crypto.mjs";
 
 const epochIndex = process.argv.indexOf("--boot-epoch");
 const bootEpoch = epochIndex < 0 ? randomUUID() : process.argv[epochIndex + 1];
@@ -20,9 +24,26 @@ let controlCredential;
 let controlOrigin;
 let tunnel;
 let revocationMonitor;
+let modelAccounts;
+let modelAccountLifecycle;
 
 async function activateRegistration(registration, origin) {
   if (tunnel) throw new Error("proxy boot is already registered");
+  const persistence = createModelAccountPersistenceAdapter({
+    controlOrigin: origin,
+    controlCredential: registration.controlCredential,
+    ownerId: registration.tenantId,
+  });
+  modelAccounts = persistence;
+  modelAccountLifecycle = createModelAccountLifecycle({
+    authHelper: createCodexAuthHelper(),
+    getUnlockKey: () => runtime.getUnlockKey(),
+    getAccount: persistence.getAccount,
+    getEncryptedCache: persistence.getEncryptedCache,
+    persistEncrypted: persistence.persistEncrypted,
+    encryptCache: encryptModelAccountCache,
+    decryptCache: decryptModelAccountCache,
+  });
   const resolveGrants = createProxyIntegrationGrantResolver({ runtime, controlOrigin: origin, controlCredential: registration.controlCredential });
   const started = await startAuthenticatedProxyTunnel({
     tls: tlsAuthority.tls,
@@ -96,6 +117,10 @@ lines.on("line", async (line) => {
     if (command?.type === "status") respondStatus();
     else if (command?.type === "unlock") {
       runtime.unlock(command.key);
+      if (modelAccountLifecycle && modelAccounts) {
+        const accounts = await modelAccounts.listAccounts();
+        for (const account of accounts) await modelAccountLifecycle.reconcile(account.id);
+      }
       respondStatus();
     } else if (command?.type === "lock") {
       await runtime.lock();

@@ -30,7 +30,7 @@ describe("dedicated proxy boot registration endpoint", () => {
     const env = envFor();
     const response = await proxyControlFetch(request({ authorization: `Bearer ${token}` }), env);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ registered: true, proxyIdentity: "proxy-fixture", bootEpoch, controlCredential: expect.stringMatching(/^fzc_[A-Za-z0-9_-]{43}$/) });
+    expect(await response.json()).toMatchObject({ registered: true, tenantId: "11111111-1111-4111-8111-111111111111", proxyIdentity: "proxy-fixture", bootEpoch, controlCredential: expect.stringMatching(/^fzc_[A-Za-z0-9_-]{43}$/) });
     expect(env.transactionQuery.mock.calls.map((call: any[]) => call[0])).toHaveLength(4);
     expect(env.transactionQuery.mock.calls[0][0]).toContain("boot_epoch=$2 AND revoked_at IS NULL AND consumed_at IS NULL");
     expect(env.transactionQuery.mock.calls[2][0]).toContain("consumed_at=now()");

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { consumeProxyEnrollment, createProxyEnrollmentAuthenticator, issueProxyEnrollment, readProxyIntegrationSnapshot, readProxyRunRevocations, registerProxyBoot, startProxyRunRevocationMonitor } from "../src/control-client.mjs";
+import { consumeProxyEnrollment, createModelAccountPersistenceAdapter, createProxyEnrollmentAuthenticator, issueProxyEnrollment, readProxyIntegrationSnapshot, readProxyRunRevocations, registerProxyBoot, startProxyRunRevocationMonitor } from "../src/control-client.mjs";
 
 const token = `fzc_${"A".repeat(43)}`;
 const bootEpoch = "22222222-2222-4222-8222-222222222222";
@@ -11,9 +11,9 @@ test("boot registration uses a one-call control credential, HTTPS, exact path an
   let request;
   const result = await registerProxyBoot({ controlOrigin: "https://factorize.example", token, bootEpoch, fetchImpl: async (url, init) => {
     request = { url: String(url), init };
-    return Response.json({ registered: true, proxyIdentity: "proxy-fixture", bootEpoch, controlCredential: `fzc_${"c".repeat(43)}` });
+    return Response.json({ registered: true, tenantId: "11111111-1111-4111-8111-111111111111", proxyIdentity: "proxy-fixture", bootEpoch, controlCredential: `fzc_${"c".repeat(43)}` });
   } });
-  assert.deepEqual(result, { proxyIdentity: "proxy-fixture", bootEpoch, controlCredential: `fzc_${"c".repeat(43)}` });
+  assert.deepEqual(result, { tenantId: "11111111-1111-4111-8111-111111111111", proxyIdentity: "proxy-fixture", bootEpoch, controlCredential: `fzc_${"c".repeat(43)}` });
   assert.equal(request.url, "https://factorize.example/internal/credential-proxy/register-boot");
   assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
   assert.equal(request.init.redirect, "error");
@@ -33,6 +33,27 @@ test("proxy snapshot reader requests only the bound run revision and validates e
   assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
   await assert.rejects(readProxyIntegrationSnapshot({ controlOrigin: "https://factorize.example", token, binding: { runId, grantRevision: 7 }, fetchImpl: async () => Response.json({ ownerId: "owner-1", records: [{ ...snapshot.records[0], kind: "model" }] }) }), /invalid proxy integration snapshot response/);
   await assert.rejects(readProxyIntegrationSnapshot({ controlOrigin: "https://factorize.example", token, binding: { runId, grantRevision: 7 }, fetchImpl: async () => Response.json({ ...snapshot, modelAccount: { ...snapshot.modelAccount, kind: "bearer" } }) }), /invalid proxy integration snapshot response/);
+});
+
+test("model account persistence adapter lists owner-bound account revisions over proxy authentication", async () => {
+  const ownerId = "11111111-1111-4111-8111-111111111111";
+  let request;
+  const adapter = createModelAccountPersistenceAdapter({
+    controlOrigin: "https://factorize.example", controlCredential: token, ownerId,
+    fetchImpl: async (url, init) => {
+      request = { url: String(url), init, body: JSON.parse(init.body) };
+      return Response.json({ ownerId, keyGeneration: "22222222-2222-4222-8222-222222222222",
+        accounts: [{ id: "33333333-3333-4333-8333-333333333333", kind: "model", origin: null, revision: 4 }] });
+    },
+  });
+  assert.deepEqual(await adapter.listAccounts(), [{ id: "33333333-3333-4333-8333-333333333333", kind: "model", origin: null, revision: 4, ownerId, keyGeneration: "22222222-2222-4222-8222-222222222222" }]);
+  assert.equal(request.url, "https://factorize.example/internal/credential-proxy/model-account-cache");
+  assert.deepEqual(request.body, { operation: "list" });
+  assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
+  await assert.rejects(adapter.listAccounts && createModelAccountPersistenceAdapter({
+    controlOrigin: "https://factorize.example", controlCredential: token, ownerId,
+    fetchImpl: async () => Response.json({ ownerId: "22222222-2222-4222-8222-222222222222", keyGeneration: "22222222-2222-4222-8222-222222222222", accounts: [] }),
+  }).listAccounts(), /invalid model account list response/);
 });
 
 test("proxy revocation monitor applies durable run revocations and tolerates an outage", async () => {

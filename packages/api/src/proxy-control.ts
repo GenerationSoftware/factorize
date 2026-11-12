@@ -37,7 +37,7 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "bootEpoch") || typeof (body as any).bootEpoch !== "string") return json({ error: "invalid_request" }, 400);
     const registration = await repository.registerBoot(token, (body as any).bootEpoch);
     if (!registration) return json({ error: "proxy_registration_unavailable" }, 403);
-    return json({ registered: true, proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch, controlCredential: registration.controlCredential });
+    return json({ registered: true, tenantId: registration.tenantId, proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch, controlCredential: registration.controlCredential });
   }
 
   const proxy = await repository.authenticateProxy(token);
@@ -54,6 +54,13 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid_request" }, 400);
     const input = body as Record<string, unknown>;
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (input.operation === "list" && Object.keys(input).length === 1) {
+      const accounts = await new EncryptedIntegrationRepository(databaseFor(env), proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).records("model");
+      const keyState = await databaseFor(env).pool.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [proxy.tenantId]);
+      if (!keyState.rows[0]) return json({ error: "model_account_unavailable" }, 404);
+      return json({ ownerId: proxy.tenantId, keyGeneration: keyState.rows[0].generation_id,
+        accounts: accounts.map(({ id, revision }) => ({ id, revision, kind: "model", origin: null })) });
+    }
     if (input.operation === "read" && Object.keys(input).sort().join(",") === "accountId,operation"
         && typeof input.accountId === "string" && uuid.test(input.accountId)) {
       const account = (await new EncryptedIntegrationRepository(databaseFor(env), proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).records("model"))
