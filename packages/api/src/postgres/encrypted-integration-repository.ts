@@ -126,6 +126,43 @@ export class EncryptedIntegrationRepository {
     return Promise.all(rows.map(async row => ({ id: row.id, kind: row.kind, name: row.name, origin: row.origin, description: row.description, revision: safeRevision(row.revision), encryptedPayload: await decrypt(row.encrypted_payload, this.serverEncryptionKey) })));
   }
 
+  /**
+   * Replace only a model account's user-encrypted Codex cache. The account
+   * revision is independent of the collection revision, so unrelated bearer
+   * edits do not invalidate the cache's authenticated-encryption binding.
+   */
+  async saveModelCache(input: { id: string; expectedRevision: number; encryptedPayload: string; idempotencyKey: string }): Promise<{ revision: number; collectionRevision: number; duplicate: boolean }> {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuid.test(input.id) || !uuid.test(input.idempotencyKey) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0
+        || !isUserCiphertext(input.encryptedPayload)) throw new IntegrationValidationError("model cache binding is invalid");
+    const encryptedPayload = await encrypt(input.encryptedPayload, this.serverEncryptionKey);
+    return this.database.transaction(async client => {
+      await client.query("INSERT INTO app.integration_collections(tenant_id) VALUES ($1) ON CONFLICT DO NOTHING", [this.tenantId]);
+      const collection = (await client.query<{ revision: string | number }>("SELECT revision FROM app.integration_collections WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0]!;
+      const currentCollectionRevision = safeRevision(collection.revision);
+      const current = (await client.query<{ kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string | null; deleted_at: Date | null }>(
+        "SELECT kind,name,origin,description,revision,encrypted_payload,deleted_at FROM app.integration_records WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, input.id])).rows[0];
+      if (!current || current.kind !== "model" || current.deleted_at || current.revision === null) throw new IntegrationValidationError("model account is unavailable");
+      const currentRevision = safeRevision(current.revision);
+      const previousChange = (await client.query<{ revision: string | number; record_id: string; operation: string; encrypted_payload: string | null }>(
+        "SELECT revision,record_id,operation,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId,input.idempotencyKey])).rows[0];
+      if (previousChange) {
+        const same = previousChange.record_id === input.id && previousChange.operation === "upsert" && previousChange.encrypted_payload !== null
+          && await decrypt(previousChange.encrypted_payload, this.serverEncryptionKey) === input.encryptedPayload;
+        if (!same) throw new IntegrationIdempotencyConflictError();
+        return { revision: Math.max(0, input.expectedRevision + 1), collectionRevision: safeRevision(previousChange.revision), duplicate: true };
+      }
+      if (currentRevision !== input.expectedRevision) throw new StaleIntegrationRevisionError(currentRevision);
+      const collectionRevision = currentCollectionRevision + 1;
+      const revision = currentRevision + 1;
+      await client.query("UPDATE app.integration_collections SET revision=$2,updated_at=now() WHERE tenant_id=$1", [this.tenantId, collectionRevision]);
+      await client.query("UPDATE app.integration_records SET revision=$3,encrypted_payload=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2", [this.tenantId,input.id,revision,encryptedPayload]);
+      await client.query(`INSERT INTO app.integration_changes(tenant_id,revision,id,idempotency_key,operation,record_id,kind,name,origin,description,encrypted_payload)
+        VALUES ($1,$2,$3,$4,'upsert',$5,'model',$6,NULL,$7,$8)`, [this.tenantId,collectionRevision,crypto.randomUUID(),input.idempotencyKey,input.id,current.name,current.description,encryptedPayload]);
+      return { revision, collectionRevision, duplicate: false };
+    });
+  }
+
   async changesSince(revision: number, limit = 100): Promise<IntegrationChange[]> {
     if (!Number.isSafeInteger(revision) || revision < 0) throw new IntegrationValidationError("revision must be a non-negative safe integer");
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw new IntegrationValidationError("limit must be between 1 and 500");

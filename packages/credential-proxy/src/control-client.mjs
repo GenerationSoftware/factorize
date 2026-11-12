@@ -76,6 +76,41 @@ export async function readProxyIntegrationSnapshot({ controlOrigin, token, bindi
   return result;
 }
 
+/** Concrete proxy-side adapters for revision-bound encrypted model caches. */
+export function createModelAccountPersistenceAdapter({ controlOrigin, controlCredential, ownerId, fetchImpl = fetch } = {}) {
+  if (typeof ownerId !== "string" || !ownerId || !/^fzc_[A-Za-z0-9_-]{43}$/.test(controlCredential ?? "")) {
+    throw new TypeError("model account persistence requires the registered proxy identity");
+  }
+  const read = async accountId => {
+    if (!uuidPattern.test(accountId ?? "")) throw new TypeError("invalid model account id");
+    const result = await proxyControlRequest({ controlOrigin, token: controlCredential, path: "/internal/credential-proxy/model-account-cache", body: { operation: "read", accountId }, fetchImpl });
+    const account = result?.account;
+    if (result?.ownerId !== ownerId || !account || account.id !== accountId || account.kind !== "model"
+        || account.origin !== null || typeof account.encryptedPayload !== "string"
+        || !Number.isSafeInteger(account.revision) || !uuidPattern.test(account.keyGeneration ?? "")) {
+      throw new Error("invalid model account persistence response");
+    }
+    return { ...account, ownerId };
+  };
+  return Object.freeze({
+    getAccount: read,
+    async getEncryptedCache(accountId) {
+      const account = await read(accountId);
+      return { accountId, ownerId, keyGeneration: account.keyGeneration, revision: account.revision, encryptedPayload: account.encryptedPayload };
+    },
+    async persistEncrypted({ id, expectedRevision, encryptedPayload, idempotencyKey }) {
+      if (!uuidPattern.test(id ?? "") || !uuidPattern.test(idempotencyKey ?? "") || !Number.isSafeInteger(expectedRevision)
+          || typeof encryptedPayload !== "string" || encryptedPayload.length > 65_536) throw new TypeError("invalid encrypted model account update");
+      const result = await proxyControlRequest({ controlOrigin, token: controlCredential, path: "/internal/credential-proxy/model-account-cache",
+        body: { operation: "save", accountId: id, expectedRevision, encryptedPayload, idempotencyKey }, fetchImpl });
+      if (result?.accountId !== id || result.revision !== expectedRevision + 1 || typeof result.duplicate !== "boolean") {
+        throw new Error("invalid model account persistence response");
+      }
+      return result;
+    },
+  });
+}
+
 /** Read durable revocations for the registered proxy boot. Replaying the full
  * set is intentional: it closes runs revoked while this proxy was offline and
  * runtime.revokeRun is idempotent. */

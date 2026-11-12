@@ -82,7 +82,7 @@ export function createModelAccountLifecycle({
       plain.fill(0);
     }
     if (currentGeneration(id) !== generation) throw new Error("model account changed before token persistence");
-    const request = { id, expectedRevision: account.revision, keyGeneration: account.keyGeneration, encryptedPayload: encrypted };
+    const request = { id, expectedRevision: account.revision, keyGeneration: account.keyGeneration, encryptedPayload: encrypted, idempotencyKey: randomUUID() };
     for (let attempt = 0; ; attempt++) {
       if (currentGeneration(id) !== generation) throw new Error("model account changed before token persistence");
       try {
