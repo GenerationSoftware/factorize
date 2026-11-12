@@ -15,6 +15,7 @@ function envFor({ credentialFound = true, stateSaved = true } = {}) {
   });
   const query = vi.fn(async (sql: string) => sql.includes("proxy_token_digest")
     ? { rows: credentialFound ? [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }] : [], rowCount: credentialFound ? 1 : 0 }
+    : sql.includes("SET unlocked=$3") ? { rows: [], rowCount: credentialFound ? 1 : 0 }
     : sql.includes("FROM app.run_credentials")
       ? { rows: credentialFound ? [{ tenant_id: "11111111-1111-4111-8111-111111111111", user_id: "owner-fixture", session_version: 1, job_id: "job-fixture", scopes: ["integrations:read"] }] : [], rowCount: credentialFound ? 1 : 0 }
       : { rows: [], rowCount: 0 });
@@ -42,6 +43,15 @@ describe("dedicated proxy boot registration endpoint", () => {
     const response = await proxyControlFetch(request({ authorization: `Bearer fzt_run_${"B".repeat(32)}` }), env);
     expect(response.status).toBe(401);
     expect(env.transactionQuery).not.toHaveBeenCalled();
+  });
+
+  it("accepts runtime status only from the current registered proxy credential", async () => {
+    const env = envFor();
+    const response = await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/status", body: { bootEpoch, unlocked: true } }), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ updated: true });
+    expect(env.query.mock.calls.some((call: any[]) => call[0].includes("SET unlocked=$3") && call[0].includes("boot_epoch=$4"))).toBe(true);
+    expect((await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/status", body: { bootEpoch, unlocked: "yes" } }), env)).status).toBe(400);
   });
 
   it("rejects revoked credentials, disabled proxy identities and tenant or proxy substitution", async () => {

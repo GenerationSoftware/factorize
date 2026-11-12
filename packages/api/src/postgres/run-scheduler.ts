@@ -22,7 +22,7 @@ import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./trace-project
 import { LiveTraceRepository } from "./live-trace-repository";
 import { JOB_RESULT_INSTRUCTIONS, parseJobResult } from "../job-result";
 import { issueRunCredential, runProxyInstructions } from "../run-credentials";
-import { ProxyLaunchBlockedError } from "../proxy-launch-policy";
+import { ProxyLaunchBlockedError, proxyLaunchDecision, requireProxyLaunch } from "../proxy-launch-policy";
 
 export class RunScheduler {
   private runs: RunRepository;
@@ -127,6 +127,15 @@ export class RunScheduler {
   }
 
   private async launch(run: PersistedRun) {
+    const config = run.executionConfig;
+    const decision = proxyLaunchDecision({
+      executionProvider: config.executionProvider === "fly" ? "fly" : "exe",
+      executionType: config.executionType === "code" ? "code" : "agent",
+      portableIntegrationIds: config.portableIntegrationIds,
+      modelAccess: config.modelAccess,
+      modelAccountId: config.modelAccountId,
+    }, await this.proxyLaunchState(run.tenantId));
+    requireProxyLaunch(decision);
     if (run.executionConfig.executionType === "code") {
       if (typeof run.executionConfig.script !== "string" || !run.executionConfig.script.trim()) throw new Error("The code job has no saved script");
       const backend = await this.backend(run), context = run.executionConfig.inputContext;
@@ -150,6 +159,14 @@ export class RunScheduler {
     const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runProxyInstructions(run.id)}`, runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
     if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
+  }
+
+  private async proxyLaunchState(tenantId: string) {
+    const result = await this.database.pool.query<{ enabled: boolean; unlocked: boolean }>(`SELECT disabled_at IS NULL AND revoked_at IS NULL AS enabled,
+        unlocked AND updated_at > now() - interval '30 seconds' AS unlocked
+      FROM app.credential_proxy_states WHERE tenant_id=$1`, [tenantId]);
+    const state = result.rows[0];
+    return { enabled: Boolean(state?.enabled), running: Boolean(state), unlocked: Boolean(state?.unlocked), pendingChanges: false };
   }
 
   private async poll(run: PersistedRun) {

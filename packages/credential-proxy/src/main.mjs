@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { createProxyRuntime } from "./runtime.mjs";
-import { registerProxyBoot, startProxyRunRevocationMonitor } from "./control-client.mjs";
+import { registerProxyBoot, startProxyRunRevocationMonitor, startProxyRuntimeStatusReporter } from "./control-client.mjs";
 import { startProxyBootstrapControl } from "./bootstrap-control.mjs";
 import { createProxyIntegrationGrantResolver } from "./decrypted-grants.mjs";
 import { startAuthenticatedProxyTunnel } from "./tunnel-transport.mjs";
@@ -25,6 +25,7 @@ let controlCredential;
 let controlOrigin;
 let tunnel;
 let revocationMonitor;
+let statusReporter;
 let modelAccounts;
 let modelAccountLifecycle;
 let browserControl;
@@ -75,6 +76,12 @@ async function activateRegistration(registration, origin, browserOrigin) {
     bootEpoch: runtime.bootEpoch,
     runtime,
   });
+  statusReporter = startProxyRuntimeStatusReporter({
+    controlOrigin: origin,
+    token: registration.controlCredential,
+    bootEpoch: runtime.bootEpoch,
+    runtime,
+  });
 }
 
 const bootstrapControl = await startProxyBootstrapControl({
@@ -105,6 +112,8 @@ async function stop() {
   controlOrigin = undefined;
   await revocationMonitor?.close();
   revocationMonitor = undefined;
+  await statusReporter?.close();
+  statusReporter = undefined;
   await browserControl?.close().catch(() => {});
   browserControl = undefined;
   await runtime.shutdown();

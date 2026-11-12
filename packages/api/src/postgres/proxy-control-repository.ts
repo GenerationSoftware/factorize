@@ -37,7 +37,7 @@ export class ProxyControlRepository {
       const identity = credential.rows[0];
       if (!identity) return null;
       const saved = await client.query(`INSERT INTO app.credential_proxy_states(tenant_id,proxy_identity,boot_epoch)
-        VALUES ($1,$2,$3) ON CONFLICT (tenant_id) DO UPDATE SET proxy_identity=excluded.proxy_identity,boot_epoch=excluded.boot_epoch,updated_at=now()
+        VALUES ($1,$2,$3) ON CONFLICT (tenant_id) DO UPDATE SET proxy_identity=excluded.proxy_identity,boot_epoch=excluded.boot_epoch,unlocked=false,updated_at=now()
         WHERE app.credential_proxy_states.proxy_identity=excluded.proxy_identity
           AND app.credential_proxy_states.disabled_at IS NULL AND app.credential_proxy_states.revoked_at IS NULL RETURNING tenant_id`,
       [identity.tenant_id, identity.proxy_identity, bootEpoch]);
@@ -73,6 +73,16 @@ export class ProxyControlRepository {
       WHERE c.proxy_token_digest=$1 AND c.revoked_at IS NULL AND p.disabled_at IS NULL AND p.revoked_at IS NULL`, [Buffer.from(await digest(token))]);
     const row = result.rows[0];
     return row ? { tenantId: row.tenant_id, proxyIdentity: row.proxy_identity, bootEpoch: row.boot_epoch } : null;
+  }
+
+  async reportRuntimeStatus(token: string, bootEpoch: string, unlocked: boolean): Promise<boolean> {
+    if (!uuid.test(bootEpoch) || typeof unlocked !== "boolean") throw new TypeError("Invalid proxy runtime status");
+    const identity = await this.authenticateProxy(token);
+    if (!identity || identity.bootEpoch !== bootEpoch) return false;
+    const result = await this.database.pool.query(`UPDATE app.credential_proxy_states SET unlocked=$3,updated_at=now()
+      WHERE tenant_id=$1 AND proxy_identity=$2 AND boot_epoch=$4 AND disabled_at IS NULL AND revoked_at IS NULL`,
+    [identity.tenantId, identity.proxyIdentity, unlocked, bootEpoch]);
+    return Boolean(result.rowCount);
   }
 
   async revokeCredential(tenantId: string, proxyIdentity: string): Promise<boolean> {

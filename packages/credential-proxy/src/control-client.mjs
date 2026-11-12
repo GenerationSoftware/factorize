@@ -63,6 +63,28 @@ export async function consumeProxyEnrollment(options) {
   return result.binding;
 }
 
+export async function reportProxyRuntimeStatus({ controlOrigin, token, bootEpoch, unlocked, fetchImpl = fetch } = {}) {
+  if (!bootEpochPattern.test(bootEpoch ?? "") || typeof unlocked !== "boolean") throw new TypeError("invalid proxy runtime status");
+  const result = await proxyControlRequest({ controlOrigin, token, path: "/internal/credential-proxy/status", body: { bootEpoch, unlocked }, fetchImpl });
+  if (result?.updated !== true) throw new Error("invalid proxy runtime status response");
+  return result;
+}
+
+export function startProxyRuntimeStatusReporter({ controlOrigin, token, bootEpoch, runtime, intervalMs = 10_000, fetchImpl = fetch } = {}) {
+  if (!runtime || typeof runtime.state !== "string" || !Number.isSafeInteger(intervalMs) || intervalMs < 1_000 || intervalMs > 60_000) {
+    throw new TypeError("invalid proxy runtime status reporter");
+  }
+  let closed = false, pending = Promise.resolve();
+  const report = () => {
+    if (closed) return;
+    pending = pending.then(() => reportProxyRuntimeStatus({ controlOrigin, token, bootEpoch, unlocked: runtime.state === "unlocked", fetchImpl })).catch(() => {});
+  };
+  report();
+  const timer = setInterval(report, intervalMs);
+  timer.unref?.();
+  return { async close() { closed = true; clearInterval(timer); await pending; } };
+}
+
 /** Read the current user-encrypted integration records selected by an active run.
  * The control plane decrypts only Factorize's outer encryption layer. */
 export async function readProxyIntegrationSnapshot({ controlOrigin, token, binding, fetchImpl = fetch } = {}) {

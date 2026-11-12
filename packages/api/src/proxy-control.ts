@@ -9,7 +9,7 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 /** Dedicated service-to-service endpoint. The run API credential is intentionally not accepted here. */
 export async function proxyControlFetch(request: Request, env: Parameters<typeof databaseFor>[0]): Promise<Response> {
   const url = new URL(request.url);
-  if (!["/internal/credential-proxy/register-boot", "/internal/credential-proxy/enroll", "/internal/credential-proxy/consume-enrollment", "/internal/credential-proxy/integration-snapshot", "/internal/credential-proxy/model-account-cache", "/internal/credential-proxy/revocations"].includes(url.pathname)) return json({ error: "not_found" }, 404);
+  if (!["/internal/credential-proxy/register-boot", "/internal/credential-proxy/status", "/internal/credential-proxy/enroll", "/internal/credential-proxy/consume-enrollment", "/internal/credential-proxy/integration-snapshot", "/internal/credential-proxy/model-account-cache", "/internal/credential-proxy/revocations"].includes(url.pathname)) return json({ error: "not_found" }, 404);
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return json({ error: "unsupported_media_type" }, 415);
   const authorization = request.headers.get("authorization") ?? "";
@@ -38,6 +38,13 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     const registration = await repository.registerBoot(token, (body as any).bootEpoch, (body as any).browserOrigin);
     if (!registration) return json({ error: "proxy_registration_unavailable" }, 403);
     return json({ registered: true, tenantId: registration.tenantId, proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch, controlCredential: registration.controlCredential });
+  }
+
+  if (url.pathname === "/internal/credential-proxy/status") {
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join(",") !== "bootEpoch,unlocked"
+        || typeof (body as any).bootEpoch !== "string" || typeof (body as any).unlocked !== "boolean") return json({ error: "invalid_request" }, 400);
+    const updated = await repository.reportRuntimeStatus(token, (body as any).bootEpoch, (body as any).unlocked);
+    return updated ? json({ updated: true }) : json({ error: "proxy_status_unavailable" }, 403);
   }
 
   const proxy = await repository.authenticateProxy(token);

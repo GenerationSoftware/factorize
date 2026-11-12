@@ -4,10 +4,21 @@ import { RunRepository } from "../src/postgres/run-repository";
 import { ExeVmBackend } from "../src/exe-vm-backend";
 import { encrypt } from "../src/crypto";
 import { runProxyName } from "../src/run-credentials";
+import { ProxyLaunchBlockedError } from "../src/proxy-launch-policy";
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("control-plane run credential delivery", () => {
+  it("persists a pre-launch block when a credential-dependent job has no fresh unlocked proxy status", async () => {
+    const database = { pool: { query: vi.fn() } };
+    const scheduler: any = new RunScheduler(database as any, {} as any);
+    vi.spyOn(scheduler, "proxyLaunchState").mockResolvedValue({ enabled: true, running: true, unlocked: false, pendingChanges: false });
+    await expect(scheduler.launch({
+      id: "00000000-0000-4000-8000-000000000001", tenantId: "tenant",
+      executionConfig: { executionProvider: "fly", executionType: "agent", modelAccess: "portable", modelAccountId: "account" },
+    })).rejects.toEqual(new ProxyLaunchBlockedError("proxy_locked"));
+  });
+
   it.each(["codex", "claude", "pi", "code"])("keeps %s proxy credentials out of the guest environment and prompt", async agentKind => {
     const runId = "00000000-0000-4000-8000-000000000001", key = btoa("a".repeat(32));
     let issuedScopes: unknown;
@@ -18,6 +29,7 @@ describe("control-plane run credential delivery", () => {
     } } };
     const env = { DATABASE: database, APP_ORIGIN: "https://app.test", CREDENTIAL_ENCRYPTION_KEY: key } as any;
     const scheduler: any = new RunScheduler(database as any, env);
+    vi.spyOn(scheduler, "proxyLaunchState").mockResolvedValue({ enabled: true, running: true, unlocked: true, pendingChanges: false });
     const backend = new ExeVmBackend({ apiToken: "control-plane-token", agentKind: (agentKind === "code" ? "codex" : agentKind) as any, tags: [] });
     vi.spyOn(scheduler, "backend").mockResolvedValue(backend);
     const launch = vi.spyOn(backend, "launch").mockResolvedValue({ handle: { backendKind: "exe-vm", id: "factorize-run" }, observation: { state: "running" }, capabilities: [], destinationUrl: "https://vm.test" });

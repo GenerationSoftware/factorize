@@ -1,11 +1,38 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { consumeProxyEnrollment, createModelAccountPersistenceAdapter, createProxyEnrollmentAuthenticator, issueProxyEnrollment, readProxyIntegrationSnapshot, readProxyRunRevocations, registerProxyBoot, startProxyRunRevocationMonitor } from "../src/control-client.mjs";
+import { consumeProxyEnrollment, createModelAccountPersistenceAdapter, createProxyEnrollmentAuthenticator, issueProxyEnrollment, readProxyIntegrationSnapshot, readProxyRunRevocations, registerProxyBoot, reportProxyRuntimeStatus, startProxyRuntimeStatusReporter, startProxyRunRevocationMonitor } from "../src/control-client.mjs";
 
 const token = `fzc_${"A".repeat(43)}`;
 const bootEpoch = "22222222-2222-4222-8222-222222222222";
 const runId = "33333333-3333-4333-8333-333333333333";
 const runCredential = `fzt_run_${Buffer.from(runId).toString("base64url")}_${"R".repeat(43)}`;
+
+test("proxy runtime status reports the current boot and runtime unlock state", async () => {
+  const requests = [];
+  await reportProxyRuntimeStatus({ controlOrigin: "https://factorize.example", token, bootEpoch, unlocked: true, fetchImpl: async (url, init) => {
+    requests.push({ url: String(url), init, body: JSON.parse(init.body) });
+    return Response.json({ updated: true });
+  } });
+  assert.equal(requests[0].url, "https://factorize.example/internal/credential-proxy/status");
+  assert.equal(requests[0].init.headers.Authorization, `Bearer ${token}`);
+  assert.deepEqual(requests[0].body, { bootEpoch, unlocked: true });
+  await assert.rejects(reportProxyRuntimeStatus({ controlOrigin: "https://factorize.example", token, bootEpoch: "invalid", unlocked: false }), /runtime status/);
+});
+
+test("runtime status reporter periodically refreshes authenticated status", async () => {
+  const requests = [];
+  const runtime = { state: "locked" };
+  const monitor = startProxyRuntimeStatusReporter({ controlOrigin: "https://factorize.example", token, bootEpoch, runtime, intervalMs: 1_000, fetchImpl: async (url, init) => {
+    requests.push({ url: String(url), body: JSON.parse(init.body) });
+    return Response.json({ updated: true });
+  } });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  runtime.state = "unlocked";
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await monitor.close();
+  assert.equal(requests[0].body.unlocked, false);
+  assert.ok(requests.every(request => request.url.endsWith("/internal/credential-proxy/status")));
+});
 
 test("boot registration uses a one-call control credential, HTTPS, exact path and fresh process epoch", async () => {
   let request;

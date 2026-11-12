@@ -30,7 +30,7 @@ export class RunEnrollmentRepository {
     if (!input.proxyIdentity.trim() || input.proxyIdentity.length > 255) throw new TypeError("proxyIdentity must contain 1 to 255 characters");
     await this.database.pool.query(`INSERT INTO app.credential_proxy_states(tenant_id,proxy_identity,boot_epoch,disabled_at,revoked_at)
       VALUES ($1,$2,$3,CASE WHEN $4 THEN now() END,CASE WHEN $5 THEN now() END)
-      ON CONFLICT (tenant_id) DO UPDATE SET proxy_identity=excluded.proxy_identity,boot_epoch=excluded.boot_epoch,disabled_at=excluded.disabled_at,revoked_at=excluded.revoked_at,updated_at=now()`,
+      ON CONFLICT (tenant_id) DO UPDATE SET proxy_identity=excluded.proxy_identity,boot_epoch=excluded.boot_epoch,disabled_at=excluded.disabled_at,revoked_at=excluded.revoked_at,unlocked=false,updated_at=now()`,
     [input.tenantId, input.proxyIdentity, input.bootEpoch, input.disabled ?? false, input.revoked ?? false]);
   }
 
