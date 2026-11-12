@@ -143,6 +143,28 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect((await database.pool.query("SELECT object_keys FROM app.run_retention_cleanup WHERE tenant_id=$1 AND run_id=$2", [a, runId])).rows[0]).toEqual({ object_keys: [`${a}/${runId}/trace.jsonl`] });
   });
 
+  it("retains old webhook history while mergeability verification is pending", async () => {
+    const a = await tenant(), target = await job(a, { sourceJobIds: [] }, true, "webhook");
+    const triggerId = target.triggers[0]!.id, deliveryPk = crypto.randomUUID(), deliveryId = "retention-pending-verification";
+    await database.pool.query(`INSERT INTO app.webhook_deliveries(tenant_id,id,provider,delivery_id,outcome,detail,received_at)
+      VALUES ($1,$2,'github',$3,'verification_pending','Mergeability is not available yet',now()-interval '15 days')`, [a, deliveryPk, deliveryId]);
+    await database.pool.query(`INSERT INTO app.webhook_delivery_events(tenant_id,id,delivery_id,job_id,outcome,detail,created_at)
+      VALUES ($1,$2,$3,$4,'verification_pending','Waiting for mergeability',now()-interval '15 days')`, [a, crypto.randomUUID(), deliveryPk, target.id]);
+    await database.pool.query(`INSERT INTO app.pending_verifications
+      (tenant_id,id,job_id,trigger_id,delivery_id,installation_id,repository_id,repository_owner,repository_name,pull_number,next_attempt_at,payload)
+      VALUES ($1,$2,$3,$4,$5,1,1,'owner','repo',1,now(),'{}')`, [a, crypto.randomUUID(), target.id, triggerId, deliveryId]);
+
+    const retention = new RunRetentionRepository(database);
+    await Promise.all([retention.cleanupIndependentHistory(), retention.cleanupIndependentHistory()]);
+    expect((await database.pool.query("SELECT outcome FROM app.webhook_deliveries WHERE tenant_id=$1 AND id=$2", [a, deliveryPk])).rows).toEqual([{ outcome: "verification_pending" }]);
+    expect((await database.pool.query("SELECT 1 FROM app.webhook_delivery_events WHERE tenant_id=$1 AND delivery_id=$2", [a, deliveryPk])).rowCount).toBe(1);
+
+    await database.pool.query("DELETE FROM app.pending_verifications WHERE tenant_id=$1 AND delivery_id=$2", [a, deliveryId]);
+    await retention.cleanupIndependentHistory();
+    expect((await database.pool.query("SELECT 1 FROM app.webhook_deliveries WHERE tenant_id=$1 AND id=$2", [a, deliveryPk])).rowCount).toBe(0);
+    expect((await database.pool.query("SELECT 1 FROM app.webhook_delivery_events WHERE tenant_id=$1 AND delivery_id=$2", [a, deliveryPk])).rowCount).toBe(0);
+  });
+
   it("does not replay terminal history when a trigger is created disabled then enabled", async () => {
     const a = await tenant(), source = await job(a);
     await complete(a, source, "failed");
