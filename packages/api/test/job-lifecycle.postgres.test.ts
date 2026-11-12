@@ -108,6 +108,41 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect(await invocations(a, target.id)).toHaveLength(1);
   });
 
+  it("rolls back aggregate deletion with its artifact receipt, then expires replay deduplication with the run", async () => {
+    const a = await tenant(), source = await job(a);
+    const runId = await complete(a, source);
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60_000);
+    await database.pool.query("UPDATE app.runs SET created_at=$3 WHERE tenant_id=$1 AND id=$2", [a, runId, new Date(cutoff.getTime() - 60_000)]);
+    const artifactId = crypto.randomUUID(), requestId = crypto.randomUUID();
+    await database.pool.query(`INSERT INTO app.run_artifacts
+      (tenant_id,id,run_id,kind,object_key,provider,format,byte_size,sha256,state)
+      VALUES ($1,$2,$3,'execution_stream',$4,'codex','jsonl',1,$5,'stored')`,
+    [a, artifactId, runId, `${a}/${runId}/trace.jsonl`, "a".repeat(64)]);
+    await database.pool.query(`INSERT INTO app.trace_replay_operations
+      (tenant_id,request_id,run_id,source,actor_id,result)
+      VALUES ($1,$2,$3,'primary','owner','{"status":"projected"}')`, [a, requestId, runId]);
+
+    const suffix = crypto.randomUUID().replaceAll("-", "");
+    const functionName = `reject_retention_delete_${suffix}`, triggerName = `reject_retention_delete_${suffix}`;
+    await database.pool.query(`CREATE FUNCTION app.${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected retention delete failure'; END $$`);
+    await database.pool.query(`CREATE TRIGGER ${triggerName} BEFORE DELETE ON app.invocations FOR EACH ROW EXECUTE FUNCTION app.${functionName}()`);
+    const retention = new RunRetentionRepository(database);
+    try {
+      await expect(retention.sweep(cutoff, 10)).rejects.toThrow("injected retention delete failure");
+    } finally {
+      await database.pool.query(`DROP TRIGGER ${triggerName} ON app.invocations`);
+      await database.pool.query(`DROP FUNCTION app.${functionName}()`);
+    }
+    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, runId])).rowCount).toBe(1);
+    expect((await database.pool.query("SELECT 1 FROM app.run_artifacts WHERE tenant_id=$1 AND id=$2", [a, artifactId])).rowCount).toBe(1);
+    expect((await database.pool.query("SELECT 1 FROM app.run_retention_cleanup WHERE tenant_id=$1 AND run_id=$2", [a, runId])).rowCount).toBe(0);
+
+    await expect(retention.sweep(cutoff, 10)).resolves.toMatchObject({ deleted: 1, cleanupQueued: 1 });
+    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, runId])).rowCount).toBe(0);
+    expect((await database.pool.query("SELECT 1 FROM app.trace_replay_operations WHERE tenant_id=$1 AND request_id=$2", [a, requestId])).rowCount).toBe(0);
+    expect((await database.pool.query("SELECT object_keys FROM app.run_retention_cleanup WHERE tenant_id=$1 AND run_id=$2", [a, runId])).rows[0]).toEqual({ object_keys: [`${a}/${runId}/trace.jsonl`] });
+  });
+
   it("does not replay terminal history when a trigger is created disabled then enabled", async () => {
     const a = await tenant(), source = await job(a);
     await complete(a, source, "failed");

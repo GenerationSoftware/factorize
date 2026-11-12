@@ -32,7 +32,49 @@ The retention indexes cover candidate age/order and the audited foreign-key look
 
 Explicit job deletion also snapshots every incomplete run's provider configuration, handle, and start evidence into `app.deleted_job_provider_cleanup` in the same transaction as the job cascade. This independent queue lets the maintenance lane stop or reconcile provider resources after the source job and run rows are gone. A started run without a saved handle stays queued for retry and manual reconciliation; a never-started run can be removed from the queue safely. R2 artifacts for explicit job deletion continue to be deleted before the database cascade so a storage failure leaves the authoritative keys available for retry.
 
-Successful cleanup removes its retry state from the run. Failed work retains only a bounded diagnostic string and retry timestamp. Each maintenance alarm emits a structured `run_retention_maintenance` log with run sweep, artifact and independent-history deletion progress plus pending counts and oldest age for terminal-provider cleanup, deleted-job provider cleanup, artifact objects, overdue nonterminal runs, independent histories, and expired temporary records. The snapshot contains no tenant, run, or object identifiers. A failed snapshot is logged separately and does not fail maintenance. These logs provide rollout evidence; a retained time-series dashboard remains follow-up work.
+Successful cleanup removes its retry state from the run. Failed work retains only a bounded diagnostic string and retry timestamp. Each maintenance alarm emits a structured `run_retention_maintenance` log with run sweep, artifact and independent-history deletion progress plus pending counts and oldest age for terminal-provider cleanup, deleted-job provider cleanup, artifact objects, overdue nonterminal runs, independent histories, and expired temporary records. The snapshot contains no tenant, run, or object identifiers. A failed snapshot is logged separately and does not fail maintenance.
+
+### Read-only dry run and rollout
+
+Before enabling deletion, run the following against a read-only database snapshot with a single captured `:cutoff` value (UTC now minus 14 days). It reports database cohorts without locking or changing rows; compare R2 listing results separately because orphan classification spans object storage and PostgreSQL.
+
+```sql
+WITH old AS (
+  SELECT r.*, jr.state AS job_run_state
+  FROM app.runs r
+  JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id
+  JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.invocation_id=r.invocation_id
+  WHERE r.created_at < :cutoff
+), pending_automation AS (
+  SELECT DISTINCT e.tenant_id,e.source_run_id
+  FROM app.lifecycle_events e
+  JOIN app.triggers t ON t.tenant_id=e.tenant_id AND t.id=e.trigger_id
+  JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
+  WHERE t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
+    AND NOT EXISTS (SELECT 1 FROM app.lifecycle_deliveries d
+      WHERE d.tenant_id=e.tenant_id AND d.trigger_id=e.trigger_id
+        AND d.source_run_id=e.source_run_id AND d.terminal_state=e.terminal_state)
+)
+SELECT cohort,count(*) AS runs FROM (
+  SELECT CASE
+    WHEN r.state IN ('queued','reserved','starting','running','blocked','stopping') THEN 'active_or_exempt'
+    WHEN r.state IN ('succeeded','failed','stopped') AND NOT r.vm_cleanup_complete THEN 'provider_cleanup_blocked'
+    WHEN r.state IN ('succeeded','failed','stopped') AND r.artifact_state IN ('pending','collecting') THEN 'finalization_blocked'
+    WHEN r.state IN ('succeeded','failed','stopped') AND r.job_run_state <> r.state THEN 'state_mismatch_review'
+    WHEN r.state IN ('succeeded','failed','stopped') AND EXISTS
+      (SELECT 1 FROM pending_automation p WHERE p.tenant_id=r.tenant_id AND p.source_run_id=r.id) THEN 'automation_pending'
+    WHEN r.state IN ('succeeded','failed','stopped') THEN 'eligible_terminal'
+    ELSE 'other_state_review'
+  END AS cohort
+  FROM old r
+) cohorts GROUP BY cohort ORDER BY cohort;
+```
+
+Roll out in stages: (1) apply additive migrations while retention is paused; (2) deploy cleanup code with `RUN_HISTORY_RETENTION_PAUSED=true`; (3) refresh the read-only cohort and R2 inventory, resolve old provider cleanup (including no-handle cases), and verify upload/trace/finalization/lifecycle fault tests; (4) enable the default bounded batches and review the first maintenance logs before increasing throughput. The pause switch stops run deletion, R2 deletion, and independent-history expiry. It does not disable read-only backlog metrics or terminal provider cleanup. Do not execute a production purge as part of code validation.
+
+### Dashboard and alert signals
+
+Build a retained time-series dashboard from `run_retention_maintenance` structured logs. Plot `backlog[].pending` and `backlog[].oldestAgeSeconds` per queue, `sweep.selected/deleted/cleanupQueued`, `artifacts.attempted/completed/retried`, and each independent-history lane's deleted count. Keep `paused` visible on every panel. Alert on a nonzero or rising `overdue_nonterminal` cohort for operator review, any sustained rise in provider or artifact oldest age, repeated artifact retries, or missing maintenance events for more than 30 minutes. A paused deployment should show backlog growth without deletion progress. Never put tenant, run, provider handle, or object key dimensions on these panels.
 
 ## Rollout and recovery
 
