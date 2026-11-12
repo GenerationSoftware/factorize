@@ -14,6 +14,7 @@ import { ExeVmBackend } from "../src/exe-vm-backend";
 import { agentDriver } from "../src/agent-driver";
 import { IdentityRepository } from "../src/postgres/identity-repository";
 import { authenticateRunCredential, issueRunCredential } from "../src/run-credentials";
+import { RunRetentionRepository } from "../src/postgres/run-retention-repository";
 
 const url = process.env.TRACE_TEST_DATABASE_URL ?? process.env.AUTH_TEST_DATABASE_URL;
 const zero = "0".repeat(64), secret = "test-signing-secret";
@@ -184,6 +185,42 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]).toMatchObject({ kind: "execution_stream", byte_size: "0", sha256: await hash(new Uint8Array()) });
     expect((await new TraceProjectionRepository(database, f.tenantId).diagnostics(f.runId)).projection.reconciliation).toMatchObject({ state: "no_live_cursor", codexCompletion: "missing_turn_completed" });
+  });
+
+  it("keeps durable cleanup ownership when retention deletes a run during artifact upload", async () => {
+    const f = await fixture();
+    const { job_id: jobId, invocation_id: invocationId } = (await database.pool.query("SELECT job_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    await database.pool.query("UPDATE app.runs SET state='succeeded',vm_cleanup_complete=true,artifact_state='stored',created_at=now()-interval '15 days' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await database.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'succeeded','test')", [f.tenantId, f.runId, jobId, invocationId]);
+
+    let resumeUpload!: () => void;
+    let signalPut!: () => void;
+    const putStarted = new Promise<void>(resolve => { signalPut = resolve; });
+    const uploadResumed = new Promise<void>(resolve => { resumeUpload = resolve; });
+    const originalPut = f.env.RUN_ARTIFACTS.put;
+    f.env.RUN_ARTIFACTS.put = async (...args: Parameters<typeof originalPut>) => {
+      signalPut();
+      await uploadResumed;
+      return originalPut(...args);
+    };
+
+    const pendingUpload = f.upload(record("racing-upload"));
+    await putStarted;
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    await expect(new RunRetentionRepository(database).sweep(cutoff, 10)).resolves.toMatchObject({ deleted: 1, cleanupQueued: 0 });
+    resumeUpload();
+
+    expect((await pendingUpload).status).toBe(409);
+    const key = `tenants/${f.tenantId}/runs/${f.runId}/trace/${await hash(new TextEncoder().encode(record("racing-upload")))}.jsonl`;
+    expect(f.blobs.has(key)).toBe(true);
+    const cleanup = await database.pool.query("SELECT object_keys FROM app.run_retention_cleanup WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
+    expect(cleanup.rows).toEqual([{ object_keys: [key] }]);
+
+    const deleted: string[] = [];
+    await expect(new RunRetentionRepository(database).processArtifactCleanup({ delete: async (keys: string[]) => { deleted.push(...keys); for (const item of keys) f.blobs.delete(item); } } as any)).resolves.toMatchObject({ attempted: 1, completed: 1, retried: 0 });
+    expect(deleted).toEqual([key]);
+    expect(f.blobs.has(key)).toBe(false);
+    expect((await database.pool.query("SELECT id FROM app.run_retention_cleanup WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId])).rows).toHaveLength(0);
   });
 
   it.each(["codex", "claude"] as const)("reconciles %s durable bytes, preserves native audit data, and rejects late chunks", async provider => {
