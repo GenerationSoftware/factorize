@@ -34,7 +34,7 @@ test("resolver decrypts only selected active bearer records using the shared rec
     getUnlockKey: async () => unlockKey,
   });
   assert.deepEqual(await resolver({ tenantId: "tenant-fixture", integrationIds: ["integration-b"] }), [
-    { id: "integration-b", origin: "https://other.example.test", credential: "second-token" },
+    { id: "integration-b", name: "integration-b", description: null, origin: "https://other.example.test", credential: "second-token" },
   ]);
   assert.deepEqual(await resolver({ tenantId: "tenant-fixture", integrationIds: [] }), []);
   const runResolver = createDecryptedGrantResolver({
@@ -43,7 +43,7 @@ test("resolver decrypts only selected active bearer records using the shared rec
     getUnlockKey: async () => unlockKey,
   });
   assert.deepEqual(await runResolver({ tenantId: "tenant-fixture", runId: "run-fixture" }), [
-    { id: "integration-a", origin: "https://api.example.test", credential: "first-token" },
+    { id: "integration-a", name: "integration-a", description: null, origin: "https://api.example.test", credential: "first-token" },
   ]);
 });
 
@@ -88,7 +88,7 @@ test("production grant resolver reads the run-bound snapshot and only decrypts w
   const binding = { tenantId: ownerId, runId: "22222222-2222-4222-8222-222222222222", grantRevision: 7 };
   await assert.rejects(resolve(binding), /locked/);
   runtime.unlock(unlockKey);
-  assert.deepEqual(await resolve(binding), [{ id: record.id, origin: record.origin, credential: "snapshot-token" }]);
+  assert.deepEqual(await resolve(binding), [{ id: record.id, name: record.id, description: null, origin: record.origin, credential: "snapshot-token" }]);
   assert.deepEqual(requests, [{
     url: "https://factorize.example/internal/credential-proxy/integration-snapshot",
     authorization: `Bearer fzc_${"c".repeat(43)}`,

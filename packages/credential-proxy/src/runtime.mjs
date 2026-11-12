@@ -17,6 +17,7 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
   let locking = false;
   const listeners = new Set();
   const listenerRuns = new Map();
+  const listenerConnections = new Map();
   const grantRefreshTimers = new Map();
   const revokedRuns = new Set();
 
@@ -24,9 +25,20 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
     const current = [...listeners];
     listeners.clear();
     listenerRuns.clear();
+    listenerConnections.clear();
     for (const timer of grantRefreshTimers.values()) clearInterval(timer);
     grantRefreshTimers.clear();
     await Promise.allSettled(current.map((listener) => listener.close()));
+  }
+
+  async function refreshActiveGrants() {
+    const current = [...listeners];
+    await Promise.allSettled(current.map(async listener => {
+      const connection = listenerConnections.get(listener);
+      if (!connection || typeof connection.refreshGrants !== "function" || typeof listener.replaceGrants !== "function") return;
+      const grants = await connection.refreshGrants();
+      if (state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId) && listeners.has(listener)) listener.replaceGrants(grants);
+    }));
   }
 
   return Object.freeze({
@@ -42,6 +54,7 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       unlockMaterial?.fill(0);
       unlockMaterial = Buffer.from(key, "utf8");
       state = "unlocked";
+      void refreshActiveGrants();
     },
     /** Keep access locked until the caller has reconciled the current encrypted
      * snapshot. The preparation callback can read the transient key, but no
@@ -58,6 +71,7 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
         await prepare();
         if (shutdown || locking || state !== "preparing") throw new Error("proxy unlock was interrupted");
         state = "unlocked";
+        await refreshActiveGrants();
       } catch (error) {
         unlockMaterial?.fill(0);
         unlockMaterial = undefined;
@@ -75,7 +89,19 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       state = "locked";
       unlockMaterial?.fill(0);
       unlockMaterial = undefined;
-      try { await closeListeners(); }
+      try {
+        for (const listener of [...listeners]) {
+          if (typeof listener.lock === "function") listener.lock();
+          else {
+            await listener.close().catch(() => {});
+            listeners.delete(listener);
+            listenerRuns.delete(listener);
+            listenerConnections.delete(listener);
+            clearInterval(grantRefreshTimers.get(listener));
+            grantRefreshTimers.delete(listener);
+          }
+        }
+      }
       finally { locking = false; }
     },
     async acceptAuthenticatedConnection(connection) {
@@ -86,7 +112,7 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       if (revokedRuns.has(connection.runId)) throw new Error("run grants have been revoked");
       // The transport adapter calls this only after atomically consuming and
       // authenticating enrollment. Grants are the consumed, current run state.
-      const listener = await listenerFactory({ connection });
+      const listener = await listenerFactory({ connection, isUnlocked: () => state === "unlocked" });
       if (state !== "unlocked" || shutdown || revokedRuns.has(connection.runId)) {
         await listener.close();
         throw new Error(revokedRuns.has(connection.runId) ? "run grants have been revoked" : "proxy locked while accepting the connection");
@@ -95,11 +121,13 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       // Keep the run identity beside the listener so a control-plane revocation
       // can tear down every established connection without retaining grants.
       listenerRuns.set(listener, connection.runId);
+      listenerConnections.set(listener, connection);
       if (typeof connection.refreshGrants === "function" && typeof listener.replaceGrants === "function") {
         if (!Number.isSafeInteger(grantRefreshIntervalMs) || grantRefreshIntervalMs < 100 || grantRefreshIntervalMs > 60_000) {
           await listener.close();
           listeners.delete(listener);
           listenerRuns.delete(listener);
+          listenerConnections.delete(listener);
           throw new TypeError("grant refresh interval is out of bounds");
         }
         let refreshing = false;
@@ -124,19 +152,20 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
     async disconnect(connectionId) {
       const matching = [...listeners].filter((listener) => listener.connectionId === connectionId);
       await Promise.allSettled(matching.map((listener) => listener.close()));
-      for (const listener of matching) { listeners.delete(listener); listenerRuns.delete(listener); clearInterval(grantRefreshTimers.get(listener)); grantRefreshTimers.delete(listener); }
+      for (const listener of matching) { listeners.delete(listener); listenerRuns.delete(listener); listenerConnections.delete(listener); clearInterval(grantRefreshTimers.get(listener)); grantRefreshTimers.delete(listener); }
     },
     async revokeRun(runId) {
       if (typeof runId !== "string" || !runId) throw new TypeError("run identity is required for revocation");
       revokedRuns.add(runId);
       const matching = [...listeners].filter((listener) => listenerRuns.get(listener) === runId);
       await Promise.allSettled(matching.map((listener) => listener.close()));
-      for (const listener of matching) { listeners.delete(listener); listenerRuns.delete(listener); clearInterval(grantRefreshTimers.get(listener)); grantRefreshTimers.delete(listener); }
+      for (const listener of matching) { listeners.delete(listener); listenerRuns.delete(listener); listenerConnections.delete(listener); clearInterval(grantRefreshTimers.get(listener)); grantRefreshTimers.delete(listener); }
       return matching.length;
     },
     async shutdown() {
       shutdown = true;
       await this.lock();
+      await closeListeners();
       state = "stopped";
     },
   });

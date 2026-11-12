@@ -103,7 +103,13 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
       try {
         const credential = decoder.decode(plaintext);
         if (!credential || credential.length > 16_384 || /[\u0000-\u001f\u007f]/.test(credential)) throw new TypeError("invalid bearer credential");
-        grants.push(Object.freeze({ id: record.id, origin, credential }));
+        grants.push(Object.freeze({
+          id: record.id,
+          name: typeof record.name === "string" && record.name ? record.name : record.id,
+          description: record.description ?? null,
+          origin,
+          credential,
+        }));
       } finally {
         plaintext.fill(0);
         nonce.fill(0);

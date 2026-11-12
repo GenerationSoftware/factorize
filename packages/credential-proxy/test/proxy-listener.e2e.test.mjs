@@ -128,6 +128,77 @@ test("authenticated tunnel listener streams over TLS, confines grants and cancel
   }
 });
 
+test("reflection exposes safe metadata for only the authenticated VM connection and tracks live grant changes", { timeout: 5_000 }, async () => {
+  const runtime = createProxyRuntime();
+  const connections = [];
+  let first;
+  let second;
+  let firstLiveGrants;
+  try {
+    runtime.unlock("synthetic-unlock-key");
+    firstLiveGrants = [
+      { id: "selected-1", name: "Billing API", description: "Billing help", origin: "https://billing.example", credential: "secret-first" },
+      { id: "selected-2", name: "Metrics API", description: null, origin: "https://metrics.example", credential: "secret-second" },
+    ];
+    first = await runtime.acceptAuthenticatedConnection({
+      authenticated: true, enrollmentConsumed: true, bootEpoch: runtime.bootEpoch,
+      connectionId: "reflection-connection-1", runId: "run-1", vmId: "vm-1",
+      grants: firstLiveGrants,
+      refreshGrants: async () => firstLiveGrants,
+    });
+    second = await runtime.acceptAuthenticatedConnection({
+      authenticated: true, enrollmentConsumed: true, bootEpoch: runtime.bootEpoch,
+      connectionId: "reflection-connection-2", runId: "run-2", vmId: "vm-2",
+      grants: [{ id: "other-vm-only", name: "Private API", description: "other VM", origin: "https://private.example", credential: "secret-other-vm" }],
+    });
+    connections.push(first, second);
+
+    const reflect = async listener => {
+      const address = listener.address;
+      assert.equal(address.address, "127.0.0.1");
+      const response = await fetch(`http://127.0.0.1:${address.port}/integrations`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      return response.json();
+    };
+    const firstReflection = await reflect(first);
+    assert.equal(firstReflection.state, "unlocked");
+    assert.deepEqual(firstReflection.integrations, [
+      { id: "selected-1", source: "portable", name: "Billing API", description: "Billing help", endpoint: "/integrations/selected-1/", example: 'curl "$FACTORIZE_PROXY_URL/integrations/selected-1/"', availability: "available" },
+      { id: "selected-2", source: "portable", name: "Metrics API", description: null, endpoint: "/integrations/selected-2/", example: 'curl "$FACTORIZE_PROXY_URL/integrations/selected-2/"', availability: "available" },
+    ]);
+    assert.equal(JSON.stringify(firstReflection).includes("secret-"), false);
+    assert.equal(JSON.stringify(firstReflection).includes("https://billing.example"), false);
+
+    const secondReflection = await reflect(second);
+    assert.deepEqual(secondReflection.integrations.map(item => item.id), ["other-vm-only"]);
+    assert.equal(JSON.stringify(secondReflection).includes("selected-1"), false);
+
+    first.replaceGrants([{ id: "selected-2", name: "Metrics API", description: "current help", origin: "https://metrics.example", credential: "replacement-secret" }]);
+    const refreshed = await reflect(first);
+    assert.deepEqual(refreshed.integrations.map(item => [item.id, item.description]), [["selected-2", "current help"]]);
+    assert.equal(JSON.stringify(refreshed).includes("replacement-secret"), false);
+
+    await runtime.lock();
+    const locked = await reflect(first);
+    assert.deepEqual(locked, { state: "locked", integrations: [
+      { id: "selected-2", source: "portable", name: "Metrics API", description: "current help", endpoint: "/integrations/selected-2/", example: 'curl "$FACTORIZE_PROXY_URL/integrations/selected-2/"', availability: "locked" },
+    ] });
+    assert.equal((await fetch(`http://127.0.0.1:${first.address.port}/integrations/selected-2/`)).status, 423);
+    firstLiveGrants = [{ id: "selected-2", name: "Metrics API", description: "after unlock", origin: "https://metrics.example", credential: "fresh-secret" }];
+    await runtime.unlockAndPrepare("synthetic-unlock-key", async () => {});
+    const unlocked = await reflect(first);
+    assert.equal(unlocked.state, "unlocked");
+    assert.deepEqual(unlocked.integrations.map(item => [item.id, item.description]), [["selected-2", "after unlock"]]);
+    assert.equal(JSON.stringify(unlocked).includes("fresh-secret"), false);
+
+    const methodDenied = await fetch(`http://127.0.0.1:${first.address.port}/integrations`, { method: "POST" });
+    assert.equal(methodDenied.status, 405);
+  } finally {
+    await runtime.shutdown();
+  }
+});
+
 test("live integration edits replace credentials and deletion removes access from an established grant", { timeout: 5_000 }, async () => {
   const observed = [];
   const upstream = createHttpsServer({ key, cert }, (request, response) => {

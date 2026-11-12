@@ -15,7 +15,13 @@ function grantTable(grants) {
         || typeof grant.origin !== "string" || typeof grant.credential !== "string" || !grant.credential) {
       throw new TypeError("authenticated connection contains an invalid integration grant");
     }
-    table.set(grant.id, Object.freeze({ id: grant.id, origin: grant.origin, credential: grant.credential }));
+    table.set(grant.id, Object.freeze({
+      id: grant.id,
+      name: typeof grant.name === "string" && grant.name ? grant.name : grant.id,
+      description: typeof grant.description === "string" ? grant.description : null,
+      origin: grant.origin,
+      credential: grant.credential,
+    }));
   }
   return table;
 }
@@ -43,6 +49,8 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
     throw new TypeError("proxy listener requires an authenticated consumed connection");
   }
   let grants = grantTable(connection.grants);
+  let unlocked = true;
+  let lockedMetadata = [];
   const controllers = new Set();
   let closed = false;
   const server = createServer(async (request, response) => {
@@ -55,6 +63,32 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
     response.once("close", cancel);
     try {
       const parsed = new URL(request.url ?? "/", "http://proxy.loopback");
+      if (parsed.pathname === "/integrations") {
+        if (request.method !== "GET") {
+          response.writeHead(405, { allow: "GET", "cache-control": "no-store" }).end();
+          return;
+        }
+        const visibleGrants = unlocked ? [...grants.values()] : lockedMetadata;
+        const integrations = visibleGrants.map(grant => {
+          const path = `/integrations/${encodeURIComponent(grant.id)}/`;
+          return {
+            id: grant.id,
+            source: "portable",
+            name: grant.name,
+            description: grant.description,
+            endpoint: path,
+            example: `curl "$FACTORIZE_PROXY_URL${path}"`,
+            availability: unlocked ? "available" : "locked",
+          };
+        });
+        response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        response.end(JSON.stringify({ state: unlocked ? "unlocked" : "locked", integrations }));
+        return;
+      }
+      if (!unlocked) {
+        response.writeHead(423, { "cache-control": "no-store" }).end();
+        return;
+      }
       const match = /^\/integrations\/([^/]+)(\/.*)?$/.exec(parsed.pathname);
       if (!match) {
         response.writeHead(404).end();
@@ -110,9 +144,18 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
   return Object.freeze({
     connectionId: connection.connectionId,
     address: server.address(),
+    lock() {
+      if (closed || !unlocked) return;
+      unlocked = false;
+      lockedMetadata = [...grants.values()].map(({ id, name, description }) => ({ id, name, description }));
+      grants = new Map();
+      for (const controller of controllers) controller.abort(new Error("proxy locked"));
+    },
     replaceGrants(nextGrants) {
       if (closed) return;
       grants = grantTable(nextGrants);
+      unlocked = true;
+      lockedMetadata = [];
     },
     close: () => {
       if (closed) return Promise.resolve();

@@ -51,6 +51,52 @@ test("model account settings issue short-lived capabilities and display the boun
   assert.deepEqual(proxyCalls.map(call => call.body), ["{}", "{}"]);
   await context.close();
 });
+test("owner browser creates a bearer integration with encrypted input and clears both secret fields", async () => {
+  const { context, page } = await setup();
+  await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
+  let verification = null, saved = [], createBody;
+  await page.route("**/api/v1/unlock-key/verification", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { ownerId: "owner", verification } });
+    const body = route.request().postDataJSON();
+    assert.deepEqual(Object.keys(body).sort(), ["encryptedVerification", "generationId"]);
+    verification = { generationId: body.generationId, encryptedVerification: body.encryptedVerification };
+    return route.fulfill({ json: { generationId: body.generationId } });
+  });
+  await page.route("**/api/v1/integrations/bearer", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { revision: saved.length, integrations: saved } });
+    createBody = route.request().postDataJSON();
+    saved = [{ id: createBody.id, name: createBody.name, origin: createBody.origin, description: createBody.description, revision: 1, encryptedPayload: createBody.encryptedPayload }];
+    return route.fulfill({ status: 201, json: { revision: 1, duplicate: false } });
+  });
+
+  await page.goto(origin + "/settings/integrations");
+  await page.getByRole("button", { name: "Generate unlock key" }).click();
+  const unlockKey = await page.getByLabel("New unlock key").inputValue();
+  await page.getByRole("checkbox", { name: "I saved this key somewhere safe." }).check();
+  await page.getByRole("button", { name: "I saved my key" }).click();
+  await page.getByText("Unlock key verification is set up.", { exact: false }).waitFor();
+
+  const integrations = page.getByRole("region", { name: "Bearer integrations" });
+  await integrations.getByLabel("Name").fill("Example service");
+  await integrations.getByLabel("HTTPS origin").fill("https://api.example.test");
+  await integrations.getByLabel("Description or help (optional)").fill("Fixture API");
+  await integrations.getByLabel("Bearer token").fill("synthetic-upstream-secret");
+  await integrations.getByLabel("Unlock key").fill(unlockKey);
+  await integrations.getByRole("button", { name: "Add integration" }).click();
+  await integrations.getByText("Saved encrypted integration.", { exact: false }).waitFor();
+
+  assert.equal(createBody.name, "Example service");
+  assert.equal(createBody.origin, "https://api.example.test");
+  assert.equal(createBody.description, "Fixture API");
+  assert.equal(JSON.stringify(createBody).includes("synthetic-upstream-secret"), false);
+  assert.equal(JSON.stringify(createBody).includes(unlockKey), false);
+  assert.match(createBody.encryptedPayload, /^[A-Za-z0-9+/]+=*\.[A-Za-z0-9+/]+=*$/u);
+  assert.equal(await integrations.getByLabel("Bearer token").inputValue(), "");
+  assert.equal(await integrations.getByLabel("Unlock key").inputValue(), "");
+  assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes("synthetic-upstream-secret")), false);
+  await context.close();
+});
 test("model account create/delete encrypts initial state and uses the current collection revision", async () => {
   const { context, page } = await setup();
   await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
