@@ -102,18 +102,32 @@ describe("RunRetentionRepository", () => {
     const query = vi.fn().mockResolvedValue({ rows: [
       { queue: "artifact_objects", pending: 2, oldest_age_seconds: 120 },
       { queue: "deleted_job_provider", pending: 0, oldest_age_seconds: null },
+      { queue: "finalization_pending", pending: 1, oldest_age_seconds: 240 },
+      { queue: "lifecycle_handoff", pending: 2, oldest_age_seconds: 300 },
       { queue: "overdue_nonterminal", pending: 1, oldest_age_seconds: 90_000 },
       { queue: "terminal_provider", pending: 3, oldest_age_seconds: 600 },
+      { queue: "webhook_processing", pending: 1, oldest_age_seconds: 45 },
+      { queue: "webhook_verification", pending: 1, oldest_age_seconds: 0 },
     ] });
     const repository = new RunRetentionRepository({ pool: { query } } as any);
-    await expect(repository.backlogSnapshot()).resolves.toEqual([
+    const snapshot = await repository.backlogSnapshot();
+    expect(snapshot).toEqual([
       { queue: "artifact_objects", pending: 2, oldestAgeSeconds: 120 },
       { queue: "deleted_job_provider", pending: 0, oldestAgeSeconds: null },
+      { queue: "finalization_pending", pending: 1, oldestAgeSeconds: 240 },
+      { queue: "lifecycle_handoff", pending: 2, oldestAgeSeconds: 300 },
       { queue: "overdue_nonterminal", pending: 1, oldestAgeSeconds: 90_000 },
       { queue: "terminal_provider", pending: 3, oldestAgeSeconds: 600 },
+      { queue: "webhook_processing", pending: 1, oldestAgeSeconds: 45 },
+      { queue: "webhook_verification", pending: 1, oldestAgeSeconds: 0 },
     ]);
     expect(query.mock.calls[0]![0]).toContain("'overdue_nonterminal'");
-    expect(query.mock.calls[0]![0]).not.toContain("run_id");
+    expect(query.mock.calls[0]![0]).toContain("'finalization_pending'");
+    expect(query.mock.calls[0]![0]).toContain("'lifecycle_handoff'");
+    expect(query.mock.calls[0]![0]).toContain("'webhook_processing'");
+    expect(query.mock.calls[0]![0]).toContain("'webhook_verification'");
+    expect(query.mock.calls[0]![0]).toContain("SELECT queue,pending,oldest_age_seconds");
+    expect(snapshot.every(item => !("runId" in item) && !("tenantId" in item))).toBe(true);
   });
 
   it("cleans independent histories in bounded lanes and protects pending work", async () => {

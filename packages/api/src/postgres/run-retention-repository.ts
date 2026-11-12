@@ -41,6 +41,30 @@ export class RunRetentionRepository {
         FROM app.runs WHERE state IN ('queued','reserved','starting','running','blocked','stopping')
           AND created_at < now()-interval '14 days'
         UNION ALL
+        SELECT 'finalization_pending'::text,count(*)::int,
+          floor(extract(epoch FROM now()-min(r.created_at)))::int
+        FROM app.runs r JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id
+        WHERE r.state IN ('succeeded','failed','stopped')
+          AND (r.artifact_state IN ('pending','collecting') OR jr.state<>r.state)
+        UNION ALL
+        SELECT 'lifecycle_handoff'::text,count(DISTINCT (e.tenant_id,e.source_run_id))::int,
+          floor(extract(epoch FROM now()-min(e.occurred_at)))::int
+        FROM app.lifecycle_events e
+        JOIN app.triggers t ON t.tenant_id=e.tenant_id AND t.id=e.trigger_id
+        JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
+        WHERE t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
+          AND NOT EXISTS (SELECT 1 FROM app.lifecycle_deliveries d
+            WHERE d.tenant_id=e.tenant_id AND d.trigger_id=e.trigger_id
+              AND d.source_run_id=e.source_run_id AND d.terminal_state=e.terminal_state)
+        UNION ALL
+        SELECT 'webhook_processing'::text,count(*)::int,
+          floor(extract(epoch FROM now()-min(received_at)))::int
+        FROM app.webhook_deliveries WHERE outcome='received'
+        UNION ALL
+        SELECT 'webhook_verification'::text,count(*)::int,
+          GREATEST(0,floor(extract(epoch FROM now()-min(next_attempt_at)))::int)
+        FROM app.pending_verifications
+        UNION ALL
         SELECT 'job_events'::text,count(*)::int,floor(extract(epoch FROM now()-min(received_at)))::int
         FROM app.job_events WHERE received_at < now()-interval '14 days'
         UNION ALL
