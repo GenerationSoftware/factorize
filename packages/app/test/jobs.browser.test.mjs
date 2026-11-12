@@ -112,7 +112,7 @@ test("project settings can rename and describe a project", async () => {
   });
   await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
   await page.goto(origin + `/projects/${projectId}`);
-  await page.getByRole("heading", { name: "Release project jobs", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Release project runs", exact: true }).waitFor();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   assert.equal(await page.getByRole("navigation", { name: "Project navigation" }).getByRole("link", { name: "Settings", exact: true }).getAttribute("aria-current"), "page");
   await page.getByLabel("Name", { exact: true }).fill("Renamed project");
@@ -301,7 +301,7 @@ test("project graph keeps opaque webhook resource IDs out of labels and availabl
   await page.getByText(`Linear · ${projectUuid}`, { exact: true }).waitFor();
   await context.close();
 });
-test("project tabs stay on projects while job detail gets Runs and Settings navigation", async () => {
+test("project tabs omit Runs while job detail keeps Runs and Settings navigation", async () => {
   const { page, context } = await contextFor({ viewport: { width: 1280, height: 844 } });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "Release project", description: "Project jobs", jobCount: 1 }] }));
   await page.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { ...summary, promptTemplate: "Template", executionConfigId: "local", triggers: [] } }));
@@ -309,11 +309,12 @@ test("project tabs stay on projects while job detail gets Runs and Settings navi
   await page.getByRole("heading", { name: "Projects", exact: true }).waitFor();
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 1);
   await page.goto(origin + `/projects/${projectId}`);
-  await page.getByRole("heading", { name: "Release project jobs", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Release project runs", exact: true }).waitFor();
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
   assert.equal(await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Release project", exact: true }).count(), 1);
   const projectNavigation = page.getByRole("navigation", { name: "Project navigation" });
   assert.equal(await projectNavigation.getByRole("link", { name: "Jobs", exact: true }).getAttribute("aria-current"), "page");
+  assert.equal(await projectNavigation.getByRole("link", { name: "Runs", exact: true }).count(), 0);
   await page.goto(origin + `/jobs/${jobId}`);
   assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
   assert.equal(await page.getByRole("heading", { name: "Review builds", exact: true }).count(), 0);
@@ -362,7 +363,7 @@ test("dashboard Projects subnav completes keyboard navigation into project Jobs"
   const project = page.getByRole("link", { name: /Release project/ });
   await project.focus();
   await page.keyboard.press("Enter");
-  await page.getByRole("heading", { name: "Release project jobs", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Release project runs", exact: true }).waitFor();
   assert.equal(await page.getByRole("navigation", { name: "Project navigation" }).getByRole("link", { name: "Jobs", exact: true }).getAttribute("aria-current"), "page");
   await context.close();
 });
@@ -424,75 +425,6 @@ test("mobile main navigation truncates the account and project names without the
   assert.equal(await mainNav.getByRole("button", { name: "Switch project" }).evaluate(element => getComputedStyle(element).marginLeft), "0px");
   await context.close();
 });
-for (const width of [1280, 390, 320]) for (const theme of ["light", "dark"]) test(`compact jobs grouping, pagination, focus and long titles at ${width} ${theme}`, async () => {
-  const { page, context } = await contextFor({ viewport: { width, height: 844 }, colorScheme: theme });
-  const longTitle = "Zulu " + "long title ".repeat(30);
-  const fixtures = Array.from({ length: 31 }, (_, index) => ({ ...summary, id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, name: `Idle ${String(index).padStart(2, "0")}`, enabled: index % 2 === 0 }));
-  fixtures[0] = { ...fixtures[0], name: longTitle, enabled: true, runningCount: 1, concurrencyLimit: 10 };
-  fixtures[30] = { ...fixtures[30], name: "Alpha running", enabled: false, runningCount: 2, concurrencyLimit: 10 };
-  const requests = [];
-  await page.route("**/api/v1/job-summaries?**", route => {
-    const url = new URL(route.request().url()); requests.push(url);
-    const serverOrder = [...fixtures].sort((a, b) => Number(b.runningCount > 0) - Number(a.runningCount > 0) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-    const offset = url.searchParams.has("cursor") ? 30 : 0;
-    return route.fulfill({ json: { items: serverOrder.slice(offset, offset + 30), nextCursor: offset + 30 < serverOrder.length ? "server-cursor-30" : null } });
-  });
-  await page.route(`**/api/v1/jobs/${fixtures[30].id}`, route => route.fulfill({ json: { ...fixtures[30], promptTemplate: "Template", runNameTemplate: "", executionConfigId: "local", executionConfig: { connectionId: "local", workspace: "ephemeral", cwd: "/workspace", agentKind: "codex" }, triggers: [], currentRuns: 2, maxConcurrency: 10 } }));
-  await page.goto(origin + `/projects/${projectId}?q=Review`);
-  const table = page.getByRole("table", { name: "Jobs", exact: true });
-  await table.getByRole("link", { name: "Alpha running", exact: true }).waitFor();
-  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Running", "Title"]);
-  assert.deepEqual(await table.locator("tbody td:last-child a").allTextContents(), ["Alpha running", longTitle, ...fixtures.slice(1, 29).map(job => job.name)]);
-  assert.deepEqual(await table.locator("tbody tr").first().locator("td").allTextContents(), ["2/10", "Alpha runningcodexdisabled"]);
-  assert.deepEqual(await table.locator("tbody tr").nth(2).locator("td").allTextContents(), ["0/2", "Idle 01codexdisabled"]);
-  assert.equal(await table.locator("tbody tr").first().getByText("disabled", { exact: true }).count(), 1);
-  assert.notEqual(
-    await table.locator("tbody tr").first().evaluate(el => getComputedStyle(el).color),
-    await table.locator("tbody tr").nth(1).evaluate(el => getComputedStyle(el).color),
-  );
-  assert.equal(await page.getByLabel("Search jobs", { exact: true }).count(), 0);
-  assert.equal(await page.getByText("Your software factory. Configure prompts, connect triggers, and follow every run.").count(), 0);
-  const controls = await page.getByRole("group", { name: "Project jobs view" }).boundingBox(), create = await page.getByRole("link", { name: "Create job", exact: true }).boundingBox(), tableBox = await table.boundingBox();
-  assert.ok(create.x > controls.x + controls.width && Math.abs(create.y - controls.y) < 12);
-  assert.ok(Math.abs((create.x + create.width) - (tableBox.x + tableBox.width)) < 2);
-  const longLink = table.getByRole("link", { name: longTitle, exact: true });
-  assert.equal(await longLink.evaluate(el => el.scrollWidth > el.clientWidth && getComputedStyle(el).whiteSpace === "nowrap"), true);
-  const first = table.locator("tbody tr").first(), idleColor = await first.evaluate(el => getComputedStyle(el).backgroundColor);
-  await first.hover(); await page.waitForFunction(() => getComputedStyle(document.querySelector("tbody tr")).backgroundColor !== "rgba(0, 0, 0, 0)"); assert.notEqual(await first.evaluate(el => getComputedStyle(el).backgroundColor), idleColor);
-  await page.mouse.move(0, 0); const link = first.getByRole("link"); await link.focus();
-  assert.equal(await link.evaluate(el => el === document.activeElement), true);
-  await page.waitForFunction(() => getComputedStyle(document.querySelector("tbody tr")).backgroundColor !== "rgba(0, 0, 0, 0)");
-  assert.notEqual(await first.evaluate(el => getComputedStyle(el).backgroundColor), idleColor);
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.getByRole("link", { name: "Next page" }).click(); await table.getByRole("link", { name: "Idle 29", exact: true }).waitFor();
-  await page.reload(); await table.getByRole("link", { name: "Idle 29", exact: true }).waitFor();
-  await page.getByRole("link", { name: "First page" }).click(); await table.getByRole("link", { name: "Alpha running", exact: true }).waitFor();
-  assert.ok(requests.every(url => url.searchParams.get("limit") === "30" && url.searchParams.get("q") === "Review" && url.searchParams.get("sort") === "active"));
-  await table.getByRole("link", { name: "Alpha running", exact: true }).focus(); await page.keyboard.press("Enter");
-  await page.waitForURL(`**/jobs/${fixtures[30].id}`);
-  assert.equal(await page.getByRole("heading", { name: "Alpha running", exact: true }).count(), 0);
-  await page.getByRole("group", { name: "Job actions" }).getByRole("button", { name: "Run job", exact: true }).waitFor();
-  await context.close();
-});
-test("mobile jobs list only navigates when a job title is tapped", async () => {
-  const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
-  const jobs = [
-    { ...summary, id: "security-checker", name: "Security Checker Dispatcher" },
-    { ...summary, id: "release-build", name: "Release build" },
-  ];
-  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: jobs, nextCursor: null } }));
-  await page.goto(origin + `/projects/${projectId}`);
-  const table = page.getByRole("table", { name: "Jobs", exact: true });
-  await table.getByRole("link", { name: "Security Checker Dispatcher", exact: true }).waitFor();
-
-  await table.locator("tbody tr").nth(1).locator("td").first().click();
-  assert.match(page.url(), /\/projects\/[^/]+(?:\?|$)/);
-
-  await table.getByRole("link", { name: "Release build", exact: true }).click();
-  await page.waitForURL("**/jobs/release-build");
-  assert.equal(page.url().endsWith("/jobs/release-build"), true);
-  await context.close();
-});
 test("jobs can sort running and title in both directions with accessible state", async () => {
   const { page, context } = await contextFor();
   const fixtures = [
@@ -511,7 +443,7 @@ test("jobs can sort running and title in both directions with accessible state",
     });
     return route.fulfill({ json: { items: rows, nextCursor: null } });
   });
-  await page.goto(origin + `/projects/${projectId}`);
+  await page.goto(origin + "/jobs");
   const table = page.getByRole("table", { name: "Jobs", exact: true });
   await table.getByRole("link", { name: "Zulu", exact: true }).waitFor();
   assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Alpha", "Beta", "Zulu", "Idle"]);
@@ -526,14 +458,14 @@ test("jobs can sort running and title in both directions with accessible state",
   assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Alpha", "Beta", "Zulu", "Idle"]);
   const title = table.getByRole("button", { name: /Title sort/ });
   await title.click();
-  await page.waitForFunction(() => document.querySelectorAll("thead th")[1]?.getAttribute("aria-sort") === "ascending");
-  assert.equal(await table.locator("th").nth(1).getAttribute("aria-sort"), "ascending");
+  await page.waitForFunction(() => document.querySelectorAll("thead th")[2]?.getAttribute("aria-sort") === "ascending");
+  assert.equal(await table.locator("th").nth(2).getAttribute("aria-sort"), "ascending");
   assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Alpha", "Beta", "Idle", "Zulu"]);
   await page.reload(); await table.getByRole("link", { name: "Alpha", exact: true }).waitFor();
-  assert.equal(await table.locator("th").nth(1).getAttribute("aria-sort"), "ascending");
+  assert.equal(await table.locator("th").nth(2).getAttribute("aria-sort"), "ascending");
   await title.click();
-  await page.waitForFunction(() => document.querySelectorAll("thead th")[1]?.getAttribute("aria-sort") === "descending");
-  assert.equal(await table.locator("th").nth(1).getAttribute("aria-sort"), "descending");
+  await page.waitForFunction(() => document.querySelectorAll("thead th")[2]?.getAttribute("aria-sort") === "descending");
+  assert.equal(await table.locator("th").nth(2).getAttribute("aria-sort"), "descending");
   assert.deepEqual(await table.locator("tbody a").allTextContents(), ["Zulu", "Idle", "Beta", "Alpha"]);
   await context.close();
 });
