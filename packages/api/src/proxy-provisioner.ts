@@ -6,6 +6,7 @@ export type ProxyBootstrapProvisioning = {
   /** A new UUID for every process boot. */
   bootEpoch: string;
   controlOrigin: string;
+  browserOrigin: string;
 };
 
 /**
@@ -25,9 +26,11 @@ export async function provisionCredentialProxy(
   if (origin.protocol !== "https:" || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) {
     throw new TypeError("controlOrigin must be an HTTPS origin");
   }
+  const browserOrigin = new URL(input.browserOrigin);
+  if (browserOrigin.protocol !== "https:" || browserOrigin.origin !== input.browserOrigin || browserOrigin.username || browserOrigin.password) throw new TypeError("browserOrigin must be an HTTPS origin");
   const credential = await dependencies.control.provisionCredential(input.tenantId, input.proxyIdentity, input.bootEpoch);
   try {
-    await dependencies.startProxy({ ...input, controlOrigin: origin.origin, credential });
+    await dependencies.startProxy({ ...input, controlOrigin: origin.origin, browserOrigin: browserOrigin.origin, credential });
   } catch (error) {
     // A failed/ambiguous start must not leave a valid bootstrap credential.
     await dependencies.control.revokeCredential(input.tenantId, input.proxyIdentity).catch(() => false);

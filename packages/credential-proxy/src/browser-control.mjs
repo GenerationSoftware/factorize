@@ -60,7 +60,7 @@ export async function startBrowserControl({
   now = () => Math.floor(Date.now() / 1000),
 } = {}) {
   if (!runtime || !lifecycle || !publicKey || typeof proxyId !== "string" || !proxyId
-      || !UUID.test(ownerId ?? "") || !Number.isSafeInteger(generation) || generation < 1
+      || !UUID.test(ownerId ?? "") || !(Number.isSafeInteger(generation) && generation > 0 || UUID.test(generation ?? ""))
       || !Number.isInteger(port) || port < 0 || port > 65535) {
     throw new TypeError("browser control configuration is invalid");
   }

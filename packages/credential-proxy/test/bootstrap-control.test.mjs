@@ -42,12 +42,12 @@ test("local startup control redeems the one-use credential and leaves a private 
     async value => { calls.push(value); return { proxyIdentity: "fly:app:machine", bootEpoch: epoch, controlCredential: token }; },
     (value, request) => registered.push({ value, request }),
   );
-  const result = await request(socketPath, { type: "register-boot", controlOrigin: "https://factorize.example", bootEpoch: epoch, credential: token });
+  const result = await request(socketPath, { type: "register-boot", controlOrigin: "https://factorize.example", browserOrigin: "https://proxy.example", bootEpoch: epoch, credential: token });
   assert.deepEqual(result, { registered: true, proxyIdentity: "fly:app:machine", bootEpoch: epoch });
-  assert.deepEqual(calls, [{ controlOrigin: "https://factorize.example", token, bootEpoch: epoch }]);
+  assert.deepEqual(calls, [{ controlOrigin: "https://factorize.example", token, bootEpoch: epoch, browserOrigin: "https://proxy.example" }]);
   assert.deepEqual(registered, [{
     value: { proxyIdentity: "fly:app:machine", bootEpoch: epoch, controlCredential: token },
-    request: { controlOrigin: "https://factorize.example", bootEpoch: epoch },
+    request: { controlOrigin: "https://factorize.example", browserOrigin: "https://proxy.example", bootEpoch: epoch },
   }]);
   assert.equal(JSON.stringify(result).includes(token), false, "startup response never returns the proxy control credential");
   assert.equal((await stat(socketPath)).mode & 0o777, 0o600);
@@ -57,9 +57,9 @@ test("local startup control rejects run credentials, epoch substitution, and ext
   const calls = [];
   const socketPath = await fixture(async value => { calls.push(value); return {}; });
   for (const payload of [
-    { type: "register-boot", controlOrigin: "https://factorize.example", bootEpoch: epoch, credential: `fzt_run_${"b".repeat(32)}` },
-    { type: "register-boot", controlOrigin: "https://factorize.example", bootEpoch: "22222222-2222-4222-8222-222222222222", credential: token },
-    { type: "register-boot", controlOrigin: "https://factorize.example", bootEpoch: epoch, credential: token, tenantId: "attacker" },
+    { type: "register-boot", controlOrigin: "https://factorize.example", browserOrigin: "https://proxy.example", bootEpoch: epoch, credential: `fzt_run_${"b".repeat(32)}` },
+    { type: "register-boot", controlOrigin: "https://factorize.example", browserOrigin: "https://proxy.example", bootEpoch: "22222222-2222-4222-8222-222222222222", credential: token },
+    { type: "register-boot", controlOrigin: "https://factorize.example", browserOrigin: "https://proxy.example", bootEpoch: epoch, credential: token, tenantId: "attacker" },
   ]) assert.deepEqual(await request(socketPath, payload), { error: "invalid bootstrap request" });
   assert.deepEqual(calls, []);
 });
@@ -77,7 +77,7 @@ test("local provider channel returns only a boot-bound VM certificate and public
   );
   const payload = { type: "issue-vm-certificate", bootEpoch: epoch, vmIdentity: "fly:job-1", csr };
   assert.deepEqual(await request(socketPath, payload), { error: "certificate provisioning failed" });
-  await request(socketPath, { type: "register-boot", controlOrigin: "https://factorize.example", bootEpoch: epoch, credential: token });
+  await request(socketPath, { type: "register-boot", controlOrigin: "https://factorize.example", browserOrigin: "https://proxy.example", bootEpoch: epoch, credential: token });
   assert.deepEqual(await request(socketPath, payload), {
     issued: true, bootEpoch: epoch, vmIdentity: "fly:job-1", certificate: "cert-for:fly:job-1", trustBundle: "public-ca",
   });

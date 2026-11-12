@@ -9,6 +9,7 @@ const input = {
   image: `ghcr.io/generationsoftware/credential-proxy@sha256:${"a".repeat(64)}`,
   region: "iad",
   size: "shared-cpu-1x",
+  browserCapabilityPublicKey: "-----BEGIN PUBLIC KEY-----\nfixture\n-----END PUBLIC KEY-----",
   controlOrigin: "https://factorize.example",
   operationId: "tenant-proxy-start-1",
 };
@@ -37,7 +38,8 @@ describe("Fly credential proxy startup", () => {
       image: input.image,
       region: input.region,
       cmd: ["/usr/local/bin/factorize-credential-proxy", "--boot-epoch", epoch],
-      env: { FACTORIZE_PROXY_TUNNEL_SERVER_NAME: "factorize-proxies.internal", FACTORIZE_PROXY_TUNNEL_PORT: "9090" },
+      env: { FACTORIZE_PROXY_TUNNEL_SERVER_NAME: "factorize-proxies.internal", FACTORIZE_PROXY_TUNNEL_PORT: "9090", FACTORIZE_PROXY_BROWSER_CAPABILITY_PUBLIC_KEY: input.browserCapabilityPublicKey },
+      services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], force_instance_key: true }],
       restart: { policy: "no" },
       auto_start: false,
       metadata: expect.objectContaining({ factorize_role: "credential-proxy", factorize_tenant_id: input.tenantId }),
@@ -52,6 +54,7 @@ describe("Fly credential proxy startup", () => {
       proxyIdentity: "fly:factorize-proxies:machine-1",
       bootEpoch: epoch,
       controlOrigin: input.controlOrigin,
+      browserOrigin: `https://${input.app}.fly.dev`,
       credential: `fzc_${"b".repeat(43)}`,
     }));
   });
@@ -88,7 +91,7 @@ describe("Fly credential proxy guest adapter", () => {
       return child;
     }) as any;
     const guest = createFlyCredentialProxyGuest({ app: input.app, machine: machine.id, token: "server-token-fixture", spawnProcess });
-    await guest.startProxy({ tenantId: input.tenantId, proxyIdentity: "fly:factorize-proxies:machine-1", bootEpoch: epoch, controlOrigin: input.controlOrigin, credential: `fzc_${"c".repeat(43)}` });
+    await guest.startProxy({ tenantId: input.tenantId, proxyIdentity: "fly:factorize-proxies:machine-1", bootEpoch: epoch, controlOrigin: input.controlOrigin, browserOrigin: `https://${input.app}.fly.dev`, credential: `fzc_${"c".repeat(43)}` });
     expect(calls[0]?.[1]).toContain("/usr/local/bin/factorize-proxy-startup");
     expect(String(calls[1]?.[1])).toContain(`"type":"register-boot"`);
     expect(String(calls[1]?.[1])).toContain(`"credential":"fzc_${"c".repeat(43)}"`);

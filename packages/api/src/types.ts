@@ -15,6 +15,9 @@ export interface Env {
   CLICKUP_CLIENT_SECRET?: string;
   CREDENTIAL_ENCRYPTION_KEY: string;
   SESSION_SIGNING_SECRET: string;
+  /** PKCS#8 Ed25519 key used only for short-lived proxy browser capabilities. */
+  MODEL_ACCOUNT_CAPABILITY_PRIVATE_KEY?: string;
+  MODEL_ACCOUNT_CAPABILITY_PUBLIC_KEY?: string;
   GITHUB_APP_ID?: string;
   GITHUB_APP_SLUG?: string;
   GITHUB_APP_PRIVATE_KEY?: string;

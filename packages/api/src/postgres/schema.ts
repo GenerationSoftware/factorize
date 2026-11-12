@@ -53,6 +53,11 @@ export const integrationChanges = app.table("integration_changes", {
 export const credentialProxyStates = app.table("credential_proxy_states", {
   tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }), proxyIdentity: text("proxy_identity").notNull(), bootEpoch: uuid("boot_epoch").notNull(), disabledAt: timestamp("disabled_at", { withTimezone: true }), revokedAt: timestamp("revoked_at", { withTimezone: true }), updatedAt: updatedAt(),
 });
+export const credentialProxyBrowserPairings = app.table("credential_proxy_browser_pairings", {
+  tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
+  proxyIdentity: text("proxy_identity").notNull(), bootEpoch: uuid("boot_epoch").notNull(),
+  browserOrigin: text("browser_origin").notNull(), updatedAt: updatedAt(),
+});
 export const credentialProxyControlCredentials = app.table("credential_proxy_control_credentials", { tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), proxyIdentity: text("proxy_identity").notNull(), bootEpoch: uuid("boot_epoch").notNull(), tokenDigest: bytea("token_digest").notNull().unique(), proxyTokenDigest: bytea("proxy_token_digest").unique(), revokedAt: timestamp("revoked_at", { withTimezone: true }), consumedAt: timestamp("consumed_at", { withTimezone: true }), createdAt: createdAt() }, t => [primaryKey({ columns: [t.tenantId, t.proxyIdentity] })]);
 export const credentialRunGrants = app.table("credential_run_grants", {
   tenantId: uuid("tenant_id").notNull(), runId: uuid("run_id").notNull(), vmIdentity: text("vm_identity").notNull(), proxyIdentity: text("proxy_identity").notNull(), bootEpoch: uuid("boot_epoch").notNull(), grantRevision: bigint("grant_revision", { mode: "number" }).notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }), createdAt: createdAt(),

@@ -64,6 +64,15 @@ describe("versioned API contract", () => {
     expect(post?.body?.safeParse({ generationId: "00000000-0000-4000-8000-000000000001", encryptedVerification: "ciphertext", key: "plain" }).success).toBe(false);
     expect(openapi.paths["/api/v1/unlock-key/verification"].post.requestBody).toBeDefined();
   });
+  it("publishes model-account proxy capabilities as owner-only API operations", () => {
+    const route = API_ROUTES.find(item => item.method === "POST" && item.path === "/api/v1/model-accounts/{accountId}/browser-capability");
+    expect(route?.scope).toBe("integrations:write");
+    expect(route?.ownerSession).toBe(true);
+    expect(route?.parameters.shape.accountId).toBeDefined();
+    expect(route?.body?.safeParse({ action: "authorize" }).success).toBe(true);
+    expect(route?.body?.safeParse({ action: "authorize", accountId: "attacker" }).success).toBe(false);
+    expect(openapi.paths["/api/v1/model-accounts/{accountId}/browser-capability"].post.requestBody).toBeDefined();
+  });
   it("accepts code jobs without agent prompts or models and rejects missing scripts", () => {
     const code = { name: "Export", slug: "export", executionType: "code", script: "#!/bin/sh\nprintf '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"", executionConfigId: "exe", triggers: [] };
     expect(jobInputSchema.safeParse(code).success).toBe(true);

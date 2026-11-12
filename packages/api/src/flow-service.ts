@@ -17,6 +17,8 @@ import type { JobPageQuery } from "./job-contracts";
 import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { EncryptedIntegrationRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./postgres/encrypted-integration-repository";
+import { ProxyControlRepository } from "./postgres/proxy-control-repository";
+import { issueModelAccountCapability } from "./proxy-browser-capability";
 import { decrypt, encrypt } from "./crypto";
 import { InvocationService, type Job, type Trigger } from "./job-domain";
 import { RunQueryRepository } from "./postgres/run-query-repository";
@@ -570,6 +572,22 @@ export class ApiService {
     const { rows } = await databaseFor(this.env).pool.query("INSERT INTO app.unlock_key_verifications(tenant_id,generation_id,encrypted_verification) VALUES ($1,$2,$3) ON CONFLICT (tenant_id) DO NOTHING RETURNING generation_id", [this.auth.tenantId, input.generationId, input.encryptedVerification]);
     if (!rows.length) throw new ServiceError(409, "conflict", "An unlock key is already set up for this account.");
     return { generationId: input.generationId };
+  }
+  async issueModelAccountBrowserCapability(accountId: string, action: "authorize" | "status" | "cancel") {
+    await this.authorizeOwnerSession("integrations:write");
+    if (!this.env.MODEL_ACCOUNT_CAPABILITY_PRIVATE_KEY) throw new ServiceError(503, "operation_failed", "Model-account browser authorization is unavailable.");
+    const [pairing, accounts] = await Promise.all([
+      new ProxyControlRepository(databaseFor(this.env)).browserPairing(this.auth.tenantId),
+      this.encryptedIntegrations().records("model"),
+    ]);
+    if (!pairing) throw new ServiceError(503, "operation_failed", "The credential proxy is not paired for browser authorization.");
+    if (!accounts.some(account => account.id === accountId)) throw new ServiceError(404, "not_found", "Model account not found.");
+    const capability = await issueModelAccountCapability({
+      privateKeyPem: this.env.MODEL_ACCOUNT_CAPABILITY_PRIVATE_KEY,
+      proxyIdentity: pairing.proxyIdentity, ownerId: this.auth.tenantId, accountId, action,
+      appOrigin: this.env.APP_ORIGIN, generation: pairing.bootEpoch,
+    });
+    return { endpoint: `${pairing.browserOrigin}/model-accounts/${accountId}/${action}`, capability };
   }
   async removeTailIntegration(id: string) { await this.authorize("integrations:write"); if (!await this.connections().delete(`cloudflare-tail:${id}`)) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
   async linearProjects() { await this.authorize("integrations:read"); return publicValue(z.array(namedOption), await this.providers().linearProjects()); }

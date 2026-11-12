@@ -33,21 +33,22 @@ describe("dedicated credential proxy control identity", () => {
     const tx = { query: vi.fn().mockImplementation((sql: string) => sql.includes("credential_proxy_control_credentials") ? credentialQuery() : sql.includes("INSERT INTO app.credential_proxy_states") ? stateQuery() : Promise.resolve({ rows: [], rowCount: 1 })) };
     (repository as any).database = { transaction: (work: (client: any) => Promise<unknown>) => work(tx) };
     const epoch = "22222222-2222-4222-8222-222222222222";
-    const registration = await repository.registerBoot("fzc_" + "a".repeat(43), epoch);
+    const registration = await repository.registerBoot("fzc_" + "a".repeat(43), epoch, "https://proxy.example");
     expect(registration).toMatchObject({ tenantId: identity.tenant_id, proxyIdentity: identity.proxy_identity, bootEpoch: epoch });
     expect(registration?.controlCredential).toMatch(/^fzc_[A-Za-z0-9_-]{43}$/);
-    expect(tx.query.mock.calls.map(call => call[0])).toHaveLength(4);
+    expect(tx.query.mock.calls.map(call => call[0])).toHaveLength(5);
     expect(tx.query.mock.calls[0][0]).toContain("boot_epoch=$2 AND revoked_at IS NULL AND consumed_at IS NULL");
     expect(tx.query.mock.calls[2][0]).toContain("consumed_at=now()");
     expect(tx.query.mock.calls[3][0]).toContain("boot_epoch<>$3");
+    expect(tx.query.mock.calls[4][0]).toContain("credential_proxy_browser_pairings");
     credentialQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
-    expect(await repository.registerBoot("fzc_" + "a".repeat(43), epoch)).toBeNull();
+    expect(await repository.registerBoot("fzc_" + "a".repeat(43), epoch, "https://proxy.example")).toBeNull();
   });
 
   it("rejects malformed boot epochs before opening a transaction", async () => {
     const transaction = vi.fn();
     const repository = new ProxyControlRepository({ transaction, pool: { query: vi.fn() } } as any);
-    await expect(repository.registerBoot("fzc_" + "a".repeat(43), "old-boot")).rejects.toThrow("bootEpoch must be a UUID");
+    await expect(repository.registerBoot("fzc_" + "a".repeat(43), "old-boot", "https://proxy.example")).rejects.toThrow("bootEpoch must be a UUID");
     expect(transaction).not.toHaveBeenCalled();
   });
 });

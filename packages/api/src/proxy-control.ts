@@ -34,8 +34,8 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
   } catch { return json({ error: "invalid_request" }, 400); }
   const repository = new ProxyControlRepository(databaseFor(env));
   if (url.pathname === "/internal/credential-proxy/register-boot") {
-    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "bootEpoch") || typeof (body as any).bootEpoch !== "string") return json({ error: "invalid_request" }, 400);
-    const registration = await repository.registerBoot(token, (body as any).bootEpoch);
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join(",") !== "bootEpoch,browserOrigin" || typeof (body as any).bootEpoch !== "string" || typeof (body as any).browserOrigin !== "string") return json({ error: "invalid_request" }, 400);
+    const registration = await repository.registerBoot(token, (body as any).bootEpoch, (body as any).browserOrigin);
     if (!registration) return json({ error: "proxy_registration_unavailable" }, 403);
     return json({ registered: true, tenantId: registration.tenantId, proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch, controlCredential: registration.controlCredential });
   }
