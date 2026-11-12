@@ -1806,6 +1806,337 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
 paths:
+  /api/v1/model-accounts:
+    get:
+      summary: List model accounts available to the owner
+      description: |-
+        Requires an interactive owner browser session. Returns account metadata and the collection revision only; encrypted account caches and credentials are never returned.
+
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Model account metadata and collection revision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  accounts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        name:
+                          type: string
+                        description:
+                          type:
+                            - string
+                            - "null"
+                        revision:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                      required:
+                        - id
+                        - name
+                        - description
+                        - revision
+                      additionalProperties: false
+                required:
+                  - revision
+                  - accounts
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_model_accounts
+      tags:
+        - model-accounts
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+    post:
+      summary: Create a model account
+      description: |-
+        Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted initial account state; credentials are established directly with the credential proxy.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "201":
+          description: Created model account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  duplicate:
+                    type: boolean
+                required:
+                  - revision
+                  - duplicate
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_model_accounts
+      tags:
+        - model-accounts
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                idempotencyKey:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                description:
+                  anyOf:
+                    - type: string
+                      maxLength: 500
+                    - type: "null"
+                encryptedPayload:
+                  type: string
+                  minLength: 1
+                  maxLength: 65536
+              required:
+                - id
+                - expectedRevision
+                - idempotencyKey
+                - name
+                - description
+                - encryptedPayload
+              additionalProperties: false
+  /api/v1/model-accounts/{accountId}:
+    delete:
+      summary: Delete a model account
+      description: |-
+        Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future snapshots and unlock reconciliation cannot restore the account.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Deleted model account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  deleted:
+                    type: boolean
+                    const: true
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  duplicate:
+                    type: boolean
+                required:
+                  - id
+                  - deleted
+                  - revision
+                  - duplicate
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: delete_api_v1_model_accounts_accountId
+      tags:
+        - model-accounts
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                idempotencyKey:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+              required:
+                - expectedRevision
+                - idempotencyKey
+              additionalProperties: false
+  /api/v1/model-accounts/{accountId}/browser-capability:
+    post:
+      summary: Issue a short-lived browser capability for a paired model account
+      description: |-
+        Requires an interactive owner browser session. Returns a single-use, 60-second capability scoped to the account, action, proxy boot and exact application origin. The browser sends it directly to the paired proxy; Factorize never receives model-account tokens.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Paired proxy endpoint and one-use capability
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoint:
+                    type: string
+                    format: uri
+                  capability:
+                    type: string
+                required:
+                  - endpoint
+                  - capability
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_model_accounts_accountId_browser_capability
+      tags:
+        - model-accounts
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - authorize
+                    - status
+                    - cancel
+              required:
+                - action
+              additionalProperties: false
   /api/v1/unlock-key/verification:
     get:
       summary: Get the current encrypted unlock-key verification record
@@ -1935,6 +2266,385 @@ paths:
               required:
                 - generationId
                 - encryptedVerification
+              additionalProperties: false
+  /api/v1/unlock-key/rotation-snapshot:
+    get:
+      summary: Get encrypted state for owner key rotation
+      description: |-
+        Owner browser session only. Returns encrypted records, tombstones, and pending change history for local re-encryption; plaintext credentials and unlock keys are never returned.
+
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Encrypted rekey snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ownerId:
+                    type: string
+                  generationId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  records:
+                    maxItems: 5000
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        kind:
+                          type: string
+                          enum:
+                            - bearer
+                            - model
+                        name:
+                          type: string
+                          minLength: 1
+                          maxLength: 120
+                        origin:
+                          type:
+                            - string
+                            - "null"
+                        description:
+                          anyOf:
+                            - type: string
+                              maxLength: 500
+                            - type: "null"
+                        revision:
+                          type: integer
+                          minimum: 0
+                          maximum: 9007199254740991
+                        encryptedPayload:
+                          anyOf:
+                            - type: string
+                              maxLength: 65536
+                            - type: "null"
+                        deletedAt:
+                          anyOf:
+                            - type: string
+                              format: date-time
+                              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+                            - type: "null"
+                      required:
+                        - id
+                        - kind
+                        - name
+                        - origin
+                        - description
+                        - revision
+                        - encryptedPayload
+                        - deletedAt
+                      additionalProperties: false
+                  changes:
+                    maxItems: 10000
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        kind:
+                          type: string
+                          enum:
+                            - bearer
+                            - model
+                        name:
+                          type: string
+                          minLength: 1
+                          maxLength: 120
+                        origin:
+                          type:
+                            - string
+                            - "null"
+                        description:
+                          anyOf:
+                            - type: string
+                              maxLength: 500
+                            - type: "null"
+                        revision:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                        idempotencyKey:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        operation:
+                          type: string
+                          enum:
+                            - upsert
+                            - delete
+                        encryptedPayload:
+                          anyOf:
+                            - type: string
+                              maxLength: 65536
+                            - type: "null"
+                        recordRevision:
+                          anyOf:
+                            - type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                            - type: "null"
+                      required:
+                        - id
+                        - kind
+                        - name
+                        - origin
+                        - description
+                        - revision
+                        - idempotencyKey
+                        - operation
+                        - encryptedPayload
+                      additionalProperties: false
+                required:
+                  - ownerId
+                  - generationId
+                  - revision
+                  - records
+                  - changes
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_unlock_key_rotation_snapshot
+      tags:
+        - unlock-key
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+  /api/v1/unlock-key/rotation:
+    post:
+      summary: Atomically replace the unlock-key generation
+      description: |-
+        Owner browser session only. Commits a revision-checked encrypted generation and verification record, revokes grants, consumes enrollments, and locks the proxy. Fly connection and execution configuration are preserved.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Key generation replaced
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generationId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  duplicate:
+                    type: boolean
+                required:
+                  - generationId
+                  - revision
+                  - duplicate
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_unlock_key_rotation
+      tags:
+        - unlock-key
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedGenerationId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                generationId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                encryptedVerification:
+                  type: string
+                  minLength: 1
+                  maxLength: 4096
+                records:
+                  maxItems: 5000
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      kind:
+                        type: string
+                        enum:
+                          - bearer
+                          - model
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 120
+                      origin:
+                        type:
+                          - string
+                          - "null"
+                      description:
+                        anyOf:
+                          - type: string
+                            maxLength: 500
+                          - type: "null"
+                      revision:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      encryptedPayload:
+                        anyOf:
+                          - type: string
+                            maxLength: 65536
+                          - type: "null"
+                      deletedAt:
+                        anyOf:
+                          - type: string
+                            format: date-time
+                            pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+                          - type: "null"
+                    required:
+                      - id
+                      - kind
+                      - name
+                      - origin
+                      - description
+                      - revision
+                      - encryptedPayload
+                      - deletedAt
+                    additionalProperties: false
+                changes:
+                  maxItems: 10000
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      kind:
+                        type: string
+                        enum:
+                          - bearer
+                          - model
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 120
+                      origin:
+                        type:
+                          - string
+                          - "null"
+                      description:
+                        anyOf:
+                          - type: string
+                            maxLength: 500
+                          - type: "null"
+                      revision:
+                        type: integer
+                        exclusiveMinimum: 0
+                        maximum: 9007199254740991
+                      idempotencyKey:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      operation:
+                        type: string
+                        enum:
+                          - upsert
+                          - delete
+                      encryptedPayload:
+                        anyOf:
+                          - type: string
+                            maxLength: 65536
+                          - type: "null"
+                      recordRevision:
+                        anyOf:
+                          - type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          - type: "null"
+                    required:
+                      - id
+                      - kind
+                      - name
+                      - origin
+                      - description
+                      - revision
+                      - idempotencyKey
+                      - operation
+                      - encryptedPayload
+                    additionalProperties: false
+              required:
+                - expectedGenerationId
+                - generationId
+                - expectedRevision
+                - encryptedVerification
+                - records
+                - changes
               additionalProperties: false
   /api/v1/integrations/bearer:
     get:
@@ -13086,6 +13796,67 @@ paths:
           schema:
             type: string
             minLength: 1
+  /api/v1/runs/{runId}/retry-launch:
+    post:
+      summary: Manually retry a blocked launch
+      description: |-
+        Retries only a pre-launch proxy-gated run after its prerequisites have been resolved. The run remains blocked until an interactive owner explicitly retries it; unlock or status changes do not automatically launch it.
+
+        Requires the runs:cancel scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Manual retry queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - runId
+                  - retryRequested
+                properties:
+                  runId:
+                    type: string
+                    format: uuid
+                  retryRequested:
+                    type: boolean
+                    const: true
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+          description: Interactive owner session required
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+          description: Run is not waiting for a manual launch retry
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_runs_runId_retry_launch
+      tags:
+        - runs
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: runs:cancel
+      x-owner-session-required: true
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/runs/{runId}/kill:
     post:
       summary: Kill run and immediately release its concurrency slot

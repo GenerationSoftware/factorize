@@ -30,26 +30,38 @@ export class RunEnrollmentRepository {
     if (!input.proxyIdentity.trim() || input.proxyIdentity.length > 255) throw new TypeError("proxyIdentity must contain 1 to 255 characters");
     await this.database.pool.query(`INSERT INTO app.credential_proxy_states(tenant_id,proxy_identity,boot_epoch,disabled_at,revoked_at)
       VALUES ($1,$2,$3,CASE WHEN $4 THEN now() END,CASE WHEN $5 THEN now() END)
-      ON CONFLICT (tenant_id) DO UPDATE SET proxy_identity=excluded.proxy_identity,boot_epoch=excluded.boot_epoch,disabled_at=excluded.disabled_at,revoked_at=excluded.revoked_at,updated_at=now()`,
+      ON CONFLICT (tenant_id) DO UPDATE SET proxy_identity=excluded.proxy_identity,boot_epoch=excluded.boot_epoch,disabled_at=excluded.disabled_at,revoked_at=excluded.revoked_at,unlocked=false,updated_at=now()`,
     [input.tenantId, input.proxyIdentity, input.bootEpoch, input.disabled ?? false, input.revoked ?? false]);
   }
 
-  async authorizeRun(binding: RunEnrollmentBinding, grantRevision: number): Promise<boolean> {
+  /**
+   * Authorize an active run for the current provider binding. The revision is
+   * stable for repeated reconnects on the same VM/proxy boot, and advances
+   * when the run is rebound to a new VM or proxy boot. A revoked grant cannot
+   * be restored on the same binding. Locking the run and proxy state
+   * serializes first enrollment and reconnect races.
+   */
+  async authorizeRun(binding: RunEnrollmentBinding): Promise<number | null> {
     validateBinding(binding);
-    if (!Number.isSafeInteger(grantRevision) || grantRevision < 1) throw new TypeError("grantRevision must be a positive safe integer");
     return this.database.transaction(async client => {
       const valid = await client.query(`SELECT 1 FROM app.job_runs r JOIN app.credential_proxy_states p ON p.tenant_id=r.tenant_id
-        WHERE r.tenant_id=$1 AND r.id=$2 AND r.state IN ${activeStates} AND p.proxy_identity=$3 AND p.boot_epoch=$4 AND p.disabled_at IS NULL AND p.revoked_at IS NULL`,
+        WHERE r.tenant_id=$1 AND r.id=$2 AND r.state IN ${activeStates} AND p.proxy_identity=$3 AND p.boot_epoch=$4 AND p.disabled_at IS NULL AND p.revoked_at IS NULL
+        FOR UPDATE OF r,p`,
       [binding.tenantId, binding.runId, binding.proxyIdentity, binding.bootEpoch]);
-      if (!valid.rowCount) return false;
-      const saved = await client.query(`INSERT INTO app.credential_run_grants(tenant_id,run_id,vm_identity,proxy_identity,boot_epoch,grant_revision,revoked_at)
-        VALUES ($1,$2,$3,$4,$5,$6,NULL) ON CONFLICT (tenant_id,run_id) DO UPDATE SET vm_identity=excluded.vm_identity,proxy_identity=excluded.proxy_identity,boot_epoch=excluded.boot_epoch,grant_revision=excluded.grant_revision,revoked_at=NULL
-        WHERE app.credential_run_grants.grant_revision < excluded.grant_revision RETURNING grant_revision`,
+      if (!valid.rowCount) return null;
+      const current = await client.query<{ vm_identity: string; proxy_identity: string; boot_epoch: string; grant_revision: string | number; revoked_at: Date | null }>(
+        `SELECT vm_identity,proxy_identity,boot_epoch,grant_revision,revoked_at FROM app.credential_run_grants
+         WHERE tenant_id=$1 AND run_id=$2 FOR UPDATE`, [binding.tenantId, binding.runId]);
+      const row = current.rows[0];
+      if (row && row.vm_identity === binding.vmIdentity && row.proxy_identity === binding.proxyIdentity
+          && row.boot_epoch === binding.bootEpoch) return row.revoked_at === null ? Number(row.grant_revision) : null;
+      const grantRevision = row ? Number(row.grant_revision) + 1 : 1;
+      const saved = await client.query<{ grant_revision: string | number }>(`INSERT INTO app.credential_run_grants(tenant_id,run_id,vm_identity,proxy_identity,boot_epoch,grant_revision,revoked_at)
+        VALUES ($1,$2,$3,$4,$5,$6,NULL) ON CONFLICT (tenant_id,run_id) DO UPDATE
+          SET vm_identity=excluded.vm_identity,proxy_identity=excluded.proxy_identity,boot_epoch=excluded.boot_epoch,grant_revision=excluded.grant_revision,revoked_at=NULL
+        RETURNING grant_revision`,
       [binding.tenantId, binding.runId, binding.vmIdentity, binding.proxyIdentity, binding.bootEpoch, grantRevision]);
-      if (saved.rowCount) return true;
-      const current = await client.query(`SELECT 1 FROM app.credential_run_grants WHERE tenant_id=$1 AND run_id=$2 AND vm_identity=$3 AND proxy_identity=$4 AND boot_epoch=$5 AND grant_revision=$6 AND revoked_at IS NULL`,
-        [binding.tenantId, binding.runId, binding.vmIdentity, binding.proxyIdentity, binding.bootEpoch, grantRevision]);
-      return Boolean(current.rowCount);
+      return saved.rows[0] ? Number(saved.rows[0].grant_revision) : null;
     });
   }
 

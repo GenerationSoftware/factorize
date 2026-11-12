@@ -91,6 +91,38 @@ export async function encryptRecord(plaintext: Uint8Array, key: string, binding:
   return { version: VERSION, algorithm: "A256GCM", nonce: encodeBase64Url(nonce), ciphertext: encodeBase64Url(new Uint8Array(ciphertext)) };
 }
 
+/** Encrypt an initial model-account cache with the same key-generation-bound AAD used by the proxy. */
+export async function encryptModelAccountCacheRecord(plaintext: Uint8Array, key: string, binding: RecordBinding & { keyGeneration: string }): Promise<string> {
+  if (!(plaintext instanceof Uint8Array) || !binding || typeof binding.ownerId !== "string" || !binding.ownerId
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(binding.recordId)
+      || typeof binding.keyGeneration !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(binding.keyGeneration)
+      || !Number.isSafeInteger(binding.revision) || binding.revision < 1) {
+    throw new TypeError("Malformed model-account encryption binding");
+  }
+  const aad = encoder.encode(JSON.stringify(["factorize-record-v1", binding.ownerId, binding.recordId, "model", "factorize", binding.keyGeneration, binding.revision]));
+  const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));
+  const aesKey = await deriveAesKey(key, ["encrypt"]);
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: toArrayBuffer(nonce), additionalData: toArrayBuffer(aad), tagLength: 128 }, aesKey, toArrayBuffer(plaintext));
+  const encode = (bytes: Uint8Array) => btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(""));
+  return `${encode(nonce)}.${encode(new Uint8Array(ciphertext))}`;
+}
+
+/** Decrypt a stored model-account cache locally for re-encryption during key rotation. */
+export async function decryptModelAccountCacheRecord(encryptedPayload: string, key: string, binding: RecordBinding & { keyGeneration: string }): Promise<Uint8Array> {
+  const [encodedNonce, encodedCiphertext, extra] = encryptedPayload.split(".");
+  if (!encodedNonce || !encodedCiphertext || extra !== undefined) throw new TypeError("Malformed model-account ciphertext");
+  const nonce = Uint8Array.from(atob(encodedNonce), character => character.charCodeAt(0));
+  const ciphertext = Uint8Array.from(atob(encodedCiphertext), character => character.charCodeAt(0));
+  if (nonce.byteLength !== NONCE_BYTES || ciphertext.byteLength < 16) throw new TypeError("Malformed model-account ciphertext");
+  if (!binding || typeof binding.ownerId !== "string" || !binding.ownerId
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(binding.recordId)
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(binding.keyGeneration)
+      || !Number.isSafeInteger(binding.revision) || binding.revision < 1) throw new TypeError("Malformed model-account encryption binding");
+  const aad = encoder.encode(JSON.stringify(["factorize-record-v1", binding.ownerId, binding.recordId, "model", "factorize", binding.keyGeneration, binding.revision]));
+  const aesKey = await deriveAesKey(key, ["decrypt"]);
+  return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: toArrayBuffer(nonce), additionalData: toArrayBuffer(aad), tagLength: 128 }, aesKey, toArrayBuffer(ciphertext)));
+}
+
 /** Decrypt a supported envelope; malformed metadata, bindings and authentication fail closed. */
 export async function decryptRecord(envelope: unknown, key: string, binding: RecordBinding): Promise<Uint8Array> {
   if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) throw new TypeError("Malformed encrypted envelope");

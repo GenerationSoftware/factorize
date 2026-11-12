@@ -24,7 +24,7 @@ export interface LaunchRequest {
 }
 
 /** Opaque to orchestration. Only the backend that created it may interpret id. */
-export interface RunHandle { backendKind: string; id: string; runProxyName?: string; }
+export interface RunHandle { backendKind: string; id: string; runProxyName?: string; /** Stable provider operation key retained across a scheduler restart. */ operationId?: string; }
 
 export interface ExecutionObservation {
   systemd?: import("./harness-diagnostics").ExecutionDiagnostics["systemd"];

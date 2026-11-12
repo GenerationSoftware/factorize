@@ -129,6 +129,11 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
   }
 
   return {
+    /** Resolve a previously persisted provisional run handle after a scheduler restart. */
+    findMachineByOperationId(app: string, operationId: string): Promise<FlyMachine | undefined> {
+      if (!operationId || operationId.length > 200) throw new TypeError("operationId must contain 1 to 200 characters");
+      return findByOperationId(app, operationId);
+    },
     async createMachine(app: string, config: FlyMachineConfig, operationId: string): Promise<FlyMachine> {
       if (!operationId || operationId.length > 200) throw new TypeError("operationId must contain 1 to 200 characters");
       const existing = await findByOperationId(app, operationId);
@@ -136,6 +141,10 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
       const body = {
         config: {
           ...config,
+          // Job Machines are supervised by Factorize. A provider restart can
+          // replay a script after an ambiguous guest exit, duplicating side
+          // effects, so execution guests must stop with their process.
+          restart: { policy: "no" },
           metadata: { ...config.metadata, [OPERATION_METADATA_KEY]: operationId },
         },
       };

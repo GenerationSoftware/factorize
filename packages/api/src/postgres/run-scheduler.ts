@@ -22,6 +22,12 @@ import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./trace-project
 import { LiveTraceRepository } from "./live-trace-repository";
 import { JOB_RESULT_INSTRUCTIONS, parseJobResult } from "../job-result";
 import { issueRunCredential, runProxyInstructions } from "../run-credentials";
+import { ProxyLaunchBlockedError, proxyLaunchDecision, requireProxyLaunch } from "../proxy-launch-policy";
+import { FlyConnectionRepository } from "./fly-connection-repository";
+import { FlyExecutionConfigurationRepository } from "./fly-execution-configuration-repository";
+import { createFlyMachinesClient } from "../fly-machines-client";
+import { FlyJobExecutionBackend, flyJobGuest } from "../fly-job-execution-backend";
+import { createFlyCredentialProxyGuest } from "../fly-credential-proxy-provisioner";
 
 export class RunScheduler {
   private runs: RunRepository;
@@ -31,7 +37,12 @@ export class RunScheduler {
     await this.runs.consumeWakeHint();
     await new AutomationScheduler(this.database, this.env).process();
     for (const run of await this.runs.dueForPoll()) await this.poll(run).catch(error => this.fail(run, error, "poll"));
-    for (let count = 0; count < 20; count++) { const run = await this.runs.claimNext(); if (!run) break; await this.launch(run).catch(error => this.fail(run, error, "launch")); }
+    for (let count = 0; count < 20; count++) {
+      const run = await this.runs.claimNext(); if (!run) break;
+      await this.launch(run).catch(error => error instanceof ProxyLaunchBlockedError
+        ? this.runs.blockLaunch(run, `Credential proxy ${error.reason}; resolve the prerequisite and manually retry this run.`)
+        : this.fail(run, error, "launch"));
+    }
     const retention = new RunRetentionRepository(this.database);
     await this.reconcileProviderCleanup();
     await this.runRetentionMaintenance(retention);
@@ -113,6 +124,29 @@ export class RunScheduler {
   }
   private async backend(run: PersistedRun): Promise<ExecutionBackend> {
     const id = String(run.executionConfig.connectionId ?? "");
+    if (run.backendKind === "fly" || run.executionConfig.executionProvider === "fly") {
+      const [connection, configuration] = await Promise.all([
+        new FlyConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).token(),
+        new FlyExecutionConfigurationRepository(this.database, run.tenantId).get(id),
+      ]);
+      if (!connection) throw new Error("Fly connection is unavailable");
+      if (!configuration) throw new Error("Fly execution configuration is unavailable");
+      const { rows } = await this.database.pool.query<{ proxy_identity: string; boot_epoch: string }>(
+        "SELECT proxy_identity, boot_epoch FROM app.credential_proxy_states WHERE tenant_id=$1 AND disabled_at IS NULL AND revoked_at IS NULL",
+        [run.tenantId],
+      );
+      const proxy = /^fly:([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])):([^:]+)$/.exec(rows[0]?.proxy_identity ?? "");
+      if (!proxy) throw new Error("A registered Fly credential proxy is unavailable for this tenant");
+      const app = proxy[1]!;
+      const machines = createFlyMachinesClient({ token: connection });
+      return new FlyJobExecutionBackend({
+        app, image: configuration.image, region: configuration.region, size: configuration.size,
+        machines, guest: machine => flyJobGuest({ app, machine: machine.id, token: connection }),
+        proxyIdentity: rows[0]!.proxy_identity,
+        proxyBootEpoch: rows[0]!.boot_epoch,
+        proxyGuest: createFlyCredentialProxyGuest({ app, machine: proxy[2]!, token: connection }),
+      });
+    }
     const kind = run.executionConfig.backendKind ?? (run.executionConfig.agentKind === "Amp" ? "amp" : "exe-vm");
     if (kind === "amp") { const connection = await this.connections(run).get<AmpConnection>(`amp:${id}`); if (!connection) throw new Error("Amp connection is unavailable"); return new AmpBackend(connection); }
     if (kind !== "exe-vm") throw new Error(`Unsupported execution backend: ${String(kind)}`);
@@ -121,6 +155,15 @@ export class RunScheduler {
   }
 
   private async launch(run: PersistedRun) {
+    const config = run.executionConfig;
+    const decision = proxyLaunchDecision({
+      executionProvider: config.executionProvider === "fly" ? "fly" : "exe",
+      executionType: config.executionType === "code" ? "code" : "agent",
+      portableIntegrationIds: config.portableIntegrationIds,
+      modelAccess: config.modelAccess,
+      modelAccountId: config.modelAccountId,
+    }, await this.proxyLaunchState(run.tenantId));
+    requireProxyLaunch(decision);
     if (run.executionConfig.executionType === "code") {
       if (typeof run.executionConfig.script !== "string" || !run.executionConfig.script.trim()) throw new Error("The code job has no saved script");
       const backend = await this.backend(run), context = run.executionConfig.inputContext;
@@ -144,6 +187,14 @@ export class RunScheduler {
     const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runProxyInstructions(run.id)}`, runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
     if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
+  }
+
+  private async proxyLaunchState(tenantId: string) {
+    const result = await this.database.pool.query<{ enabled: boolean; unlocked: boolean }>(`SELECT disabled_at IS NULL AND revoked_at IS NULL AS enabled,
+        unlocked AND updated_at > now() - interval '30 seconds' AS unlocked
+      FROM app.credential_proxy_states WHERE tenant_id=$1`, [tenantId]);
+    const state = result.rows[0];
+    return { enabled: Boolean(state?.enabled), running: Boolean(state), unlocked: Boolean(state?.unlocked), pendingChanges: false };
   }
 
   private async poll(run: PersistedRun) {

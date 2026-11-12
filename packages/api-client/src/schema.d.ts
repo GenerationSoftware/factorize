@@ -1,5 +1,85 @@
 // Generated from packages/docs/openapi.yaml. Do not edit.
 export interface paths {
+    "/api/v1/model-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List model accounts available to the owner
+         * @description Requires an interactive owner browser session. Returns account metadata and the collection revision only; encrypted account caches and credentials are never returned.
+         *
+         *     Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_model_accounts"];
+        put?: never;
+        /**
+         * Create a model account
+         * @description Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted initial account state; credentials are established directly with the credential proxy.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_model_accounts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/model-accounts/{accountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a model account
+         * @description Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future snapshots and unlock reconciliation cannot restore the account.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_model_accounts_accountId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/model-accounts/{accountId}/browser-capability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a short-lived browser capability for a paired model account
+         * @description Requires an interactive owner browser session. Returns a single-use, 60-second capability scoped to the account, action, proxy boot and exact application origin. The browser sends it directly to the paired proxy; Factorize never receives model-account tokens.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_model_accounts_accountId_browser_capability"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/unlock-key/verification": {
         parameters: {
             query?: never;
@@ -26,6 +106,54 @@ export interface paths {
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
         post: operations["post_api_v1_unlock_key_verification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/unlock-key/rotation-snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get encrypted state for owner key rotation
+         * @description Owner browser session only. Returns encrypted records, tombstones, and pending change history for local re-encryption; plaintext credentials and unlock keys are never returned.
+         *
+         *     Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_unlock_key_rotation_snapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/unlock-key/rotation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Atomically replace the unlock-key generation
+         * @description Owner browser session only. Commits a revision-checked encrypted generation and verification record, revokes grants, consumes enrollments, and locks the proxy. Fly connection and execution configuration are preserved.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_unlock_key_rotation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1988,6 +2116,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{runId}/retry-launch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Manually retry a blocked launch
+         * @description Retries only a pre-launch proxy-gated run after its prerequisites have been resolved. The run remains blocked until an interactive owner explicitly retries it; unlock or status changes do not automatically launch it.
+         *
+         *     Requires the runs:cancel scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_runs_runId_retry_launch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{runId}/kill": {
         parameters: {
             query?: never;
@@ -2683,6 +2835,176 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_api_v1_model_accounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Model account metadata and collection revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        accounts: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            description: string | null;
+                            revision: number;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_model_accounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    id: string;
+                    expectedRevision: number;
+                    /** Format: uuid */
+                    idempotencyKey: string;
+                    name: string;
+                    description: string | null;
+                    encryptedPayload: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created model account */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_model_accounts_accountId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                    /** Format: uuid */
+                    idempotencyKey: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Deleted model account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** @constant */
+                        deleted: true;
+                        revision: number;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_model_accounts_accountId_browser_capability: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    action: "authorize" | "status" | "cancel";
+                };
+            };
+        };
+        responses: {
+            /** @description Paired proxy endpoint and one-use capability */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        endpoint: string;
+                        capability: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_unlock_key_verification: {
         parameters: {
             query?: never;
@@ -2744,6 +3066,140 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         generationId: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_unlock_key_rotation_snapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Encrypted rekey snapshot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ownerId: string;
+                        /** Format: uuid */
+                        generationId: string;
+                        revision: number;
+                        records: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            kind: "bearer" | "model";
+                            name: string;
+                            origin: string | null;
+                            description: string | null;
+                            revision: number;
+                            encryptedPayload: string | null;
+                            deletedAt: string | null;
+                        }[];
+                        changes: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            kind: "bearer" | "model";
+                            name: string;
+                            origin: string | null;
+                            description: string | null;
+                            revision: number;
+                            /** Format: uuid */
+                            idempotencyKey: string;
+                            /** @enum {string} */
+                            operation: "upsert" | "delete";
+                            encryptedPayload: string | null;
+                            recordRevision?: number | null;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_unlock_key_rotation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    expectedGenerationId: string;
+                    /** Format: uuid */
+                    generationId: string;
+                    expectedRevision: number;
+                    encryptedVerification: string;
+                    records: {
+                        /** Format: uuid */
+                        id: string;
+                        /** @enum {string} */
+                        kind: "bearer" | "model";
+                        name: string;
+                        origin: string | null;
+                        description: string | null;
+                        revision: number;
+                        encryptedPayload: string | null;
+                        deletedAt: string | null;
+                    }[];
+                    changes: {
+                        /** Format: uuid */
+                        id: string;
+                        /** @enum {string} */
+                        kind: "bearer" | "model";
+                        name: string;
+                        origin: string | null;
+                        description: string | null;
+                        revision: number;
+                        /** Format: uuid */
+                        idempotencyKey: string;
+                        /** @enum {string} */
+                        operation: "upsert" | "delete";
+                        encryptedPayload: string | null;
+                        recordRevision?: number | null;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Key generation replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        generationId: string;
+                        revision: number;
+                        duplicate: boolean;
                     };
                 };
             };
@@ -7950,6 +8406,43 @@ export interface operations {
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_runs_runId_retry_launch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Manual retry queued */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        runId: string;
+                        /** @constant */
+                        retryRequested: true;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            /** @description Interactive owner session required */
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            /** @description Run is not waiting for a manual launch retry */
             409: components["responses"]["Error409"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];

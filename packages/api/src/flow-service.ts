@@ -17,6 +17,8 @@ import type { JobPageQuery } from "./job-contracts";
 import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { EncryptedIntegrationRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./postgres/encrypted-integration-repository";
+import { ProxyControlRepository } from "./postgres/proxy-control-repository";
+import { issueModelAccountCapability } from "./proxy-browser-capability";
 import { decrypt, encrypt } from "./crypto";
 import { InvocationService, type Job, type Trigger } from "./job-domain";
 import { RunQueryRepository } from "./postgres/run-query-repository";
@@ -320,6 +322,12 @@ export class ApiService {
     catch (error) { if (error instanceof TraceReplayError) throw new ServiceError(error.status, error.code, error.message); throw error; }
   }
   async stopRun(runId: string) { await this.authorize("runs:cancel"); const stopped = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).stop(runId); if (!stopped) throw new ServiceError(409, "operation_failed", "Run is not active"); if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" }); return stopped; }
+  async retryBlockedLaunch(runId: string) {
+    await this.authorizeOwnerSession("runs:cancel");
+    if (!await new RunRepository(databaseFor(this.env)).retryBlockedLaunch(this.auth.tenantId, runId)) throw new ServiceError(409, "operation_failed", "Run is not waiting for a manual launch retry");
+    if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" });
+    return { runId, retryRequested: true };
+  }
   killRun(runId: string) { return this.stopRun(runId); }
   async listJobSummaries(input: JobPageQuery, selector = false) { await this.authorize("jobs:read"); try { return await new JobSummaryRepository(databaseFor(this.env), this.auth.tenantId).page(input, selector); } catch (error) { if (error instanceof InvalidJobSummaryCursor) throw new ServiceError(400, "invalid_request", error.message); throw error; } }
   async listJobs() { await this.authorize("jobs:read"); const jobs = await this.jobs().list(), stats = await this.jobStatistics(jobs.map(job => job.id)); return Promise.all(jobs.map(job => this.presentJob(job, stats.get(job.id) ?? { running_count: "0", last_run_state: null }))); }
@@ -575,6 +583,115 @@ export class ApiService {
     const { rows } = await databaseFor(this.env).pool.query("INSERT INTO app.unlock_key_verifications(tenant_id,generation_id,encrypted_verification) VALUES ($1,$2,$3) ON CONFLICT (tenant_id) DO NOTHING RETURNING generation_id", [this.auth.tenantId, input.generationId, input.encryptedVerification]);
     if (!rows.length) throw new ServiceError(409, "conflict", "An unlock key is already set up for this account.");
     return { generationId: input.generationId };
+  }
+  async getUnlockKeyRotationSnapshot() {
+    await this.authorizeOwnerSession("integrations:read");
+    const repository = this.encryptedIntegrations();
+    const [snapshot, verification] = await Promise.all([
+      repository.rotationSnapshot(),
+      databaseFor(this.env).pool.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [this.auth.tenantId]),
+    ]);
+    const generationId = verification.rows[0]?.generation_id;
+    if (!generationId) throw new ServiceError(409, "conflict", "Set up an unlock key before rotating or resetting integrations.");
+    const modelRevisions = new Map<string, number>();
+    const changes = snapshot.changes.map(change => {
+      let recordRevision: number | null = null;
+      if (change.kind === "model" && change.operation === "delete") modelRevisions.delete(change.id);
+      if (change.kind === "model" && change.operation === "upsert" && change.encryptedPayload !== null) {
+        recordRevision = modelRevisions.has(change.id) ? modelRevisions.get(change.id)! + 1 : change.revision;
+        modelRevisions.set(change.id, recordRevision);
+      }
+      return { ...change, recordRevision };
+    });
+    return { ownerId: this.auth.userId, generationId, ...snapshot, changes };
+  }
+  async replaceUnlockKeyGeneration(input: {
+    expectedGenerationId: string; generationId: string; expectedRevision: number; encryptedVerification: string;
+    records: Array<{ id: string; kind: "bearer" | "model"; name: string; origin: string | null; description: string | null; revision: number; encryptedPayload: string | null; deletedAt: string | null }>;
+    changes: Array<{ id: string; kind: "bearer" | "model"; name: string; origin: string | null; description: string | null; revision: number; idempotencyKey: string; operation: "upsert" | "delete"; encryptedPayload: string | null; recordRevision?: number | null }>;
+  }) {
+    await this.authorizeOwnerSession("integrations:write");
+    if (input.expectedGenerationId === input.generationId) throw new ServiceError(400, "invalid_request", "A replacement key generation must be new.");
+    const repository = this.encryptedIntegrations();
+    const records = input.records.map(record => ({ ...record, deletedAt: record.deletedAt === null ? null : new Date(record.deletedAt) }));
+    const changes = input.changes.map(({ recordRevision: _recordRevision, ...change }) => change);
+    try {
+      await repository.stageGeneration({ generationId: input.generationId, expectedRevision: input.expectedRevision, records, changes });
+      const committed = await repository.commitGeneration(input.generationId, input.expectedRevision, {
+        expectedVerificationGenerationId: input.expectedGenerationId,
+        verificationGenerationId: input.generationId,
+        encryptedVerification: input.encryptedVerification,
+      });
+      return { generationId: input.generationId, ...committed };
+    } catch (error) {
+      if (error instanceof StaleIntegrationRevisionError || (error as Error)?.name === "StaleIntegrationGenerationError") throw new ServiceError(409, "stale_revision", "Integration records changed during key replacement. Reload and retry with the current unlock key.");
+      if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "This key replacement ID was already used for different encrypted data.");
+      if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
+      throw error;
+    }
+  }
+  async issueModelAccountBrowserCapability(accountId: string, action: "authorize" | "status" | "cancel") {
+    await this.authorizeOwnerSession("integrations:write");
+    if (!this.env.MODEL_ACCOUNT_CAPABILITY_PRIVATE_KEY) throw new ServiceError(503, "operation_failed", "Model-account browser authorization is unavailable.");
+    const [pairing, accounts] = await Promise.all([
+      new ProxyControlRepository(databaseFor(this.env)).browserPairing(this.auth.tenantId),
+      this.encryptedIntegrations().records("model"),
+    ]);
+    if (!pairing) throw new ServiceError(503, "operation_failed", "The credential proxy is not paired for browser authorization.");
+    if (!accounts.some(account => account.id === accountId)) throw new ServiceError(404, "not_found", "Model account not found.");
+    const capability = await issueModelAccountCapability({
+      privateKeyPem: this.env.MODEL_ACCOUNT_CAPABILITY_PRIVATE_KEY,
+      proxyIdentity: pairing.proxyIdentity, ownerId: this.auth.tenantId, accountId, action,
+      appOrigin: this.env.APP_ORIGIN, generation: pairing.bootEpoch,
+    });
+    return { endpoint: `${pairing.browserOrigin}/model-accounts/${accountId}/${action}`, capability };
+  }
+  async listModelAccounts() {
+    await this.authorizeOwnerSession("integrations:read");
+    const repository = this.encryptedIntegrations();
+    const [revision, accounts] = await Promise.all([repository.revision(), repository.records("model")]);
+    return { revision, accounts: accounts.map(({ id, name, description, revision }) => ({ id, name, description, revision })) };
+  }
+  private async modelAccountWrite(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; description: string | null; encryptedPayload?: string; operation: "upsert" | "delete" }) {
+    try { return await this.encryptedIntegrations().write({ ...input, kind: "model", origin: null }); }
+    catch (error) {
+      if (error instanceof StaleIntegrationRevisionError) throw new ServiceError(409, "stale_revision", `The model account collection changed. Current revision is ${error.currentRevision}.`);
+      if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different model account change.");
+      if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
+      throw error;
+    }
+  }
+  async createModelAccount(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; description: string | null; encryptedPayload: string }) {
+    await this.authorizeOwnerSession("integrations:write");
+    const repository = this.encryptedIntegrations();
+    try {
+      const replay = await repository.replay({ ...input, kind: "model", origin: null, operation: "upsert" });
+      if (replay) return replay;
+    } catch (error) {
+      if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different model account change.");
+      if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
+      throw error;
+    }
+    if ((await repository.records()).some(record => record.id === input.id)) throw new ServiceError(409, "conflict", "An integration with this id already exists.");
+    return this.modelAccountWrite({ ...input, operation: "upsert" });
+  }
+  async deleteModelAccount(id: string, input: { expectedRevision: number; idempotencyKey: string }) {
+    await this.authorizeOwnerSession("integrations:write");
+    const repository = this.encryptedIntegrations();
+    const existing = (await repository.records("model")).find(record => record.id === id);
+    if (!existing) {
+      try {
+        const replay = await repository.replayDelete(id, "model", input.idempotencyKey);
+        if (replay) return { id, deleted: true as const, ...replay };
+      } catch (error) {
+        if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different model account change.");
+        if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
+        throw error;
+      }
+      throw new ServiceError(404, "not_found", "Model account not found.");
+    }
+    const result = await this.modelAccountWrite({ id, name: existing.name, description: existing.description, ...input, operation: "delete" });
+    return { id, deleted: true as const, ...result };
   }
   async removeTailIntegration(id: string) { await this.authorize("integrations:write"); if (!await this.connections().delete(`cloudflare-tail:${id}`)) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
   async linearProjects() { await this.authorize("integrations:read"); return publicValue(z.array(namedOption), await this.providers().linearProjects()); }

@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "files": [
+    "src"
+  ],
+  "bin": {
+    "factorize-credential-proxy": "./src/main.mjs",
+    "factorize-proxy-startup": "./src/startup.mjs",
+    "factorize-proxy-certify-vm": "./src/vm-certificate.mjs",
+    "factorize-proxy-authorize-run": "./src/authorize-run.mjs"
+  },
   "scripts": {
     "start": "node src/main.mjs",
     "test": "node --test test/*.test.mjs"

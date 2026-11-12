@@ -85,6 +85,28 @@ describe.skipIf(!url)("encrypted integration persistence (PostgreSQL)", () => {
     expect(results.filter(result => result.status === "rejected" && result.reason instanceof StaleIntegrationRevisionError)).toHaveLength(1);
   });
 
+  it("rejects a model cache save encrypted under a replaced key generation even when its account revision is unchanged", async () => {
+    const { tenantId, repository } = await freshRepository();
+    const generation = crypto.randomUUID();
+    const replacementGeneration = crypto.randomUUID();
+    await db.pool.query("INSERT INTO app.unlock_key_verifications(tenant_id,generation_id,encrypted_verification) VALUES ($1,$2,'verification')", [tenantId, generation]);
+    const id = crypto.randomUUID();
+    const created = await repository.write({ id, idempotencyKey: crypto.randomUUID(), expectedRevision: 0, operation: "upsert", kind: "model", name: "Codex", origin: null, description: null, encryptedPayload: await userEncrypt("initial cache") });
+    const oldKeyCache = await userEncrypt("old generation cache");
+    const saved = await repository.saveModelCache({ id, expectedRevision: created.revision, keyGeneration: generation, idempotencyKey: crypto.randomUUID(), encryptedPayload: oldKeyCache });
+    expect(saved.revision).toBe(created.revision + 1);
+
+    await db.pool.query("UPDATE app.unlock_key_verifications SET generation_id=$2 WHERE tenant_id=$1", [tenantId, replacementGeneration]);
+    const staleKeyCache = await userEncrypt("late old generation refresh");
+    await expect(repository.saveModelCache({ id, expectedRevision: saved.revision, keyGeneration: generation, idempotencyKey: crypto.randomUUID(), encryptedPayload: staleKeyCache }))
+      .rejects.toMatchObject({ name: "StaleIntegrationRevisionError" });
+    expect((await repository.records("model"))[0]?.encryptedPayload).toBe(oldKeyCache);
+
+    const currentKeyCache = await userEncrypt("replacement generation cache");
+    await expect(repository.saveModelCache({ id, expectedRevision: saved.revision, keyGeneration: replacementGeneration, idempotencyKey: crypto.randomUUID(), encryptedPayload: currentKeyCache }))
+      .resolves.toMatchObject({ revision: saved.revision + 1, duplicate: false });
+  });
+
   it("returns edits and deletion tombstones in revision order and deduplicates retries", async () => {
     const { repository, tenantId } = await freshRepository();
     const id = crypto.randomUUID(), idempotencyKey = crypto.randomUUID();

@@ -28,7 +28,7 @@ describe.skipIf(!url)("single-use run enrollments (PostgreSQL)", () => {
     const repository = new RunEnrollmentRepository(db);
     const service = new RunEnrollmentService(repository);
     await repository.setProxyState({ tenantId, proxyIdentity, bootEpoch });
-    expect(await repository.authorizeRun(binding, 7)).toBe(true);
+    expect(await repository.authorizeRun(binding)).toBe(1);
     return { binding, repository, service, tenantId, runId, proxyIdentity, bootEpoch };
   }
   async function enrollment(f: Awaited<ReturnType<typeof fixture>>, lifetime = 60_000) {
@@ -52,7 +52,7 @@ describe.skipIf(!url)("single-use run enrollments (PostgreSQL)", () => {
     const persisted = (await db.pool.query("SELECT token_digest,consumed_at,grant_revision FROM app.credential_run_enrollments WHERE tenant_id=$1 AND id=$2", [f.tenantId, issued.enrollmentId])).rows[0];
     expect(persisted.token_digest.toString("base64url")).not.toBe(issued.token);
     expect(persisted.consumed_at).toEqual(issued.now);
-    expect(persisted.grant_revision).toBe("7");
+    expect(persisted.grant_revision).toBe("1");
   }, 20_000);
 
   it("rejects expiry, disconnect replay, a changed proxy epoch, ended runs, cross-tenant use, and revoked or disabled grants", async () => {
@@ -63,16 +63,22 @@ describe.skipIf(!url)("single-use run enrollments (PostgreSQL)", () => {
     const disconnected = await fixture(), lost = await enrollment(disconnected);
     const reconnected = await enrollment(disconnected);
     await expect(disconnected.service.authenticate(lost.token, disconnected.binding, lost.now)).rejects.toThrow();
-    await expect(disconnected.service.authenticate(reconnected.token, disconnected.binding, reconnected.now)).resolves.toMatchObject({ grantRevision: 7 });
+    await expect(disconnected.service.authenticate(reconnected.token, disconnected.binding, reconnected.now)).resolves.toMatchObject({ grantRevision: 1 });
     await expect(disconnected.service.authenticate(reconnected.token, disconnected.binding, reconnected.now)).rejects.toThrow();
 
     const revised = await fixture(), priorRevision = await enrollment(revised);
-    expect(await revised.repository.authorizeRun(revised.binding, 8)).toBe(true);
+    expect(await revised.repository.authorizeRun({ ...revised.binding, vmIdentity: `${revised.binding.vmIdentity}-replacement` })).toBe(2);
     await expect(revised.service.authenticate(priorRevision.token, revised.binding, priorRevision.now)).rejects.toThrow();
 
     const restarted = await fixture(), oldEpoch = await enrollment(restarted);
-    await restarted.repository.setProxyState({ tenantId: restarted.tenantId, proxyIdentity: restarted.proxyIdentity, bootEpoch: crypto.randomUUID() });
+    const newEpoch = crypto.randomUUID();
+    await restarted.repository.setProxyState({ tenantId: restarted.tenantId, proxyIdentity: restarted.proxyIdentity, bootEpoch: newEpoch });
     await expect(restarted.service.authenticate(oldEpoch.token, restarted.binding, oldEpoch.now)).rejects.toThrow();
+    const restartedBinding = { ...restarted.binding, bootEpoch: newEpoch };
+    expect(await restarted.repository.authorizeRun(restartedBinding)).toBe(2);
+    expect(await restarted.repository.authorizeRun(restartedBinding)).toBe(2);
+    const fresh = await restarted.service.enroll(restartedBinding, new Date(now.getTime() + 60_000), now);
+    await expect(restarted.service.authenticate(fresh.token, restartedBinding, now)).resolves.toMatchObject({ bootEpoch: newEpoch, grantRevision: 2 });
 
     const ended = await fixture(), endedEnrollment = await enrollment(ended);
     await db.pool.query("UPDATE app.job_runs SET state='succeeded' WHERE tenant_id=$1 AND id=$2", [ended.tenantId, ended.runId]);
@@ -84,6 +90,7 @@ describe.skipIf(!url)("single-use run enrollments (PostgreSQL)", () => {
     const revoked = await fixture(), revokedEnrollment = await enrollment(revoked);
     await revoked.repository.revokeRun(revoked.tenantId, revoked.runId);
     await expect(revoked.service.authenticate(revokedEnrollment.token, revoked.binding, revokedEnrollment.now)).rejects.toThrow();
+    expect(await revoked.repository.authorizeRun(revoked.binding)).toBeNull();
 
     const disabled = await fixture(), disabledEnrollment = await enrollment(disabled);
     await disabled.repository.setProxyState({ tenantId: disabled.tenantId, proxyIdentity: disabled.proxyIdentity, bootEpoch: disabled.bootEpoch, disabled: true });

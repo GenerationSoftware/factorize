@@ -51,8 +51,35 @@ export class RunRepository {
   async dueForPoll(limit = 40): Promise<PersistedRun[]> {
     const result = await this.database.pool.query<RunRow>(`SELECT r.tenant_id,r.id,r.job_id,r.invocation_id,r.state,r.encrypted_prompt,x.execution_config,x.trace_sources,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.failure_code,x.failure_reason,x.vm_cleanup_attempt,x.artifact_state,x.result_protocol_version,r.created_at,r.updated_at
       FROM app.job_runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.runs x ON x.tenant_id=r.tenant_id AND x.id=r.id
-      WHERE r.state IN ('running','blocked','stopping') AND (r.next_poll_at IS NULL OR r.next_poll_at<=now()) ORDER BY r.next_poll_at NULLS FIRST,r.updated_at LIMIT $1`, [limit]);
+      WHERE r.state IN ('running','blocked','stopping') AND x.execution_handle IS NOT NULL AND (r.next_poll_at IS NULL OR r.next_poll_at<=now()) ORDER BY r.next_poll_at NULLS FIRST,r.updated_at LIMIT $1`, [limit]);
     return result.rows.map(mapped);
+  }
+
+  /** Persist a pre-provisioning gate without creating a VM or releasing the run's queue slot. */
+  async blockLaunch(run: PersistedRun, reason: string): Promise<void> {
+    const safeReason = reason.slice(0, 500);
+    await this.database.transaction(async client => {
+      const changed = await client.query(`UPDATE app.job_runs SET state='blocked',launch_lease_expires_at=NULL,next_poll_at=NULL,updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND state='starting' RETURNING id`, [run.tenantId, run.id]);
+      if (!changed.rowCount) return;
+      await client.query(`UPDATE app.runs SET state='blocked',failure_code='proxy_launch_blocked',failure_reason=$3,updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 AND execution_handle IS NULL`, [run.tenantId, run.id, safeReason]);
+      await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'launch_blocked',$4)", [run.tenantId, crypto.randomUUID(), run.id, safeReason]);
+    });
+  }
+
+  /** A blocked pre-launch run resumes only after an explicit owner retry. */
+  async retryBlockedLaunch(tenantId: string, runId: string): Promise<boolean> {
+    return this.database.transaction(async client => {
+      const changed = await client.query(`UPDATE app.job_runs r SET state='reserved',launch_lease_expires_at=NULL,next_poll_at=NULL,updated_at=now()
+        FROM app.runs x WHERE r.tenant_id=$1 AND r.id=$2 AND r.tenant_id=x.tenant_id AND r.id=x.id
+          AND r.state='blocked' AND x.execution_handle IS NULL AND x.failure_code='proxy_launch_blocked' RETURNING r.id`, [tenantId, runId]);
+      if (!changed.rowCount) return false;
+      await client.query("UPDATE app.runs SET state='reserved',failure_source=NULL,failure_code=NULL,failure_reason=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2", [tenantId, runId]);
+      await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'launch_retry_requested','Owner requested a manual retry')", [tenantId, crypto.randomUUID(), runId]);
+      await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");
+      return true;
+    });
   }
 
   /** Claim a bounded batch of terminal records whose provider cleanup is incomplete. */

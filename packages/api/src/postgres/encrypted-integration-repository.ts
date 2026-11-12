@@ -77,6 +77,33 @@ export class EncryptedIntegrationRepository {
     return rows.length ? safeRevision(rows[0]!.revision) : 0;
   }
 
+  /** Recognize an exact retry before collection-level create checks run. */
+  async replay(input: IntegrationWrite): Promise<{ revision: number; duplicate: true } | null> {
+    validate(input);
+    const { rows } = await this.database.pool.query<StoredChange>("SELECT revision,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId, input.idempotencyKey]);
+    const row = rows[0];
+    if (!row) return null;
+    const sameCiphertext = row.encrypted_payload === null
+      ? input.operation === "delete" && input.encryptedPayload === undefined
+      : input.operation === "upsert" && typeof input.encryptedPayload === "string" && await decrypt(row.encrypted_payload, this.serverEncryptionKey) === input.encryptedPayload;
+    if (row.record_id !== input.id || row.kind !== input.kind || row.name !== input.name || row.origin !== input.origin
+        || row.description !== input.description || row.operation !== input.operation || !sameCiphertext) {
+      throw new IntegrationIdempotencyConflictError();
+    }
+    return { revision: safeRevision(row.revision), duplicate: true };
+  }
+
+  /** Recognize a delete retry after its active record has already become a tombstone. */
+  async replayDelete(id: string, kind: EncryptedIntegrationKind, idempotencyKey: string): Promise<{ revision: number; duplicate: true } | null> {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuid.test(id) || !uuid.test(idempotencyKey)) throw new IntegrationValidationError("id and idempotencyKey must be UUIDs");
+    const { rows } = await this.database.pool.query<StoredChange>("SELECT revision,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId, idempotencyKey]);
+    const row = rows[0];
+    if (!row) return null;
+    if (row.record_id !== id || row.kind !== kind || row.operation !== "delete" || row.encrypted_payload !== null) throw new IntegrationIdempotencyConflictError();
+    return { revision: safeRevision(row.revision), duplicate: true };
+  }
+
   async write(input: IntegrationWrite): Promise<{ revision: number; duplicate: boolean }> {
     validate(input);
     const encryptedPayload = input.operation === "upsert" ? await encrypt(input.encryptedPayload!, this.serverEncryptionKey) : null;
@@ -126,6 +153,74 @@ export class EncryptedIntegrationRepository {
     return Promise.all(rows.map(async row => ({ id: row.id, kind: row.kind, name: row.name, origin: row.origin, description: row.description, revision: safeRevision(row.revision), encryptedPayload: await decrypt(row.encrypted_payload, this.serverEncryptionKey) })));
   }
 
+  /** Return selected records including tombstones so an authenticated proxy can
+   * remove a deleted credential from already-established grants. Tombstones
+   * never include ciphertext. */
+  async recordsIncludingDeleted(kind: EncryptedIntegrationKind): Promise<Array<IntegrationMetadata & { revision: number; encryptedPayload: string | null; deletedAt: Date | null }>> {
+    const { rows } = await this.database.pool.query<{ id: string; kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string | null; deleted_at: Date | null }>(
+      "SELECT id,kind,name,origin,description,revision,encrypted_payload,deleted_at FROM app.integration_records WHERE tenant_id=$1 AND kind=$2 ORDER BY revision,id", [this.tenantId, kind]);
+    return Promise.all(rows.map(async row => ({ id: row.id, kind: row.kind, name: row.name, origin: row.origin, description: row.description,
+      revision: safeRevision(row.revision), encryptedPayload: row.deleted_at || row.encrypted_payload === null ? null : await decrypt(row.encrypted_payload, this.serverEncryptionKey), deletedAt: row.deleted_at })));
+  }
+
+  /** Owner-only rekey input. Includes tombstones and the retained change feed so
+   * a browser rotation can preserve pending edits without exposing plaintext to
+   * the API process. */
+  async rotationSnapshot(): Promise<{ revision: number; records: GenerationRecord[]; changes: GenerationChange[] }> {
+    const revision = await this.revision();
+    const records = await this.database.pool.query<{ id: string; kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string | null; deleted_at: Date | null }>(
+      "SELECT id,kind,name,origin,description,revision,encrypted_payload,deleted_at FROM app.integration_records WHERE tenant_id=$1 ORDER BY id", [this.tenantId]);
+    const changes = await this.database.pool.query<StoredChange & { revision: string | number; idempotency_key: string }>(
+      "SELECT revision,idempotency_key,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 ORDER BY revision", [this.tenantId]);
+    return {
+      revision,
+      records: await Promise.all(records.rows.map(async row => ({ id: row.id, kind: row.kind, name: row.name, origin: row.origin, description: row.description,
+        revision: safeRevision(row.revision), encryptedPayload: row.deleted_at || row.encrypted_payload === null ? null : await decrypt(row.encrypted_payload, this.serverEncryptionKey), deletedAt: row.deleted_at }))),
+      changes: await Promise.all(changes.rows.map(async row => ({ id: row.record_id, kind: row.kind, name: row.name, origin: row.origin, description: row.description,
+        revision: safeRevision(row.revision), idempotencyKey: row.idempotency_key, operation: row.operation,
+        encryptedPayload: row.encrypted_payload === null ? null : await decrypt(row.encrypted_payload, this.serverEncryptionKey) }))),
+    };
+  }
+
+  /**
+   * Replace only a model account's user-encrypted Codex cache. The account
+   * revision is independent of the collection revision, so unrelated bearer
+   * edits do not invalidate the cache's authenticated-encryption binding.
+   */
+  async saveModelCache(input: { id: string; expectedRevision: number; keyGeneration: string; encryptedPayload: string; idempotencyKey: string }): Promise<{ revision: number; collectionRevision: number; duplicate: boolean }> {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuid.test(input.id) || !uuid.test(input.idempotencyKey) || !uuid.test(input.keyGeneration) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0
+        || !isUserCiphertext(input.encryptedPayload)) throw new IntegrationValidationError("model cache binding is invalid");
+    const encryptedPayload = await encrypt(input.encryptedPayload, this.serverEncryptionKey);
+    return this.database.transaction(async client => {
+      await client.query("INSERT INTO app.integration_collections(tenant_id) VALUES ($1) ON CONFLICT DO NOTHING", [this.tenantId]);
+      const collection = (await client.query<{ revision: string | number }>("SELECT revision FROM app.integration_collections WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0]!;
+      const currentCollectionRevision = safeRevision(collection.revision);
+      const keyState = (await client.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0];
+      if (!keyState || keyState.generation_id !== input.keyGeneration) throw new StaleIntegrationRevisionError(currentCollectionRevision);
+      const current = (await client.query<{ kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string | null; deleted_at: Date | null }>(
+        "SELECT kind,name,origin,description,revision,encrypted_payload,deleted_at FROM app.integration_records WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, input.id])).rows[0];
+      if (!current || current.kind !== "model" || current.deleted_at || current.revision === null) throw new IntegrationValidationError("model account is unavailable");
+      const currentRevision = safeRevision(current.revision);
+      const previousChange = (await client.query<{ revision: string | number; record_id: string; operation: string; encrypted_payload: string | null }>(
+        "SELECT revision,record_id,operation,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId,input.idempotencyKey])).rows[0];
+      if (previousChange) {
+        const same = previousChange.record_id === input.id && previousChange.operation === "upsert" && previousChange.encrypted_payload !== null
+          && await decrypt(previousChange.encrypted_payload, this.serverEncryptionKey) === input.encryptedPayload;
+        if (!same) throw new IntegrationIdempotencyConflictError();
+        return { revision: Math.max(0, input.expectedRevision + 1), collectionRevision: safeRevision(previousChange.revision), duplicate: true };
+      }
+      if (currentRevision !== input.expectedRevision) throw new StaleIntegrationRevisionError(currentRevision);
+      const collectionRevision = currentCollectionRevision + 1;
+      const revision = currentRevision + 1;
+      await client.query("UPDATE app.integration_collections SET revision=$2,updated_at=now() WHERE tenant_id=$1", [this.tenantId, collectionRevision]);
+      await client.query("UPDATE app.integration_records SET revision=$3,encrypted_payload=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2", [this.tenantId,input.id,revision,encryptedPayload]);
+      await client.query(`INSERT INTO app.integration_changes(tenant_id,revision,id,idempotency_key,operation,record_id,kind,name,origin,description,encrypted_payload)
+        VALUES ($1,$2,$3,$4,'upsert',$5,'model',$6,NULL,$7,$8)`, [this.tenantId,collectionRevision,crypto.randomUUID(),input.idempotencyKey,input.id,current.name,current.description,encryptedPayload]);
+      return { revision, collectionRevision, duplicate: false };
+    });
+  }
+
   async changesSince(revision: number, limit = 100): Promise<IntegrationChange[]> {
     if (!Number.isSafeInteger(revision) || revision < 0) throw new IntegrationValidationError("revision must be a non-negative safe integer");
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw new IntegrationValidationError("limit must be between 1 and 500");
@@ -168,7 +263,7 @@ export class EncryptedIntegrationRepository {
   }
 
   /** Atomically archive and replace records, tombstones, changes and the collection revision. */
-  async commitGeneration(generationId: string, expectedRevision: number): Promise<{ revision: number; duplicate: boolean }> {
+  async commitGeneration(generationId: string, expectedRevision: number, keyReplacement?: { expectedVerificationGenerationId: string; verificationGenerationId: string; encryptedVerification: string }): Promise<{ revision: number; duplicate: boolean }> {
     return this.database.transaction(async client => {
       await client.query("INSERT INTO app.integration_collections(tenant_id) VALUES($1) ON CONFLICT DO NOTHING", [this.tenantId]);
       const collection = (await client.query<{ revision: string | number }>("SELECT revision FROM app.integration_collections WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0]!;
@@ -178,6 +273,19 @@ export class EncryptedIntegrationRepository {
       if (journal.state === "committed") return { revision: safeRevision(journal.committed_revision!), duplicate: true };
       if (journal.state !== "staged") throw new IntegrationValidationError("staged generation is no longer available");
       if (current !== expectedRevision) throw new StaleIntegrationGenerationError(current);
+      if (keyReplacement) {
+        const currentKey = (await client.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0];
+        if (!currentKey || currentKey.generation_id !== keyReplacement.expectedVerificationGenerationId) throw new StaleIntegrationGenerationError(current);
+        if (!/^[0-9a-f-]{36}$/i.test(keyReplacement.verificationGenerationId) || keyReplacement.verificationGenerationId === currentKey.generation_id
+            || keyReplacement.encryptedVerification.length > 4096) throw new IntegrationValidationError("replacement key verification is invalid");
+        let envelope: any;
+        try { envelope = JSON.parse(keyReplacement.encryptedVerification); } catch { throw new IntegrationValidationError("replacement key verification is malformed"); }
+        if (!envelope || typeof envelope !== "object" || Array.isArray(envelope) || envelope.version !== 1 || envelope.algorithm !== "A256GCM"
+            || Object.keys(envelope).sort().join(",") !== "algorithm,ciphertext,nonce,version" || typeof envelope.nonce !== "string"
+            || !/^[A-Za-z0-9_-]{16}$/u.test(envelope.nonce) || typeof envelope.ciphertext !== "string" || !/^[A-Za-z0-9_-]{22,}$/u.test(envelope.ciphertext)) {
+          throw new IntegrationValidationError("replacement key verification is malformed");
+        }
+      }
       await client.query("DELETE FROM app.integration_generation_previous_records WHERE tenant_id=$1", [this.tenantId]);
       await client.query("DELETE FROM app.integration_generation_previous_changes WHERE tenant_id=$1", [this.tenantId]);
       await client.query(`INSERT INTO app.integration_generation_previous_records(tenant_id,id,kind,name,origin,description,revision,encrypted_payload,deleted_at,created_at,updated_at,generation_id) SELECT tenant_id,id,kind,name,origin,description,revision,encrypted_payload,deleted_at,created_at,updated_at,$2 FROM app.integration_records WHERE tenant_id=$1`, [this.tenantId,generationId]);
@@ -191,6 +299,12 @@ export class EncryptedIntegrationRepository {
       const revision = current + 1;
       await client.query("UPDATE app.integration_collections SET revision=$2,updated_at=now() WHERE tenant_id=$1", [this.tenantId,revision]);
       await client.query("UPDATE app.integration_generation_journal SET state='committed',committed_revision=$3,committed_at=now() WHERE tenant_id=$1 AND generation_id=$2", [this.tenantId,generationId,revision]);
+      if (keyReplacement) {
+        await client.query("UPDATE app.unlock_key_verifications SET generation_id=$2,encrypted_verification=$3,created_at=now() WHERE tenant_id=$1", [this.tenantId,keyReplacement.verificationGenerationId,keyReplacement.encryptedVerification]);
+        await client.query("UPDATE app.credential_run_grants SET revoked_at=now() WHERE tenant_id=$1 AND revoked_at IS NULL", [this.tenantId]);
+        await client.query("UPDATE app.credential_run_enrollments SET consumed_at=now() WHERE tenant_id=$1 AND consumed_at IS NULL", [this.tenantId]);
+        await client.query("UPDATE app.credential_proxy_states SET unlocked=false,updated_at=now() WHERE tenant_id=$1", [this.tenantId]);
+      }
       return { revision, duplicate: false };
     });
   }
