@@ -231,6 +231,41 @@ test("project graph does not zoom when the desktop wheel scrolls over it", async
   assert.equal(await viewport.getAttribute("style"), initialTransform);
   await context.close();
 });
+test("mobile project graph leaves one-finger page scrolling and pans with two fingers", async () => {
+  const { page, context } = await contextFor({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  await page.route(`**/api/v1/projects/${projectId}/graph`, route => route.fulfill({ json: {
+    nodes: [{ id: jobId, type: "job", label: "Build", jobKind: "Agent", enabled: true, runningCount: 0, concurrencyLimit: 1 }],
+    edges: [],
+  } }));
+  await page.goto(origin + `/projects/${projectId}`);
+  await page.getByRole("button", { name: "Graph", exact: true }).click();
+  const graph = page.getByRole("region", { name: /1 jobs and 0 connections/ });
+  await graph.waitFor();
+  const viewport = graph.locator(".react-flow__viewport");
+  const initialTransform = await viewport.getAttribute("style");
+  const gesture = await graph.evaluate(element => {
+    const pane = element.querySelector(".react-flow__pane");
+    const touch = (identifier, clientX, clientY) => new Touch({ identifier, target: pane, clientX, clientY });
+    const dispatch = (type, touches) => {
+      const event = new TouchEvent(type, { bubbles: true, cancelable: true, touches, changedTouches: touches });
+      pane.dispatchEvent(event);
+      return event;
+    };
+    const touchAction = getComputedStyle(pane).touchAction;
+    const first = touch(1, 100, 100), second = touch(2, 200, 100);
+    dispatch("touchstart", [first, second]);
+    const movedFirst = touch(1, 100, 180), movedSecond = touch(2, 200, 180);
+    const move = dispatch("touchmove", [movedFirst, movedSecond]);
+    dispatch("touchend", []);
+    return { touchAction, prevented: move.defaultPrevented };
+  });
+  await page.waitForFunction((before) => document.querySelector(".react-flow__viewport")?.getAttribute("style") !== before, initialTransform);
+  assert.equal(gesture.touchAction, "pan-y");
+  assert.equal(gesture.prevented, true);
+  assert.notEqual(await viewport.getAttribute("style"), initialTransform);
+  await context.close();
+});
 test("project graph renders dense cyclic, webhook and self-loop routes and fits their labels", async () => {
   const { page, context } = await contextFor({ viewport: { width: 390, height: 844 } });
   const ids = [jobId, "00000000-0000-4000-8000-000000000012", "00000000-0000-4000-8000-000000000013", "00000000-0000-4000-8000-000000000014"];
