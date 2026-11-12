@@ -54,8 +54,9 @@ export async function startProxyBootstrapControl({ runtime, socketPath = "/run/f
       }
       if (request?.type !== "register-boot") return finish({ error: "invalid bootstrap request" });
       if (!request || typeof request !== "object" || Array.isArray(request)
-          || Object.keys(request).sort().join(",") !== "bootEpoch,controlOrigin,credential,type"
+          || Object.keys(request).sort().join(",") !== "bootEpoch,browserOrigin,controlOrigin,credential,type"
           || request.bootEpoch !== runtime.bootEpoch || typeof request.credential !== "string"
+          || typeof request.browserOrigin !== "string"
           || !/^fzc_[A-Za-z0-9_-]{43}$/.test(request.credential)) {
         return finish({ error: "invalid bootstrap request" });
       }
@@ -64,10 +65,10 @@ export async function startProxyBootstrapControl({ runtime, socketPath = "/run/f
       socket.removeAllListeners("data");
       let credential = request.credential;
       try {
-        const registration = await register({ controlOrigin: request.controlOrigin, token: credential, bootEpoch: runtime.bootEpoch });
+        const registration = await register({ controlOrigin: request.controlOrigin, token: credential, bootEpoch: runtime.bootEpoch, browserOrigin: request.browserOrigin });
         // Keep the exchanged proxy credential inside the proxy process. The
         // one-shot startup command receives only the public registration result.
-        await onRegistered(registration, { controlOrigin: request.controlOrigin, bootEpoch: runtime.bootEpoch });
+        await onRegistered(registration, { controlOrigin: request.controlOrigin, browserOrigin: request.browserOrigin, bootEpoch: runtime.bootEpoch });
         finish({ registered: true, proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch });
       } catch {
         finish({ error: "proxy boot registration failed" });

@@ -7,16 +7,18 @@ function validateOrigin(controlOrigin) {
   return origin;
 }
 
-export async function registerProxyBoot({ controlOrigin, token, bootEpoch, fetchImpl = fetch }) {
+export async function registerProxyBoot({ controlOrigin, token, bootEpoch, browserOrigin, fetchImpl = fetch }) {
   const origin = validateOrigin(controlOrigin);
   if (!/^fzc_[A-Za-z0-9_-]{43}$/.test(token ?? "")) throw new TypeError("invalid proxy control credential");
   if (!bootEpochPattern.test(bootEpoch ?? "")) throw new TypeError("invalid proxy boot epoch");
+  const browser = new URL(browserOrigin);
+  if (browser.protocol !== "https:" || browser.origin !== browserOrigin || browser.username || browser.password) throw new TypeError("invalid browser control origin");
   let credential = token;
   try {
     const response = await fetchImpl(new URL("/internal/credential-proxy/register-boot", origin), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${credential}` },
-      body: JSON.stringify({ bootEpoch }),
+      body: JSON.stringify({ bootEpoch, browserOrigin }),
       signal: AbortSignal.timeout(10_000),
       redirect: "error",
     });

@@ -135,6 +135,7 @@ const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonne
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const unlockKeyVerification = z.object({ ownerId: z.string(), verification: z.object({ generationId: z.uuid(), encryptedVerification: z.string() }).strict().nullable() }).strict();
 const unlockKeyVerificationInput = z.object({ generationId: z.uuid(), encryptedVerification: z.string().min(1).max(4096) }).strict();
+const modelAccountBrowserCapabilityInput = z.object({ action: z.enum(["authorize", "status", "cancel"]) }).strict();
 
 function route(
   method: string,
@@ -213,6 +214,11 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 }
 
 export const API_ROUTES: RouteContract[] = [
+  route("POST", "/api/v1/model-accounts/{accountId}/browser-capability", "integrations:write", {
+    summary: "Issue a short-lived browser capability for a paired model account",
+    description: "Requires an interactive owner browser session. Returns a single-use, 60-second capability scoped to the account, action, proxy boot and exact application origin. The browser sends it directly to the paired proxy; Factorize never receives model-account tokens.",
+    responses: { "200": { description: "Paired proxy endpoint and one-use capability", content: { "application/json": { schema: jsonSchema(z.object({ endpoint: z.url(), capability: z.string() }), "output") } } } },
+  }, (service, { params, body }) => service.issueModelAccountBrowserCapability(params.accountId, body.action), { body: modelAccountBrowserCapabilityInput, maxBodyBytes: 1024, ownerSession: true, parameters: z.object({ accountId: z.uuid() }) }),
   route("GET", "/api/v1/unlock-key/verification", "integrations:read", { summary: "Get the current encrypted unlock-key verification record", description: "Requires an interactive owner browser session. Returns user-encrypted verification ciphertext and its key generation; the unlock key is never accepted or returned.", responses: { "200": { description: "Encrypted verification record or empty setup state", content: { "application/json": { schema: jsonSchema(unlockKeyVerification, "output") } } } } }, service => service.getUnlockKeyVerification(), { ownerSession: true }),
   route("POST", "/api/v1/unlock-key/verification", "integrations:write", { summary: "Create the encrypted unlock-key verification record", description: "Requires an interactive owner browser session. Stores only browser-encrypted verification ciphertext and permits one setup per account.", responses: { "200": { description: "Created verification record", content: { "application/json": { schema: jsonSchema(z.object({ generationId: z.uuid() }), "output") } } } } }, (service, { body }) => service.createUnlockKeyVerification(body), { body: unlockKeyVerificationInput, maxBodyBytes: 8192, ownerSession: true }),
   route("GET", "/api/v1/integrations/bearer", "flows:read", {

@@ -13,6 +13,7 @@ export type FlyCredentialProxyConfig = {
   image: string;
   region: string;
   size: string;
+  browserCapabilityPublicKey: string;
   memoryMb?: number;
   controlOrigin: string;
   /** Stable across retries of one provisioning operation. */
@@ -47,6 +48,7 @@ export function createFlyCredentialProxyGuest(options: {
       const result = await transport.run(["/usr/local/bin/factorize-proxy-startup"], `${JSON.stringify({
         type: "register-boot",
         controlOrigin: input.controlOrigin,
+        browserOrigin: input.browserOrigin,
         bootEpoch: input.bootEpoch,
         credential: input.credential,
       })}\n`);
@@ -86,6 +88,7 @@ function validate(input: FlyCredentialProxyConfig): void {
   if (!IMAGE_DIGEST.test(input.image)) throw new TypeError("Credential proxy image must be pinned by sha256 digest");
   if (!/^[a-z0-9]{3}$/.test(input.region)) throw new TypeError("Invalid credential proxy region");
   if (!/^[a-z0-9-]{1,64}$/.test(input.size)) throw new TypeError("Invalid credential proxy size");
+  if (!input.browserCapabilityPublicKey.startsWith("-----BEGIN PUBLIC KEY-----")) throw new TypeError("Proxy browser capability public key is required");
   if (input.memoryMb !== undefined && (!Number.isInteger(input.memoryMb) || input.memoryMb < 256 || input.memoryMb > 8192)) throw new TypeError("Credential proxy memory must be between 256 and 8192 MiB");
 }
 
@@ -113,7 +116,9 @@ export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyP
         env: {
           FACTORIZE_PROXY_TUNNEL_SERVER_NAME: `${input.app}.internal`,
           FACTORIZE_PROXY_TUNNEL_PORT: "9090",
+          FACTORIZE_PROXY_BROWSER_CAPABILITY_PUBLIC_KEY: input.browserCapabilityPublicKey,
         },
+        services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], force_instance_key: true }],
         metadata: {
           factorize_role: "credential-proxy",
           factorize_tenant_id: input.tenantId,
@@ -136,6 +141,7 @@ export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyP
         proxyIdentity,
         bootEpoch,
         controlOrigin: origin.origin,
+        browserOrigin: `https://${input.app}.fly.dev`,
       };
       try {
         await provisionCredentialProxy(bootstrap, {

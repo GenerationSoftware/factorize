@@ -6,6 +6,7 @@ const input = {
   proxyIdentity: "fly-app/proxy-machine",
   bootEpoch: "22222222-2222-4222-8222-222222222222",
   controlOrigin: "https://factorize.example/",
+  browserOrigin: "https://proxy.example",
 };
 
 describe("credential proxy bootstrap provisioning", () => {
@@ -40,6 +41,7 @@ describe("credential proxy bootstrap provisioning", () => {
     const control = { provisionCredential: vi.fn(), revokeCredential: vi.fn() };
     await expect(provisionCredentialProxy({ ...input, controlOrigin: "http://factorize.example" }, { control, startProxy: vi.fn() })).rejects.toThrow("HTTPS origin");
     await expect(provisionCredentialProxy({ ...input, controlOrigin: "https://factorize.example/path" }, { control, startProxy: vi.fn() })).rejects.toThrow("HTTPS origin");
+    await expect(provisionCredentialProxy({ ...input, browserOrigin: "http://proxy.example" }, { control, startProxy: vi.fn() })).rejects.toThrow("HTTPS origin");
     expect(control.provisionCredential).not.toHaveBeenCalled();
   });
 });

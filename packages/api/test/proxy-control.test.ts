@@ -21,7 +21,7 @@ function envFor({ credentialFound = true, stateSaved = true } = {}) {
   return { DATABASE: { pool: { query }, transaction: (work: (client: any) => Promise<unknown>) => work({ query: transactionQuery }) }, transactionQuery, query } as any;
 }
 
-function request({ authorization, body = { bootEpoch }, method = "POST", path = "/internal/credential-proxy/register-boot" }: { authorization?: string; body?: unknown; method?: string; path?: string } = {}) {
+function request({ authorization, body = { bootEpoch, browserOrigin: "https://proxy.example" }, method = "POST", path = "/internal/credential-proxy/register-boot" }: { authorization?: string; body?: unknown; method?: string; path?: string } = {}) {
   return new Request(`https://factorize.example${path}`, { method, headers: { "Content-Type": "application/json", ...(authorization ? { Authorization: authorization } : {}) }, body: method === "POST" ? JSON.stringify(body) : undefined });
 }
 
@@ -31,9 +31,10 @@ describe("dedicated proxy boot registration endpoint", () => {
     const response = await proxyControlFetch(request({ authorization: `Bearer ${token}` }), env);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ registered: true, tenantId: "11111111-1111-4111-8111-111111111111", proxyIdentity: "proxy-fixture", bootEpoch, controlCredential: expect.stringMatching(/^fzc_[A-Za-z0-9_-]{43}$/) });
-    expect(env.transactionQuery.mock.calls.map((call: any[]) => call[0])).toHaveLength(4);
+    expect(env.transactionQuery.mock.calls.map((call: any[]) => call[0])).toHaveLength(5);
     expect(env.transactionQuery.mock.calls[0][0]).toContain("boot_epoch=$2 AND revoked_at IS NULL AND consumed_at IS NULL");
     expect(env.transactionQuery.mock.calls[2][0]).toContain("consumed_at=now()");
+    expect(env.transactionQuery.mock.calls[4][0]).toContain("credential_proxy_browser_pairings");
   });
 
   it("rejects guest job tokens before database access", async () => {

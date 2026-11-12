@@ -9,7 +9,7 @@ const runCredential = `fzt_run_${Buffer.from(runId).toString("base64url")}_${"R"
 
 test("boot registration uses a one-call control credential, HTTPS, exact path and fresh process epoch", async () => {
   let request;
-  const result = await registerProxyBoot({ controlOrigin: "https://factorize.example", token, bootEpoch, fetchImpl: async (url, init) => {
+  const result = await registerProxyBoot({ controlOrigin: "https://factorize.example", browserOrigin: "https://proxy.example", token, bootEpoch, fetchImpl: async (url, init) => {
     request = { url: String(url), init };
     return Response.json({ registered: true, tenantId: "11111111-1111-4111-8111-111111111111", proxyIdentity: "proxy-fixture", bootEpoch, controlCredential: `fzc_${"c".repeat(43)}` });
   } });
@@ -17,7 +17,7 @@ test("boot registration uses a one-call control credential, HTTPS, exact path an
   assert.equal(request.url, "https://factorize.example/internal/credential-proxy/register-boot");
   assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
   assert.equal(request.init.redirect, "error");
-  assert.deepEqual(JSON.parse(request.init.body), { bootEpoch });
+  assert.deepEqual(JSON.parse(request.init.body), { bootEpoch, browserOrigin: "https://proxy.example" });
 });
 
 test("proxy snapshot reader requests only the bound run revision and validates encrypted records", async () => {
@@ -84,9 +84,9 @@ test("proxy revocation monitor applies durable run revocations and tolerates an 
 });
 
 test("boot registration rejects unsafe origins, invalid credentials and mismatched response bindings", async () => {
-  await assert.rejects(registerProxyBoot({ controlOrigin: "http://factorize.example", token, bootEpoch }), /HTTPS origin/);
-  await assert.rejects(registerProxyBoot({ controlOrigin: "https://factorize.example", token: "fzt_run_token", bootEpoch }), /credential/);
-  await assert.rejects(registerProxyBoot({ controlOrigin: "https://factorize.example", token, bootEpoch, fetchImpl: async () => Response.json({ registered: true, proxyIdentity: "proxy-fixture", bootEpoch: "33333333-3333-4333-8333-333333333333" }) }), /invalid proxy boot registration response/);
+  await assert.rejects(registerProxyBoot({ controlOrigin: "http://factorize.example", token, bootEpoch, browserOrigin: "https://proxy.example" }), /HTTPS origin/);
+  await assert.rejects(registerProxyBoot({ controlOrigin: "https://factorize.example", token: "fzt_run_token", bootEpoch, browserOrigin: "https://proxy.example" }), /credential/);
+  await assert.rejects(registerProxyBoot({ controlOrigin: "https://factorize.example", token, bootEpoch, browserOrigin: "https://proxy.example", fetchImpl: async () => Response.json({ registered: true, proxyIdentity: "proxy-fixture", bootEpoch: "33333333-3333-4333-8333-333333333333" }) }), /invalid proxy boot registration response/);
 });
 
 test("proxy control client requests and consumes a one-use enrollment over authenticated HTTPS", async () => {

@@ -10,6 +10,7 @@ import { createCodexAuthHelper } from "./codex-auth-helper.mjs";
 import { createModelAccountLifecycle } from "./model-account-lifecycle.mjs";
 import { createModelAccountPersistenceAdapter } from "./control-client.mjs";
 import { decryptModelAccountCache, encryptModelAccountCache } from "./model-account-crypto.mjs";
+import { startBrowserControl } from "./browser-control.mjs";
 
 const epochIndex = process.argv.indexOf("--boot-epoch");
 const bootEpoch = epochIndex < 0 ? randomUUID() : process.argv[epochIndex + 1];
@@ -26,8 +27,9 @@ let tunnel;
 let revocationMonitor;
 let modelAccounts;
 let modelAccountLifecycle;
+let browserControl;
 
-async function activateRegistration(registration, origin) {
+async function activateRegistration(registration, origin, browserOrigin) {
   if (tunnel) throw new Error("proxy boot is already registered");
   const persistence = createModelAccountPersistenceAdapter({
     controlOrigin: origin,
@@ -43,6 +45,16 @@ async function activateRegistration(registration, origin) {
     persistEncrypted: persistence.persistEncrypted,
     encryptCache: encryptModelAccountCache,
     decryptCache: decryptModelAccountCache,
+  });
+  if (!process.env.FACTORIZE_PROXY_BROWSER_CAPABILITY_PUBLIC_KEY) throw new Error("proxy browser capability verification key is unavailable");
+  browserControl = await startBrowserControl({
+    runtime,
+    lifecycle: modelAccountLifecycle,
+    publicKey: process.env.FACTORIZE_PROXY_BROWSER_CAPABILITY_PUBLIC_KEY,
+    proxyId: registration.proxyIdentity,
+    ownerId: registration.tenantId,
+    generation: registration.bootEpoch,
+    appOrigin: process.env.FACTORIZE_APP_ORIGIN ?? "https://app.factorize.sh",
   });
   const resolveGrants = createProxyIntegrationGrantResolver({ runtime, controlOrigin: origin, controlCredential: registration.controlCredential });
   const started = await startAuthenticatedProxyTunnel({
@@ -68,7 +80,7 @@ async function activateRegistration(registration, origin) {
 const bootstrapControl = await startProxyBootstrapControl({
   runtime,
   socketPath: process.env.FACTORIZE_PROXY_BOOTSTRAP_SOCKET,
-  onRegistered: (registration, request) => activateRegistration(registration, request.controlOrigin),
+  onRegistered: (registration, request) => activateRegistration(registration, request.controlOrigin, request.browserOrigin),
   issueVmCertificate: ({ vmIdentity, csr }) => {
     if (!tunnel) throw new Error("proxy tunnel is not registered");
     return tlsAuthority.signVmCsr({ vmIdentity, csr });
@@ -93,6 +105,8 @@ async function stop() {
   controlOrigin = undefined;
   await revocationMonitor?.close();
   revocationMonitor = undefined;
+  await browserControl?.close().catch(() => {});
+  browserControl = undefined;
   await runtime.shutdown();
   await tunnel?.close().catch(() => {});
   tunnel = undefined;
@@ -129,8 +143,8 @@ lines.on("line", async (line) => {
       let credential = command.credential;
       command.credential = undefined;
       try {
-        const registration = await registerProxyBoot({ controlOrigin: command.controlOrigin, token: credential, bootEpoch: runtime.bootEpoch });
-        await activateRegistration(registration, command.controlOrigin);
+        const registration = await registerProxyBoot({ controlOrigin: command.controlOrigin, browserOrigin: command.browserOrigin, token: credential, bootEpoch: runtime.bootEpoch });
+        await activateRegistration(registration, command.controlOrigin, command.browserOrigin);
         respond({ type: "boot-registered", proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch });
       } catch {
         respond({ type: "error", error: "proxy boot registration failed" });
