@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { proxyLaunchDecision, type ProxyLaunchJob, type ProxyLaunchState } from "../src/proxy-launch-policy";
+import { proxyLaunchDecision, ProxyLaunchBlockedError, requireProxyLaunch, type ProxyLaunchJob, type ProxyLaunchState } from "../src/proxy-launch-policy";
 
 const stopped: ProxyLaunchState = { enabled: true, running: false, unlocked: false, pendingChanges: false };
 const locked: ProxyLaunchState = { enabled: true, running: true, unlocked: false, pendingChanges: false };
@@ -32,5 +32,11 @@ describe("GEN-2824 proxy launch policy", () => {
 
   it("does not auto-start a stopped proxy for credential-dependent jobs", () => {
     expect(proxyLaunchDecision({ ...flyCode, portableIntegrationIds: ["integration"] }, stopped)).toMatchObject({ kind: "blocked", retry: "manual" });
+  });
+
+  it("turns a blocked decision into a scheduler-recognized launch outcome", () => {
+    expect(() => requireProxyLaunch(proxyLaunchDecision({ ...flyCode, portableIntegrationIds: ["integration"] }, locked)))
+      .toThrow(new ProxyLaunchBlockedError("proxy_locked"));
+    expect(() => requireProxyLaunch(proxyLaunchDecision(flyCode, locked))).not.toThrow();
   });
 });

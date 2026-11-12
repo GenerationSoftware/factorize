@@ -13417,6 +13417,67 @@ paths:
           schema:
             type: string
             minLength: 1
+  /api/v1/runs/{runId}/retry-launch:
+    post:
+      summary: Manually retry a blocked launch
+      description: |-
+        Retries only a pre-launch proxy-gated run after its prerequisites have been resolved. The run remains blocked until an interactive owner explicitly retries it; unlock or status changes do not automatically launch it.
+
+        Requires the runs:cancel scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Manual retry queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - runId
+                  - retryRequested
+                properties:
+                  runId:
+                    type: string
+                    format: uuid
+                  retryRequested:
+                    type: boolean
+                    const: true
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+          description: Interactive owner session required
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+          description: Run is not waiting for a manual launch retry
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_runs_runId_retry_launch
+      tags:
+        - runs
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: runs:cancel
+      x-owner-session-required: true
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/runs/{runId}/kill:
     post:
       summary: Kill run and immediately release its concurrency slot

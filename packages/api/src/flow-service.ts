@@ -322,6 +322,12 @@ export class ApiService {
     catch (error) { if (error instanceof TraceReplayError) throw new ServiceError(error.status, error.code, error.message); throw error; }
   }
   async stopRun(runId: string) { await this.authorize("runs:cancel"); const stopped = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).stop(runId); if (!stopped) throw new ServiceError(409, "operation_failed", "Run is not active"); if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" }); return stopped; }
+  async retryBlockedLaunch(runId: string) {
+    await this.authorizeOwnerSession("runs:cancel");
+    if (!await new RunRepository(databaseFor(this.env)).retryBlockedLaunch(this.auth.tenantId, runId)) throw new ServiceError(409, "operation_failed", "Run is not waiting for a manual launch retry");
+    if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" });
+    return { runId, retryRequested: true };
+  }
   killRun(runId: string) { return this.stopRun(runId); }
   async listJobSummaries(input: JobPageQuery, selector = false) { await this.authorize("jobs:read"); try { return await new JobSummaryRepository(databaseFor(this.env), this.auth.tenantId).page(input, selector); } catch (error) { if (error instanceof InvalidJobSummaryCursor) throw new ServiceError(400, "invalid_request", error.message); throw error; } }
   async listJobs() { await this.authorize("jobs:read"); const jobs = await this.jobs().list(), stats = await this.jobStatistics(jobs.map(job => job.id)); return Promise.all(jobs.map(job => this.presentJob(job, stats.get(job.id) ?? { running_count: "0", last_run_state: null }))); }

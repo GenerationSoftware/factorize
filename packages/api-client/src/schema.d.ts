@@ -2068,6 +2068,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{runId}/retry-launch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Manually retry a blocked launch
+         * @description Retries only a pre-launch proxy-gated run after its prerequisites have been resolved. The run remains blocked until an interactive owner explicitly retries it; unlock or status changes do not automatically launch it.
+         *
+         *     Requires the runs:cancel scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_runs_runId_retry_launch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{runId}/kill": {
         parameters: {
             query?: never;
@@ -8200,6 +8224,43 @@ export interface operations {
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_runs_runId_retry_launch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Manual retry queued */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        runId: string;
+                        /** @constant */
+                        retryRequested: true;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            /** @description Interactive owner session required */
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            /** @description Run is not waiting for a manual launch retry */
             409: components["responses"]["Error409"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];

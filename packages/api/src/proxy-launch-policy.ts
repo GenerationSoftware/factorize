@@ -19,6 +19,17 @@ export type ProxyLaunchDecision =
   | { kind: "start_locked" }
   | { kind: "blocked"; reason: "proxy_disabled" | "proxy_unavailable" | "proxy_locked" | "pending_changes"; retry: "manual" };
 
+export class ProxyLaunchBlockedError extends Error {
+  constructor(readonly reason: Extract<ProxyLaunchDecision, { kind: "blocked" }>["reason"]) {
+    super(`Job launch is blocked until proxy prerequisite is resolved: ${reason}`);
+    this.name = "ProxyLaunchBlockedError";
+  }
+}
+
+export function requireProxyLaunch(decision: ProxyLaunchDecision): void {
+  if (decision.kind === "blocked") throw new ProxyLaunchBlockedError(decision.reason);
+}
+
 /**
  * Encodes the GEN-2824 launch gate. This function is deliberately side-effect
  * free: the scheduler must persist a blocked decision and wait for an explicit
