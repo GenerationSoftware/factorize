@@ -80,7 +80,7 @@ test("production grant resolver reads the run-bound snapshot and only decrypts w
     controlCredential: `fzc_${"c".repeat(43)}`,
     fetchImpl: async (url, init) => {
       requests.push({ url: String(url), authorization: new Headers(init.headers).get("authorization"), body: JSON.parse(init.body) });
-      return Response.json({ ownerId, records: [{ ...record, encryptedPayload }] });
+      return Response.json({ ownerId, records: [{ ...record, encryptedPayload }], modelAccount: null });
     },
   });
   const binding = { tenantId: ownerId, runId: "22222222-2222-4222-8222-222222222222", grantRevision: 7 };
