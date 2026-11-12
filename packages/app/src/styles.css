@@ -56,6 +56,9 @@
 @keyframes trace-dot-pulse { 0%, 60%, 100% { opacity: .35; } 30% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
+/* Let one-finger vertical swipes scroll the page over the graph. */
+.project-graph-touch .react-flow__pane { touch-action: pan-y; }
+
 /* Template overlay shares the editable control's metrics, including wrapping and scroll. */
 .template-editor { position: relative; min-width: 0; }
 .template-editor pre, .template-editor textarea {

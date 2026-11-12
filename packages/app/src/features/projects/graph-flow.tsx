@@ -73,12 +73,42 @@ export function ProjectGraphFlow({ graphNodes, graphEdges, onOpen, onSelect, flo
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [openGroup, setOpenGroup] = useState<GraphConnection[] | null>(null), groupTrigger = useRef<HTMLButtonElement | null>(null), groupMenu = useRef<HTMLDivElement | null>(null);
+  const graphElement = useRef<HTMLDivElement | null>(null), flowInstance = useRef<ProjectFlowInstance | null>(null);
+  const twoFingerPan = useRef<{ x: number; y: number; viewport: { x: number; y: number; zoom: number } } | null>(null);
   const onGroup = useCallback((connections: GraphConnection[], trigger: HTMLButtonElement) => { groupTrigger.current = trigger; setOpenGroup(connections); }, []);
   useEffect(() => { if (!openGroup) return; const keydown = (event: KeyboardEvent) => { if (event.key === "Escape") { setOpenGroup(null); groupTrigger.current?.focus(); } }; const dismiss = (event: PointerEvent) => { if (!groupMenu.current?.contains(event.target as globalThis.Node) && !groupTrigger.current?.contains(event.target as globalThis.Node)) setOpenGroup(null); }; document.addEventListener("keydown", keydown); document.addEventListener("pointerdown", dismiss); return () => { document.removeEventListener("keydown", keydown); document.removeEventListener("pointerdown", dismiss); }; }, [openGroup]);
+  useEffect(() => {
+    const element = graphElement.current;
+    if (!element) return;
+    const midpoint = (touches: TouchList) => ({ x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2 });
+    const start = (event: TouchEvent) => {
+      if (event.touches.length !== 2 || (event.target instanceof Element && event.target.closest(".react-flow__controls, [data-graph-interactive], button"))) return;
+      const point = midpoint(event.touches), instance = flowInstance.current;
+      if (instance) twoFingerPan.current = { ...point, viewport: instance.getViewport() };
+    };
+    const move = (event: TouchEvent) => {
+      const startPoint = twoFingerPan.current, instance = flowInstance.current;
+      if (!startPoint || !instance || event.touches.length !== 2) return;
+      event.preventDefault();
+      const point = midpoint(event.touches);
+      void instance.setViewport({ x: startPoint.viewport.x + point.x - startPoint.x, y: startPoint.viewport.y + point.y - startPoint.y, zoom: startPoint.viewport.zoom }, { duration: 0 });
+    };
+    const end = (event: TouchEvent) => { if (event.touches.length < 2) twoFingerPan.current = null; };
+    element.addEventListener("touchstart", start, { passive: true });
+    element.addEventListener("touchmove", move, { passive: false });
+    element.addEventListener("touchend", end, { passive: true });
+    element.addEventListener("touchcancel", end, { passive: true });
+    return () => {
+      element.removeEventListener("touchstart", start);
+      element.removeEventListener("touchmove", move);
+      element.removeEventListener("touchend", end);
+      element.removeEventListener("touchcancel", end);
+    };
+  }, []);
   const layout = useMemo(() => makeLayout(graphNodes, graphEdges, onOpen, onSelect, onGroup), [graphNodes, graphEdges, onOpen, onSelect, onGroup]);
   const edges: FlowEdge[] = useMemo(() => layout.edges.map(edge => ({ ...edge, data: { ...edge.data!, selected: edge.id === selected } } as FlowEdge)), [layout.edges, selected]);
-  return <div role="region" aria-label={`Workflow graph with ${graphNodes.filter(node => node.type === "job").length} jobs and ${graphEdges.length} connections`} className="relative h-[min(68vh,700px)] min-h-[360px] w-full overflow-hidden rounded-xl border border-stone-200 bg-stone-50 dark:border-slate-800 dark:bg-slate-950">
-    <ReactFlow nodes={layout.nodes} edges={edges} nodeTypes={{ ...nodeTypes, bounds: BoundsNode }} edgeTypes={edgeTypes} onInit={flowRef} onNodeClick={(_, node) => node.type === "job" && onOpen(node.id)} onEdgeClick={(_, edge) => { setSelected(edge.id); edge.data?.onSelect(edge.data.connections[0]); }} onPaneClick={() => setSelected(null)} fitView fitViewOptions={{ padding: 0.18 }} minZoom={0.15} maxZoom={2} zoomOnScroll={false} nodesDraggable={false} nodesConnectable={false} elementsSelectable onlyRenderVisibleElements proOptions={{ hideAttribution: false }}>
+  return <div ref={graphElement} role="region" aria-label={`Workflow graph with ${graphNodes.filter(node => node.type === "job").length} jobs and ${graphEdges.length} connections`} className="project-graph-touch relative h-[min(68vh,700px)] min-h-[360px] w-full overflow-hidden rounded-xl border border-stone-200 bg-stone-50 dark:border-slate-800 dark:bg-slate-950">
+    <ReactFlow nodes={layout.nodes} edges={edges} nodeTypes={{ ...nodeTypes, bounds: BoundsNode }} edgeTypes={edgeTypes} onInit={instance => { flowInstance.current = instance; flowRef(instance); }} onNodeClick={(_, node) => node.type === "job" && onOpen(node.id)} onEdgeClick={(_, edge) => { setSelected(edge.id); edge.data?.onSelect(edge.data.connections[0]); }} onPaneClick={() => setSelected(null)} fitView fitViewOptions={{ padding: 0.18 }} minZoom={0.15} maxZoom={2} zoomOnScroll={false} panOnDrag={false} zoomOnPinch={false} nodesDraggable={false} nodesConnectable={false} elementsSelectable onlyRenderVisibleElements proOptions={{ hideAttribution: false }}>
       <Background color="#cbd5e1" gap={24} size={1} /><Controls position="top-right" showInteractive={false} />
     </ReactFlow>
     {openGroup && <div ref={groupMenu} role="dialog" aria-label="Grouped connections" className="absolute left-3 top-3 z-50 max-h-[55vh] w-72 overflow-y-auto rounded-lg border border-stone-300 bg-white p-1 shadow-xl dark:border-slate-700 dark:bg-slate-900">{[...openGroup].sort((a, b) => a.label.localeCompare(b.label) || a.source.localeCompare(b.source) || a.target.localeCompare(b.target) || a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id)).map(edge => <button key={edge.id} type="button" className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-stone-100 focus:bg-stone-100 focus:outline-none dark:hover:bg-slate-800 dark:focus:bg-slate-800" onClick={() => { setSelected(edge.id); onSelect(edge); setOpenGroup(null); }}><span className="block font-medium">{edge.label || "Workflow"}</span><span className="block text-xs text-slate-600 dark:text-slate-400">{graphNodes.find(node => node.id === edge.source)?.label ?? graphNodes.find(node => node.id === edge.source)?.provider ?? "Unknown"} → {graphNodes.find(node => node.id === edge.target)?.label ?? graphNodes.find(node => node.id === edge.target)?.provider ?? "Unknown"}</span><span className="block text-xs text-slate-600 dark:text-slate-400">{edge.kind === "manual" ? "Manual invocation permission" : "Automatic trigger"} · {edge.enabled ? "Enabled" : "Disabled"}</span></button>)}</div>}
