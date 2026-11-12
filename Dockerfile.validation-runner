@@ -1,0 +1,45 @@
+FROM ghcr.int.exe.xyz/boldsoftware/exeuntu:latest
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+ARG NODE_VERSION=24.12.0
+ARG NPM_VERSION=11.19.0
+ARG PLAYWRIGHT_VERSION=1.64.0
+
+# This is an image-level environment variable so exe.dev's non-login job
+# process inherits the same browser location as an interactive shell.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+
+COPY docker/factorize-validation-postgres-auth.sh /usr/local/sbin/factorize-validation-postgres-auth
+COPY docker/factorize-validation-postgres-auth.service /etc/systemd/system/factorize-validation-postgres-auth.service
+COPY docker/factorize-validation-postgres.conf /tmp/factorize-validation-postgres.conf
+
+RUN chmod 0755 /usr/local/sbin/factorize-validation-postgres-auth && \
+    printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod 0755 /usr/sbin/policy-rc.d && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql postgresql-client xz-utils && \
+    mkdir -p /etc/postgresql/16/main/conf.d && \
+    install -m 0644 /tmp/factorize-validation-postgres.conf /etc/postgresql/16/main/conf.d/99-factorize-validation.conf && \
+    rm -f /tmp/factorize-validation-postgres.conf && \
+    arch="$(dpkg --print-architecture)" && \
+    case "$arch" in amd64) node_arch=x64 ;; arm64) node_arch=arm64 ;; *) echo "Unsupported Node architecture: $arch" >&2; exit 1 ;; esac && \
+    curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
+      "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" \
+      | tar -xJ --strip-components=1 -C /usr/local && \
+    npm install --global "npm@${NPM_VERSION}" "playwright@${PLAYWRIGHT_VERSION}" && \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright playwright install --with-deps chromium && \
+    rm -f /usr/sbin/policy-rc.d && \
+    rm -rf /var/lib/apt/lists/* && \
+    chmod -R a+rX /opt/ms-playwright && \
+    systemctl enable postgresql.service factorize-validation-postgres-auth.service && \
+    mkdir -p /etc/profile.d && \
+    printf 'export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright\n' \
+      > /etc/profile.d/factorize-playwright.sh && \
+    printf 'PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright\n' >> /etc/environment && \
+    node --version | grep -Fx "v${NODE_VERSION}" && \
+    npm --version | grep -Fx "${NPM_VERSION}" && \
+    test "$(node -p 'require("/usr/local/lib/node_modules/playwright/package.json").version')" = "${PLAYWRIGHT_VERSION}" && \
+    runuser --preserve-environment -u exedev -- node -e 'const { chromium } = require("/usr/local/lib/node_modules/playwright"); (async () => { if (process.env.PLAYWRIGHT_BROWSERS_PATH !== "/opt/ms-playwright") throw new Error("missing image browser environment"); const browser = await chromium.launch({ headless: true }); console.log(await browser.version()); await browser.close(); })().catch(error => { console.error(error); process.exit(1); });'
+
+COPY scripts/smoke-validation-runner-image.sh /usr/local/bin/smoke-validation-runner-image
+RUN chmod 0755 /usr/local/bin/smoke-validation-runner-image

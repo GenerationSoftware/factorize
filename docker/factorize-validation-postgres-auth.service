@@ -1,0 +1,12 @@
+[Unit]
+Description=Configure loopback-only Factorize validation database authentication
+Requires=postgresql.service
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/factorize-validation-postgres-auth
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
