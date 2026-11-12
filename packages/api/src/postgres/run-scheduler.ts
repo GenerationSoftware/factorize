@@ -34,7 +34,23 @@ export class RunScheduler {
     for (let count = 0; count < 20; count++) { const run = await this.runs.claimNext(); if (!run) break; await this.launch(run).catch(error => this.fail(run, error, "launch")); }
     const retention = new RunRetentionRepository(this.database);
     await this.reconcileProviderCleanup();
+    await this.runRetentionMaintenance(retention);
+  }
+
+  private async runRetentionMaintenance(retention = new RunRetentionRepository(this.database)): Promise<void> {
     const cutoff = runRetentionCutoff(new Date());
+    if (this.env.RUN_HISTORY_RETENTION_PAUSED?.trim().toLowerCase() === "true") {
+      // Keep the read-only backlog signal while pausing all automatic history
+      // and object deletion. Provider cleanup above remains active because it
+      // is required resource finalization, not history expiration.
+      try {
+        const backlog = await retention.backlogSnapshot();
+        console.info(JSON.stringify({ event: "run_retention_maintenance", cutoff: cutoff.toISOString(), paused: true, backlog }));
+      } catch (error) {
+        console.warn(JSON.stringify({ event: "run_retention_backlog_snapshot_failed", message: error instanceof Error ? error.message : "unknown error", paused: true }));
+      }
+      return;
+    }
     const sweep = await retention.sweep(cutoff, 50);
     const artifacts = await retention.processArtifactCleanup(this.env.RUN_ARTIFACTS);
     const independentHistory = await retention.cleanupIndependentHistory();
