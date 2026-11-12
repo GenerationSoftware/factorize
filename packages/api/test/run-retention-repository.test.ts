@@ -26,6 +26,23 @@ describe("RunRetentionRepository", () => {
     expect(txQuery.mock.calls.find(([sql]) => sql.includes("SELECT r.id run_id"))![0]).toContain("FOR UPDATE OF i,jr,r SKIP LOCKED");
   });
 
+  it("skips a candidate that loses eligibility before its aggregate lock is acquired", async () => {
+    const cutoff = new Date("2026-10-28T12:00:00.000Z");
+    const poolQuery = vi.fn(async () => ({ rows: [{ tenant_id: "tenant", invocation_id: "invocation" }], rowCount: 1 }));
+    const txQuery = vi.fn(async (sql: string) => {
+      // A finalizer or another retention worker changed the aggregate after
+      // the bounded candidate scan. The locked eligibility recheck sees it
+      // as unavailable, so no artifacts or aggregate rows may be removed.
+      if (sql.includes("SELECT r.id run_id")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 0 };
+    });
+    const database = { pool: { query: poolQuery }, transaction: (work: (client: any) => unknown) => work({ query: txQuery }) } as any;
+
+    await expect(new RunRetentionRepository(database).sweep(cutoff, 8)).resolves.toEqual({ selected: 1, deleted: 0, cleanupQueued: 0 });
+    expect(txQuery).toHaveBeenCalledTimes(1);
+    expect(txQuery.mock.calls[0]![0]).toContain("FOR UPDATE OF i,jr,r SKIP LOCKED");
+  });
+
   it("rejects invalid cutoffs and unbounded batch sizes before database access", async () => {
     const query = vi.fn();
     const repository = new RunRetentionRepository({ pool: { query }, transaction: vi.fn() } as any);
