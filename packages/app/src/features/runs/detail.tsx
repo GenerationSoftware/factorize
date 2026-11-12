@@ -6,7 +6,7 @@ import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useParams, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { runPageQuery, runStatusQuery } from "./queries";
+import { runPageQuery, runStatusQuery, RunNotFoundError } from "./queries";
 import { jobQuery } from "../jobs/queries";
 import { JobNav } from "../jobs/job-nav";
 import { ResourceSwitcher } from "../../shared/resource-switcher";
@@ -34,6 +34,10 @@ export function RunDetail() {
   const [renaming, setRenaming] = useState(false), [nameDraft, setNameDraft] = useState(""), [nameExpected, setNameExpected] = useState(""), [nameError, setNameError] = useState("");
   const active = !status.data || !["succeeded", "failed", "stopped"].includes(status.data.state) || status.data.finalizing;
   const finalizedSnapshot = useRef("");
+  useEffect(() => {
+    if (!(status.error instanceof RunNotFoundError)) return;
+    void cache.removeQueries({ queryKey: ["runs", runId], predicate: query => query.queryKey[2] !== "status" });
+  }, [status.error, cache, runId]);
   useEffect(() => {
     if (!status.data) return;
     const next = `${status.data.state}:${status.data.finalizing}:${status.data.artifact_state}`;
