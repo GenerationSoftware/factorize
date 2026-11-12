@@ -9,14 +9,15 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 /** Dedicated service-to-service endpoint. The run API credential is intentionally not accepted here. */
 export async function proxyControlFetch(request: Request, env: Parameters<typeof databaseFor>[0]): Promise<Response> {
   const url = new URL(request.url);
-  if (!["/internal/credential-proxy/register-boot", "/internal/credential-proxy/enroll", "/internal/credential-proxy/consume-enrollment", "/internal/credential-proxy/integration-snapshot", "/internal/credential-proxy/revocations"].includes(url.pathname)) return json({ error: "not_found" }, 404);
+  if (!["/internal/credential-proxy/register-boot", "/internal/credential-proxy/enroll", "/internal/credential-proxy/consume-enrollment", "/internal/credential-proxy/integration-snapshot", "/internal/credential-proxy/model-account-cache", "/internal/credential-proxy/revocations"].includes(url.pathname)) return json({ error: "not_found" }, 404);
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return json({ error: "unsupported_media_type" }, 415);
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   if (!/^fzc_[A-Za-z0-9_-]{43}$/.test(token)) return json({ error: "unauthorized" }, 401);
   const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (declaredLength > 1024) return json({ error: "invalid_request" }, 413);
+  const maxBodyBytes = url.pathname === "/internal/credential-proxy/model-account-cache" ? 70_000 : 1024;
+  if (declaredLength > maxBodyBytes) return json({ error: "invalid_request" }, 413);
   let body: unknown;
   try {
     const reader = request.body?.getReader();
@@ -24,7 +25,7 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     if (reader) for (;;) {
       const { done, value } = await reader.read(); if (done) break;
       length += value.byteLength;
-      if (length > 1024) { await reader.cancel(); return json({ error: "invalid_request" }, 413); }
+      if (length > maxBodyBytes) { await reader.cancel(); return json({ error: "invalid_request" }, 413); }
       chunks.push(value);
     }
     const bytes = new Uint8Array(length); let offset = 0;
@@ -48,6 +49,37 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
       WHERE tenant_id=$1 AND proxy_identity=$2 AND boot_epoch=$3 AND revoked_at IS NOT NULL ORDER BY revoked_at,run_id`,
     [proxy.tenantId, proxy.proxyIdentity, proxy.bootEpoch]);
     return json({ revokedRunIds: revoked.rows.map(row => row.run_id) });
+  }
+  if (url.pathname === "/internal/credential-proxy/model-account-cache") {
+    if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid_request" }, 400);
+    const input = body as Record<string, unknown>;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (input.operation === "read" && Object.keys(input).sort().join(",") === "accountId,operation"
+        && typeof input.accountId === "string" && uuid.test(input.accountId)) {
+      const account = (await new EncryptedIntegrationRepository(databaseFor(env), proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).records("model"))
+        .find(record => record.id === input.accountId);
+      if (!account) return json({ error: "model_account_unavailable" }, 404);
+      const keyState = await databaseFor(env).pool.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [proxy.tenantId]);
+      if (!keyState.rows[0]) return json({ error: "model_account_unavailable" }, 404);
+      return json({ ownerId: proxy.tenantId, account: { ...account, keyGeneration: keyState.rows[0].generation_id } });
+    }
+    if (input.operation !== "save" || Object.keys(input).sort().join(",") !== "accountId,encryptedPayload,expectedRevision,idempotencyKey,operation"
+        || typeof input.accountId !== "string" || !uuid.test(input.accountId)
+        || typeof input.idempotencyKey !== "string" || !uuid.test(input.idempotencyKey)
+        || !Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0
+        || typeof input.encryptedPayload !== "string") return json({ error: "invalid_request" }, 400);
+    try {
+      const saved = await new EncryptedIntegrationRepository(databaseFor(env), proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).saveModelCache({
+        id: input.accountId, expectedRevision: input.expectedRevision as number,
+        idempotencyKey: input.idempotencyKey, encryptedPayload: input.encryptedPayload,
+      });
+      return json({ ...saved, accountId: input.accountId });
+    } catch (error) {
+      if (error instanceof Error && error.name === "StaleIntegrationRevisionError") return json({ error: "stale_revision" }, 409);
+      if (error instanceof Error && error.name === "IntegrationIdempotencyConflictError") return json({ error: "idempotency_conflict" }, 409);
+      if (error instanceof Error && error.name === "IntegrationValidationError") return json({ error: "model_account_unavailable" }, 404);
+      throw error;
+    }
   }
   if (url.pathname === "/internal/credential-proxy/integration-snapshot") {
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["runId", "grantRevision"].includes(key))
