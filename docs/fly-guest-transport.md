@@ -9,3 +9,41 @@ Both execution backends install and invoke the same small `factorize-job` guest 
 The local protocol fixtures verify process result handling, timeout, output overflow, disconnect, safe argv construction, and file byte transfer. They do not validate live Fly authentication, Fly CLI compatibility, routing to a real Machine, or the guest's exec/SFTP capabilities. A separate opt-in validation requires a Fly account, an authorized app/Machine and token, an installed Fly CLI, and a custom image with Fly exec/SFTP support; no Fly network call is part of the required test suite.
 
 For portable integrations, the scheduler sends the scoped run credential over Fly's authenticated Machine exec channel directly to the dedicated credential proxy's private Unix socket. The proxy keeps it in process memory, bound to that run and provider VM identity, and removes it when durable revocation arrives. The credential is not part of Machine configuration, launch files, or the job VM payload. During guest launch, the VM generates its own private key and CSR; the proxy signs the CSR for the provider VM identity, and only the certificate and trust bundle return to the scheduler for installation. An internal-only Fly service exposes the proxy tunnel listener on port 9090. The guest starts a loopback CONNECT forwarder and sets HTTP(S)_PROXY for the job process. Each tunnel connection presents only its run ID over mTLS; the proxy retrieves its in-memory credential to perform fresh control-plane enrollment.
+
+## Credential-proxy package and local evidence
+
+`packages/credential-proxy` is a private npm workspace of native ES modules and
+uses Node.js built-ins at runtime. Its package entry points are declared in
+`package.json`; only `src/` is included in the package artifact, excluding the
+test suite's synthetic TLS keys and fixtures. The Fly VM tunnel helper is generated from
+`packages/api/src/fly-job-tunnel-helper.ts`. After `npm ci`, inspect the local
+package contents without publishing with:
+
+```sh
+npm pack --dry-run --workspace=@factorize/credential-proxy --json
+npm run test:proxy
+```
+
+The provisioner accepts only an image pinned by digest and equal to the reviewed
+image supplied by deployment configuration. Proxy control credentials enter
+through the private bootstrap socket; run credentials enter through Fly's
+authenticated Machine exec channel and remain in proxy memory. Neither user
+unlock keys nor integration credentials belong in image build arguments, image
+configuration, guest environment variables, or launch payloads.
+
+The repository does not contain a credential-proxy OCI image recipe or its image
+publishing workflow. Local package inspection and the simulator tests therefore
+do not prove that a reviewed image can be rebuilt from this repository. The
+digest check verifies deployment configuration only; image provenance, runtime
+base-image contents, and live Fly networking remain unverified until that
+packaging source is available and separately validated.
+
+Local coverage is split across fixtures to avoid repeating full application
+startup: `packages/credential-proxy/test/fly-guest-helper.e2e.test.mjs` executes
+the generated guest helper against an mTLS proxy and local HTTPS upstream and
+rejects a mismatched VM binding; `proxy-listener.e2e.test.mjs` checks per-VM
+reflection, locked access, configured-origin forwarding, redirect rejection,
+interrupted writes, and reconnect after lock/unlock. These synthetic fixtures do
+not establish live provider or production behavior. The repository runbook
+`packages/docs/self-hosting/credential-proxy-security.mdx` documents key handling, lifecycle recovery,
+accepted provider/control-plane risks, and the independent Fly shutdown steps.
