@@ -139,6 +139,20 @@ test("refresh does not retry a stale cache write after the unlock-key generation
   assert.deepEqual(f.events.filter(event => event.type === "encrypt").map(event => event.binding.keyGeneration), ["generation"]);
 });
 
+test("refresh does not retry a transient cache write after the key generation rotates during backoff", async t => {
+  let generation = "generation";
+  const f = await fixture(t, {
+    retryDelaysMs: [1],
+    getAccount: () => ({ ...account, keyGeneration: generation }),
+    options: { sleep: async () => { generation = "rotated-generation"; } },
+    persistEncrypted: async () => { throw new Error("temporary persistence failure"); },
+  });
+
+  await assert.rejects(f.lifecycle.refresh(accountId), /changed before token persistence/);
+  assert.equal(f.saves, 1);
+  assert.deepEqual(f.events.filter(event => event.type === "encrypt").map(event => event.binding.keyGeneration), ["generation"]);
+});
+
 test("deletion invalidates a retry and removes the account cache", async t => {
   let release;
   const waiting = new Promise(resolve => { release = resolve; });
@@ -204,6 +218,39 @@ test("deletion during refresh persistence backoff prevents a delayed retry", asy
 
   await assert.rejects(refreshing, /changed before token persistence/);
   assert.deepEqual(await deleting, { state: "deleted" });
+  assert.equal(f.saves, 1);
+  await assert.rejects(readFile(join(f.home, "auth.json")), { code: "ENOENT" });
+  assert.ok(f.methods.includes("logout"));
+});
+
+test("reset during refresh persistence backoff prevents a delayed retry and clears the cache", async t => {
+  let releaseBackoff;
+  let enteredBackoff;
+  let releaseSnapshot;
+  let enteredSnapshot;
+  const waiting = new Promise(resolve => { releaseBackoff = resolve; });
+  const started = new Promise(resolve => { enteredBackoff = resolve; });
+  const snapshotWaiting = new Promise(resolve => { releaseSnapshot = resolve; });
+  const snapshotStarted = new Promise(resolve => { enteredSnapshot = resolve; });
+  const f = await fixture(t, {
+    retryDelaysMs: [1],
+    options: {
+      sleep: async () => { enteredBackoff(); await waiting; },
+      readDirectory: async () => { enteredSnapshot(); await snapshotWaiting; return [{ name: accountId }]; },
+    },
+    persistEncrypted: async () => { throw new Error("temporary persistence failure"); },
+  });
+
+  const refreshing = f.lifecycle.refresh(accountId);
+  await started;
+  const resetting = f.lifecycle.reconcileAll([]);
+  await snapshotStarted;
+  releaseSnapshot();
+  await new Promise(resolve => setImmediate(resolve));
+  releaseBackoff();
+
+  await assert.rejects(refreshing, /changed before token persistence/);
+  assert.deepEqual(await resetting, { removed: [accountId], accounts: [] });
   assert.equal(f.saves, 1);
   await assert.rejects(readFile(join(f.home, "auth.json")), { code: "ENOENT" });
   assert.ok(f.methods.includes("logout"));
