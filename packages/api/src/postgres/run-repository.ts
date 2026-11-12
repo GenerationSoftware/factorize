@@ -62,7 +62,7 @@ export class RunRepository {
       const changed = await client.query(`UPDATE app.job_runs SET state='blocked',launch_lease_expires_at=NULL,next_poll_at=NULL,updated_at=now()
         WHERE tenant_id=$1 AND id=$2 AND state='starting' RETURNING id`, [run.tenantId, run.id]);
       if (!changed.rowCount) return;
-      await client.query(`UPDATE app.runs SET state='blocked',failure_source='system',failure_code='proxy_launch_blocked',failure_reason=$3,updated_at=now()
+      await client.query(`UPDATE app.runs SET state='blocked',failure_code='proxy_launch_blocked',failure_reason=$3,updated_at=now()
         WHERE tenant_id=$1 AND id=$2 AND execution_handle IS NULL`, [run.tenantId, run.id, safeReason]);
       await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'launch_blocked',$4)", [run.tenantId, crypto.randomUUID(), run.id, safeReason]);
     });
