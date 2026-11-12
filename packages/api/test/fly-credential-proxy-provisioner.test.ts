@@ -20,7 +20,7 @@ function fixture() {
     revokeCredential: vi.fn(async () => true),
   };
   const machines = {
-    createMachine: vi.fn(async () => machine),
+    createMachine: vi.fn(async (_app: string, _config: any, _operationId: string) => machine),
     startMachine: vi.fn(async () => undefined),
     destroyMachine: vi.fn(async () => undefined),
   };
@@ -38,6 +38,7 @@ describe("Fly credential proxy startup", () => {
       image: input.image,
       region: input.region,
       cmd: ["/usr/local/bin/factorize-credential-proxy", "--boot-epoch", epoch],
+      guest: { cpu_kind: "shared", cpus: 1, memory_mb: 512 },
       env: { FACTORIZE_PROXY_TUNNEL_SERVER_NAME: "factorize-proxies.internal", FACTORIZE_PROXY_TUNNEL_PORT: "9090", FACTORIZE_PROXY_BROWSER_CAPABILITY_PUBLIC_KEY: input.browserCapabilityPublicKey },
       services: [
         { protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], force_instance_key: true },
@@ -45,6 +46,7 @@ describe("Fly credential proxy startup", () => {
       ],
       restart: { policy: "no" },
       auto_start: false,
+      auto_stop: false,
       metadata: expect.objectContaining({ factorize_role: "credential-proxy", factorize_tenant_id: input.tenantId }),
     }), input.operationId);
     expect(JSON.stringify(machines.createMachine.mock.calls[0])).not.toContain("fzc_");
@@ -60,6 +62,24 @@ describe("Fly credential proxy startup", () => {
       browserOrigin: `https://${input.app}.fly.dev`,
       credential: `fzc_${"b".repeat(43)}`,
     }));
+  });
+
+  it("uses the requested proxy region, size and memory without enabling provider suspension", async () => {
+    const { machines, provisioner } = fixture();
+    await provisioner.start({ ...input, region: "ord", size: "performance-2x", memoryMb: 2048 });
+
+    const [, config, operationId] = machines.createMachine.mock.calls[0]!;
+    expect(config).toMatchObject({
+      image: input.image,
+      region: "ord",
+      guest: { cpu_kind: "shared", cpus: 1, memory_mb: 2048 },
+      auto_start: false,
+      auto_stop: false,
+      restart: { policy: "no" },
+    });
+    expect(operationId).toBe(input.operationId);
+    expect(config).not.toHaveProperty("suspend");
+    expect(config).not.toHaveProperty("auto_suspend");
   });
 
   it("revokes bootstrap authority and removes a Machine when startup fails", async () => {
