@@ -73,15 +73,22 @@ describe("Fly credential proxy startup", () => {
     }));
   });
 
-  it("uses the requested proxy region, size and memory without enabling provider suspension", async () => {
+  it.each([
+    ["shared-cpu-1x", "shared", 1],
+    ["shared-cpu-2x", "shared", 2],
+    ["shared-cpu-4x", "shared", 4],
+    ["performance-1x", "performance", 1],
+    ["performance-2x", "performance", 2],
+    ["performance-4x", "performance", 4],
+  ] as const)("uses the requested region, %s size and memory without enabling suspension", async (size, cpuKind, cpus) => {
     const { machines, provisioner } = fixture();
-    await provisioner.start({ ...input, region: "ord", size: "performance-2x", memoryMb: 2048 });
+    await provisioner.start({ ...input, region: "ord", size, memoryMb: 2048 });
 
     const [, config, operationId] = machines.createMachine.mock.calls[0]!;
     expect(config).toMatchObject({
       image: input.image,
       region: "ord",
-      guest: { cpu_kind: "performance", cpus: 2, memory_mb: 2048 },
+      guest: { cpu_kind: cpuKind, cpus, memory_mb: 2048 },
       auto_start: false,
       auto_stop: false,
       restart: { policy: "no" },
@@ -187,6 +194,12 @@ describe("Fly credential proxy startup", () => {
   it("rejects unsupported Fly sizes before provisioning", async () => {
     const { machines, provisioner } = fixture();
     await expect(provisioner.start({ ...input, size: "custom-3x" })).rejects.toThrow("Invalid credential proxy size");
+    expect(machines.createMachine).not.toHaveBeenCalled();
+  });
+
+  it.each([255, 8193, 512.5])("rejects unsupported proxy memory %s MiB before provisioning", async memoryMb => {
+    const { machines, provisioner } = fixture();
+    await expect(provisioner.start({ ...input, memoryMb })).rejects.toThrow("between 256 and 8192 MiB");
     expect(machines.createMachine).not.toHaveBeenCalled();
   });
 
