@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createProxyRuntime } from "../src/runtime.mjs";
+import { startProxyRunRevocationMonitor } from "../src/control-client.mjs";
 
 const bootEpoch = "11111111-1111-4111-8111-111111111111";
 
@@ -52,6 +53,54 @@ test("revocation racing listener creation closes the new listener before accepti
     await assert.rejects(accepting, /revoked/);
     assert.equal(closed, true);
   } finally {
+    await runtime.shutdown();
+  }
+});
+
+test("an established run stays available during a control outage and closes when revocation arrives", async () => {
+  let releaseRevocation;
+  let observedSecondPoll;
+  const secondPoll = new Promise(resolve => { observedSecondPoll = resolve; });
+  const revocationResponse = new Promise(resolve => { releaseRevocation = resolve; });
+  const closePromises = new Map();
+  const runtime = createProxyRuntime({
+    bootEpoch,
+    listenerFactory: async ({ connection: value }) => ({
+      connectionId: value.connectionId,
+      close: async () => closePromises.get(value.connectionId)?.(),
+    }),
+  });
+  runtime.unlock("synthetic-unlock-key");
+  let closed = false;
+  let resolveClosed;
+  const didClose = new Promise(resolve => { resolveClosed = resolve; });
+  closePromises.set("connection-outage", () => { closed = true; resolveClosed(); });
+  const revokedRunId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  await runtime.acceptAuthenticatedConnection(connection(revokedRunId, "connection-outage"));
+
+  let polls = 0;
+  const monitor = startProxyRunRevocationMonitor({
+    controlOrigin: "https://factorize.example",
+    controlCredential: `fzc_${"A".repeat(43)}`,
+    bootEpoch,
+    runtime,
+    intervalMs: 100,
+    fetchImpl: async () => {
+      polls += 1;
+      if (polls === 1) throw new Error("control plane unavailable");
+      observedSecondPoll();
+      return revocationResponse;
+    },
+  });
+  try {
+    await secondPoll;
+    assert.equal(closed, false, "a failed control-plane poll does not impose a connection lease");
+    releaseRevocation(Response.json({ revokedRunIds: [revokedRunId] }));
+    await didClose;
+    assert.equal(closed, true, "durable revocation closes the established connection when delivered");
+  } finally {
+    releaseRevocation(Response.json({ revokedRunIds: [] }));
+    await monitor.close();
     await runtime.shutdown();
   }
 });
