@@ -7,6 +7,7 @@ import { shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
 import { HARNESS_LOG_LIMIT, safeDiagnosticText } from "./harness-diagnostics";
 import { ExeRunProxy } from "./exe-run-proxy";
 import { runProxyName } from "./run-credentials";
+import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
 
 const API = "https://exe.dev/exec";
 const capabilities = ["output", "recovery", "stop"] as const;
@@ -18,14 +19,6 @@ export function vmNameFor(runId: string): string {
 
 export function isOwnedVmName(vm: string): boolean {
   return /^factorize-[a-z0-9](?:[a-z0-9-]{0,47}[a-z0-9])?$/.test(vm);
-}
-
-function harnessCommand(harness: NonNullable<LaunchRequest["harness"]>): string {
-  const environment = Object.entries(harness.env).map(([name, value]) => {
-    if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) throw new Error("Invalid harness environment variable name");
-    return shellAtom(`--setenv=${name}=${value}`);
-  });
-  return [...environment, harness.executable, ...harness.args].map((value, index) => index < environment.length ? value : shellAtom(value)).join(" ");
 }
 
 export class ExeIntegrationError extends Error {}
@@ -142,9 +135,9 @@ export class ExeVmBackend implements ExecutionBackend {
       for (let attempt = 1; (!ssh || !ssh.ok) && attempt < 6; attempt++) ssh = await this.api(`ssh ${shellAtom(vm)} ${shellAtom("true")}`).catch(() => null);
       if (!ssh?.ok) throw new ExeIntegrationError(`ssh: VM was created from the image, but SSH access failed (${ssh?.status ?? "timeout"}). Ensure the image boots an exe.dev-compatible system with SSH enabled.`);
       await progress("checking_agent");
-      const check = executionType === "code" ? "command -v bash >/dev/null 2>&1 && command -v curl >/dev/null 2>&1" : `command -v ${shellAtom(agentKind)} >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1`;
+      const check = executionType === "code" ? "command -v bash >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1" : `command -v ${shellAtom(agentKind)} >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1`;
       const agent = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(check)}`).catch(() => null);
-      if (!agent?.ok) throw new ExeIntegrationError(executionType === "code" ? "agent: SSH works, but bash and curl prerequisites are missing. Use an exe.dev-compatible image with bash and curl installed." : `agent: SSH works, but the selected ${agentKind} harness prerequisites are missing. Use an image with ${agentKind}, curl, and jq installed.`);
+      if (!agent?.ok) throw new ExeIntegrationError(executionType === "code" ? "agent: SSH works, but bash, python3, or curl prerequisites are missing. Use an exe.dev-compatible image with bash, python3, and curl installed." : `agent: SSH works, but the selected ${agentKind} harness prerequisites are missing. Use an image with ${agentKind}, python3, curl, and jq installed.`);
     } finally {
       await progress("cleaning_up");
       const removed = await this.deleteVm(vm);
@@ -191,15 +184,18 @@ export class ExeVmBackend implements ExecutionBackend {
       }
     }
 
-    const prompt = base64(request.prompt), code = request.code, output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
+    const code = request.code, output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
+    const launchPayload = JSON.stringify({ version: 1, runId: request.runId, ...(code ? { code } : { prompt: request.prompt, harness: request.harness }), ...(request.traceSources ? { traceSources: request.traceSources } : {}) });
+    const launchPayloadPath = "/home/exedev/.factorize-job/launch.json";
     const work = [
       "set -eu",
       "mkdir -p /home/exedev/workspace",
       "cd /home/exedev/workspace",
       ...(request.traceSources?.primary.kind === "execution_stream" ? [`mkdir -p -- ${shellAtom(request.traceSources.primary.path.slice(0, request.traceSources.primary.path.lastIndexOf("/")) || "/")}`, `touch -- ${shellAtom(request.traceSources.primary.path)}`] : []),
       "sudo install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job",
-      ...(code ? [`printf '%s' ${shellAtom(base64(code.script))} | base64 -d > /tmp/factorize-code-job.sh`, `printf '%s' ${shellAtom(base64(JSON.stringify(code.context)))} | base64 -d > /home/exedev/.factorize-job/input.json`, "sudo chown exedev:exedev /home/exedev/.factorize-job/input.json"] : [`printf '%s' ${shellAtom(prompt)} | base64 -d > /tmp/factorize-prompt.md`]),
-      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=${code ? "/dev/null" : "file:/tmp/factorize-prompt.md"} --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr ${code ? "env FACTORIZE_RESULT_PATH=/home/exedev/.factorize-job/results.json FACTORIZE_INPUT_PATH=/home/exedev/.factorize-job/input.json bash /tmp/factorize-code-job.sh" : harnessCommand(request.harness!)}; fi`,
+      `printf '%s' ${shellAtom(base64(FACTORIZE_JOB_LAUNCHER))} | sudo sh -c ${shellAtom("base64 -d > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job")}`,
+      `printf '%s' ${shellAtom(base64(launchPayload))} | base64 -d > ${shellAtom(launchPayloadPath)} && sudo chown exedev:exedev ${shellAtom(launchPayloadPath)}`,
+      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=/dev/null --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr /bin/sh -c ${shellAtom(`exec /usr/local/bin/factorize-job launch --foreground < ${launchPayloadPath}`)}; fi`,
       "echo started",
     ].join("; ");
     if (request.traceSources?.primary.formatVersion === "codex-exec-jsonl") {

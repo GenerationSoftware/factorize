@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { execFileSync } from "node:child_process";
 import { ExeImageVerificationError, ExeVmBackend, isOwnedVmName, tagsFromInventory, vmNameFor } from "../src/exe-vm-backend";
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
 import { effortOptions, selectableExeTags, type ExeRunConnection } from "../src/exe";
@@ -9,6 +8,15 @@ import { runProxyName } from "../src/run-credentials";
 afterEach(() => vi.unstubAllGlobals());
 
 const connection = { apiToken: "secret", agentKind: "codex", tags: ["github", "llm"], model: "gpt-5.5", effort: "high" } satisfies ExeRunConnection;
+function launchPayload(command: string): any {
+  for (const match of command.matchAll(/'([A-Za-z0-9+/=]{20,})'/g)) {
+    try {
+      const value = JSON.parse(Buffer.from(match[1]!, "base64").toString("utf8"));
+      if (value?.version === 1 && (value.code || value.harness)) return value;
+    } catch { /* Other encoded files include the launcher and code context. */ }
+  }
+  throw new Error("Missing encoded Factorize launch payload");
+}
 
 describe("ExeVmBackend", () => {
   it("reserves its legacy VM and proxy handle for scheduler recovery", () => {
@@ -66,7 +74,7 @@ describe("ExeVmBackend", () => {
     expect(result.missingPermissions).toEqual([]);
   });
 
-  it("creates a tagged VM and launches Codex directly in the workspace", async () => {
+  it("creates a tagged VM and launches Codex through the shared guest launcher", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
       requests.push(String(init.body));
@@ -81,21 +89,17 @@ describe("ExeVmBackend", () => {
     expect(requests[0]).toContain("--tag='llm'");
     expect(requests[1]).toContain("cd /home/exedev/workspace");
     expect(requests[1]).not.toContain("git clone");
-    expect(requests[1]).toContain("codex");
-    expect(requests[1]).toContain("--color");
-    expect(requests[1]).toContain("never");
-    expect(requests[1]).toContain("model_provider=factorize");
-    expect(requests[1]).toContain("model_providers.factorize.base_url=\"https://models.example/v1\"");
-    expect(requests[1]).toContain("model_providers.factorize.requires_openai_auth=false");
+    expect(requests[1]).toContain("factorize-job launch --foreground");
+    expect(requests[1]).toContain("base64 -d > /usr/local/bin/factorize-job");
+    expect(launchPayload(requests[1]).harness).toMatchObject({ executable: "codex", args: expect.arrayContaining(["--color", "never", "-c", "model_provider=factorize", "-c", "model_providers.factorize.base_url=\"https://models.example/v1\""]) });
     expect(requests[1]).toContain("sudo systemd-run");
-    expect(requests[1]).toContain("'--setenv=FACTORIZE_RESULT_PATH=/home/exedev/.factorize-job/results.json'");
     expect(requests[1]).toContain("--uid=exedev --gid=exedev");
     expect(requests[1]).toContain("--property=Type=exec");
     expect(requests[1]).toContain("--property=RemainAfterExit=yes");
-    expect(requests[1]).toContain("--property=StandardInput=file:/tmp/factorize-prompt.md");
+    expect(requests[1]).toContain("--property=StandardInput=/dev/null");
     expect(requests[1]).toContain("--property=StandardOutput=append:/tmp/factorize.log");
     expect(requests[1]).toContain("--property=StandardError=append:/tmp/factorize.stderr");
-    expect(requests[1]).toContain("/tmp/trace/events.jsonl");
+    expect(launchPayload(requests[1]).traceSources.primary.path).toBe("/tmp/trace/events.jsonl");
     expect(requests[1]).not.toContain("StandardOutput=append:/tmp/trace/events.jsonl");
     expect(requests[1]).not.toContain("nohup");
     expect(requests[1]).toContain("; echo started");
@@ -114,14 +118,12 @@ describe("ExeVmBackend", () => {
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => { requests.push(String(init.body)); return new Response(requests.length === 1 ? '{"name":"factorize-code"}' : "started", { headers: { "X-Exe-Exit": "0" } }); }));
     const launched = await new ExeVmBackend({ apiToken: "secret", tags: ["jobs"], image: "example/base:latest" }).launch({ runId: "code", prompt: "", code: { script: "echo done", context: { source: { outputs: { count: 3 } } } } });
     expect(launched.handle.id).toBe("factorize-code");
-    expect(requests[1]).toContain("FACTORIZE_RESULT_PATH=/home/exedev/.factorize-job/results.json");
-    expect(requests[1]).toContain("FACTORIZE_INPUT_PATH=/home/exedev/.factorize-job/input.json");
-    expect(requests[1]).toContain("bash /tmp/factorize-code-job.sh");
+    expect(launchPayload(requests[1]).code).toEqual({ script: "echo done", context: { source: { outputs: { count: 3 } } } });
     expect(requests[1]).toContain("--uid=exedev --gid=exedev");
     expect(requests[1]).not.toContain("codex");
   });
 
-  it.each(["codex", "claude", "pi"] as const)("passes %s harness environment as systemd options instead of an executable", async kind => {
+  it.each(["codex", "claude", "pi"] as const)("passes %s harness environment through the shared launcher payload", async kind => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
       requests.push(String(init.body));
@@ -132,16 +134,8 @@ describe("ExeVmBackend", () => {
     harness.env.FACTORIZE_TEST_LITERAL = literal;
     await new ExeVmBackend({ ...connection, agentKind: kind }).launch({ runId: "run-env", prompt: "work", harness });
 
-    // Decode the actual SSH and remote shell quoting, without executing provisioning.
-    const split = (command: string) => execFileSync("/bin/sh", ["-c", `set -- ${command}; printf '%s\\0' "$@"`], { encoding: "utf8" }).split("\0").slice(0, -1);
-    const remote = split(requests.find(command => command.includes("sudo systemd-run"))!)[2];
-    const command = remote.slice(remote.indexOf("sudo systemd-run"), remote.lastIndexOf("; fi"));
-    const argv = split(command).slice(2);
-    expect(argv).toContain("--setenv=FACTORIZE_RESULT_PATH=/home/exedev/.factorize-job/results.json");
-    expect(argv).toContain(`--setenv=FACTORIZE_TEST_LITERAL=${literal}`);
-    // The first non-option argument must remain the harness executable for all agents.
-    const executable = argv.findIndex(value => !value.startsWith("--"));
-    expect(argv.slice(executable)).toEqual([harness.executable, ...harness.args]);
+    const payload = launchPayload(requests.find(command => command.includes("sudo systemd-run"))!);
+    expect(payload.harness).toMatchObject({ executable: harness.executable, args: harness.args, env: { FACTORIZE_TEST_LITERAL: literal } });
   });
 
   it("verifies an image over SSH and deletes only its marked temporary VM", async () => {
@@ -217,7 +211,7 @@ describe("ExeVmBackend", () => {
     expect(supervisor).toContain("append:/tmp/factorize-artifacts/run-1/codex-exec.jsonl");
     expect(supervisor).not.toContain("append:/tmp/factorize.log");
     expect(supervisor).toContain("StandardError=append:/tmp/factorize.stderr");
-    expect(supervisor).toContain("--json");
+    expect(launchPayload(supervisor).harness.args).toContain("--json");
   });
 
   it("uses the systemd unit as the authoritative run state", async () => {
@@ -229,7 +223,7 @@ describe("ExeVmBackend", () => {
     ];
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
-      requests.push(String(init.body));
+      const command = String(init.body); requests.push(command);
       return new Response(states.shift(), { headers: { "X-Exe-Exit": "0" } });
     }));
     const backend = new ExeVmBackend(connection), handle = { backendKind: "exe-vm", id: "factorize-run-1" };
@@ -237,8 +231,8 @@ describe("ExeVmBackend", () => {
     await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "succeeded" });
     await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "failed", systemd: { result: "exit-code", execMainCode: 1, execMainStatus: 42, activeState: "failed", subState: "failed" }, detail: expect.stringContaining("unsuccessfully") });
     await expect(backend.inspect(handle)).resolves.toMatchObject({ state: "failed", detail: expect.stringContaining("supervisor disappeared") });
+    expect(requests).toHaveLength(4);
     expect(requests.every(request => request.includes("systemctl show"))).toBe(true);
-    expect(requests.every(request => !request.includes("factorize.status"))).toBe(true);
   });
 
   it("uploads an immutable snapshot of a session that may still be growing", async () => {

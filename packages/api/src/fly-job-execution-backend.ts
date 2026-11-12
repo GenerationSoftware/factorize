@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { safeDiagnosticText } from "./harness-diagnostics";
 import type { ArtifactCollectionRequest, ArtifactCollector, ExecutionTerminator, HarnessLogReader, JobFileCollectionRequest, JobFileCollector, JobResultReader } from "./execution";
 import { sourceCommand } from "./trace-source";
+import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
 
 export type FlyJobMachines = {
   findMachineByOperationId?(app: string, operationId: string): Promise<FlyMachine | undefined>;
@@ -77,8 +78,11 @@ export class FlyJobExecutionBackend implements ExecutionBackend, JobResultReader
     const actualHandle = { backendKind: this.kind, id: `${this.options.app}/${machine.id}`, operationId };
     try {
       await this.options.machines.startMachine(this.options.app, machine.id);
+      const guest = this.options.guest(machine);
+      const installed = await guest.run(["/bin/sh", "-c", "command -v python3 >/dev/null && command -v runuser >/dev/null && id exedev >/dev/null && mkdir -p /usr/local/bin && install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job && cat > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job"], FACTORIZE_JOB_LAUNCHER);
+      if (!installed.ok) throw new Error("Fly guest is missing python3, runuser, or the exedev user, or could not install the shared Factorize job launcher");
       const payload = JSON.stringify({ version: 1, runId: request.runId, ...(request.code ? { code: request.code } : { prompt: request.prompt, harness: request.harness }), ...(request.traceSources ? { traceSources: request.traceSources } : {}) });
-      const started = await this.options.guest(machine).run(["/usr/local/bin/factorize-job", "launch"], `${payload}\n`);
+      const started = await guest.run(["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"], `${payload}\n`);
       if (!started.ok || started.stdout.trim() !== "started") throw new Error("Fly guest did not confirm job launch");
       return {
         handle: actualHandle,
@@ -103,7 +107,17 @@ export class FlyJobExecutionBackend implements ExecutionBackend, JobResultReader
     if (!id) return { state: "stopped" };
     const machine = await this.options.machines.inspectMachine(this.options.app, id);
     switch (String(machine.state ?? "").toLowerCase()) {
-      case "started": case "starting": return { state: "running" };
+      case "started": {
+        try {
+          const result = await this.options.guest(machine).run(["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "status"]);
+          if (result.ok) {
+            const process = JSON.parse(result.stdout) as { state?: string; exitCode?: number };
+            if (process.state === "exited") return process.exitCode === 0 ? { state: "succeeded" } : { state: "failed", detail: "The guest job process exited unsuccessfully", failure: { source: "run", code: "process_failed", reason: "The guest job process exited unsuccessfully" } };
+          }
+        } catch { /* Guest status may be temporarily unavailable while booting. */ }
+        return { state: "running" };
+      }
+      case "starting": return { state: "running" };
       case "stopped": case "destroyed": return { state: "succeeded" };
       case "created": case "scheduling": return { state: "starting" };
       default: return { state: "failed", detail: "Fly Machine entered an unexpected state", failure: { source: "system", code: "provider_state_invalid", reason: "Fly Machine entered an unexpected state" } };

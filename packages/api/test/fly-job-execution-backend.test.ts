@@ -27,7 +27,8 @@ describe("Fly job execution backend", () => {
     const receipt = await f.backend.launch({ runId, reservation, prompt: "", code: { script: "echo ok", context: { value: 1 } } });
     expect(f.machines.createMachine).toHaveBeenCalledWith("factorize-test", expect.objectContaining({ auto_start: false, restart: { policy: "no" } }), runId);
     expect(f.machines.startMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
-    expect(f.guest.run).toHaveBeenCalledWith(["/usr/local/bin/factorize-job", "launch"], expect.stringContaining('"script":"echo ok"'));
+    expect(f.guest.run).toHaveBeenNthCalledWith(1, ["/bin/sh", "-c", expect.stringContaining("factorize-job")], expect.stringContaining("#!/usr/bin/env python3"));
+    expect(f.guest.run).toHaveBeenNthCalledWith(2, ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"], expect.stringContaining('"script":"echo ok"'));
     expect(receipt).toMatchObject({ handle: { backendKind: "fly", id: "factorize-test/machine-1" }, observation: { state: "running" } });
     expect(JSON.stringify(f.machines.createMachine.mock.calls)).not.toContain("echo ok");
   });
