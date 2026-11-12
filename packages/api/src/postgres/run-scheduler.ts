@@ -58,7 +58,7 @@ export class RunScheduler {
     // turn a successful maintenance pass into a failed scheduler alarm.
     try {
       const backlog = await retention.backlogSnapshot();
-      console.info(JSON.stringify({ event: "run_retention_maintenance", cutoff: cutoff.toISOString(), sweep, artifacts, independentHistory, backlog }));
+      console.info(JSON.stringify({ event: "run_retention_maintenance", cutoff: cutoff.toISOString(), paused: false, sweep, artifacts, independentHistory, backlog }));
     } catch (error) {
       console.warn(JSON.stringify({ event: "run_retention_backlog_snapshot_failed", message: error instanceof Error ? error.message : "unknown error" }));
     }

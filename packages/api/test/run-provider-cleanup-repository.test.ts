@@ -1,8 +1,44 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { RunRepository } from "../src/postgres/run-repository";
 import { RunScheduler } from "../src/postgres/run-scheduler";
 
+afterEach(() => vi.restoreAllMocks());
+
 describe("terminal provider cleanup reconciliation", () => {
+  it("keeps a started run without a handle in retryable cleanup ownership", async () => {
+    const database = { pool: { query: vi.fn() } } as any;
+    const scheduler = new RunScheduler(database, {} as any);
+    vi.spyOn(RunRepository.prototype, "claimProviderCleanup").mockResolvedValue([{
+      tenantId: "tenant", id: "started-without-handle", executionConfig: {}, executionHandle: null,
+      backendKind: "exe-vm", startedAt: new Date("2026-10-01T00:00:00Z"), attempt: 3,
+    }]);
+    vi.spyOn(RunRepository.prototype, "claimDeletedJobProviderCleanup").mockResolvedValue([]);
+    const retry = vi.spyOn(RunRepository.prototype, "retryProviderCleanup").mockResolvedValue(undefined);
+    const complete = vi.spyOn(RunRepository.prototype, "completeProviderCleanup").mockResolvedValue(undefined);
+
+    await (scheduler as any).reconcileProviderCleanup();
+
+    expect(retry).toHaveBeenCalledWith("tenant", "started-without-handle", 3,
+      expect.objectContaining({ message: expect.stringContaining("provider absence cannot be verified") }));
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("completes provider cleanup for a terminal run that was never launched", async () => {
+    const scheduler = new RunScheduler({ pool: { query: vi.fn() } } as any, {} as any);
+    vi.spyOn(RunRepository.prototype, "claimProviderCleanup").mockResolvedValue([{
+      tenantId: "tenant", id: "never-launched", executionConfig: {}, executionHandle: null,
+      backendKind: "exe-vm", startedAt: null, attempt: 1,
+    }]);
+    vi.spyOn(RunRepository.prototype, "claimDeletedJobProviderCleanup").mockResolvedValue([]);
+    const complete = vi.spyOn(RunRepository.prototype, "completeProviderCleanup").mockResolvedValue(undefined);
+    const retry = vi.spyOn(RunRepository.prototype, "retryProviderCleanup").mockResolvedValue(undefined);
+
+    await (scheduler as any).reconcileProviderCleanup();
+
+    expect(complete).toHaveBeenCalledWith("tenant", "never-launched");
+    expect(retry).not.toHaveBeenCalled();
+  });
+
   it("claims only terminal incomplete cleanup with a bounded lease", async () => {
     const query = vi.fn(async (sql: string) => {
       expect(sql).toContain("x.state IN ('succeeded','failed','stopped')");
