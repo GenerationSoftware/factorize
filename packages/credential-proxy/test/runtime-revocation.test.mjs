@@ -104,3 +104,37 @@ test("an established run stays available during a control outage and closes when
     await runtime.shutdown();
   }
 });
+
+test("connection grant refresh swaps current integrations and tolerates failed polls", async () => {
+  let grants = ["initial"];
+  let attempts = 0;
+  const replaced = [];
+  let firstAttempt;
+  let secondReplacement;
+  const attempted = new Promise(resolve => { firstAttempt = resolve; });
+  const replacedUpdated = new Promise(resolve => { secondReplacement = resolve; });
+  const runtime = createProxyRuntime({
+    bootEpoch,
+    grantRefreshIntervalMs: 100,
+    listenerFactory: async ({ connection: value }) => ({
+      connectionId: value.connectionId,
+      replaceGrants: next => { replaced.push(next); if (next[0] === "updated") secondReplacement(); },
+      close: async () => {},
+    }),
+  });
+  runtime.unlock("synthetic-unlock-key");
+  try {
+    await runtime.acceptAuthenticatedConnection({ ...connection("run-refresh", "connection-refresh"), refreshGrants: async () => {
+      attempts += 1;
+      if (attempts === 1) { firstAttempt(); throw new Error("temporary control-plane outage"); }
+      return grants;
+    } });
+    await attempted;
+    assert.deepEqual(replaced, [], "a failed refresh preserves the established grants");
+    grants = ["updated"];
+    await replacedUpdated;
+    assert.deepEqual(replaced, [["updated"]]);
+  } finally {
+    await runtime.shutdown();
+  }
+});

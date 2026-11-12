@@ -101,7 +101,8 @@ export async function readProxyIntegrationSnapshot({ controlOrigin, token, bindi
   const modelAccount = result?.modelAccount;
   if (typeof result?.ownerId !== "string" || !Array.isArray(result.records)
       || result.records.some(record => !record || typeof record.id !== "string" || record.kind !== "bearer"
-        || typeof record.origin !== "string" || typeof record.encryptedPayload !== "string" || !Number.isSafeInteger(record.revision))
+        || !(record.deletedAt != null && record.encryptedPayload === null
+          || typeof record.origin === "string" && typeof record.encryptedPayload === "string") || !Number.isSafeInteger(record.revision))
       || !(modelAccount === null || (modelAccount && typeof modelAccount.id === "string" && modelAccount.kind === "model"
         && modelAccount.origin === null && typeof modelAccount.encryptedPayload === "string" && Number.isSafeInteger(modelAccount.revision)))) {
     throw new Error("invalid proxy integration snapshot response");
@@ -247,6 +248,7 @@ export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCrede
       proxyIdentity: binding.proxyIdentity,
       grantRevision: binding.grantRevision,
       grants,
+      refreshGrants: () => resolveGrants(binding),
     };
   };
 }

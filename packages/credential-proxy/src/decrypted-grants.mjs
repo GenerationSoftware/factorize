@@ -85,12 +85,17 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
       return [];
     }
     const selected = new Set(integrationIds);
-    const records = snapshot.records.filter(record => selected.has(record?.id) && record.kind === "bearer" && record.deletedAt == null);
+    const selectedRecords = snapshot.records.filter(record => selected.has(record?.id) && record.kind === "bearer");
     const selectionWasNarrowedLocally = binding.integrationIds !== undefined || resolveIntegrationIds !== undefined;
-    if (records.length !== selected.size || (!selectionWasNarrowedLocally && snapshot.records.length !== records.length)) throw new Error("selected integration is unavailable");
+    if (selectedRecords.length !== selected.size || (!selectionWasNarrowedLocally && snapshot.records.length !== selectedRecords.length)) throw new Error("selected integration is unavailable");
     const aesKey = await deriveKey(unlockKey);
     const grants = [];
-    for (const record of records) {
+    for (const record of selectedRecords) {
+      if (record.deletedAt != null) {
+        if (record.encryptedPayload !== null) throw new Error("deleted integration snapshot contains ciphertext");
+        continue;
+      }
+      if (typeof record.encryptedPayload !== "string") throw new Error("selected integration is unavailable");
       const origin = validateOrigin(record.origin);
       const { nonce, ciphertext } = decodeStoredCiphertext(record.encryptedPayload);
       const plaintext = new Uint8Array(await webcrypto.subtle.decrypt({ name: "AES-GCM", iv: nonce,

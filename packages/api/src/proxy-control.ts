@@ -109,10 +109,15 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     if (!run) return json({ error: "integration_snapshot_unavailable" }, 403);
     const selected = run.execution_config?.portableIntegrationIds;
     if (!Array.isArray(selected) || selected.some(id => typeof id !== "string") || new Set(selected).size !== selected.length) return json({ error: "integration_snapshot_unavailable" }, 403);
-    const records = selected.length
-      ? (await new EncryptedIntegrationRepository(database, proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).records("bearer"))
-        .filter(record => selected.includes(record.id))
+    const currentRecords = selected.length
+      ? await new EncryptedIntegrationRepository(database, proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).recordsIncludingDeleted("bearer")
       : [];
+    const byId = new Map(currentRecords.map(record => [record.id, record]));
+    // A generation reset may remove a row rather than leave its CRUD tombstone.
+    // Represent a missing selected record as a ciphertext-free tombstone so
+    // established proxy connections can remove that grant on refresh.
+    const records = selected.map(id => byId.get(id) ?? { id, kind: "bearer" as const, name: "", origin: null,
+      description: null, revision: 0, encryptedPayload: null, deletedAt: new Date(0) });
     if (records.length !== selected.length) return json({ error: "integration_snapshot_unavailable" }, 403);
     const modelAccess = run.execution_config?.modelAccess ?? "native";
     const modelAccountId = run.execution_config?.modelAccountId;

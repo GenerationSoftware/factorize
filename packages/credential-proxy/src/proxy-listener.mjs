@@ -42,8 +42,9 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
       || !connection.connectionId || !connection.runId || !connection.vmId) {
     throw new TypeError("proxy listener requires an authenticated consumed connection");
   }
-  const grants = grantTable(connection.grants);
+  let grants = grantTable(connection.grants);
   const controllers = new Set();
+  let closed = false;
   const server = createServer(async (request, response) => {
     const controller = new AbortController();
     controllers.add(controller);
@@ -109,7 +110,14 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
   return Object.freeze({
     connectionId: connection.connectionId,
     address: server.address(),
+    replaceGrants(nextGrants) {
+      if (closed) return;
+      grants = grantTable(nextGrants);
+    },
     close: () => {
+      if (closed) return Promise.resolve();
+      closed = true;
+      grants = new Map();
       for (const controller of controllers) controller.abort(new Error("authenticated tunnel disconnected"));
       return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     },

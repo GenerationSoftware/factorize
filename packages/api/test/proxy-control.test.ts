@@ -141,9 +141,10 @@ describe("dedicated proxy boot registration endpoint", () => {
     env.CREDENTIAL_ENCRYPTION_KEY = key;
     env.query.mockImplementation(async (sql: string, values: unknown[] = []) => {
       if (sql.includes("proxy_token_digest")) return { rows: [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }], rowCount: 1 };
-      if (sql.includes("FROM app.runs r")) return { rows: [{ execution_config: { portableIntegrationIds: [integrationId], modelAccess: "portable", modelAccountId }, grant_revision: 3 }], rowCount: 1 };
+      if (sql.includes("FROM app.runs r")) return { rows: [{ execution_config: { portableIntegrationIds: [integrationId, "99999999-9999-4999-8999-999999999999"], modelAccess: "portable", modelAccountId }, grant_revision: 3 }], rowCount: 1 };
       if (sql.includes("FROM app.integration_records")) return values[1] === "bearer" ? { rows: [
-        { id: integrationId, kind: "bearer", name: "selected", origin: "https://api.example", description: null, revision: 4, encrypted_payload: await encrypt("user-ciphertext", key) },
+        { id: integrationId, kind: "bearer", name: "selected", origin: "https://api.example", description: null, revision: 4, encrypted_payload: await encrypt("user-ciphertext", key), deleted_at: null },
+        { id: "99999999-9999-4999-8999-999999999999", kind: "bearer", name: "deleted", origin: "https://deleted.example", description: null, revision: 8, encrypted_payload: null, deleted_at: new Date("2026-01-01T00:00:00Z") },
         { id: "66666666-6666-4666-8666-666666666666", kind: "bearer", name: "not-selected", origin: "https://other.example", description: null, revision: 5, encrypted_payload: await encrypt("other-ciphertext", key) },
       ], rowCount: 2 } : { rows: [
         { id: modelAccountId, kind: "model", name: "selected-model", origin: null, description: "fixture account", revision: 6, encrypted_payload: await encrypt("model-user-ciphertext", key) },
@@ -158,7 +159,8 @@ describe("dedicated proxy boot registration endpoint", () => {
     }), env);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ownerId: "11111111-1111-4111-8111-111111111111", records: [
-      { id: integrationId, kind: "bearer", name: "selected", origin: "https://api.example", description: null, revision: 4, encryptedPayload: "user-ciphertext" },
+      { id: integrationId, kind: "bearer", name: "selected", origin: "https://api.example", description: null, revision: 4, encryptedPayload: "user-ciphertext", deletedAt: null },
+      { id: "99999999-9999-4999-8999-999999999999", kind: "bearer", name: "deleted", origin: "https://deleted.example", description: null, revision: 8, encryptedPayload: null, deletedAt: "2026-01-01T00:00:00.000Z" },
     ], modelAccount: { id: modelAccountId, kind: "model", name: "selected-model", origin: null, description: "fixture account", revision: 6, encryptedPayload: "model-user-ciphertext" } });
     expect(env.query.mock.calls.map((call: any[]) => call[0])).toEqual(expect.arrayContaining([expect.stringContaining("grant_revision=$5"), expect.stringContaining("FROM app.integration_records")]));
   });

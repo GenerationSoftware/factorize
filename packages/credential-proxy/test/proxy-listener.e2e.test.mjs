@@ -127,6 +127,52 @@ test("authenticated tunnel listener streams over TLS, confines grants and cancel
   }
 });
 
+test("live integration edits replace credentials and deletion removes access from an established grant", { timeout: 5_000 }, async () => {
+  const observed = [];
+  const upstream = createHttpsServer({ key, cert }, (request, response) => {
+    observed.push(request.headers.authorization);
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("ok");
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const port = upstream.address().port;
+  const forwarder = createBearerForwarder({ connectorFactory: origin => async requestUrl => {
+    assert.equal(origin, `https://api.example.test:${port}`);
+    const url = new URL(requestUrl);
+    const socket = tlsConnect({ host: "127.0.0.1", port, servername: url.hostname, ca: cert });
+    await once(socket, "secureConnect");
+    return { socket, url };
+  } });
+  let grants = [{ id: "tool-1", origin: `https://api.example.test:${port}`, credential: "first-secret" }];
+  const runtime = createProxyRuntime({
+    grantRefreshIntervalMs: 100,
+    listenerFactory: ({ connection }) => createAuthenticatedProxyListener({ connection, forwarder }),
+  });
+  let listener;
+  try {
+    runtime.unlock("synthetic-unlock-key");
+    listener = await runtime.acceptAuthenticatedConnection({
+      authenticated: true, enrollmentConsumed: true, bootEpoch: runtime.bootEpoch,
+      connectionId: "live-integration-connection", runId: "live-integration-run", vmId: "live-integration-vm",
+      grants, refreshGrants: async () => grants,
+    });
+    const base = `http://127.0.0.1:${listener.address.port}`;
+    assert.equal((await fetch(`${base}/integrations/tool-1/echo`)).status, 200);
+    grants = [{ id: "tool-1", origin: `https://api.example.test:${port}`, credential: "replacement-secret" }];
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.equal((await fetch(`${base}/integrations/tool-1/echo`)).status, 200);
+    grants = [];
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.equal((await fetch(`${base}/integrations/tool-1/echo`)).status, 403);
+    assert.deepEqual(observed, ["Bearer first-secret", "Bearer replacement-secret"]);
+  } finally {
+    if (listener) await runtime.disconnect("live-integration-connection");
+    await runtime.shutdown();
+    await new Promise(resolve => upstream.close(resolve));
+  }
+});
+
 test("listener refuses an unconsumed or unauthenticated connection", async () => {
   await assert.rejects(createAuthenticatedProxyListener({ connection: {
     authenticated: true, connectionId: "connection", runId: "run", vmId: "vm", grants: [],

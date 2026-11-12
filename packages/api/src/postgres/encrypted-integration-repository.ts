@@ -153,6 +153,16 @@ export class EncryptedIntegrationRepository {
     return Promise.all(rows.map(async row => ({ id: row.id, kind: row.kind, name: row.name, origin: row.origin, description: row.description, revision: safeRevision(row.revision), encryptedPayload: await decrypt(row.encrypted_payload, this.serverEncryptionKey) })));
   }
 
+  /** Return selected records including tombstones so an authenticated proxy can
+   * remove a deleted credential from already-established grants. Tombstones
+   * never include ciphertext. */
+  async recordsIncludingDeleted(kind: EncryptedIntegrationKind): Promise<Array<IntegrationMetadata & { revision: number; encryptedPayload: string | null; deletedAt: Date | null }>> {
+    const { rows } = await this.database.pool.query<{ id: string; kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string | null; deleted_at: Date | null }>(
+      "SELECT id,kind,name,origin,description,revision,encrypted_payload,deleted_at FROM app.integration_records WHERE tenant_id=$1 AND kind=$2 ORDER BY revision,id", [this.tenantId, kind]);
+    return Promise.all(rows.map(async row => ({ id: row.id, kind: row.kind, name: row.name, origin: row.origin, description: row.description,
+      revision: safeRevision(row.revision), encryptedPayload: row.deleted_at || row.encrypted_payload === null ? null : await decrypt(row.encrypted_payload, this.serverEncryptionKey), deletedAt: row.deleted_at })));
+  }
+
   /**
    * Replace only a model account's user-encrypted Codex cache. The account
    * revision is independent of the collection revision, so unrelated bearer

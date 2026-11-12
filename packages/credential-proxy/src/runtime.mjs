@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
  * authenticated its enrollment against the current run and proxy boot epoch.
  */
 
-export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyListener, bootEpoch = randomUUID() } = {}) {
+export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyListener, bootEpoch = randomUUID(), grantRefreshIntervalMs = 5_000 } = {}) {
   if (typeof bootEpoch !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(bootEpoch)) {
     throw new TypeError("proxy boot epoch must be a UUID v4");
   }
@@ -17,12 +17,15 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
   let locking = false;
   const listeners = new Set();
   const listenerRuns = new Map();
+  const grantRefreshTimers = new Map();
   const revokedRuns = new Set();
 
   async function closeListeners() {
     const current = [...listeners];
     listeners.clear();
     listenerRuns.clear();
+    for (const timer of grantRefreshTimers.values()) clearInterval(timer);
+    grantRefreshTimers.clear();
     await Promise.allSettled(current.map((listener) => listener.close()));
   }
 
@@ -70,19 +73,43 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       // Keep the run identity beside the listener so a control-plane revocation
       // can tear down every established connection without retaining grants.
       listenerRuns.set(listener, connection.runId);
+      if (typeof connection.refreshGrants === "function" && typeof listener.replaceGrants === "function") {
+        if (!Number.isSafeInteger(grantRefreshIntervalMs) || grantRefreshIntervalMs < 100 || grantRefreshIntervalMs > 60_000) {
+          await listener.close();
+          listeners.delete(listener);
+          listenerRuns.delete(listener);
+          throw new TypeError("grant refresh interval is out of bounds");
+        }
+        let refreshing = false;
+        const refresh = async () => {
+          if (refreshing || shutdown || locking || state !== "unlocked" || revokedRuns.has(connection.runId)) return;
+          refreshing = true;
+          try {
+            const next = await connection.refreshGrants();
+            if (state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId)) listener.replaceGrants(next);
+          } catch {
+            // A control-plane outage does not expire established grants. Retry
+            // on the next interval; durable revocation has its own monitor.
+          } finally { refreshing = false; }
+        };
+        void refresh();
+        const timer = setInterval(refresh, grantRefreshIntervalMs);
+        timer.unref?.();
+        grantRefreshTimers.set(listener, timer);
+      }
       return listener;
     },
     async disconnect(connectionId) {
       const matching = [...listeners].filter((listener) => listener.connectionId === connectionId);
       await Promise.allSettled(matching.map((listener) => listener.close()));
-      for (const listener of matching) { listeners.delete(listener); listenerRuns.delete(listener); }
+      for (const listener of matching) { listeners.delete(listener); listenerRuns.delete(listener); clearInterval(grantRefreshTimers.get(listener)); grantRefreshTimers.delete(listener); }
     },
     async revokeRun(runId) {
       if (typeof runId !== "string" || !runId) throw new TypeError("run identity is required for revocation");
       revokedRuns.add(runId);
       const matching = [...listeners].filter((listener) => listenerRuns.get(listener) === runId);
       await Promise.allSettled(matching.map((listener) => listener.close()));
-      for (const listener of matching) { listeners.delete(listener); listenerRuns.delete(listener); }
+      for (const listener of matching) { listeners.delete(listener); listenerRuns.delete(listener); clearInterval(grantRefreshTimers.get(listener)); grantRefreshTimers.delete(listener); }
       return matching.length;
     },
     async shutdown() {

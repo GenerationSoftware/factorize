@@ -47,11 +47,13 @@ test("resolver decrypts only selected active bearer records using the shared rec
   ]);
 });
 
-test("resolver rejects missing, deleted, ambiguous, malformed, and misbound grants", async () => {
+test("resolver rejects missing, ambiguous, malformed, and misbound grants and omits deleted selections", async () => {
   const record = { id: "integration-a", kind: "bearer", origin: "https://api.example.test", revision: 3, deletedAt: null };
   const encryptedPayload = await encryptCredential({ ...record, credential: "synthetic-token" });
   const resolver = createDecryptedGrantResolver({ readSnapshot: async () => ({ ownerId, records: [{ ...record, encryptedPayload }] }), getUnlockKey: async () => unlockKey });
   await assert.rejects(resolver({ tenantId: "tenant-fixture", integrationIds: ["missing"] }), /unavailable/);
+  const deleted = createDecryptedGrantResolver({ readSnapshot: async () => ({ ownerId, records: [{ ...record, deletedAt: new Date(), encryptedPayload: null }] }), getUnlockKey: async () => unlockKey });
+  assert.deepEqual(await deleted({ tenantId: "tenant-fixture", integrationIds: ["integration-a"] }), []);
   await assert.rejects(resolver({ tenantId: "tenant-fixture", integrationIds: ["integration-a", "integration-a"] }), /selection/);
   const tampered = createDecryptedGrantResolver({ readSnapshot: async () => ({ ownerId: "other-owner", records: [{ ...record, encryptedPayload }] }), getUnlockKey: async () => unlockKey });
   await assert.rejects(tampered({ tenantId: "tenant-fixture", integrationIds: ["integration-a"] }));
