@@ -116,6 +116,35 @@ describe("terminal provider cleanup reconciliation", () => {
     }]);
   });
 
+  it("does not acknowledge cleanup when a provider stop response leaves the run active", async () => {
+    const writes: Array<{ sql: string; values: unknown[] }> = [];
+    const poolQuery = vi.fn(async (sql: string, values: unknown[] = []) => {
+      writes.push({ sql, values });
+      return { rows: [], rowCount: 1 };
+    });
+    const txQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("app.deleted_job_provider_cleanup")) return { rows: [], rowCount: 0 };
+      if (sql.includes("WITH candidates")) return { rows: [{
+        tenant_id: "tenant", id: "run", execution_config: {},
+        execution_handle: { backendKind: "exe-vm", id: "provider-run" }, execution_backend_kind: "exe-vm",
+        provider_cleanup_attempt: 1, started_at: new Date("2026-10-01T00:00:00Z"),
+      }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const scheduler = new RunScheduler({ pool: { query: poolQuery }, transaction: (work: (client: any) => unknown) => work({ query: txQuery }) } as any, {} as any);
+    const stop = vi.fn().mockResolvedValue({ state: "running", detail: "Cancellation is still in progress" });
+    vi.spyOn(scheduler as any, "backend").mockResolvedValue({ stop });
+
+    await (scheduler as any).reconcileProviderCleanup();
+
+    expect(stop).toHaveBeenCalledWith({ backendKind: "exe-vm", id: "provider-run" });
+    expect(writes).toEqual([{
+      sql: expect.stringContaining("provider_cleanup_next_at=now()+make_interval(secs=>$3)"),
+      values: ["tenant", "run", 60, "Cancellation is still in progress"],
+    }]);
+    expect(writes.every(({ sql }) => !sql.includes("vm_cleanup_complete=true"))).toBe(true);
+  });
+
   it("leases independent ownership after job deletion and keeps failed provider work retryable", async () => {
     const query = vi.fn(async (sql: string) => {
       expect(sql).toContain("app.deleted_job_provider_cleanup");
