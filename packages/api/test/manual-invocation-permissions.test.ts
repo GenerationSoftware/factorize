@@ -81,6 +81,7 @@ describe("manual invocation permission management", () => {
     const f = fixture();
     f.persisted.push(destinationId, crossProjectId);
     const service = new ApiService(f.env, auth("session", ["jobs:read", "jobs:write"]));
+    (service as any).jobs = () => ({ getJob: async () => ({ id: sourceId, projectId: projectA }) });
     await expect(service.getInvocationPermissions(sourceId)).resolves.toEqual({ sourceJobId: sourceId, destinationJobIds: [destinationId] });
     await expect(service.setInvocationPermissions(sourceId, [crossProjectId])).rejects.toMatchObject({ status: 400, code: "invalid_request" });
   });
