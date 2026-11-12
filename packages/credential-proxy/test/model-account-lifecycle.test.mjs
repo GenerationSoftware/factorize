@@ -186,6 +186,29 @@ test("reset snapshot invalidates a refresh cache write already in flight", async
   assert.ok(f.methods.includes("logout"));
 });
 
+test("deletion during refresh persistence backoff prevents a delayed retry", async t => {
+  let releaseBackoff;
+  let enteredBackoff;
+  const waiting = new Promise(resolve => { releaseBackoff = resolve; });
+  const started = new Promise(resolve => { enteredBackoff = resolve; });
+  const f = await fixture(t, {
+    retryDelaysMs: [1],
+    options: { sleep: async () => { enteredBackoff(); await waiting; } },
+    persistEncrypted: async () => { throw new Error("temporary persistence failure"); },
+  });
+
+  const refreshing = f.lifecycle.refresh(accountId);
+  await started;
+  const deleting = f.lifecycle.deleteAccount(accountId);
+  releaseBackoff();
+
+  await assert.rejects(refreshing, /changed before token persistence/);
+  assert.deepEqual(await deleting, { state: "deleted" });
+  assert.equal(f.saves, 1);
+  await assert.rejects(readFile(join(f.home, "auth.json")), { code: "ENOENT" });
+  assert.ok(f.methods.includes("logout"));
+});
+
 test("deletion racing pending device login prevents a late authorization from restoring its cache", async t => {
   let complete;
   const f = await fixture(t, { completion: new Promise(resolve => { complete = resolve; }) });
