@@ -27,6 +27,7 @@ export type FlyCredentialProxyMachineClient = {
 };
 
 export type FlyCredentialProxyGuest = {
+  run(command: readonly string[], input?: string | Uint8Array): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   /** The reviewed image startup command consumes this payload from stdin only. */
   startProxy(input: ProxyBootstrapProvisioning & { credential: string }): Promise<void>;
   /** Signs a VM-generated CSR over the provider's private guest channel. Only
@@ -44,6 +45,7 @@ export function createFlyCredentialProxyGuest(options: {
 }): FlyCredentialProxyGuest {
   const transport = createFlyGuestTransport({ ...options, timeoutMs: 30_000, outputLimitBytes: 16 * 1024 });
   return {
+    run: (command, input) => transport.run(command, input),
     async startProxy(input) {
       const result = await transport.run(["/usr/local/bin/factorize-proxy-startup"], `${JSON.stringify({
         type: "register-boot",
@@ -118,7 +120,12 @@ export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyP
           FACTORIZE_PROXY_TUNNEL_PORT: "9090",
           FACTORIZE_PROXY_BROWSER_CAPABILITY_PUBLIC_KEY: input.browserCapabilityPublicKey,
         },
-        services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], force_instance_key: true }],
+        services: [
+          { protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], force_instance_key: true },
+          // Private 6PN service for job VMs. Tunnel TLS terminates in the
+          // credential proxy, where the per-VM client certificate is checked.
+          { protocol: "tcp", internal_port: 9090, ports: [] },
+        ],
         metadata: {
           factorize_role: "credential-proxy",
           factorize_tenant_id: input.tenantId,

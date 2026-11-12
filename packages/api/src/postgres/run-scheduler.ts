@@ -27,6 +27,7 @@ import { FlyConnectionRepository } from "./fly-connection-repository";
 import { FlyExecutionConfigurationRepository } from "./fly-execution-configuration-repository";
 import { createFlyMachinesClient } from "../fly-machines-client";
 import { FlyJobExecutionBackend, flyJobGuest } from "../fly-job-execution-backend";
+import { createFlyCredentialProxyGuest } from "../fly-credential-proxy-provisioner";
 
 export class RunScheduler {
   private runs: RunRepository;
@@ -130,8 +131,8 @@ export class RunScheduler {
       ]);
       if (!connection) throw new Error("Fly connection is unavailable");
       if (!configuration) throw new Error("Fly execution configuration is unavailable");
-      const { rows } = await this.database.pool.query<{ proxy_identity: string }>(
-        "SELECT proxy_identity FROM app.credential_proxy_states WHERE tenant_id=$1 AND disabled_at IS NULL AND revoked_at IS NULL",
+      const { rows } = await this.database.pool.query<{ proxy_identity: string; boot_epoch: string }>(
+        "SELECT proxy_identity, boot_epoch FROM app.credential_proxy_states WHERE tenant_id=$1 AND disabled_at IS NULL AND revoked_at IS NULL",
         [run.tenantId],
       );
       const proxy = /^fly:([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])):([^:]+)$/.exec(rows[0]?.proxy_identity ?? "");
@@ -142,7 +143,8 @@ export class RunScheduler {
         app, image: configuration.image, region: configuration.region, size: configuration.size,
         machines, guest: machine => flyJobGuest({ app, machine: machine.id, token: connection }),
         proxyIdentity: rows[0]!.proxy_identity,
-        proxyGuest: { run: (command, input) => flyJobGuest({ app, machine: proxy[2]!, token: connection }).run(command, input) },
+        proxyBootEpoch: rows[0]!.boot_epoch,
+        proxyGuest: createFlyCredentialProxyGuest({ app, machine: proxy[2]!, token: connection }),
       });
     }
     const kind = run.executionConfig.backendKind ?? (run.executionConfig.agentKind === "Amp" ? "amp" : "exe-vm");

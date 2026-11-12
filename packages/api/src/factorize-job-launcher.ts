@@ -42,6 +42,10 @@ def child_command(payload):
     env = os.environ.copy()
     env['FACTORIZE_RESULT_PATH'] = str(RESULT)
     if 'code' in payload:
+        proxy_url = env.get('FACTORIZE_PROXY_URL')
+        if proxy_url:
+            for name in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'):
+                env[name] = proxy_url
         code = payload['code']
         if not isinstance(code, dict) or not isinstance(code.get('script'), str) or not isinstance(code.get('context'), dict):
             raise ValueError('invalid code launch payload')
@@ -60,6 +64,11 @@ def child_command(payload):
         if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name) or not isinstance(value, str) or '\x00' in value:
             raise ValueError('invalid agent environment')
         env[name] = value
+    proxy_url = os.environ.get('FACTORIZE_PROXY_URL')
+    if proxy_url:
+        env['FACTORIZE_PROXY_URL'] = proxy_url
+        for name in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'):
+            env[name] = proxy_url
     env['FACTORIZE_RESULT_PATH'] = str(RESULT)
     return [harness['executable'], *harness['args']], str(payload.get('prompt', '')).encode(), env
 

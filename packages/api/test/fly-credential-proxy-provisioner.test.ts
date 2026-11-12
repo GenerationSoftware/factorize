@@ -24,7 +24,7 @@ function fixture() {
     startMachine: vi.fn(async () => undefined),
     destroyMachine: vi.fn(async () => undefined),
   };
-  const guest = vi.fn(() => ({ startProxy: vi.fn(async () => undefined), issueVmCertificate: vi.fn(async () => ({ certificate: "", trustBundle: "" })) }));
+  const guest = vi.fn(() => ({ run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "" })), startProxy: vi.fn(async () => undefined), issueVmCertificate: vi.fn(async () => ({ certificate: "", trustBundle: "" })) }));
   const provisioner = createFlyCredentialProxyProvisioner({ control, machines, guest, newBootEpoch: () => epoch });
   return { control, machines, guest, provisioner };
 }
@@ -39,7 +39,10 @@ describe("Fly credential proxy startup", () => {
       region: input.region,
       cmd: ["/usr/local/bin/factorize-credential-proxy", "--boot-epoch", epoch],
       env: { FACTORIZE_PROXY_TUNNEL_SERVER_NAME: "factorize-proxies.internal", FACTORIZE_PROXY_TUNNEL_PORT: "9090", FACTORIZE_PROXY_BROWSER_CAPABILITY_PUBLIC_KEY: input.browserCapabilityPublicKey },
-      services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], force_instance_key: true }],
+      services: [
+        { protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], force_instance_key: true },
+        { protocol: "tcp", internal_port: 9090, ports: [] },
+      ],
       restart: { policy: "no" },
       auto_start: false,
       metadata: expect.objectContaining({ factorize_role: "credential-proxy", factorize_tenant_id: input.tenantId }),
@@ -61,7 +64,7 @@ describe("Fly credential proxy startup", () => {
 
   it("revokes bootstrap authority and removes a Machine when startup fails", async () => {
     const { control, machines, guest } = fixture();
-    guest.mockReturnValue({ startProxy: vi.fn().mockRejectedValue(new Error("private startup channel failed")), issueVmCertificate: vi.fn() });
+    guest.mockReturnValue({ run: vi.fn(), startProxy: vi.fn().mockRejectedValue(new Error("private startup channel failed")), issueVmCertificate: vi.fn() });
     const provisioner = createFlyCredentialProxyProvisioner({ control, machines, guest, newBootEpoch: () => epoch });
     await expect(provisioner.start(input)).rejects.toThrow("private startup channel failed");
     expect(control.revokeCredential).toHaveBeenCalledWith(input.tenantId, "fly:factorize-proxies:machine-1");

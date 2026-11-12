@@ -7,6 +7,7 @@ import { safeDiagnosticText } from "./harness-diagnostics";
 import type { ArtifactCollectionRequest, ArtifactCollector, ExecutionTerminator, HarnessLogReader, JobFileCollectionRequest, JobFileCollector, JobResultReader } from "./execution";
 import { sourceCommand } from "./trace-source";
 import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
+import { FACTORIZE_FLY_TUNNEL_HELPER } from "./fly-job-tunnel-helper";
 
 export type FlyJobMachines = {
   findMachineByOperationId?(app: string, operationId: string): Promise<FlyMachine | undefined>;
@@ -19,10 +20,13 @@ export type FlyJobMachines = {
 
 export type FlyJobGuest = {
   run(command: readonly string[], input?: string | Uint8Array): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
+  upload?(path: string, bytes: Uint8Array): Promise<void>;
   download?(path: string): Promise<Uint8Array>;
 };
 
-export type FlyProxyGuest = Pick<FlyJobGuest, "run">;
+export type FlyProxyGuest = Pick<FlyJobGuest, "run"> & {
+  issueVmCertificate?(input: { bootEpoch: string; vmIdentity: string; csr: string }): Promise<{ certificate: string; trustBundle: string }>;
+};
 
 const capabilities = ["stop", "recovery"] as const;
 
@@ -41,6 +45,7 @@ export class FlyJobExecutionBackend implements ExecutionBackend, JobResultReader
       machines: FlyJobMachines;
       guest: (machine: FlyMachine) => FlyJobGuest;
       proxyIdentity?: string;
+      proxyBootEpoch?: string;
       proxyGuest?: FlyProxyGuest;
       destinationUrl?: (machine: FlyMachine) => string;
     },
@@ -82,7 +87,7 @@ export class FlyJobExecutionBackend implements ExecutionBackend, JobResultReader
     const actualHandle = { backendKind: this.kind, id: `${this.options.app}/${machine.id}`, operationId };
     try {
       if (request.runProxy) {
-        if (!this.options.proxyIdentity || !this.options.proxyGuest) throw new Error("Fly credential proxy delivery is unavailable");
+        if (!this.options.proxyIdentity || !this.options.proxyBootEpoch || !this.options.proxyGuest?.issueVmCertificate) throw new Error("Fly credential proxy delivery is unavailable");
         const vmIdentity = `fly:${this.options.app}:${machine.id}`;
         const delivered = await this.options.proxyGuest.run(["/usr/local/bin/factorize-proxy-authorize-run"], `${JSON.stringify({
           runId: request.runId, vmIdentity, credential: request.runProxy.credential,
@@ -91,10 +96,41 @@ export class FlyJobExecutionBackend implements ExecutionBackend, JobResultReader
       }
       await this.options.machines.startMachine(this.options.app, machine.id);
       const guest = this.options.guest(machine);
-      const installed = await guest.run(["/bin/sh", "-c", "command -v python3 >/dev/null && command -v runuser >/dev/null && id exedev >/dev/null && mkdir -p /usr/local/bin && install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job && cat > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job"], FACTORIZE_JOB_LAUNCHER);
-      if (!installed.ok) throw new Error("Fly guest is missing python3, runuser, or the exedev user, or could not install the shared Factorize job launcher");
+      const tunnelPrerequisites = request.runProxy ? " && command -v node >/dev/null && command -v openssl >/dev/null" : "";
+      const installed = await guest.run(["/bin/sh", "-c", `command -v python3 >/dev/null && command -v runuser >/dev/null${tunnelPrerequisites} && id exedev >/dev/null && mkdir -p /usr/local/bin && install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job && cat > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job`], FACTORIZE_JOB_LAUNCHER);
+      if (!installed.ok) throw new Error(request.runProxy
+        ? "Fly guest is missing python3, runuser, Node.js, OpenSSL, or the exedev user, or could not install the shared Factorize job launcher"
+        : "Fly guest is missing python3, runuser, or the exedev user, or could not install the shared Factorize job launcher");
+      if (request.runProxy) {
+        if (!guest.upload) throw new Error("Fly guest transport cannot install the credential proxy tunnel helper");
+        const vmIdentity = `fly:${this.options.app}:${machine.id}`;
+        const proxyHost = `${this.options.app}.internal`;
+        const proxyPort = 9090;
+        const localPort = 18180;
+        const directory = "/home/exedev/.factorize-job/proxy";
+        const directoryReady = await guest.run(["/usr/sbin/install", "-d", "-o", "exedev", "-g", "exedev", "-m", "0700", directory]);
+        if (!directoryReady.ok) throw new Error("Fly guest could not prepare its proxy tunnel directory");
+        const prepared = await guest.run(["/usr/bin/openssl", "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout", `${directory}/client.key`, "-out", `${directory}/client.csr`, "-subj", `/CN=${vmIdentity}`]);
+        if (!prepared.ok) throw new Error("Fly guest could not create its proxy tunnel identity");
+        const csr = await guest.run(["/bin/cat", `${directory}/client.csr`]);
+        if (!csr.ok) throw new Error("Fly guest did not return its proxy tunnel certificate request");
+        const issued = await this.options.proxyGuest!.issueVmCertificate!({ bootEpoch: this.options.proxyBootEpoch!, vmIdentity, csr: csr.stdout.trim() });
+        const configured = await guest.run(["/bin/sh", "-c", `install -d -o exedev -g exedev -m 0700 ${directory} && chown exedev:exedev ${directory}/client.key && chmod 0600 ${directory}/client.key && cat > ${directory}/certificates.json`], JSON.stringify({ certificate: issued.certificate, trustBundle: issued.trustBundle }));
+        if (!configured.ok) throw new Error("Fly guest could not install its proxy tunnel certificate");
+        const extracted = await guest.run(["node", "-e", `const fs=require('node:fs');const p=${JSON.stringify(directory)};const v=JSON.parse(fs.readFileSync(p+'/certificates.json','utf8'));if(typeof v.certificate!=='string'||typeof v.trustBundle!=='string')process.exit(2);fs.writeFileSync(p+'/client.crt',v.certificate,{mode:0o600});fs.writeFileSync(p+'/ca.crt',v.trustBundle,{mode:0o600});fs.unlinkSync(p+'/certificates.json');`]);
+        if (!extracted.ok || !guest.upload) throw new Error("Fly guest could not prepare its proxy tunnel certificate files");
+        const config = { runId: request.runId, proxyHost, proxyPort, localPort };
+        const tunnelConfig = await guest.run(["/bin/sh", "-c", `chown exedev:exedev ${directory}/client.crt ${directory}/ca.crt && cat > ${directory}/config.json`], JSON.stringify(config));
+        if (!tunnelConfig.ok) throw new Error("Fly guest could not configure its proxy tunnel");
+        await guest.upload(`${directory}/tunnel.mjs`, new TextEncoder().encode(FACTORIZE_FLY_TUNNEL_HELPER));
+        const startTunnel = await guest.run(["/bin/sh", "-c", `chown exedev:exedev ${directory}/config.json ${directory}/tunnel.mjs && chmod 0600 ${directory}/config.json ${directory}/tunnel.mjs && (nohup /usr/sbin/runuser -u exedev -- /usr/bin/env PATH=/usr/local/bin:/usr/bin:/bin node ${directory}/tunnel.mjs >/tmp/factorize-proxy-tunnel.log 2>&1 </dev/null & echo $! > /tmp/factorize-proxy-tunnel.pid) && sleep 1 && kill -0 "$(cat /tmp/factorize-proxy-tunnel.pid)"`]);
+        if (!startTunnel.ok) throw new Error("Fly guest could not start its credential proxy tunnel");
+      }
       const payload = JSON.stringify({ version: 1, runId: request.runId, ...(request.code ? { code: request.code } : { prompt: request.prompt, harness: request.harness }), ...(request.traceSources ? { traceSources: request.traceSources } : {}) });
-      const started = await guest.run(["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"], `${payload}\n`);
+      const launchCommand = request.runProxy
+        ? ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/bin/env", "FACTORIZE_PROXY_URL=http://127.0.0.1:18180", "/usr/local/bin/factorize-job", "launch"]
+        : ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"];
+      const started = await guest.run(launchCommand, `${payload}\n`);
       if (!started.ok || started.stdout.trim() !== "started") throw new Error("Fly guest did not confirm job launch");
       return {
         handle: actualHandle,

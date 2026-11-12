@@ -13,11 +13,15 @@ function fixture() {
   };
   const guest = {
     run: vi.fn(async (_command: readonly string[], _input?: string | Uint8Array) => ({ ok: true, exitCode: 0, stdout: "started\n", stderr: "" })),
+    upload: vi.fn(async () => undefined),
     download: vi.fn(async (path: string) => new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "saved log")),
   };
-  const proxyGuest = { run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "Run credential delivered to proxy memory\n", stderr: "" })) };
+  const proxyGuest = {
+    run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "Run credential delivered to proxy memory\n", stderr: "" })),
+    issueVmCertificate: vi.fn(async () => ({ certificate: "-----BEGIN CERTIFICATE-----\npublic\n-----END CERTIFICATE-----", trustBundle: "-----BEGIN CERTIFICATE-----\nroot\n-----END CERTIFICATE-----" })),
+  };
   const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest,
-    proxyIdentity: "fly:factorize-test:proxy-1", proxyGuest });
+    proxyIdentity: "fly:factorize-test:proxy-1", proxyBootEpoch: "22222222-2222-4222-8222-222222222222", proxyGuest });
   return { backend, machines, guest, proxyGuest };
 }
 
@@ -51,6 +55,11 @@ describe("Fly job execution backend", () => {
     expect(f.proxyGuest.run).toHaveBeenCalledOnce();
     expect(f.proxyGuest.run).toHaveBeenCalledWith(["/usr/local/bin/factorize-proxy-authorize-run"], expect.stringContaining(`"credential":"${credential}"`));
     expect(f.proxyGuest.run.mock.invocationCallOrder[0]).toBeLessThan(f.machines.startMachine.mock.invocationCallOrder[0]);
+    expect(f.proxyGuest.issueVmCertificate).toHaveBeenCalledWith(expect.objectContaining({
+      bootEpoch: "22222222-2222-4222-8222-222222222222", vmIdentity: "fly:factorize-test:machine-1",
+    }));
+    expect(f.guest.upload).toHaveBeenCalledWith("/home/exedev/.factorize-job/proxy/tunnel.mjs", expect.any(Uint8Array));
+    expect(f.guest.run.mock.calls.some(([command]) => command.includes("FACTORIZE_PROXY_URL=http://127.0.0.1:18180"))).toBe(true);
     const payload = String(f.guest.run.mock.calls.at(-1)?.[1] ?? "");
     expect(payload).not.toContain(credential);
     expect(payload).toContain(runId);
