@@ -25,6 +25,7 @@ export function createModelAccountLifecycle({
   persistEncrypted,
   onUnsaved = () => {},
   retryDelaysMs = [100, 500, 2_000],
+  staleRevisionRetries = 3,
   sleep = ms => new Promise(resolveSleep => setTimeout(resolveSleep, ms)),
   removeCache = rm,
   readCache = readFile,
@@ -37,7 +38,8 @@ export function createModelAccountLifecycle({
   if (!authHelper || typeof authHelper.invoke !== "function" || typeof getUnlockKey !== "function"
       || typeof getAccount !== "function" || typeof encryptCache !== "function" || typeof persistEncrypted !== "function"
       || !Array.isArray(retryDelaysMs) || retryDelaysMs.length > 5
-      || retryDelaysMs.some(ms => !Number.isSafeInteger(ms) || ms < 0 || ms > 30_000)) {
+      || retryDelaysMs.some(ms => !Number.isSafeInteger(ms) || ms < 0 || ms > 30_000)
+      || !Number.isSafeInteger(staleRevisionRetries) || staleRevisionRetries < 0 || staleRevisionRetries > 5) {
     throw new TypeError("model account lifecycle configuration is invalid");
   }
   if ((getEncryptedCache === undefined) !== (decryptCache === undefined)
@@ -59,7 +61,7 @@ export function createModelAccountLifecycle({
   }
 
   async function persist(id, generation) {
-    const account = await getAccount(id);
+    let account = await getAccount(id);
     if (!account || account.id !== id || account.kind !== "model" || !Number.isSafeInteger(account.revision)
         || typeof account.ownerId !== "string" || !account.ownerId || typeof account.keyGeneration !== "string" || !account.keyGeneration) {
       throw new Error("model account persistence binding is unavailable");
@@ -68,36 +70,66 @@ export function createModelAccountLifecycle({
     if (typeof unlockKey !== "string" || !unlockKey) throw new Error("proxy is locked");
     const plain = await readCache(cachePath(accountHomeRoot, id));
     if (!Buffer.isBuffer(plain) || plain.byteLength === 0 || plain.byteLength > 65_536) throw new Error("Codex token cache is missing or exceeds its limit");
-    let encrypted;
+    let staleRetries = 0;
+    let attempts = 0;
     try {
-      encrypted = await encryptCache(new Uint8Array(plain), unlockKey, {
-        ownerId: account.ownerId,
-        recordId: id,
-        recordType: "model",
-        destination: "factorize",
-        revision: account.revision + 1,
-        keyGeneration: account.keyGeneration,
-      });
-    } finally {
-      plain.fill(0);
-    }
-    if (currentGeneration(id) !== generation) throw new Error("model account changed before token persistence");
-    const request = { id, expectedRevision: account.revision, keyGeneration: account.keyGeneration, encryptedPayload: encrypted, idempotencyKey: randomUUID() };
-    for (let attempt = 0; ; attempt++) {
-      if (currentGeneration(id) !== generation) throw new Error("model account changed before token persistence");
-      try {
-        await persistEncrypted(request);
-        unsaved.delete(id);
-        onUnsaved({ accountId: id, unsaved: false });
-        return { state: "saved" };
-      } catch (error) {
-        if (attempt >= retryDelaysMs.length) {
+      for (;;) {
+        let encrypted;
+        try {
+          encrypted = await encryptCache(new Uint8Array(plain), unlockKey, {
+            ownerId: account.ownerId,
+            recordId: id,
+            recordType: "model",
+            destination: "factorize",
+            revision: account.revision + 1,
+            keyGeneration: account.keyGeneration,
+          });
+        } catch (error) {
+          throw error;
+        }
+        if (currentGeneration(id) !== generation) throw new Error("model account changed before token persistence");
+        const request = { id, expectedRevision: account.revision, keyGeneration: account.keyGeneration, encryptedPayload: encrypted, idempotencyKey: randomUUID() };
+        let retryWithLatestRevision = false;
+        for (let attempt = 0; ; attempt++) {
+          if (currentGeneration(id) !== generation) throw new Error("model account changed before token persistence");
+          attempts++;
+          try {
+            await persistEncrypted(request);
+            unsaved.delete(id);
+            onUnsaved({ accountId: id, unsaved: false });
+            return { state: "saved" };
+          } catch (error) {
+            if (error?.code === "stale_revision") {
+              if (staleRetries >= staleRevisionRetries) break;
+              let latest;
+              try { latest = await getAccount(id); }
+              catch { throw new Error("model account changed before token persistence"); }
+              if (!latest || latest.id !== id || latest.kind !== "model" || !Number.isSafeInteger(latest.revision)
+                  || latest.revision <= account.revision || latest.ownerId !== account.ownerId
+                  || latest.keyGeneration !== account.keyGeneration) {
+                throw new Error("model account changed before token persistence");
+              }
+              account = latest;
+              staleRetries++;
+              retryWithLatestRevision = true;
+              break;
+            }
+            if (attempt >= retryDelaysMs.length) {
+              unsaved.add(id);
+              onUnsaved({ accountId: id, unsaved: true });
+              return { state: "unsaved", attempts };
+            }
+            await sleep(retryDelaysMs[attempt]);
+          }
+        }
+        if (!retryWithLatestRevision) {
           unsaved.add(id);
           onUnsaved({ accountId: id, unsaved: true });
-          return { state: "unsaved", attempts: attempt + 1 };
+          return { state: "unsaved", attempts };
         }
-        await sleep(retryDelaysMs[attempt]);
       }
+    } finally {
+      plain.fill(0);
     }
   }
 
