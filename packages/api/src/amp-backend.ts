@@ -45,6 +45,8 @@ export class AmpBackend implements ExecutionBackend {
   }
   async stop(handle: RunHandle): Promise<ExecutionObservation> {
     const result = await this.call(`/runs/${encodeURIComponent(handle.id)}/stop`, { method: "POST", body: "{}" });
+    // Reconciliation is retryable and provider-owned. A missing thread is already cleaned up.
+    if (result.command.status === 404) return { state: "stopped", detail: "Amp execution is already absent", command: result.command };
     return { state: result.command.ok ? mapAmpState(result.data.status ?? "stopped") : "running", detail: result.data.detail ?? result.command.body, command: result.command };
   }
 }

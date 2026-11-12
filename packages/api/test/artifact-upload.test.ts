@@ -26,6 +26,30 @@ describe("artifact upload grants", () => {
     expect(put).toHaveBeenCalledWith(`tenants/tenant-1/runs/run-1/native/${"a".repeat(64)}.jsonl`, expect.any(ReadableStream), expect.objectContaining({ customMetadata: expect.objectContaining({ tenantId: "tenant-1", runId: "run-1" }) }));
   });
 
+  it("queues a newly written object when run retention wins the upload race", async () => {
+    const key = `tenants/tenant-1/runs/run-1/native/${"a".repeat(64)}.jsonl`;
+    const queries: Array<{ sql: string; values: unknown[] }> = [];
+    const query = vi.fn(async (sql: string, values: unknown[] = []) => {
+      queries.push({ sql, values });
+      // Receipt lookup sees no row and retention has deleted the run before
+      // the upload acquires its aggregate lock.
+      return { rows: [], rowCount: 0 };
+    });
+    const put = vi.fn(async () => ({ httpEtag: "etag" }));
+    const get = vi.fn(async () => ({ size: 7, httpEtag: "etag", body: new Response("session").body }));
+    const token = await issueArtifactUploadGrant(grant, secret);
+    const response = await artifactUpload(new Request("https://app/upload", { method: "PUT", headers: { "Content-Type": grant.contentType, "Content-Length": "7", "X-Artifact-SHA256": "a".repeat(64) }, body: "session" }), {
+      SESSION_SIGNING_SECRET: secret,
+      RUN_ARTIFACTS: { put, get },
+      DATABASE: { pool: { query }, transaction: (work: any) => work({ query }) },
+    } as any, token);
+
+    expect(response.status).toBe(409);
+    const queued = queries.find(({ sql }) => sql.includes("INSERT INTO app.run_retention_cleanup"));
+    expect(queued?.values).toEqual([expect.any(String), grant.tenantId, grant.runId, JSON.stringify([key])]);
+    expect(queued?.sql).toContain("Artifact upload lost a race with run retention");
+  });
+
   it("rejects mismatched content types before storage", async () => {
     const token = await issueArtifactUploadGrant(grant, secret), put = vi.fn();
     const response = await artifactUpload(new Request("https://app/upload", { method: "PUT", headers: { "Content-Type": "text/plain" }, body: "session" }), { SESSION_SIGNING_SECRET: secret, RUN_ARTIFACTS: { put } } as any, token);

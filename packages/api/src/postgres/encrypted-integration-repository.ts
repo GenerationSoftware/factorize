@@ -20,7 +20,7 @@ export type GenerationRecord = IntegrationMetadata & { revision: number; encrypt
 export type GenerationChange = IntegrationMetadata & { revision: number; idempotencyKey: string; operation: "upsert" | "delete"; encryptedPayload: string | null };
 
 export class StaleIntegrationRevisionError extends Error {
-  constructor(readonly currentRevision: number) { super("Integration collection revision is stale"); this.name = "StaleIntegrationRevisionError"; }
+  constructor(readonly currentRevision: number, readonly resyncRequired = false) { super(resyncRequired ? "Integration change history expired; fetch the current collection before continuing" : "Integration collection revision is stale"); this.name = "StaleIntegrationRevisionError"; }
 }
 export class IntegrationIdempotencyConflictError extends Error {
   constructor() { super("Integration idempotency key was already used for a different change"); this.name = "IntegrationIdempotencyConflictError"; }
@@ -129,7 +129,11 @@ export class EncryptedIntegrationRepository {
   async changesSince(revision: number, limit = 100): Promise<IntegrationChange[]> {
     if (!Number.isSafeInteger(revision) || revision < 0) throw new IntegrationValidationError("revision must be a non-negative safe integer");
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw new IntegrationValidationError("limit must be between 1 and 500");
-    const { rows } = await this.database.pool.query<StoredChange>("SELECT revision,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND revision>$2 ORDER BY revision LIMIT $3", [this.tenantId, revision, limit]);
+    const rows = await this.database.transaction(async client => {
+      const collection = (await client.query<{ revision: string | number; changes_pruned_through: string | number }>("SELECT revision,changes_pruned_through FROM app.integration_collections WHERE tenant_id=$1 FOR SHARE", [this.tenantId])).rows[0];
+      if (collection && revision < safeRevision(collection.changes_pruned_through)) throw new StaleIntegrationRevisionError(safeRevision(collection.revision), true);
+      return (await client.query<StoredChange>("SELECT revision,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND revision>$2 ORDER BY revision LIMIT $3", [this.tenantId, revision, limit])).rows;
+    });
     return Promise.all(rows.map(async row => ({ id: row.record_id, kind: row.kind, name: row.name, origin: row.origin, description: row.description, revision: safeRevision(row.revision), operation: row.operation, encryptedPayload: row.encrypted_payload === null ? null : await decrypt(row.encrypted_payload, this.serverEncryptionKey) })));
   }
 

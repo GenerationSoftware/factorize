@@ -55,6 +55,68 @@ export class RunRepository {
     return result.rows.map(mapped);
   }
 
+  /** Claim a bounded batch of terminal records whose provider cleanup is incomplete. */
+  async claimProviderCleanup(limit = 20): Promise<Array<{ tenantId: string; id: string; executionConfig: Record<string, any>; executionHandle: RunHandle | null; backendKind: string; startedAt: Date | null; attempt: number }>> {
+    return this.database.transaction(async client => {
+      const result = await client.query<{ tenant_id: string; id: string; execution_config: Record<string, any>; execution_handle: RunHandle | null; execution_backend_kind: string; provider_cleanup_attempt: number; started_at: Date | null }>(`
+        WITH candidates AS (
+          SELECT x.tenant_id,x.id FROM app.runs x
+          JOIN app.job_runs jr ON jr.tenant_id=x.tenant_id AND jr.id=x.id
+          WHERE x.state IN ('succeeded','failed','stopped') AND jr.state=x.state
+            AND NOT x.vm_cleanup_complete
+            AND (x.provider_cleanup_next_at IS NULL OR x.provider_cleanup_next_at <= now())
+          ORDER BY x.created_at,x.tenant_id,x.id
+          LIMIT $1 FOR UPDATE OF x SKIP LOCKED
+        )
+        UPDATE app.runs x
+        SET provider_cleanup_attempt=x.provider_cleanup_attempt+1,
+            provider_cleanup_next_at=now()+interval '10 minutes',updated_at=now()
+        FROM candidates c WHERE x.tenant_id=c.tenant_id AND x.id=c.id
+        RETURNING x.tenant_id,x.id,x.execution_config,x.execution_handle,x.execution_backend_kind,x.provider_cleanup_attempt,
+          (SELECT jr.started_at FROM app.job_runs jr WHERE jr.tenant_id=x.tenant_id AND jr.id=x.id) started_at`, [limit]);
+      return result.rows.map(row => ({ tenantId: row.tenant_id, id: row.id, executionConfig: row.execution_config, executionHandle: row.execution_handle, backendKind: row.execution_backend_kind, startedAt: row.started_at, attempt: row.provider_cleanup_attempt }));
+    });
+  }
+
+  async completeProviderCleanup(tenantId: string, runId: string): Promise<void> {
+    await this.database.pool.query(`UPDATE app.runs SET vm_cleanup_complete=true,provider_cleanup_next_at=NULL,provider_cleanup_error=NULL,updated_at=now()
+      WHERE tenant_id=$1 AND id=$2 AND state IN ('succeeded','failed','stopped')`, [tenantId, runId]);
+  }
+
+  async retryProviderCleanup(tenantId: string, runId: string, attempt: number, error: unknown): Promise<void> {
+    const seconds = Math.min(6 * 60 * 60, 60 * 2 ** Math.min(Math.max(attempt - 1, 0), 8));
+    await this.database.pool.query(`UPDATE app.runs SET provider_cleanup_next_at=now()+make_interval(secs=>$3),provider_cleanup_error=$4,updated_at=now()
+      WHERE tenant_id=$1 AND id=$2 AND state IN ('succeeded','failed','stopped') AND NOT vm_cleanup_complete`,
+    [tenantId, runId, seconds, safeDiagnosticText(error instanceof Error ? error.message : "Execution provider cleanup failed")]);
+  }
+
+  /** Claim provider cleanup whose source job/run has already been deleted. */
+  async claimDeletedJobProviderCleanup(limit = 20): Promise<Array<{ tenantId: string; id: string; executionConfig: Record<string, any>; executionHandle: RunHandle | null; backendKind: string; startedAt: Date | null; attempt: number }>> {
+    return this.database.transaction(async client => {
+      const result = await client.query<{ tenant_id: string; run_id: string; execution_config: Record<string, any>; execution_handle: RunHandle | null; execution_backend_kind: string; started_at: Date | null; attempts: number }>(`
+        WITH candidates AS (
+          SELECT tenant_id,run_id FROM app.deleted_job_provider_cleanup
+          WHERE next_attempt_at <= now() AND (lease_expires_at IS NULL OR lease_expires_at <= now())
+          ORDER BY next_attempt_at,tenant_id,run_id LIMIT $1 FOR UPDATE SKIP LOCKED
+        )
+        UPDATE app.deleted_job_provider_cleanup q
+        SET attempts=q.attempts+1,lease_expires_at=now()+interval '10 minutes',next_attempt_at=now()+interval '10 minutes'
+        FROM candidates c WHERE q.tenant_id=c.tenant_id AND q.run_id=c.run_id
+        RETURNING q.tenant_id,q.run_id,q.execution_config,q.execution_handle,q.execution_backend_kind,q.started_at,q.attempts`, [limit]);
+      return result.rows.map(row => ({ tenantId: row.tenant_id, id: row.run_id, executionConfig: row.execution_config, executionHandle: row.execution_handle, backendKind: row.execution_backend_kind, startedAt: row.started_at, attempt: row.attempts }));
+    });
+  }
+
+  async completeDeletedJobProviderCleanup(tenantId: string, runId: string): Promise<void> {
+    await this.database.pool.query("DELETE FROM app.deleted_job_provider_cleanup WHERE tenant_id=$1 AND run_id=$2", [tenantId, runId]);
+  }
+
+  async retryDeletedJobProviderCleanup(tenantId: string, runId: string, attempt: number, error: unknown): Promise<void> {
+    const seconds = Math.min(6 * 60 * 60, 60 * 2 ** Math.min(Math.max(attempt - 1, 0), 8));
+    await this.database.pool.query(`UPDATE app.deleted_job_provider_cleanup SET next_attempt_at=now()+make_interval(secs=>$3),lease_expires_at=NULL,last_error=$4
+      WHERE tenant_id=$1 AND run_id=$2`, [tenantId, runId, seconds, safeDiagnosticText(error instanceof Error ? error.message : "Execution provider cleanup failed")]);
+  }
+
   /** Persist cleanup ownership before provisioning any external resources. */
   async recordLaunchHandle(run: PersistedRun, handle: RunHandle): Promise<void> {
     const result = await this.database.pool.query(`UPDATE app.runs x SET execution_handle=$3,updated_at=now()

@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type TouchEvent 
 import { useInfiniteQuery, useQuery, type InfiniteData } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf } from "../auth/session";
+import { RunNotFoundError } from "./queries";
 import type { operations } from "factorize-api-client";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 
@@ -44,12 +45,12 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
     initialPageParam: { mode: "recent" } as PageParam,
     queryFn: async ({ signal, pageParam }) => {
       const query = pageParam.mode === "recent" ? { recent: true, revision: pageParam.revision, limit: preview ? 20 : 100 } : { before: pageParam.cursor, revision: pageParam.revision, limit: 100 };
-      const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query } });
-      if (!data || error) throw new Error(messageOf(error));
+      const { data, error, response } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query } });
+      if (!data || error) throw response.status === 404 ? new RunNotFoundError() : new Error(messageOf(error));
       return data;
     },
     enabled: visible && !!revision, getNextPageParam: page => page.previousCursor == null ? undefined : { mode: "before", cursor: page.previousCursor, revision: page.revision } as PageParam,
-    staleTime: Infinity, retry: 1,
+    staleTime: Infinity, retry: (failureCount, error) => !(error instanceof RunNotFoundError) && failureCount < 1,
   });
   const pages = trace.data?.pages ?? [];
   const items = useMemo(() => {
@@ -72,10 +73,10 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
     queryKey: ["runs", runId, "conversation-tail", revision],
     enabled: !preview && active && visible && !!trace.data,
     queryFn: async ({ signal }) => {
-      const { data, error } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: latestSequence, revision, limit: 100 } } });
-      if (!data || error) throw new Error(messageOf(error)); return data;
+      const { data, error, response } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: latestSequence, revision, limit: 100 } } });
+      if (!data || error) throw response.status === 404 ? new RunNotFoundError() : new Error(messageOf(error)); return data;
     },
-    refetchIntervalInBackground: false, refetchInterval: query => query.state.error ? 10_000 : 2_000, retry: 1,
+    refetchIntervalInBackground: false, refetchInterval: query => query.state.error instanceof RunNotFoundError ? false : query.state.error ? 10_000 : 2_000, retry: (failureCount, error) => !(error instanceof RunNotFoundError) && failureCount < 1,
   });
   useEffect(() => { const changed = live.data?.reset ? live.data : pages.find(page => page.reset || page.revision !== revision); if (changed) onReset(changed.revision); }, [live.data, pages, revision, onReset]);
   useEffect(() => { if (live.data && !live.data.reset && live.data.revision === revision && live.data.items.length) setLiveItems(previous => [...previous, ...live.data!.items]); }, [live.data, revision]);
