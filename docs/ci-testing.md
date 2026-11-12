@@ -14,11 +14,16 @@ auditable implementation. Backend CI provisions an isolated PostgreSQL service;
 the browser job installs Chromium. A lane reports passed, failed, and unexecuted
 steps and exits nonzero on any missing prerequisite or failed step.
 
-For a fresh exe.dev VM, use Node 24.12.0 and npm 11.19.0, run `npm ci`, install PostgreSQL and
-Chromium, and run `npm run bootstrap:test`. Export its three local database
-variables before `npm test`. The bootstrap recreates only the named local
-database and applies migrations; it refuses remote database URLs. Optional
-visual screenshots and stress tests remain outside required validation.
+For a fresh exe.dev VM, boot the Factorize validation runner image described
+in [`factorize-validation-runner.md`](factorize-validation-runner.md). Run
+`scripts/smoke-validation-runner-image.sh` once after boot to check the
+PostgreSQL password over loopback and launch the matching Chromium as `exedev`
+through the non-login image environment. Then check out the repository, run
+`npm ci`, and run `npm run test:local`. The image build enables PostgreSQL for
+VM boot but does not start systemd during the build. The bootstrap recreates
+only the isolated local validation database and applies the checkout's
+migrations; it refuses remote database URLs. Optional visual screenshots and
+stress tests remain outside required validation.
 
 Screenshot regressions and the 20,000-event trace stress case are intentionally
 outside required CI. Run **Optional visual regressions** from the Actions tab.
