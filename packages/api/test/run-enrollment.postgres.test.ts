@@ -90,7 +90,7 @@ describe.skipIf(!url)("single-use run enrollments (PostgreSQL)", () => {
     const revoked = await fixture(), revokedEnrollment = await enrollment(revoked);
     await revoked.repository.revokeRun(revoked.tenantId, revoked.runId);
     await expect(revoked.service.authenticate(revokedEnrollment.token, revoked.binding, revokedEnrollment.now)).rejects.toThrow();
-    expect(await revoked.repository.authorizeRun(revoked.binding)).toBe(2);
+    expect(await revoked.repository.authorizeRun(revoked.binding)).toBeNull();
 
     const disabled = await fixture(), disabledEnrollment = await enrollment(disabled);
     await disabled.repository.setProxyState({ tenantId: disabled.tenantId, proxyIdentity: disabled.proxyIdentity, bootEpoch: disabled.bootEpoch, disabled: true });

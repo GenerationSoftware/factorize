@@ -37,8 +37,9 @@ export class RunEnrollmentRepository {
   /**
    * Authorize an active run for the current provider binding. The revision is
    * stable for repeated reconnects on the same VM/proxy boot, and advances
-   * when a run is rebound or its previous grant was revoked. Locking the run
-   * and proxy state serializes first enrollment and reconnect races.
+   * when the run is rebound to a new VM or proxy boot. A revoked grant cannot
+   * be restored on the same binding. Locking the run and proxy state
+   * serializes first enrollment and reconnect races.
    */
   async authorizeRun(binding: RunEnrollmentBinding): Promise<number | null> {
     validateBinding(binding);
@@ -53,7 +54,7 @@ export class RunEnrollmentRepository {
          WHERE tenant_id=$1 AND run_id=$2 FOR UPDATE`, [binding.tenantId, binding.runId]);
       const row = current.rows[0];
       if (row && row.vm_identity === binding.vmIdentity && row.proxy_identity === binding.proxyIdentity
-          && row.boot_epoch === binding.bootEpoch && row.revoked_at === null) return Number(row.grant_revision);
+          && row.boot_epoch === binding.bootEpoch) return row.revoked_at === null ? Number(row.grant_revision) : null;
       const grantRevision = row ? Number(row.grant_revision) + 1 : 1;
       const saved = await client.query<{ grant_revision: string | number }>(`INSERT INTO app.credential_run_grants(tenant_id,run_id,vm_identity,proxy_identity,boot_epoch,grant_revision,revoked_at)
         VALUES ($1,$2,$3,$4,$5,$6,NULL) ON CONFLICT (tenant_id,run_id) DO UPDATE
