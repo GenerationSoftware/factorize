@@ -54,6 +54,25 @@ describe("dedicated proxy boot registration endpoint", () => {
     expect((await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/status", body: { bootEpoch, unlocked: "yes" } }), env)).status).toBe(400);
   });
 
+  it("revokes delivered proxy-memory credentials for runs that ended before first tunnel enrollment", async () => {
+    const env = envFor();
+    env.query.mockImplementation(async (sql: string) => sql.includes("proxy_token_digest")
+      ? { rows: [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }], rowCount: 1 }
+      : sql.includes("FROM app.credential_run_grants")
+        ? { rows: [{ run_id: runId }], rowCount: 1 }
+        : { rows: [], rowCount: 0 });
+    const response = await proxyControlFetch(request({
+      authorization: `Bearer ${token}`,
+      path: "/internal/credential-proxy/revocations",
+      body: { bootEpoch },
+    }), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ revokedRunIds: [runId] });
+    const revocationsQuery = env.query.mock.calls.find((call: any[]) => call[0].includes("FROM app.credential_run_grants"))?.[0] as string;
+    expect(revocationsQuery).toContain("JOIN app.job_runs");
+    expect(revocationsQuery).toContain("r.state IN ('succeeded','failed','stopped')");
+  });
+
   it("rejects revoked credentials, disabled proxy identities and tenant or proxy substitution", async () => {
     for (const env of [envFor({ credentialFound: false }), envFor({ stateSaved: false })]) {
       const response = await proxyControlFetch(request({ authorization: `Bearer ${token}` }), env);

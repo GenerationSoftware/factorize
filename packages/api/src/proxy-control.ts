@@ -53,7 +53,10 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "bootEpoch")
         || typeof (body as any).bootEpoch !== "string" || (body as any).bootEpoch !== proxy.bootEpoch) return json({ error: "invalid_request" }, 400);
     const revoked = await databaseFor(env).pool.query<{ run_id: string }>(`SELECT run_id FROM app.credential_run_grants
-      WHERE tenant_id=$1 AND proxy_identity=$2 AND boot_epoch=$3 AND revoked_at IS NOT NULL ORDER BY revoked_at,run_id`,
+      WHERE tenant_id=$1 AND proxy_identity=$2 AND boot_epoch=$3 AND revoked_at IS NOT NULL
+      UNION
+      SELECT c.run_id FROM app.run_credentials c JOIN app.job_runs r ON r.tenant_id=c.tenant_id AND r.id=c.run_id
+      WHERE c.tenant_id=$1 AND r.state IN ('succeeded','failed','stopped') ORDER BY run_id`,
     [proxy.tenantId, proxy.proxyIdentity, proxy.bootEpoch]);
     return json({ revokedRunIds: revoked.rows.map(row => row.run_id) });
   }
