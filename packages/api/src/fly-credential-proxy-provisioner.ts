@@ -92,7 +92,7 @@ function validate(input: FlyCredentialProxyConfig, reviewedImage: string): void 
   if (!IMAGE_DIGEST.test(input.image)) throw new TypeError("Credential proxy image must be pinned by sha256 digest");
   if (!IMAGE_DIGEST.test(reviewedImage) || input.image !== reviewedImage) throw new TypeError("Credential proxy image must match the configured reviewed image");
   if (!/^[a-z0-9]{3}$/.test(input.region)) throw new TypeError("Invalid credential proxy region");
-  if (!/^[a-z0-9-]{1,64}$/.test(input.size)) throw new TypeError("Invalid credential proxy size");
+  if (!/^(shared-cpu|performance)-(1|2|4)x$/.test(input.size)) throw new TypeError("Invalid credential proxy size");
   if (!input.browserCapabilityPublicKey.startsWith("-----BEGIN PUBLIC KEY-----")) throw new TypeError("Proxy browser capability public key is required");
   if (input.memoryMb !== undefined && (!Number.isInteger(input.memoryMb) || input.memoryMb < 256 || input.memoryMb > 8192)) throw new TypeError("Credential proxy memory must be between 256 and 8192 MiB");
 }
@@ -113,11 +113,12 @@ export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyP
       }
       const candidateBootEpoch = (options.newBootEpoch ?? (() => crypto.randomUUID()))();
       if (!UUID_V4.test(candidateBootEpoch)) throw new TypeError("boot epoch must be a UUID v4");
+      const size = input.size.match(/^(shared-cpu|performance)-(1|2|4)x$/)!;
       const config: FlyMachineConfig = {
         image: input.image,
         region: input.region,
         cmd: ["/usr/local/bin/factorize-credential-proxy", "--boot-epoch", candidateBootEpoch],
-        guest: { cpu_kind: "shared", cpus: 1, memory_mb: input.memoryMb ?? 512 },
+        guest: { cpu_kind: size[1] === "shared-cpu" ? "shared" : "performance", cpus: Number(size[2]), memory_mb: input.memoryMb ?? 512 },
         env: {
           FACTORIZE_PROXY_TUNNEL_SERVER_NAME: `${input.app}.internal`,
           FACTORIZE_PROXY_TUNNEL_PORT: "9090",

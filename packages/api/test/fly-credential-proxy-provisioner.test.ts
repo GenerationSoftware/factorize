@@ -81,7 +81,7 @@ describe("Fly credential proxy startup", () => {
     expect(config).toMatchObject({
       image: input.image,
       region: "ord",
-      guest: { cpu_kind: "shared", cpus: 1, memory_mb: 2048 },
+      guest: { cpu_kind: "performance", cpus: 2, memory_mb: 2048 },
       auto_start: false,
       auto_stop: false,
       restart: { policy: "no" },
@@ -181,6 +181,12 @@ describe("Fly credential proxy startup", () => {
     await expect(provisioner.start({ ...input, image: "ghcr.io/example/proxy:latest" })).rejects.toThrow("pinned by sha256 digest");
     await expect(provisioner.start({ ...input, controlOrigin: "http://factorize.example" })).rejects.toThrow("HTTPS origin");
     await expect(provisioner.start({ ...input, app: "invalid/app" })).rejects.toThrow("Fly app name");
+    expect(machines.createMachine).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported Fly sizes before provisioning", async () => {
+    const { machines, provisioner } = fixture();
+    await expect(provisioner.start({ ...input, size: "custom-3x" })).rejects.toThrow("Invalid credential proxy size");
     expect(machines.createMachine).not.toHaveBeenCalled();
   });
 
