@@ -63,8 +63,11 @@ test("device authorization runs as a separate cancellable login process", async 
     const helper = createCodexAuthHelper({ accountHomeRoot: directory, spawnProcess: fake.spawnProcess });
     const result = await helper.invoke({ method: "device-login", accountId: accountA });
     assert.equal(result.state, "pending");
+    assert.deepEqual(result.challenge, {});
     assert.deepEqual(fake.calls.map(call => call.args), [["--version"], ["login", "--device-auth"]]);
     assert.equal(fake.calls[1].options.env.CODEX_HOME, join(directory, accountA));
+    fake.children[1].stdout.write("Open this URL in your browser: https://auth.openai.com/codex/device\nEnter user code: abcd-1234\n");
+    assert.deepEqual(result.challenge, { verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-1234" });
     assert.deepEqual(await helper.invoke({ method: "cancel", accountId: accountA }), { state: "canceled" });
     await assert.rejects(result.completion, /stopped/);
     assert.deepEqual(await helper.invoke({ method: "cancel", accountId: accountA }), { state: "idle" });
