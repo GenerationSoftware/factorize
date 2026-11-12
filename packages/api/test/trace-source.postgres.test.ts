@@ -241,11 +241,39 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     const sweep = new RunRetentionRepository(database).sweep(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000), 10);
     const [appendResult, sweepResult] = await Promise.allSettled([append, sweep]);
 
-    expect(sweepResult).toMatchObject({ status: "fulfilled", value: { deleted: 1 } });
+    expect(sweepResult.status).toBe("fulfilled");
     if (appendResult.status === "rejected") expect(String(appendResult.reason)).toContain("Trace run not found");
     else expect(appendResult.value).toMatchObject({ duplicate: false, events: 1 });
+    // Retention intentionally skips a candidate locked by ingestion so one
+    // busy run cannot stall the batch. A later alarm must finish that cleanup.
+    const remaining = await database.pool.query("SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    if (remaining.rowCount) await expect(new RunRetentionRepository(database).sweep(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000), 10)).resolves.toMatchObject({ deleted: 1 });
     expect((await database.pool.query("SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows).toHaveLength(0);
     expect((await database.pool.query("SELECT run_id FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2 UNION ALL SELECT run_id FROM app.run_trace_chunks WHERE tenant_id=$1 AND run_id=$2 UNION ALL SELECT run_id FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId])).rows).toHaveLength(0);
+  });
+
+  it("makes a replay racing retention observe the expired run without recreating replay history", async () => {
+    const f = await fixture("claude");
+    const { job_id: jobId, invocation_id: invocationId } = (await database.pool.query("SELECT job_id,invocation_id FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
+    await database.pool.query("UPDATE app.runs SET state='succeeded',vm_cleanup_complete=true,artifact_state='stored',created_at=now()-interval '15 days' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await database.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'succeeded','test')", [f.tenantId, f.runId, jobId, invocationId]);
+
+    const owner = await database.pool.connect();
+    await owner.query("BEGIN");
+    try {
+      await owner.query("SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [f.tenantId, f.runId]);
+      const replay = replayTrace(f.env, f.tenantId, "owner", f.runId, { requestId: crypto.randomUUID(), source: "primary" });
+      await new Promise(resolve => setTimeout(resolve, 25));
+      await owner.query("DELETE FROM app.invocations WHERE tenant_id=$1 AND id=$2", [f.tenantId, invocationId]);
+      await owner.query("COMMIT");
+
+      await expect(replay).rejects.toMatchObject({ status: 404, code: "not_found" });
+      expect((await database.pool.query("SELECT 1 FROM app.trace_replay_operations WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId])).rowCount).toBe(0);
+      expect((await database.pool.query("SELECT 1 FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId])).rowCount).toBe(0);
+    } finally {
+      await owner.query("ROLLBACK").catch(() => undefined);
+      owner.release();
+    }
   });
 
   it.each(["codex", "claude"] as const)("reconciles %s durable bytes, preserves native audit data, and rejects late chunks", async provider => {
