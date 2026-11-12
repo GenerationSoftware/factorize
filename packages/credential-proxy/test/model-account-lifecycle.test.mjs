@@ -111,3 +111,42 @@ test("deletion invalidates a retry and removes the account cache", async t => {
   await assert.rejects(readFile(join(f.home, "auth.json")), { code: "ENOENT" });
   assert.ok(f.methods.includes("logout"));
 });
+
+test("unlock reconciliation restores the encrypted Codex cache before checking account status", async t => {
+  const persisted = new TextEncoder().encode(JSON.stringify({ tokens: { access_token: "restored-access", refresh_token: "restored-refresh" } }));
+  const encryptedPayload = `cache.${Buffer.from(persisted).toString("base64")}`;
+  const f = await fixture(t, { options: {
+    getEncryptedCache: async id => ({
+      accountId: id, ownerId: "owner", keyGeneration: "generation", revision: 8, encryptedPayload,
+    }),
+    decryptCache: async (payload, key, binding) => {
+      assert.equal(payload, encryptedPayload);
+      assert.equal(key, "synthetic-unlock-key");
+      assert.deepEqual(binding, {
+        ownerId: "owner", recordId: accountId, recordType: "model", destination: "factorize",
+        revision: 8, keyGeneration: "generation",
+      });
+      return new Uint8Array(persisted);
+    },
+  } });
+
+  assert.deepEqual(await f.lifecycle.reconcile(accountId), { state: "saved" });
+  assert.deepEqual(JSON.parse(await readFile(join(f.home, "auth.json"), "utf8")), {
+    tokens: { access_token: "restored-access", refresh_token: "restored-refresh" },
+  });
+  assert.ok(f.methods.indexOf("account-status") > -1);
+  assert.equal(f.events.find(event => event.type === "persist").request.expectedRevision, 4);
+});
+
+test("unlock reconciliation removes stale cache when the account key generation changed", async t => {
+  const f = await fixture(t, { options: {
+    getEncryptedCache: async id => ({
+      accountId: id, ownerId: "owner", keyGeneration: "old-generation", revision: 8, encryptedPayload: "cache.payload",
+    }),
+    decryptCache: async () => { throw new Error("must not decrypt stale cache"); },
+  } });
+
+  assert.deepEqual(await f.lifecycle.reconcile(accountId), { state: "reauthentication-required" });
+  await assert.rejects(readFile(join(f.home, "auth.json")), { code: "ENOENT" });
+  assert.equal(f.methods.includes("account-status"), false);
+});
