@@ -4,11 +4,10 @@ import { Page } from "../../shared/ui";
 import { NavIcon } from "../../shared/nav-icon";
 import { projectQuery } from "./queries";
 
-type ProjectTab = "jobs" | "runs" | "settings";
+type ProjectTab = "jobs" | "settings";
 
-const tabs: Array<{ id: ProjectTab; label: string; to: "/projects/$projectId" | "/projects/$projectId/runs" | "/projects/$projectId/settings"; icon: React.ReactNode }> = [
+const tabs: Array<{ id: ProjectTab; label: string; to: "/projects/$projectId" | "/projects/$projectId/settings"; icon: React.ReactNode }> = [
   { id: "jobs", label: "Jobs", to: "/projects/$projectId", icon: <NavIcon name="jobs" /> },
-  { id: "runs", label: "Runs", to: "/projects/$projectId/runs", icon: <NavIcon name="runs" /> },
   { id: "settings", label: "Settings", to: "/projects/$projectId/settings", icon: <NavIcon name="settings" /> },
 ];
 
@@ -24,7 +23,7 @@ export function ProjectNav({ tab, projectId: projectIdProp, children }: { tab: P
       </div>
     </nav>
     <Page className="pt-6 sm:pt-8">
-      <h1 className="sr-only">{project.data?.name ?? "Project"} {tab === "jobs" ? "jobs" : tab === "runs" ? "runs" : "settings"}</h1>
+      <h1 className="sr-only">{project.data?.name ?? "Project"} {tab === "jobs" ? "runs" : "settings"}</h1>
       {project.isPending && <p role="status">Loading project…</p>}{project.error && <p role="alert">{project.error.message}</p>}
       {children}
     </Page>

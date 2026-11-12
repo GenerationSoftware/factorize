@@ -9,7 +9,7 @@ vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 const url = process.env.AUTH_TEST_DATABASE_URL;
 describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
-  it("authenticates, navigates a project's jobs, invokes once, refreshes the run and resets a projected trace", async () => {
+  it("authenticates, navigates a project's runs, invokes once, refreshes the run and resets a projected trace", async () => {
     const f = await loadingFixture(url!), browser = await chromium.launch({ headless: true });
     const failures: string[] = [], calls: string[] = [];
     try {
@@ -71,7 +71,9 @@ describe.skipIf(!url)("compiled React + actual Worker API + PostgreSQL", () => {
       expect(await page.getByRole("link", { name: "Factorize", exact: true }).count()).toBe(0);
       expect(await page.locator("html").getAttribute("data-theme")).toBe("light");
       expect(await page.locator("body").evaluate((element: any) => (globalThis as any).getComputedStyle(element).backgroundColor)).toBe("rgb(252, 251, 246)");
-      await page.getByRole("link", { name: "Job-1", exact: true }).click();
+      expect(await page.getByRole("navigation", { name: "Project navigation" }).getByRole("link", { name: "Runs", exact: true }).count()).toBe(0);
+      await page.getByRole("link", { name: "Job-0", exact: true }).first().waitFor();
+      await page.goto(`https://factorize.test/jobs/${f.jobIds[1]}`);
       await page.getByRole("button", { name: "More run options", exact: true }).click();
       await page.getByRole("menuitem", { name: "Run with prompt", exact: true }).click();
       await page.getByLabel("Prompt", { exact: true }).fill("Real invocation");
