@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { FlyJobExecutionBackend } from "../src/fly-job-execution-backend";
+import { agentDriver } from "../src/agent-driver";
 
 const machine = { id: "machine-1", state: "created" };
 function fixture() {
@@ -37,6 +38,31 @@ describe("Fly job execution backend", () => {
     expect(f.guest.run).toHaveBeenNthCalledWith(2, ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"], expect.stringContaining('"script":"echo ok"'));
     expect(receipt).toMatchObject({ handle: { backendKind: "fly", id: "factorize-test/machine-1" }, observation: { state: "running" } });
     expect(JSON.stringify(f.machines.createMachine.mock.calls)).not.toContain("echo ok");
+  });
+
+  it("uses the selected custom image, region, and size for Codex launches", async () => {
+    const f = fixture();
+    const backend = new FlyJobExecutionBackend({
+      app: "factorize-test", image: "registry.example/factorize-codex:reviewed",
+      region: "ord", size: "performance-2x", machines: f.machines, guest: () => f.guest,
+    });
+    const runId = "11111111-1111-4111-8111-111111111111";
+    const harness = agentDriver("codex").launch(runId, { model: "gpt-5.5" });
+
+    const receipt = await backend.launch({ runId, prompt: "continue", harness });
+
+    expect(f.machines.createMachine).toHaveBeenCalledWith("factorize-test", expect.objectContaining({
+      image: "registry.example/factorize-codex:reviewed",
+      region: "ord",
+      guest: { cpu_kind: "performance", cpus: 2, memory_mb: 2048 },
+      auto_start: false,
+      restart: { policy: "no" },
+    }), runId);
+    expect(f.guest.run).toHaveBeenLastCalledWith(
+      ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"],
+      expect.stringContaining('"executable":"codex"'),
+    );
+    expect(receipt.observation).toMatchObject({ state: "running" });
   });
 
   it("retains provider cleanup ownership when guest startup fails", async () => {
