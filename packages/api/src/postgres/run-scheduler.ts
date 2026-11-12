@@ -23,6 +23,10 @@ import { LiveTraceRepository } from "./live-trace-repository";
 import { JOB_RESULT_INSTRUCTIONS, parseJobResult } from "../job-result";
 import { issueRunCredential, runProxyInstructions } from "../run-credentials";
 import { ProxyLaunchBlockedError, proxyLaunchDecision, requireProxyLaunch } from "../proxy-launch-policy";
+import { FlyConnectionRepository } from "./fly-connection-repository";
+import { FlyExecutionConfigurationRepository } from "./fly-execution-configuration-repository";
+import { createFlyMachinesClient } from "../fly-machines-client";
+import { FlyJobExecutionBackend, flyJobGuest } from "../fly-job-execution-backend";
 
 export class RunScheduler {
   private runs: RunRepository;
@@ -119,6 +123,26 @@ export class RunScheduler {
   }
   private async backend(run: PersistedRun): Promise<ExecutionBackend> {
     const id = String(run.executionConfig.connectionId ?? "");
+    if (run.backendKind === "fly" || run.executionConfig.executionProvider === "fly") {
+      const [connection, configuration] = await Promise.all([
+        new FlyConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).token(),
+        new FlyExecutionConfigurationRepository(this.database, run.tenantId).get(id),
+      ]);
+      if (!connection) throw new Error("Fly connection is unavailable");
+      if (!configuration) throw new Error("Fly execution configuration is unavailable");
+      const { rows } = await this.database.pool.query<{ proxy_identity: string }>(
+        "SELECT proxy_identity FROM app.credential_proxy_states WHERE tenant_id=$1 AND disabled_at IS NULL AND revoked_at IS NULL",
+        [run.tenantId],
+      );
+      const proxy = /^fly:([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])):[^:]+$/.exec(rows[0]?.proxy_identity ?? "");
+      if (!proxy) throw new Error("A registered Fly credential proxy is unavailable for this tenant");
+      const app = proxy[1]!;
+      const machines = createFlyMachinesClient({ token: connection });
+      return new FlyJobExecutionBackend({
+        app, image: configuration.image, region: configuration.region, size: configuration.size,
+        machines, guest: machine => flyJobGuest({ app, machine: machine.id, token: connection }),
+      });
+    }
     const kind = run.executionConfig.backendKind ?? (run.executionConfig.agentKind === "Amp" ? "amp" : "exe-vm");
     if (kind === "amp") { const connection = await this.connections(run).get<AmpConnection>(`amp:${id}`); if (!connection) throw new Error("Amp connection is unavailable"); return new AmpBackend(connection); }
     if (kind !== "exe-vm") throw new Error(`Unsupported execution backend: ${String(kind)}`);

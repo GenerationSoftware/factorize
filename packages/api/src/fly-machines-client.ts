@@ -129,6 +129,11 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
   }
 
   return {
+    /** Resolve a previously persisted provisional run handle after a scheduler restart. */
+    findMachineByOperationId(app: string, operationId: string): Promise<FlyMachine | undefined> {
+      if (!operationId || operationId.length > 200) throw new TypeError("operationId must contain 1 to 200 characters");
+      return findByOperationId(app, operationId);
+    },
     async createMachine(app: string, config: FlyMachineConfig, operationId: string): Promise<FlyMachine> {
       if (!operationId || operationId.length > 200) throw new TypeError("operationId must contain 1 to 200 characters");
       const existing = await findByOperationId(app, operationId);

@@ -4,13 +4,17 @@ import { FlyJobExecutionBackend } from "../src/fly-job-execution-backend";
 const machine = { id: "machine-1", state: "created" };
 function fixture() {
   const machines = {
+    findMachineByOperationId: vi.fn(async () => machine),
     createMachine: vi.fn(async () => machine),
     inspectMachine: vi.fn(async () => machine),
     startMachine: vi.fn(async () => undefined),
     stopMachine: vi.fn(async () => undefined),
     destroyMachine: vi.fn(async () => undefined),
   };
-  const guest = { run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "started\n", stderr: "" })) };
+  const guest = {
+    run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "started\n", stderr: "" })),
+    download: vi.fn(async (path: string) => new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "saved log")),
+  };
   const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest });
   return { backend, machines, guest };
 }
@@ -41,5 +45,28 @@ describe("Fly job execution backend", () => {
     f.machines.inspectMachine.mockResolvedValue({ ...machine, state: "stopped" });
     await expect(f.backend.stop({ backendKind: "fly", id: "factorize-test/machine-1" })).resolves.toEqual({ state: "stopped" });
     expect(f.machines.destroyMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
+  });
+
+  it("collects structured results and logs through the guest transport", async () => {
+    const f = fixture(), handle = { backendKind: "fly", id: "factorize-test/machine-1" };
+    await expect(f.backend.readJobResult(handle)).resolves.toBe('{"status":"succeeded"}');
+    await expect(f.backend.readHarnessLog(handle)).resolves.toBe("saved log");
+    expect(f.guest.download).toHaveBeenCalledWith("/home/exedev/.factorize-job/results.json");
+  });
+
+  it("terminates a run without destroying its Machine before collection", async () => {
+    const f = fixture(), handle = { backendKind: "fly", id: "factorize-test/machine-1" };
+    f.machines.inspectMachine.mockResolvedValueOnce({ ...machine, state: "started" }).mockResolvedValueOnce({ ...machine, state: "stopped" });
+    await expect(f.backend.terminate(handle)).resolves.toEqual({ state: "stopped" });
+    expect(f.machines.stopMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
+    expect(f.machines.destroyMachine).not.toHaveBeenCalled();
+  });
+
+  it("resolves a persisted provisional operation handle after scheduler recovery", async () => {
+    const f = fixture(), runId = "11111111-1111-4111-8111-111111111111";
+    const handle = f.backend.reserve!(runId);
+    await expect(f.backend.inspect(handle)).resolves.toEqual({ state: "starting" });
+    expect(f.machines.findMachineByOperationId).toHaveBeenCalledWith("factorize-test", runId);
+    expect(f.machines.inspectMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
   });
 });
