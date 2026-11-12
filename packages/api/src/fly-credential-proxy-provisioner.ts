@@ -143,17 +143,17 @@ export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyP
       };
       const machine = await options.machines.createMachine(input.app, config, input.operationId);
       if (!machine.id) throw new Error("Fly returned a credential proxy Machine without an id");
-      const bootEpoch = machine.config?.metadata?.factorize_boot_epoch ?? candidateBootEpoch;
-      if (!UUID_V4.test(bootEpoch)) throw new Error("Fly returned a credential proxy Machine with an invalid boot epoch");
-      const proxyIdentity = `fly:${input.app}:${machine.id}`;
-      const bootstrap = {
-        tenantId: input.tenantId,
-        proxyIdentity,
-        bootEpoch,
-        controlOrigin: origin.origin,
-        browserOrigin: `https://${input.app}.fly.dev`,
-      };
       try {
+        const bootEpoch = machine.config?.metadata?.factorize_boot_epoch ?? candidateBootEpoch;
+        if (!UUID_V4.test(bootEpoch)) throw new Error("Fly returned a credential proxy Machine with an invalid boot epoch");
+        const proxyIdentity = `fly:${input.app}:${machine.id}`;
+        const bootstrap = {
+          tenantId: input.tenantId,
+          proxyIdentity,
+          bootEpoch,
+          controlOrigin: origin.origin,
+          browserOrigin: `https://${input.app}.fly.dev`,
+        };
         await provisionCredentialProxy(bootstrap, {
           control: options.control,
           startProxy: async (request) => {
@@ -163,13 +163,13 @@ export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyP
             await options.guest(machine).startProxy(request);
           },
         });
+        return { proxyIdentity, bootEpoch, machine };
       } catch (error) {
         // Preserve the sanitized original provisioning failure while making a
         // best-effort cleanup of a machine that never completed startup.
         await options.machines.destroyMachine(input.app, machine.id).catch(() => undefined);
         throw error;
       }
-      return { proxyIdentity, bootEpoch, machine };
     },
   };
 }

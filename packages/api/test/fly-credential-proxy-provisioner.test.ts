@@ -91,6 +91,20 @@ describe("Fly credential proxy startup", () => {
     expect(machines.destroyMachine).toHaveBeenCalledWith(input.app, machine.id);
   });
 
+  it("removes a created Machine when Fly returns an invalid boot epoch", async () => {
+    const f = fixture();
+    f.machines.createMachine.mockResolvedValue({
+      ...machine,
+      config: { metadata: { factorize_boot_epoch: "not-a-uuid" } },
+    } as any);
+
+    await expect(f.provisioner.start(input)).rejects.toThrow("invalid boot epoch");
+
+    expect(f.machines.destroyMachine).toHaveBeenCalledWith(input.app, machine.id);
+    expect(f.control.provisionCredential).not.toHaveBeenCalled();
+    expect(f.guest).not.toHaveBeenCalled();
+  });
+
   it("revokes bootstrap authority and attempts Machine cleanup when explicit start fails", async () => {
     const f = fixture();
     const startupFailure = new Error("local Fly fixture start failed");
