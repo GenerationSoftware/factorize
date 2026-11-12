@@ -98,11 +98,42 @@ describe("Fly credential proxy startup", () => {
       config: { metadata: { factorize_boot_epoch: "not-a-uuid" } },
     } as any);
 
-    await expect(f.provisioner.start(input)).rejects.toThrow("invalid boot epoch");
+    await expect(f.provisioner.start(input)).rejects.toThrow("mismatched provisioning identity");
 
     expect(f.machines.destroyMachine).toHaveBeenCalledWith(input.app, machine.id);
     expect(f.control.provisionCredential).not.toHaveBeenCalled();
     expect(f.guest).not.toHaveBeenCalled();
+  });
+
+  it("rejects a valid but different returned boot epoch before granting bootstrap authority", async () => {
+    const f = fixture();
+    f.machines.createMachine.mockResolvedValue({
+      ...machine,
+      config: { metadata: { factorize_boot_epoch: "22222222-2222-4222-8222-222222222222" } },
+    } as any);
+
+    await expect(f.provisioner.start(input)).rejects.toThrow("mismatched provisioning identity");
+
+    expect(f.control.provisionCredential).not.toHaveBeenCalled();
+    expect(f.guest).not.toHaveBeenCalled();
+    expect(f.machines.destroyMachine).toHaveBeenCalledWith(input.app, machine.id);
+  });
+
+  it("rejects returned tenant or operation metadata that belongs to another provisioning request", async () => {
+    for (const metadata of [
+      { factorize_boot_epoch: epoch, factorize_tenant_id: "another-tenant" },
+      { factorize_boot_epoch: epoch, factorize_operation_id: "another-operation" },
+      { factorize_boot_epoch: epoch, factorize_role: "job" },
+    ]) {
+      const f = fixture();
+      f.machines.createMachine.mockResolvedValue({ ...machine, config: { metadata } } as any);
+
+      await expect(f.provisioner.start(input)).rejects.toThrow("mismatched provisioning identity");
+
+      expect(f.control.provisionCredential).not.toHaveBeenCalled();
+      expect(f.guest).not.toHaveBeenCalled();
+      expect(f.machines.destroyMachine).toHaveBeenCalledWith(input.app, machine.id);
+    }
   });
 
   it("revokes bootstrap authority and attempts Machine cleanup when explicit start fails", async () => {
