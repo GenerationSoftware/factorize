@@ -81,14 +81,15 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
       if (!keyState.rows[0]) return json({ error: "model_account_unavailable" }, 404);
       return json({ ownerId: proxy.tenantId, account: { ...account, keyGeneration: keyState.rows[0].generation_id } });
     }
-    if (input.operation !== "save" || Object.keys(input).sort().join(",") !== "accountId,encryptedPayload,expectedRevision,idempotencyKey,operation"
+    if (input.operation !== "save" || Object.keys(input).sort().join(",") !== "accountId,encryptedPayload,expectedRevision,idempotencyKey,keyGeneration,operation"
         || typeof input.accountId !== "string" || !uuid.test(input.accountId)
+        || typeof input.keyGeneration !== "string" || !uuid.test(input.keyGeneration)
         || typeof input.idempotencyKey !== "string" || !uuid.test(input.idempotencyKey)
         || !Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0
         || typeof input.encryptedPayload !== "string") return json({ error: "invalid_request" }, 400);
     try {
       const saved = await new EncryptedIntegrationRepository(databaseFor(env), proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).saveModelCache({
-        id: input.accountId, expectedRevision: input.expectedRevision as number,
+        id: input.accountId, expectedRevision: input.expectedRevision as number, keyGeneration: input.keyGeneration,
         idempotencyKey: input.idempotencyKey, encryptedPayload: input.encryptedPayload,
       });
       return json({ ...saved, accountId: input.accountId });

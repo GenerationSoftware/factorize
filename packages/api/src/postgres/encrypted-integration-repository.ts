@@ -187,15 +187,17 @@ export class EncryptedIntegrationRepository {
    * revision is independent of the collection revision, so unrelated bearer
    * edits do not invalidate the cache's authenticated-encryption binding.
    */
-  async saveModelCache(input: { id: string; expectedRevision: number; encryptedPayload: string; idempotencyKey: string }): Promise<{ revision: number; collectionRevision: number; duplicate: boolean }> {
+  async saveModelCache(input: { id: string; expectedRevision: number; keyGeneration: string; encryptedPayload: string; idempotencyKey: string }): Promise<{ revision: number; collectionRevision: number; duplicate: boolean }> {
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuid.test(input.id) || !uuid.test(input.idempotencyKey) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0
+    if (!uuid.test(input.id) || !uuid.test(input.idempotencyKey) || !uuid.test(input.keyGeneration) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0
         || !isUserCiphertext(input.encryptedPayload)) throw new IntegrationValidationError("model cache binding is invalid");
     const encryptedPayload = await encrypt(input.encryptedPayload, this.serverEncryptionKey);
     return this.database.transaction(async client => {
       await client.query("INSERT INTO app.integration_collections(tenant_id) VALUES ($1) ON CONFLICT DO NOTHING", [this.tenantId]);
       const collection = (await client.query<{ revision: string | number }>("SELECT revision FROM app.integration_collections WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0]!;
       const currentCollectionRevision = safeRevision(collection.revision);
+      const keyState = (await client.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0];
+      if (!keyState || keyState.generation_id !== input.keyGeneration) throw new StaleIntegrationRevisionError(currentCollectionRevision);
       const current = (await client.query<{ kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string | null; deleted_at: Date | null }>(
         "SELECT kind,name,origin,description,revision,encrypted_payload,deleted_at FROM app.integration_records WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, input.id])).rows[0];
       if (!current || current.kind !== "model" || current.deleted_at || current.revision === null) throw new IntegrationValidationError("model account is unavailable");

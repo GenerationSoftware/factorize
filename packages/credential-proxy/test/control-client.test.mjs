@@ -65,18 +65,24 @@ test("proxy snapshot reader requests only the bound run revision and validates e
 test("model account persistence adapter lists owner-bound account revisions over proxy authentication", async () => {
   const ownerId = "11111111-1111-4111-8111-111111111111";
   let request;
+  const keyGeneration = "22222222-2222-4222-8222-222222222222";
+  const accountId = "33333333-3333-4333-8333-333333333333";
   const adapter = createModelAccountPersistenceAdapter({
     controlOrigin: "https://factorize.example", controlCredential: token, ownerId,
     fetchImpl: async (url, init) => {
       request = { url: String(url), init, body: JSON.parse(init.body) };
-      return Response.json({ ownerId, keyGeneration: "22222222-2222-4222-8222-222222222222",
-        accounts: [{ id: "33333333-3333-4333-8333-333333333333", kind: "model", origin: null, revision: 4 }] });
+      if (request.body.operation === "save") return Response.json({ accountId, revision: 5, collectionRevision: 9, duplicate: false });
+      if (request.body.operation === "read") return Response.json({ ownerId, account: { id: accountId, kind: "model", origin: null, revision: 4, encryptedPayload: "ciphertext", keyGeneration } });
+      return Response.json({ ownerId, keyGeneration, accounts: [{ id: accountId, kind: "model", origin: null, revision: 4 }] });
     },
   });
-  assert.deepEqual(await adapter.listAccounts(), [{ id: "33333333-3333-4333-8333-333333333333", kind: "model", origin: null, revision: 4, ownerId, keyGeneration: "22222222-2222-4222-8222-222222222222" }]);
+  assert.deepEqual(await adapter.listAccounts(), [{ id: accountId, kind: "model", origin: null, revision: 4, ownerId, keyGeneration }]);
   assert.equal(request.url, "https://factorize.example/internal/credential-proxy/model-account-cache");
   assert.deepEqual(request.body, { operation: "list" });
   assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
+  await adapter.persistEncrypted({ id: accountId, expectedRevision: 4, keyGeneration, encryptedPayload: "ciphertext", idempotencyKey: "44444444-4444-4444-8444-444444444444" });
+  assert.deepEqual(request.body, { operation: "save", accountId, expectedRevision: 4, keyGeneration, encryptedPayload: "ciphertext", idempotencyKey: "44444444-4444-4444-8444-444444444444" });
+  await assert.rejects(adapter.persistEncrypted({ id: accountId, expectedRevision: 4, encryptedPayload: "ciphertext", idempotencyKey: "44444444-4444-4444-8444-444444444444" }), /invalid encrypted model account update/);
   await assert.rejects(adapter.listAccounts && createModelAccountPersistenceAdapter({
     controlOrigin: "https://factorize.example", controlCredential: token, ownerId,
     fetchImpl: async () => Response.json({ ownerId: "22222222-2222-4222-8222-222222222222", keyGeneration: "22222222-2222-4222-8222-222222222222", accounts: [] }),

@@ -142,11 +142,11 @@ export function createModelAccountPersistenceAdapter({ controlOrigin, controlCre
       const account = await read(accountId);
       return { accountId, ownerId, keyGeneration: account.keyGeneration, revision: account.revision, encryptedPayload: account.encryptedPayload };
     },
-    async persistEncrypted({ id, expectedRevision, encryptedPayload, idempotencyKey }) {
+    async persistEncrypted({ id, expectedRevision, keyGeneration, encryptedPayload, idempotencyKey }) {
       if (!uuidPattern.test(id ?? "") || !uuidPattern.test(idempotencyKey ?? "") || !Number.isSafeInteger(expectedRevision)
-          || typeof encryptedPayload !== "string" || encryptedPayload.length > 65_536) throw new TypeError("invalid encrypted model account update");
+          || !uuidPattern.test(keyGeneration ?? "") || typeof encryptedPayload !== "string" || encryptedPayload.length > 65_536) throw new TypeError("invalid encrypted model account update");
       const result = await proxyControlRequest({ controlOrigin, token: controlCredential, path: "/internal/credential-proxy/model-account-cache",
-        body: { operation: "save", accountId: id, expectedRevision, encryptedPayload, idempotencyKey }, fetchImpl });
+        body: { operation: "save", accountId: id, expectedRevision, keyGeneration, encryptedPayload, idempotencyKey }, fetchImpl });
       if (result?.accountId !== id || result.revision !== expectedRevision + 1 || typeof result.duplicate !== "boolean") {
         throw new Error("invalid model account persistence response");
       }
