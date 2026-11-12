@@ -122,6 +122,23 @@ test("refresh re-encrypts against a newer account revision after a concurrent ed
   assert.deepEqual(encryptions.map(event => event.binding.revision), [5, 6]);
 });
 
+test("refresh does not retry a stale cache write after the unlock-key generation rotates", async t => {
+  let generation = "generation";
+  const f = await fixture(t, {
+    getAccount: () => ({ ...account, keyGeneration: generation }),
+    persistEncrypted: async () => {
+      generation = "rotated-generation";
+      const error = new Error("stale model account revision");
+      error.code = "stale_revision";
+      throw error;
+    },
+  });
+
+  await assert.rejects(f.lifecycle.refresh(accountId), /changed before token persistence/);
+  assert.equal(f.saves, 1);
+  assert.deepEqual(f.events.filter(event => event.type === "encrypt").map(event => event.binding.keyGeneration), ["generation"]);
+});
+
 test("deletion invalidates a retry and removes the account cache", async t => {
   let release;
   const waiting = new Promise(resolve => { release = resolve; });
