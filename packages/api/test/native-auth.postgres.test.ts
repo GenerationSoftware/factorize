@@ -9,6 +9,7 @@ import { protectedApiFetch } from "../src/protected-api";
 import { tokenDigest } from "../src/auth";
 import { hmac } from "../src/crypto";
 import { WebhookService } from "../src/postgres/webhook-service";
+import { RunRetentionRepository } from "../src/postgres/run-retention-repository";
 import { signSetupState } from "../src/github";
 import app, { readSession, signSession } from "../src/index";
 import type { Env } from "../src/types";
@@ -256,6 +257,24 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect((await app.request(`/auth/linear/callback?code=code&state=${expired}`, { headers: { Cookie: `${session.cookie}; linear_oauth_state=${expired}` } }, env)).status).toBe(400);
     expect(await readSession(session.cookie.slice("factorize_session=".length), env.SESSION_SIGNING_SECRET)).toMatchObject({ tenantId: session.tenantId });
   });
+  it("retains in-progress webhook deliveries and expires completed delivery history with its events", async () => {
+    const user = await verified();
+    const session = await sessionFor(user.email);
+    const receivedId = crypto.randomUUID();
+    const completedId = crypto.randomUUID();
+    await db.pool.query(`INSERT INTO app.webhook_deliveries(tenant_id,id,provider,delivery_id,outcome,detail,received_at)
+      VALUES ($1,$2,'linear','retention:received','received','processing',now()-interval '15 days'),
+             ($1,$3,'linear','retention:completed','accepted','complete',now()-interval '15 days')`, [session.tenantId, receivedId, completedId]);
+    await db.pool.query(`INSERT INTO app.webhook_delivery_events(tenant_id,id,delivery_id,outcome,detail,created_at)
+      VALUES ($1,$2,$3,'accepted','complete',now()-interval '15 days')`, [session.tenantId, crypto.randomUUID(), completedId]);
+
+    await new RunRetentionRepository(db).cleanupIndependentHistory();
+
+    expect((await db.pool.query("SELECT outcome FROM app.webhook_deliveries WHERE tenant_id=$1 AND id=$2", [session.tenantId, receivedId])).rows).toEqual([{ outcome: "received" }]);
+    expect((await db.pool.query("SELECT 1 FROM app.webhook_deliveries WHERE tenant_id=$1 AND id=$2", [session.tenantId, completedId])).rowCount).toBe(0);
+    expect((await db.pool.query("SELECT 1 FROM app.webhook_delivery_events WHERE tenant_id=$1 AND delivery_id=$2", [session.tenantId, completedId])).rowCount).toBe(0);
+  });
+
   it("fails closed on missing Postmark configuration and allows retry after delivery failure", async () => {
     const broken = new AuthRepository(db, { ...env, POSTMARK_SERVER_TOKEN: undefined });
     await expect(broken.signup({ email: "config@example.test", password })).rejects.toThrow("Authentication email requires");
