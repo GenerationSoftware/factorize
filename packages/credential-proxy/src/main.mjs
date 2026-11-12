@@ -132,8 +132,13 @@ lines.on("line", async (line) => {
     else if (command?.type === "unlock") {
       runtime.unlock(command.key);
       if (modelAccountLifecycle && modelAccounts) {
-        const accounts = await modelAccounts.listAccounts();
-        for (const account of accounts) await modelAccountLifecycle.reconcile(account.id);
+        try {
+          const accounts = await modelAccounts.listAccounts();
+          await modelAccountLifecycle.reconcileAll(accounts);
+        } catch (error) {
+          await runtime.lock();
+          throw error;
+        }
       }
       respondStatus();
     } else if (command?.type === "lock") {
