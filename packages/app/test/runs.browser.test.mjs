@@ -8,7 +8,7 @@ const jobId = "00000000-0000-4000-8000-000000000001", projectId = "00000000-0000
 const siblingRunId = "00000000-0000-4000-8000-000000000004";
 before(async () => { server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } }); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
-async function setup() { const context = await browser.newContext(), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
+async function setup(locale = "en-US") { const context = await browser.newContext({ locale }), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
 test("individual run keeps its parent project and job navigation context", async () => {
   const { context, page } = await setup();
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Review builds", run_name: "Project run", state: "succeeded", finalizing: false, trace_revision: "rev", artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
@@ -377,4 +377,102 @@ test("continuous trace virtualizes 20k groups, deduplicates IDs and mounts tool 
   const elapsedMs = Number((performance.now() - started).toFixed(1));
   console.log(JSON.stringify({ fixtureEvents: 20000, mountedGroups: profile.groups, mountedEventBodies: profile.events, estimatedUnvirtualizedGroups: 20000, initialLoadAndScrollMs: elapsedMs, traceRequests }));
   await context.close();
+});
+test("run table metadata widths stay fixed across filters, pages, locale content, and viewport sizes", async () => {
+  const { context, page } = await setup();
+  const states = ["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "ignored", "done"];
+  const longRunName = "A representative exceptionally long run name that must truncate within its shared Run column";
+  const longFailure = "A long failure summary that must stay clipped to the Run column without pushing metadata aside";
+  const fresh = new Date().toISOString();
+  const old = "2020-01-02T15:04:00.000Z";
+  await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: projectId, name: "A very long representative project name", description: "", jobCount: 1 }] }));
+  await page.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [{ id: jobId, name: "A very long representative job name", projectId, runningCount: 0 }], nextCursor: null } }));
+  await page.route("**/api/v1/runs?**", route => {
+    const url = new URL(route.request().url()), pageTwo = url.searchParams.has("cursor");
+    const empty = url.searchParams.getAll("state").includes("ignored");
+    const item = pageTwo
+      ? { id: siblingRunId, run_name: longRunName, state: "failed", failure: { reason: longFailure }, elapsed_time: { low: 3599, high: 3720 }, created_at: old }
+      : { id: runId, run_name: longRunName, state: "running", elapsed_time: { duration: 359999999 }, created_at: fresh };
+    const itemRows = pageTwo ? [item] : [item, { id: "00000000-0000-4000-8000-000000000005", run_name: "Short duration run", state: "done", elapsed_time: { duration: 59 }, created_at: fresh }, { id: "00000000-0000-4000-8000-000000000006", run_name: "Missing elapsed run", state: "queued", created_at: fresh }];
+    return route.fulfill({ json: { items: empty ? [] : itemRows.map(run => ({ ...run, project_id: projectId, project_name: "A very long representative project name", job_id: jobId, job_name: "A very long representative job name", agent_kind: "codex" })), nextCursor: pageTwo || empty ? null : "second-page" } });
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(origin + "/job-runs");
+  const region = page.getByRole("region", { name: "Job runs table" }), table = region.getByRole("table");
+  await table.getByRole("link", { name: longRunName }).waitFor();
+  await table.getByText("99999h 59m", { exact: true }).waitFor();
+  await table.getByText("59s", { exact: true }).waitFor();
+  await table.getByText("—", { exact: true }).waitFor();
+  const widths = async () => table.locator("thead th").evaluateAll(headers => headers.map(cell => Math.round(cell.getBoundingClientRect().width)));
+  const baselineWidths = await widths();
+  assert.equal(baselineWidths[0], 120, "Status is fixed at its 7.5rem measured envelope");
+  assert.equal(baselineWidths[4], 160, "Elapsed is fixed at its 10rem measured envelope");
+  assert.equal(baselineWidths[5], 208, "Created is fixed at its 13rem measured envelope");
+  assert.ok(baselineWidths[3] >= 150, "Run retains a useful share after bounded project and job columns");
+  assert.ok(await table.locator("thead th").evaluateAll(cells => cells.every(cell => getComputedStyle(cell).textAlign === "left")));
+  const evidenceDir = "/home/exedev/.factorize-job/GEN-2919";
+  if (process.env.GEN_2919_CAPTURE_EVIDENCE === "1") { await mkdir(evidenceDir, { recursive: true }); await page.screenshot({ path: `${evidenceDir}/all-runs-wide.png`, fullPage: true }); }
+  const row = table.locator("tbody tr").first(), runLink = row.getByRole("link", { name: longRunName });
+  assert.ok(await runLink.evaluate(node => node.clientWidth < node.scrollWidth), "long run names truncate inside Run");
+  assert.equal(await row.locator("td").nth(4).getAttribute("title"), "99999h 59m");
+  assert.ok(await row.locator("td").nth(4).locator("span").evaluate(node => node.clientWidth >= node.scrollWidth), "large hour counts inside the representative envelope fit");
+  const createdValue = row.locator("time");
+  assert.ok(await createdValue.evaluate(node => node.clientWidth >= node.scrollWidth), "the English full timestamp fits in Created");
+  assert.equal(await createdValue.getAttribute("title"), await createdValue.textContent());
+  await page.getByRole("button", { name: /Run, not sorted/ }).click();
+  await page.waitForURL("**/job-runs?sort=run&direction=asc");
+  assert.deepEqual(await widths(), baselineWidths, "sorting and row updates do not change any column width");
+  await page.getByRole("link", { name: "Next page" }).click();
+  await table.getByText("59m 59s–1h 2m", { exact: true }).waitFor();
+  assert.deepEqual(await widths(), baselineWidths, "paging to a long range and failure summary does not change column widths");
+  assert.ok(await table.locator("tbody tr").first().getByRole("link", { name: longRunName }).evaluate(node => node.clientWidth < node.scrollWidth));
+  assert.equal(await table.locator("tbody tr").first().locator("td").nth(4).getAttribute("title"), "59m 59s–1h 2m");
+
+  const statusWidths = [];
+  for (const direction of ["asc", "desc"]) {
+    const query = new URLSearchParams([...[...states].map(state => ["states", state]), ["sort", "status"], ["direction", direction]]);
+    await page.goto(`${origin}/job-runs?${query}`);
+    await table.getByRole("button", { name: /Status, 11 statuses selected/ }).waitFor();
+    const header = table.locator("thead th").first();
+    statusWidths.push(await header.evaluate(node => ({ width: Math.round(node.getBoundingClientRect().width), client: node.clientWidth, scroll: node.scrollWidth, height: node.getBoundingClientRect().height })));
+    assert.ok(await header.locator("button").evaluate(node => node.clientWidth >= node.scrollWidth), `maximum Status label and ${direction} arrow fit without clipping`);
+    assert.deepEqual(await widths(), baselineWidths, "the 11-status count and either sort arrow keep every column width stable");
+  }
+  assert.deepEqual(statusWidths[0], statusWidths[1], "either sort arrow keeps Status width stable");
+  await page.goto(`${origin}/job-runs?states=ignored`);
+  await table.getByText("No runs match the selected statuses.", { exact: true }).waitFor();
+  assert.deepEqual(await widths(), baselineWidths, "an empty filter result keeps the same column widths");
+
+  const frenchContext = await browser.newContext({ locale: "fr-FR" }), french = await frenchContext.newPage();
+  french.setDefaultTimeout(10000); await french.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } }));
+  await french.route(`**/api/v1/jobs/${jobId}`, route => route.fulfill({ json: { id: jobId, name: "Job", enabled: true, model: "", agentKind: "codex", concurrencyLimit: 1, runningCount: 0, promptTemplate: "Prompt", triggers: [] } }));
+  await french.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [{ id: runId, run_name: longRunName, state: "succeeded", elapsed_time: { low: 3599, high: 3720 }, created_at: old, agent_kind: "codex" }], nextCursor: null } }));
+  await french.setViewportSize({ width: 390, height: 844 }); await french.goto(origin + `/jobs/${jobId}`);
+  await french.getByRole("region", { name: "Runs table" }).getByRole("link", { name: longRunName }).waitFor();
+  const history = french.getByRole("region", { name: "Runs table" }), historyTable = history.getByRole("table");
+  const overflow = await history.evaluate(node => ({ pageWidth: document.documentElement.scrollWidth, viewport: document.documentElement.clientWidth, shellWidth: node.clientWidth, tableWidth: node.querySelector("table").scrollWidth }));
+  assert.ok(overflow.pageWidth <= overflow.viewport, "narrow run history scrolling stays inside its table shell");
+  assert.ok(overflow.tableWidth > overflow.shellWidth, "narrow run history keeps a horizontally scrollable table");
+  assert.ok(await historyTable.locator("thead th").evaluateAll(cells => cells.every(cell => getComputedStyle(cell).textAlign === "left")));
+  assert.equal(await historyTable.locator("td time").getAttribute("title"), await historyTable.locator("td time").textContent());
+  assert.ok(await historyTable.locator("td time").evaluate(node => node.clientWidth >= node.scrollWidth), "the French full timestamp fits in Created");
+  assert.ok(await historyTable.locator("td").nth(2).locator("span").evaluate(node => node.clientWidth >= node.scrollWidth), "the representative elapsed range fits in Elapsed");
+  if (process.env.GEN_2919_CAPTURE_EVIDENCE === "1") { await mkdir(evidenceDir, { recursive: true }); await french.screenshot({ path: `${evidenceDir}/job-history-narrow-fr-FR.png`, fullPage: true }); }
+
+  const projectPage = await context.newPage();
+  await projectPage.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } }));
+  await projectPage.route(`**/api/v1/projects/${projectId}`, route => route.fulfill({ json: { id: projectId, name: "Project", description: "", jobCount: 1 } }));
+  await projectPage.route("**/api/v1/job-summaries?**", route => route.fulfill({ json: { items: [{ id: jobId, name: "Job", projectId, runningCount: 0 }], nextCursor: null } }));
+  await projectPage.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [{ id: runId, project_id: projectId, project_name: "Project", job_id: jobId, job_name: "Job", run_name: longRunName, state: "failed", failure: { reason: longFailure }, elapsed_time: { low: 3599, high: 3720 }, created_at: old, agent_kind: "codex" }], nextCursor: null } }));
+  await projectPage.setViewportSize({ width: 1440, height: 900 }); await projectPage.goto(origin + `/projects/${projectId}`);
+  const projectTable = projectPage.getByRole("region", { name: "Job runs table" }).getByRole("table"); await projectTable.getByRole("link", { name: longRunName }).waitFor();
+  const projectWidths = await projectTable.locator("thead th").evaluateAll(headers => headers.map(cell => Math.round(cell.getBoundingClientRect().width)));
+  assert.deepEqual([projectWidths[0], projectWidths[3], projectWidths[4]], [120, 160, 208]); assert.ok(projectWidths[2] >= 150);
+  if (process.env.GEN_2919_CAPTURE_EVIDENCE === "1") { await mkdir(evidenceDir, { recursive: true }); await projectPage.screenshot({ path: `${evidenceDir}/project-runs-wide.png`, fullPage: true }); }
+  await projectPage.setViewportSize({ width: 390, height: 844 });
+  const projectShell = projectPage.getByRole("region", { name: "Job runs table" });
+  const projectOverflow = await projectShell.evaluate(node => ({ page: document.documentElement.scrollWidth, viewport: document.documentElement.clientWidth, shell: node.clientWidth, table: node.querySelector("table").scrollWidth }));
+  assert.ok(projectOverflow.page <= projectOverflow.viewport, "narrow project run scrolling stays inside its table shell"); assert.ok(projectOverflow.table > projectOverflow.shell);
+  if (process.env.GEN_2919_CAPTURE_EVIDENCE === "1") { await projectPage.screenshot({ path: `${evidenceDir}/project-runs-narrow.png`, fullPage: true }); }
+  await projectPage.close(); await french.close(); await frenchContext.close(); await context.close();
 });
