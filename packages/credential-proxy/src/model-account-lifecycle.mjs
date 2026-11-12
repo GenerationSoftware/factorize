@@ -1,4 +1,5 @@
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join, resolve, sep } from "node:path";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,12 +28,22 @@ export function createModelAccountLifecycle({
   sleep = ms => new Promise(resolveSleep => setTimeout(resolveSleep, ms)),
   removeCache = rm,
   readCache = readFile,
+  writeCache = writeFile,
+  makeDirectory = mkdir,
+  replaceFile = rename,
+  getEncryptedCache,
+  decryptCache,
 } = {}) {
   if (!authHelper || typeof authHelper.invoke !== "function" || typeof getUnlockKey !== "function"
       || typeof getAccount !== "function" || typeof encryptCache !== "function" || typeof persistEncrypted !== "function"
       || !Array.isArray(retryDelaysMs) || retryDelaysMs.length > 5
       || retryDelaysMs.some(ms => !Number.isSafeInteger(ms) || ms < 0 || ms > 30_000)) {
     throw new TypeError("model account lifecycle configuration is invalid");
+  }
+  if ((getEncryptedCache === undefined) !== (decryptCache === undefined)
+      || (getEncryptedCache !== undefined && typeof getEncryptedCache !== "function")
+      || (decryptCache !== undefined && typeof decryptCache !== "function")) {
+    throw new TypeError("model account cache restoration configuration is invalid");
   }
 
   const generations = new Map();
@@ -132,11 +143,57 @@ export function createModelAccountLifecycle({
     });
   }
 
+  async function restore(id) {
+    if (!getEncryptedCache || !decryptCache) throw new Error("model account cache restoration is unavailable");
+    const account = await getAccount(id);
+    if (!account || account.id !== id || account.kind !== "model" || !Number.isSafeInteger(account.revision)
+        || typeof account.ownerId !== "string" || !account.ownerId || typeof account.keyGeneration !== "string" || !account.keyGeneration) {
+      await removeCache(resolve(accountHomeRoot, id), { recursive: true, force: true });
+      return { state: "reauthentication-required" };
+    }
+    const encrypted = await getEncryptedCache(id);
+    if (!encrypted || encrypted.accountId !== id || encrypted.ownerId !== account.ownerId
+        || encrypted.keyGeneration !== account.keyGeneration || !Number.isSafeInteger(encrypted.revision)
+        || typeof encrypted.encryptedPayload !== "string") {
+      await removeCache(resolve(accountHomeRoot, id), { recursive: true, force: true });
+      return { state: "reauthentication-required" };
+    }
+    const unlockKey = await getUnlockKey();
+    if (typeof unlockKey !== "string" || !unlockKey) throw new Error("proxy is locked");
+    let plain;
+    try {
+      plain = await decryptCache(encrypted.encryptedPayload, unlockKey, {
+        ownerId: account.ownerId,
+        recordId: id,
+        recordType: "model",
+        destination: "factorize",
+        revision: encrypted.revision,
+        keyGeneration: account.keyGeneration,
+      });
+      if (!(plain instanceof Uint8Array) || plain.byteLength === 0 || plain.byteLength > 65_536) {
+        throw new Error("restored Codex token cache is invalid");
+      }
+      const destination = cachePath(accountHomeRoot, id);
+      await makeDirectory(resolve(accountHomeRoot, id), { recursive: true, mode: 0o700 });
+      const temporary = `${destination}.${randomUUID()}.tmp`;
+      try {
+        await writeCache(temporary, plain, { mode: 0o600, flag: "wx" });
+        await replaceFile(temporary, destination);
+      } finally {
+        await rm(temporary, { force: true });
+      }
+    } finally {
+      plain?.fill(0);
+    }
+    return { state: "restored", revision: encrypted.revision };
+  }
+
   return Object.freeze({
     deviceLogin,
     cancel,
     refresh,
     deleteAccount,
+    restore,
     isUnsaved: id => unsaved.has(id),
     /** Invoke after encrypted snapshots are reconciled at unlock. */
     reconcile: async id => serialize(id, async () => {
@@ -144,6 +201,10 @@ export function createModelAccountLifecycle({
         await removeCache(resolve(accountHomeRoot, id), { recursive: true, force: true });
         unsaved.delete(id);
         return { state: "deleted" };
+      }
+      if (getEncryptedCache) {
+        const restored = await restore(id);
+        if (restored.state !== "restored") return restored;
       }
       const result = await authHelper.invoke({ method: "account-status", accountId: id });
       return result.state === "authenticated" ? persist(id, currentGeneration(id)) : { state: "reauthentication-required" };
