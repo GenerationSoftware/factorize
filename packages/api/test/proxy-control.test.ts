@@ -79,6 +79,8 @@ describe("dedicated proxy boot registration endpoint", () => {
     const env = envFor();
     env.transactionQuery.mockImplementation(async (sql: string) => sql.includes("SELECT g.grant_revision")
       ? { rows: [{ grant_revision: 3 }], rowCount: 1 }
+      : sql.includes("INSERT INTO app.credential_run_grants")
+        ? { rows: [{ grant_revision: 3 }], rowCount: 1 }
       : { rows: [], rowCount: 1 });
     const response = await proxyControlFetch(request({
       authorization: `Bearer ${token}`,
@@ -89,6 +91,7 @@ describe("dedicated proxy boot registration endpoint", () => {
     expect(await response.json()).toMatchObject({ grantRevision: 3, enrollmentId: expect.any(String), token: expect.any(String) });
     expect(env.query).toHaveBeenCalled();
     expect(env.query.mock.calls.some((call: any[]) => call[0].includes("FROM app.run_credentials"))).toBe(true);
+    expect(env.transactionQuery.mock.calls.some((call: any[]) => call[0].includes("INSERT INTO app.credential_run_grants"))).toBe(true);
     expect(env.transactionQuery.mock.calls[0][0]).toContain("JOIN app.credential_proxy_states");
   });
 

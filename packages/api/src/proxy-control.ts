@@ -147,7 +147,12 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     }), env);
     if (!runAuth || !runAuth.runId || runAuth.runId !== (body as any).runId || runAuth.tenantId !== proxy.tenantId
         || !runAuth.scopes.includes("integrations:read")) return json({ error: "enrollment_unavailable" }, 403);
-    const enrollment = await enrollments.issue({ tenantId: proxy.tenantId, runId: runAuth.runId, vmIdentity: (body as any).vmIdentity, proxyIdentity: proxy.proxyIdentity, bootEpoch: proxy.bootEpoch }, new Date(Date.now() + 30_000));
+    const binding = { tenantId: proxy.tenantId, runId: runAuth.runId, vmIdentity: (body as any).vmIdentity, proxyIdentity: proxy.proxyIdentity, bootEpoch: proxy.bootEpoch };
+    // This is the production grant-creation path. Authenticate the active run
+    // before binding it to its provider VM, and make reconnect authorization
+    // idempotent for the same VM and proxy boot while advancing stale bindings.
+    if (await enrollments.authorizeRun(binding) === null) return json({ error: "enrollment_unavailable" }, 403);
+    const enrollment = await enrollments.issue(binding, new Date(Date.now() + 30_000));
     return enrollment ? json(enrollment) : json({ error: "enrollment_unavailable" }, 403);
   }
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !["runId", "vmIdentity", "enrollmentToken"].includes(key))
