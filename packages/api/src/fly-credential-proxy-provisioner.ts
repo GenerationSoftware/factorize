@@ -145,11 +145,15 @@ export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyP
       if (!machine.id) throw new Error("Fly returned a credential proxy Machine without an id");
       try {
         const metadata = machine.config?.metadata;
-        const bootEpoch = metadata?.factorize_boot_epoch ?? candidateBootEpoch;
-        if (!UUID_V4.test(bootEpoch) || bootEpoch !== candidateBootEpoch
-            || (metadata?.factorize_role !== undefined && metadata.factorize_role !== "credential-proxy")
-            || (metadata?.factorize_tenant_id !== undefined && metadata.factorize_tenant_id !== input.tenantId)
-            || (metadata?.factorize_operation_id !== undefined && metadata.factorize_operation_id !== input.operationId)) {
+        const bootEpoch = metadata?.factorize_boot_epoch;
+        // The create response is the identity boundary for this Machine. Do not
+        // infer missing identity from the request: Fly may have reconciled an
+        // older or foreign Machine for the same operation key, and bootstrap
+        // authority must only be issued after all returned bindings match.
+        if (!metadata || !UUID_V4.test(bootEpoch ?? "") || bootEpoch !== candidateBootEpoch
+            || metadata.factorize_role !== "credential-proxy"
+            || metadata.factorize_tenant_id !== input.tenantId
+            || metadata.factorize_operation_id !== input.operationId) {
           throw new Error("Fly returned a credential proxy Machine with mismatched provisioning identity");
         }
         const proxyIdentity = `fly:${input.app}:${machine.id}`;

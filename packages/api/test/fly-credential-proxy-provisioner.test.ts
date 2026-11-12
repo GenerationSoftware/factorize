@@ -2,7 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import { createFlyCredentialProxyProvisioner, createFlyCredentialProxyGuest } from "../src/fly-credential-proxy-provisioner";
 
 const epoch = "11111111-1111-4111-8111-111111111111";
-const machine = { id: "machine-1", state: "created" };
+const machine = {
+  id: "machine-1",
+  state: "created",
+  config: { metadata: {
+    factorize_role: "credential-proxy",
+    factorize_tenant_id: "11111111-1111-4111-8111-111111111112",
+    factorize_operation_id: "tenant-proxy-start-1",
+    factorize_boot_epoch: "11111111-1111-4111-8111-111111111111",
+  } },
+};
 const input = {
   tenantId: "11111111-1111-4111-8111-111111111112",
   app: "factorize-proxies",
@@ -95,7 +104,7 @@ describe("Fly credential proxy startup", () => {
     const f = fixture();
     f.machines.createMachine.mockResolvedValue({
       ...machine,
-      config: { metadata: { factorize_boot_epoch: "not-a-uuid" } },
+      config: { metadata: { ...machine.config.metadata, factorize_boot_epoch: "not-a-uuid" } },
     } as any);
 
     await expect(f.provisioner.start(input)).rejects.toThrow("mismatched provisioning identity");
@@ -109,7 +118,7 @@ describe("Fly credential proxy startup", () => {
     const f = fixture();
     f.machines.createMachine.mockResolvedValue({
       ...machine,
-      config: { metadata: { factorize_boot_epoch: "22222222-2222-4222-8222-222222222222" } },
+      config: { metadata: { ...machine.config.metadata, factorize_boot_epoch: "22222222-2222-4222-8222-222222222222" } },
     } as any);
 
     await expect(f.provisioner.start(input)).rejects.toThrow("mismatched provisioning identity");
@@ -121,11 +130,26 @@ describe("Fly credential proxy startup", () => {
 
   it("rejects returned tenant or operation metadata that belongs to another provisioning request", async () => {
     for (const metadata of [
-      { factorize_boot_epoch: epoch, factorize_tenant_id: "another-tenant" },
-      { factorize_boot_epoch: epoch, factorize_operation_id: "another-operation" },
-      { factorize_boot_epoch: epoch, factorize_role: "job" },
+      { ...machine.config.metadata, factorize_tenant_id: "another-tenant" },
+      { ...machine.config.metadata, factorize_operation_id: "another-operation" },
+      { ...machine.config.metadata, factorize_role: "job" },
     ]) {
       const f = fixture();
+      f.machines.createMachine.mockResolvedValue({ ...machine, config: { metadata } } as any);
+
+      await expect(f.provisioner.start(input)).rejects.toThrow("mismatched provisioning identity");
+
+      expect(f.control.provisionCredential).not.toHaveBeenCalled();
+      expect(f.guest).not.toHaveBeenCalled();
+      expect(f.machines.destroyMachine).toHaveBeenCalledWith(input.app, machine.id);
+    }
+  });
+
+  it("fails closed when Fly omits any returned provisioning identity metadata", async () => {
+    for (const key of ["factorize_boot_epoch", "factorize_role", "factorize_tenant_id", "factorize_operation_id"]) {
+      const f = fixture();
+      const metadata = { ...machine.config.metadata };
+      delete (metadata as Record<string, string>)[key];
       f.machines.createMachine.mockResolvedValue({ ...machine, config: { metadata } } as any);
 
       await expect(f.provisioner.start(input)).rejects.toThrow("mismatched provisioning identity");
