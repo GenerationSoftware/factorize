@@ -49,6 +49,18 @@ async function waitForServer(child, port) {
   throw new Error("Fly guest helper did not listen");
 }
 
+async function waitForProxyUnlock(port) {
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/integrations`, { signal: AbortSignal.timeout(250) });
+      if (response.ok && (await response.json()).state === "unlocked") return;
+    } catch {}
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  throw new Error("proxy did not refresh its scoped grants after unlock");
+}
+
 test("generated Fly guest helper forwards through identity-bound mTLS and rejects another VM binding", { timeout: 10_000 }, async () => {
   let observedAuthorization;
   const upstream = createHttpsServer({ key, cert }, (request, response) => {
@@ -295,6 +307,7 @@ test("locked scoped run reconnects with its current grant while another VM stays
     selectedCredential = "updated-current-scoped-bearer";
     Object.assign(record, await recordFor(selectedCredential));
     runtime.unlock(unlockKey);
+    await waitForProxyUnlock(helperPort);
     const reconnected = await fetch(`http://127.0.0.1:${helperPort}/integrations/${integrationId}/after-reconnect`);
     assert.equal(reconnected.status, 200);
     assert.equal(await reconnected.text(), "scoped-e2e-ok");
