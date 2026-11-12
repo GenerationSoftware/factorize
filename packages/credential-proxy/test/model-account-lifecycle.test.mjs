@@ -158,6 +158,34 @@ test("deletion invalidates a retry and removes the account cache", async t => {
   assert.ok(f.methods.includes("logout"));
 });
 
+test("reset snapshot invalidates a refresh cache write already in flight", async t => {
+  let release;
+  let entered;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  const f = await fixture(t, {
+    persistEncrypted: async () => {
+      entered();
+      await waiting;
+      const error = new Error("stale model account revision");
+      error.code = "stale_revision";
+      throw error;
+    },
+  });
+
+  const refreshing = f.lifecycle.refresh(accountId);
+  await started;
+  const resetting = f.lifecycle.reconcileAll([]);
+  await new Promise(resolve => setImmediate(resolve));
+  release();
+
+  await assert.rejects(refreshing, /changed before token persistence/);
+  assert.deepEqual(await resetting, { removed: [accountId], accounts: [] });
+  assert.equal(f.saves, 1);
+  await assert.rejects(readFile(join(f.home, "auth.json")), { code: "ENOENT" });
+  assert.ok(f.methods.includes("logout"));
+});
+
 test("deletion racing pending device login prevents a late authorization from restoring its cache", async t => {
   let complete;
   const f = await fixture(t, { completion: new Promise(resolve => { complete = resolve; }) });
