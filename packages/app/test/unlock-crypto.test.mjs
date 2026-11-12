@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createUnlockVerification, decryptRecord, encryptAfterUnlockVerification, encryptRecord, generateUnlockKey, verifyUnlockKey } from "../src/lib/unlock-crypto.ts";
+import { createUnlockVerification, decryptRecord, encryptAfterUnlockVerification, encryptModelAccountCacheRecord, encryptRecord, generateUnlockKey, verifyUnlockKey } from "../src/lib/unlock-crypto.ts";
 
 const key = "fzk1.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 const binding = { ownerId: "owner-vector", recordId: "record-vector", recordType: "integration", destination: "https://api.example.test", revision: 7 };
@@ -23,6 +23,25 @@ test("fresh nonces make repeated encryptions differ", async () => {
   ]);
   assert.notEqual(first.nonce, second.nonce);
   assert.notEqual(first.ciphertext, second.ciphertext);
+});
+
+test("initial model-account cache uses the proxy key-generation and record-revision binding", async () => {
+  const unlockKey = generateUnlockKey(), modelBinding = {
+    ownerId: "owner-a", recordId: "11111111-1111-4111-8111-111111111111", recordType: "model",
+    destination: "factorize", keyGeneration: "22222222-2222-4222-8222-222222222222", revision: 4,
+  };
+  const encrypted = await encryptModelAccountCacheRecord(encoder.encode("{}"), unlockKey, modelBinding);
+  const [nonce, ciphertext] = encrypted.split(".").map(value => Uint8Array.from(atob(value), char => char.charCodeAt(0)));
+  const raw = Uint8Array.from(atob(unlockKey.slice(5).replaceAll("-", "+").replaceAll("_", "/") + "="), char => char.charCodeAt(0));
+  try {
+    const material = await crypto.subtle.importKey("raw", raw, "HKDF", false, ["deriveKey"]);
+    const aes = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: encoder.encode("factorize.unlock-key.v1"), info: encoder.encode("factorize.record.aes-256-gcm.v1") }, material, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    const aad = encoder.encode(JSON.stringify(["factorize-record-v1", modelBinding.ownerId, modelBinding.recordId, "model", "factorize", modelBinding.keyGeneration, modelBinding.revision]));
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce, additionalData: aad, tagLength: 128 }, aes, ciphertext);
+    assert.equal(new TextDecoder().decode(plain), "{}");
+    const staleAad = encoder.encode(JSON.stringify(["factorize-record-v1", modelBinding.ownerId, modelBinding.recordId, "model", "factorize", modelBinding.keyGeneration, modelBinding.revision + 1]));
+    await assert.rejects(crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce, additionalData: staleAad, tagLength: 128 }, aes, ciphertext));
+  } finally { raw.fill(0); }
 });
 
 test("wrong key and every authenticated binding change fail closed", async () => {

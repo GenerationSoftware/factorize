@@ -77,6 +77,33 @@ export class EncryptedIntegrationRepository {
     return rows.length ? safeRevision(rows[0]!.revision) : 0;
   }
 
+  /** Recognize an exact retry before collection-level create checks run. */
+  async replay(input: IntegrationWrite): Promise<{ revision: number; duplicate: true } | null> {
+    validate(input);
+    const { rows } = await this.database.pool.query<StoredChange>("SELECT revision,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId, input.idempotencyKey]);
+    const row = rows[0];
+    if (!row) return null;
+    const sameCiphertext = row.encrypted_payload === null
+      ? input.operation === "delete" && input.encryptedPayload === undefined
+      : input.operation === "upsert" && typeof input.encryptedPayload === "string" && await decrypt(row.encrypted_payload, this.serverEncryptionKey) === input.encryptedPayload;
+    if (row.record_id !== input.id || row.kind !== input.kind || row.name !== input.name || row.origin !== input.origin
+        || row.description !== input.description || row.operation !== input.operation || !sameCiphertext) {
+      throw new IntegrationIdempotencyConflictError();
+    }
+    return { revision: safeRevision(row.revision), duplicate: true };
+  }
+
+  /** Recognize a delete retry after its active record has already become a tombstone. */
+  async replayDelete(id: string, kind: EncryptedIntegrationKind, idempotencyKey: string): Promise<{ revision: number; duplicate: true } | null> {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuid.test(id) || !uuid.test(idempotencyKey)) throw new IntegrationValidationError("id and idempotencyKey must be UUIDs");
+    const { rows } = await this.database.pool.query<StoredChange>("SELECT revision,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId, idempotencyKey]);
+    const row = rows[0];
+    if (!row) return null;
+    if (row.record_id !== id || row.kind !== kind || row.operation !== "delete" || row.encrypted_payload !== null) throw new IntegrationIdempotencyConflictError();
+    return { revision: safeRevision(row.revision), duplicate: true };
+  }
+
   async write(input: IntegrationWrite): Promise<{ revision: number; duplicate: boolean }> {
     validate(input);
     const encryptedPayload = input.operation === "upsert" ? await encrypt(input.encryptedPayload!, this.serverEncryptionKey) : null;

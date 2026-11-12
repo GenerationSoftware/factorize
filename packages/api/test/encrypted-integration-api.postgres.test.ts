@@ -76,6 +76,43 @@ describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (Po
     } finally { await f.cleanup(); }
   });
 
+  it("creates and deletes model accounts through owner-only revision-checked writes", async () => {
+    const f = await loadingFixture(databaseUrl!);
+    try {
+      const path = f.env.APP_ORIGIN + "/api/v1/model-accounts", id = crypto.randomUUID();
+      const request = (url: string, method = "GET", body?: unknown, cookie = f.cookie) => worker.fetch(new Request(url, {
+        method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }), f.env, { waitUntil() {} } as any);
+      const ciphertext = await userEncrypt("{}"), createBody = {
+        id, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), name: "Work account",
+        description: "Personal subscription", encryptedPayload: ciphertext,
+      };
+      const created = await request(path, "POST", createBody);
+      expect(created.status).toBe(201);
+      expect(await created.json()).toEqual({ revision: 1, duplicate: false });
+      expect(await (await request(path, "POST", createBody)).json()).toEqual({ revision: 1, duplicate: true });
+
+      const listed = await request(path);
+      expect(listed.status).toBe(200);
+      expect(await listed.json()).toEqual({ revision: 1, accounts: [{ id, name: "Work account", description: "Personal subscription", revision: 1 }] });
+
+      const stale = await request(path + `/${id}`, "DELETE", { expectedRevision: 0, idempotencyKey: crypto.randomUUID() });
+      expect(stale.status).toBe(409);
+      expect((await stale.json() as any).error.code).toBe("stale_revision");
+
+      const deleteBody = { expectedRevision: 1, idempotencyKey: crypto.randomUUID() };
+      const deleted = await request(path + `/${id}`, "DELETE", deleteBody);
+      expect(deleted.status).toBe(200);
+      expect(await deleted.json()).toEqual({ id, deleted: true, revision: 2, duplicate: false });
+      expect(await (await request(path + `/${id}`, "DELETE", deleteBody)).json()).toEqual({ id, deleted: true, revision: 2, duplicate: true });
+      expect(await (await request(path)).json()).toEqual({ revision: 2, accounts: [] });
+
+      const agent = await protectedApiFetch(new Request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...createBody, id: crypto.randomUUID() }) }), f.env, { tenantId: f.tenantId, userId: f.userId, sessionVersion: 0, scopes: ["integrations:write"], authMethod: "access_token" } as any, {} as any);
+      expect(agent.status).toBe(403);
+    } finally { await f.cleanup(); }
+  });
+
   it("requires a browser session and isolates records across tenants", async () => {
     const f = await loadingFixture(databaseUrl!);
     try {

@@ -591,8 +591,50 @@ export class ApiService {
   }
   async listModelAccounts() {
     await this.authorizeOwnerSession("integrations:read");
-    const accounts = await this.encryptedIntegrations().records("model");
-    return { accounts: accounts.map(({ id, name, description, revision }) => ({ id, name, description, revision })) };
+    const repository = this.encryptedIntegrations();
+    const [revision, accounts] = await Promise.all([repository.revision(), repository.records("model")]);
+    return { revision, accounts: accounts.map(({ id, name, description, revision }) => ({ id, name, description, revision })) };
+  }
+  private async modelAccountWrite(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; description: string | null; encryptedPayload?: string; operation: "upsert" | "delete" }) {
+    try { return await this.encryptedIntegrations().write({ ...input, kind: "model", origin: null }); }
+    catch (error) {
+      if (error instanceof StaleIntegrationRevisionError) throw new ServiceError(409, "stale_revision", `The model account collection changed. Current revision is ${error.currentRevision}.`);
+      if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different model account change.");
+      if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
+      throw error;
+    }
+  }
+  async createModelAccount(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; description: string | null; encryptedPayload: string }) {
+    await this.authorizeOwnerSession("integrations:write");
+    const repository = this.encryptedIntegrations();
+    try {
+      const replay = await repository.replay({ ...input, kind: "model", origin: null, operation: "upsert" });
+      if (replay) return replay;
+    } catch (error) {
+      if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different model account change.");
+      if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
+      throw error;
+    }
+    if ((await repository.records()).some(record => record.id === input.id)) throw new ServiceError(409, "conflict", "An integration with this id already exists.");
+    return this.modelAccountWrite({ ...input, operation: "upsert" });
+  }
+  async deleteModelAccount(id: string, input: { expectedRevision: number; idempotencyKey: string }) {
+    await this.authorizeOwnerSession("integrations:write");
+    const repository = this.encryptedIntegrations();
+    const existing = (await repository.records("model")).find(record => record.id === id);
+    if (!existing) {
+      try {
+        const replay = await repository.replayDelete(id, "model", input.idempotencyKey);
+        if (replay) return { id, deleted: true as const, ...replay };
+      } catch (error) {
+        if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different model account change.");
+        if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
+        throw error;
+      }
+      throw new ServiceError(404, "not_found", "Model account not found.");
+    }
+    const result = await this.modelAccountWrite({ id, name: existing.name, description: existing.description, ...input, operation: "delete" });
+    return { id, deleted: true as const, ...result };
   }
   async removeTailIntegration(id: string) { await this.authorize("integrations:write"); if (!await this.connections().delete(`cloudflare-tail:${id}`)) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
   async linearProjects() { await this.authorize("integrations:read"); return publicValue(z.array(namedOption), await this.providers().linearProjects()); }
