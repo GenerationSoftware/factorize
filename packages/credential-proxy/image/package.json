@@ -1,0 +1,8 @@
+{
+  "name": "factorize-credential-proxy-image-tools",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@openai/codex": "0.167.1"
+  }
+}

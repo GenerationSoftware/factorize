@@ -31,12 +31,20 @@ authenticated Machine exec channel and remain in proxy memory. Neither user
 unlock keys nor integration credentials belong in image build arguments, image
 configuration, guest environment variables, or launch payloads.
 
-The repository does not contain a credential-proxy OCI image recipe or its image
-publishing workflow. Local package inspection and the simulator tests therefore
-do not prove that a reviewed image can be rebuilt from this repository. The
-digest check verifies deployment configuration only; image provenance, runtime
-base-image contents, and live Fly networking remain unverified until that
-packaging source is available and separately validated.
+The minimal credential-proxy OCI recipe is `packages/credential-proxy/Dockerfile`.
+It pins the Node 24.12.0 multi-platform manifest digest, installs the
+authentication-only Codex CLI 0.167.1 from a checked-in lockfile, copies only
+proxy runtime source, and runs as the unprivileged `node` user. Build locally
+without publishing using `scripts/build-credential-proxy-image.sh`; Docker
+Buildx emits an OCI archive with max-mode provenance and an SBOM under
+`~/.factorize-job/credential-proxy-image/`, alongside a compact JSON summary
+binding the archive digest to the source commit, base digest, and Codex version.
+The OCI archive and generated provenance are inspectable/rebuildable artifacts;
+this repository deliberately has no publishing workflow, and this local recipe
+does not establish that any production digest has been published or approved.
+The provisioner's reviewed-digest configuration must still be updated through
+the separate release process after image review. Live Fly networking also
+remains unverified.
 
 Local coverage is split across fixtures to avoid repeating full application
 startup: `packages/credential-proxy/test/fly-guest-helper.e2e.test.mjs` executes
@@ -44,6 +52,9 @@ the generated guest helper against an mTLS proxy and local HTTPS upstream and
 rejects a mismatched VM binding; `proxy-listener.e2e.test.mjs` checks per-VM
 reflection, locked access, configured-origin forwarding, redirect rejection,
 interrupted writes, and reconnect after lock/unlock. These synthetic fixtures do
-not establish live provider or production behavior. The repository runbook
+not establish live provider or production behavior. The combined
+`locked scoped run reconnects with its current grant while another VM stays denied`
+fixture exercises the production grant resolver with a synthetic Factorize run
+snapshot and local TLS upstream. The repository runbook
 `packages/docs/self-hosting/credential-proxy-security.mdx` documents key handling, lifecycle recovery,
 accepted provider/control-plane risks, and the independent Fly shutdown steps.
