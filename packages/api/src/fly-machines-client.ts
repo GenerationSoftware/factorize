@@ -136,6 +136,10 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
       const body = {
         config: {
           ...config,
+          // Job Machines are supervised by Factorize. A provider restart can
+          // replay a script after an ambiguous guest exit, duplicating side
+          // effects, so execution guests must stop with their process.
+          restart: { policy: "no" },
           metadata: { ...config.metadata, [OPERATION_METADATA_KEY]: operationId },
         },
       };
