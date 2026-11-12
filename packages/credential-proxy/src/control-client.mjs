@@ -22,8 +22,9 @@ export async function registerProxyBoot({ controlOrigin, token, bootEpoch, fetch
     });
     if (!response.ok) throw new Error("proxy boot registration rejected");
     const result = await response.json();
-    if (result?.registered !== true || result.bootEpoch !== bootEpoch || typeof result.proxyIdentity !== "string" || !/^fzc_[A-Za-z0-9_-]{43}$/.test(result.controlCredential ?? "")) throw new Error("invalid proxy boot registration response");
-    return { proxyIdentity: result.proxyIdentity, bootEpoch: result.bootEpoch, controlCredential: result.controlCredential };
+    if (result?.registered !== true || result.bootEpoch !== bootEpoch || typeof result.proxyIdentity !== "string"
+        || !uuidPattern.test(result.tenantId ?? "") || !/^fzc_[A-Za-z0-9_-]{43}$/.test(result.controlCredential ?? "")) throw new Error("invalid proxy boot registration response");
+    return { tenantId: result.tenantId, proxyIdentity: result.proxyIdentity, bootEpoch: result.bootEpoch, controlCredential: result.controlCredential };
   } finally {
     credential = "";
   }
@@ -93,6 +94,16 @@ export function createModelAccountPersistenceAdapter({ controlOrigin, controlCre
     return { ...account, ownerId };
   };
   return Object.freeze({
+    async listAccounts() {
+      const result = await proxyControlRequest({ controlOrigin, token: controlCredential, path: "/internal/credential-proxy/model-account-cache", body: { operation: "list" }, fetchImpl });
+      if (result?.ownerId !== ownerId || !Array.isArray(result.accounts)
+          || !uuidPattern.test(result.keyGeneration ?? "")
+          || result.accounts.some(account => !account || !uuidPattern.test(account.id ?? "") || account.kind !== "model"
+            || account.origin !== null || !Number.isSafeInteger(account.revision))) {
+        throw new Error("invalid model account list response");
+      }
+      return result.accounts.map(account => ({ ...account, ownerId, keyGeneration: result.keyGeneration }));
+    },
     getAccount: read,
     async getEncryptedCache(accountId) {
       const account = await read(accountId);
