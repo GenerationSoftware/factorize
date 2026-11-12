@@ -134,13 +134,15 @@ export class RunScheduler {
         "SELECT proxy_identity FROM app.credential_proxy_states WHERE tenant_id=$1 AND disabled_at IS NULL AND revoked_at IS NULL",
         [run.tenantId],
       );
-      const proxy = /^fly:([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])):[^:]+$/.exec(rows[0]?.proxy_identity ?? "");
+      const proxy = /^fly:([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])):([^:]+)$/.exec(rows[0]?.proxy_identity ?? "");
       if (!proxy) throw new Error("A registered Fly credential proxy is unavailable for this tenant");
       const app = proxy[1]!;
       const machines = createFlyMachinesClient({ token: connection });
       return new FlyJobExecutionBackend({
         app, image: configuration.image, region: configuration.region, size: configuration.size,
         machines, guest: machine => flyJobGuest({ app, machine: machine.id, token: connection }),
+        proxyIdentity: rows[0]!.proxy_identity,
+        proxyGuest: { run: (command, input) => flyJobGuest({ app, machine: proxy[2]!, token: connection }).run(command, input) },
       });
     }
     const kind = run.executionConfig.backendKind ?? (run.executionConfig.agentKind === "Amp" ? "amp" : "exe-vm");

@@ -60,14 +60,14 @@ export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnro
       const line = handshake.subarray(0, end).toString("utf8").replace(/\r$/, "");
       const rest = handshake.subarray(end + 1);
       const match = /^FACTORIZE-TUNNEL\/1 ([A-Za-z0-9_-]{32,128})$/.exec(line);
-      const runMatch = /^FACTORIZE-TUNNEL\/2 ([0-9a-f-]{36}) (fzt_run_[A-Za-z0-9_-]{43,200})$/i.exec(line);
+      const runMatch = /^FACTORIZE-TUNNEL\/3 ([0-9a-f-]{36})$/i.exec(line);
       if ((!match || typeof authenticateEnrollment !== "function") && (!runMatch || typeof authenticateRun !== "function")) return reject();
       let listener;
       let target;
       try {
         const vmIdentity = peerIdentity(socket);
         const connection = runMatch
-          ? await authenticateRun({ runId: runMatch[1], runCredential: runMatch[2], vmIdentity, bootEpoch: runtime.bootEpoch })
+          ? await authenticateRun({ runId: runMatch[1], vmIdentity, bootEpoch: runtime.bootEpoch })
           : await authenticateEnrollment({ token: match[1], vmIdentity, bootEpoch: runtime.bootEpoch });
         // The production control plane returns the consumed enrollment binding.
         // Compare its VM and boot identities with the authenticated TLS peer and
@@ -118,10 +118,10 @@ export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnro
 /** Start the proxy's production-shaped mTLS listener using its boot-registered
  * control credential and process-local decrypted integration grants. */
 export async function startAuthenticatedProxyTunnel({
-  tls, runtime, controlOrigin, controlCredential, resolveGrants, fetchImpl = fetch, host = "127.0.0.1", port = 0,
+  tls, runtime, controlOrigin, controlCredential, resolveGrants, resolveRunCredential, fetchImpl = fetch, host = "127.0.0.1", port = 0,
 } = {}) {
   const authenticateRun = createProxyEnrollmentAuthenticator({
-    controlOrigin, controlCredential, bootEpoch: runtime?.bootEpoch, resolveGrants, fetchImpl,
+    controlOrigin, controlCredential, bootEpoch: runtime?.bootEpoch, resolveGrants, resolveRunCredential, fetchImpl,
   });
   const tunnel = createAuthenticatedTunnelServer({ tls, runtime, authenticateRun, host, port });
   try {
@@ -134,10 +134,10 @@ export async function startAuthenticatedProxyTunnel({
 }
 
 /** Start a loopback-only HTTP tunnel helper. Each accepted stream gets fresh enrollment. */
-export async function startVmTunnelHelper({ tls, enrollment, runId, runCredential, proxyHost, proxyPort, host = "127.0.0.1", port = 0,
+export async function startVmTunnelHelper({ tls, enrollment, runId, proxyHost, proxyPort, host = "127.0.0.1", port = 0,
   now = Date.now, random = Math.random, wait = delay } = {}) {
   const runBasedEnrollment = typeof runId === "string" && /^[0-9a-f-]{36}$/i.test(runId);
-  if (!tls || (!runBasedEnrollment && typeof enrollment !== "function") || (runBasedEnrollment && !/^fzt_run_[A-Za-z0-9_-]{43,200}$/.test(runCredential ?? ""))
+  if (!tls || (!runBasedEnrollment && typeof enrollment !== "function")
       || typeof proxyHost !== "string" || !Number.isInteger(proxyPort)) {
     throw new TypeError("VM tunnel helper requires TLS, enrollment and proxy address");
   }
@@ -159,7 +159,7 @@ export async function startVmTunnelHelper({ tls, enrollment, runId, runCredentia
           const connectTimer = setTimeout(() => remote.destroy(new Error("proxy TLS connection timed out")), HANDSHAKE_TIMEOUT_MS);
           try { await once(remote, "secureConnect"); }
           finally { clearTimeout(connectTimer); }
-          remote.write(runBasedEnrollment ? `FACTORIZE-TUNNEL/2 ${runId} ${runCredential}\n` : `FACTORIZE-TUNNEL/1 ${grant.token}\n`);
+          remote.write(runBasedEnrollment ? `FACTORIZE-TUNNEL/3 ${runId}\n` : `FACTORIZE-TUNNEL/1 ${grant.token}\n`);
           await waitForTunnelAcceptance(remote);
           local.pipe(remote);
           remote.pipe(local);

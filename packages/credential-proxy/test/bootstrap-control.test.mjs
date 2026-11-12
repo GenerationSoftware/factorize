@@ -17,11 +17,11 @@ afterEach(async () => {
   directory = undefined;
 });
 
-async function fixture(register, onRegistered, issueVmCertificate) {
+async function fixture(register, onRegistered, issueVmCertificate, authorizeRun) {
   directory = await mkdtemp(join(tmpdir(), "factorize-proxy-startup-"));
   const socketPath = join(directory, "control.sock");
   const runtime = { bootEpoch: epoch };
-  service = await startProxyBootstrapControl({ runtime, socketPath, register, onRegistered, issueVmCertificate });
+  service = await startProxyBootstrapControl({ runtime, socketPath, register, onRegistered, issueVmCertificate, authorizeRun });
   return socketPath;
 }
 
@@ -82,4 +82,16 @@ test("local provider channel returns only a boot-bound VM certificate and public
     issued: true, bootEpoch: epoch, vmIdentity: "fly:job-1", certificate: "cert-for:fly:job-1", trustBundle: "public-ca",
   });
   assert.equal(JSON.stringify(await request(socketPath, payload)).includes(token), false);
+});
+
+test("provider exec delivers a scoped run credential directly to proxy memory and returns no credential", async () => {
+  const received = [];
+  const socketPath = await fixture(async () => ({}), undefined, undefined, async value => received.push(value));
+  const runId = "33333333-3333-4333-8333-333333333333";
+  const credential = `fzt_run_${Buffer.from(runId).toString("base64url")}_${"R".repeat(43)}`;
+  const requestBody = { runId, vmIdentity: "fly:app:machine-1", credential };
+  const result = await request(socketPath, { type: "authorize-run", ...requestBody });
+  assert.deepEqual(result, { authorized: true, runId, vmIdentity: requestBody.vmIdentity });
+  assert.deepEqual(received, [requestBody]);
+  assert.equal(JSON.stringify(result).includes(credential), false);
 });

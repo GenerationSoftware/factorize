@@ -11,10 +11,12 @@ import { createModelAccountLifecycle } from "./model-account-lifecycle.mjs";
 import { createModelAccountPersistenceAdapter } from "./control-client.mjs";
 import { decryptModelAccountCache, encryptModelAccountCache } from "./model-account-crypto.mjs";
 import { startBrowserControl } from "./browser-control.mjs";
+import { createProxyRunCredentialStore } from "./run-credential-store.mjs";
 
 const epochIndex = process.argv.indexOf("--boot-epoch");
 const bootEpoch = epochIndex < 0 ? randomUUID() : process.argv[epochIndex + 1];
 const runtime = createProxyRuntime({ bootEpoch });
+const runCredentials = createProxyRunCredentialStore();
 const tunnelPort = Number(process.env.FACTORIZE_PROXY_TUNNEL_PORT ?? "9090");
 if (!Number.isInteger(tunnelPort) || tunnelPort < 1 || tunnelPort > 65535) throw new Error("invalid proxy tunnel port");
 const tlsAuthority = await createProxyTlsAuthority({
@@ -64,6 +66,7 @@ async function activateRegistration(registration, origin, browserOrigin) {
     controlOrigin: origin,
     controlCredential: registration.controlCredential,
     resolveGrants,
+    resolveRunCredential: (runId, vmIdentity) => runCredentials.resolve(runId, vmIdentity),
     host: process.env.FACTORIZE_PROXY_TUNNEL_HOST ?? "0.0.0.0",
     port: tunnelPort,
   });
@@ -75,6 +78,7 @@ async function activateRegistration(registration, origin, browserOrigin) {
     controlCredential: registration.controlCredential,
     bootEpoch: runtime.bootEpoch,
     runtime,
+    onRevoked: runId => runCredentials.revoke(runId),
   });
   statusReporter = startProxyRuntimeStatusReporter({
     controlOrigin: origin,
@@ -86,6 +90,7 @@ async function activateRegistration(registration, origin, browserOrigin) {
 
 const bootstrapControl = await startProxyBootstrapControl({
   runtime,
+  authorizeRun: input => runCredentials.authorize(input),
   socketPath: process.env.FACTORIZE_PROXY_BOOTSTRAP_SOCKET,
   onRegistered: (registration, request) => activateRegistration(registration, request.controlOrigin, request.browserOrigin),
   issueVmCertificate: ({ vmIdentity, csr }) => {
@@ -110,6 +115,7 @@ async function stop() {
   closing = true;
   controlCredential = undefined;
   controlOrigin = undefined;
+  runCredentials.clear();
   await revocationMonitor?.close();
   revocationMonitor = undefined;
   await statusReporter?.close();

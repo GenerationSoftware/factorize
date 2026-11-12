@@ -6,9 +6,10 @@ import { registerProxyBoot } from "./control-client.mjs";
 const MAX_BOOTSTRAP_BYTES = 4096;
 
 /** Local-only receiver for a provider exec channel; credentials never enter env or files. */
-export async function startProxyBootstrapControl({ runtime, socketPath = "/run/factorize-proxy/bootstrap.sock", register = registerProxyBoot, onRegistered = () => {}, issueVmCertificate } = {}) {
+export async function startProxyBootstrapControl({ runtime, socketPath = "/run/factorize-proxy/bootstrap.sock", register = registerProxyBoot, onRegistered = () => {}, issueVmCertificate, authorizeRun } = {}) {
   if (!runtime || typeof register !== "function" || typeof onRegistered !== "function"
-      || (issueVmCertificate !== undefined && typeof issueVmCertificate !== "function")) throw new TypeError("proxy bootstrap control requires a runtime, registrar, and registration callback");
+      || (issueVmCertificate !== undefined && typeof issueVmCertificate !== "function")
+      || (authorizeRun !== undefined && typeof authorizeRun !== "function")) throw new TypeError("proxy bootstrap control requires a runtime, registrar, and registration callback");
   await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 });
   await chmod(dirname(socketPath), 0o700);
   await rm(socketPath, { force: true });
@@ -50,6 +51,22 @@ export async function startProxyBootstrapControl({ runtime, socketPath = "/run/f
         } finally {
           request.csr = "";
         }
+        return;
+      }
+      if (request?.type === "authorize-run") {
+        if (!authorizeRun || Object.keys(request).sort().join(",") !== "credential,runId,type,vmIdentity"
+            || typeof request.runId !== "string" || typeof request.vmIdentity !== "string" || typeof request.credential !== "string") {
+          return finish({ error: "invalid run authorization" });
+        }
+        processing = true;
+        socket.pause();
+        socket.removeAllListeners("data");
+        try {
+          await authorizeRun({ runId: request.runId, vmIdentity: request.vmIdentity, credential: request.credential });
+          finish({ authorized: true, runId: request.runId, vmIdentity: request.vmIdentity });
+        } catch {
+          finish({ error: "run authorization failed" });
+        } finally { request.credential = ""; }
         return;
       }
       if (request?.type !== "register-boot") return finish({ error: "invalid bootstrap request" });

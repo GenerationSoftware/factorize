@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { createBearerForwarder } from "../src/bearer-forwarder.mjs";
 import { createAuthenticatedProxyListener } from "../src/proxy-listener.mjs";
 import { createProxyRuntime } from "../src/runtime.mjs";
+import { createProxyRunCredentialStore } from "../src/run-credential-store.mjs";
 import { createAuthenticatedTunnelServer, peerIdentity, startAuthenticatedProxyTunnel, startVmTunnelHelper } from "../src/tunnel-transport.mjs";
 
 const fixtures = new URL("./fixtures/", import.meta.url);
@@ -286,21 +287,26 @@ test("VM helper uses mutual TLS and consumed enrollment to reach only its grante
 
 test("VM helper authenticates the active run while the proxy performs authenticated enrollment", { timeout: 5_000 }, async () => {
   const runtime = createProxyRuntime();
+  const runCredentials = createProxyRunCredentialStore();
   const requests = [];
-  const enrollmentId = "11111111-1111-4111-8111-111111111111";
+  let enrollmentSequence = 0;
   const runId = "33333333-3333-4333-8333-333333333333";
   const runCredential = `fzt_run_${Buffer.from(runId).toString("base64url")}_${"R".repeat(43)}`;
+  runCredentials.authorize({ runId, vmIdentity: "api.example.test", credential: runCredential });
   const tunnel = await startAuthenticatedProxyTunnel({
     tls: { key, cert, ca: cert },
     runtime,
     controlOrigin: "https://factorize.example",
     controlCredential: `fzc_${"c".repeat(43)}`,
+    resolveRunCredential: (id, vmIdentity) => runCredentials.resolve(id, vmIdentity),
     fetchImpl: async (url, init) => {
       const body = JSON.parse(init.body);
       requests.push({ url: String(url), authorization: init.headers.Authorization, body });
       if (String(url).endsWith("/enroll")) {
-        return Response.json({ enrollmentId, token: "e".repeat(43), grantRevision: 7 });
+        enrollmentSequence++;
+        return Response.json({ enrollmentId: `11111111-1111-4111-8111-${String(enrollmentSequence).padStart(12, "0")}`, token: "e".repeat(43), grantRevision: 7 });
       }
+      const enrollmentId = `11111111-1111-4111-8111-${String(enrollmentSequence).padStart(12, "0")}`;
       return Response.json({ consumed: true, binding: {
         tenantId: "22222222-2222-4222-8222-222222222222",
         runId,
@@ -321,16 +327,19 @@ test("VM helper authenticates the active run while the proxy performs authentica
   const local = await startVmTunnelHelper({
     tls: { key, cert, ca: cert, servername: "api.example.test" },
     runId,
-    runCredential,
     proxyHost: "127.0.0.1",
     proxyPort: tunnel.address().port,
   });
   try {
-    const response = await fetch(`http://127.0.0.1:${local.address.port}/unrecognized`);
-    assert.equal(response.status, 404);
+    for (let index = 0; index < 2; index++) {
+      const response = await fetch(`http://127.0.0.1:${local.address.port}/unrecognized`, { headers: { connection: "close" } });
+      assert.equal(response.status, 404);
+    }
     assert.deepEqual(requests.map(({ url, authorization, body }) => ({
       path: new URL(url).pathname, authorization, body,
     })), [
+      { path: "/internal/credential-proxy/enroll", authorization: `Bearer fzc_${"c".repeat(43)}`, body: { runId, vmIdentity: "api.example.test", runCredential } },
+      { path: "/internal/credential-proxy/consume-enrollment", authorization: `Bearer fzc_${"c".repeat(43)}`, body: { runId, vmIdentity: "api.example.test", enrollmentToken: "e".repeat(43) } },
       { path: "/internal/credential-proxy/enroll", authorization: `Bearer fzc_${"c".repeat(43)}`, body: { runId, vmIdentity: "api.example.test", runCredential } },
       { path: "/internal/credential-proxy/consume-enrollment", authorization: `Bearer fzc_${"c".repeat(43)}`, body: { runId, vmIdentity: "api.example.test", enrollmentToken: "e".repeat(43) } },
     ]);
@@ -338,5 +347,6 @@ test("VM helper authenticates the active run while the proxy performs authentica
     await local.close();
     await tunnel.close();
     await runtime.shutdown();
+    runCredentials.clear();
   }
 });

@@ -159,6 +159,7 @@ test("proxy enrollment authenticator binds issued and consumed state to the mTLS
     controlOrigin: "https://factorize.example",
     controlCredential: controlToken,
     bootEpoch,
+    resolveRunCredential: (id, vmIdentity) => id === runId && vmIdentity === "fly:vm-1" ? runCredential : undefined,
     fetchImpl,
     resolveGrants: async binding => {
       assert.equal(binding.runId, "33333333-3333-4333-8333-333333333333");
@@ -167,7 +168,6 @@ test("proxy enrollment authenticator binds issued and consumed state to the mTLS
   });
   const connection = await authenticateRun({
     runId,
-    runCredential,
     vmIdentity: "fly:vm-1",
     bootEpoch,
   });
@@ -188,11 +188,10 @@ test("proxy enrollment authenticator binds issued and consumed state to the mTLS
   assert.deepEqual(connection.grants, grants);
   await assert.rejects(authenticateRun({
     runId,
-    runCredential,
     vmIdentity: "fly:vm-1",
     bootEpoch: "44444444-4444-4444-8444-444444444444",
   }), /invalid proxy enrollment identity/);
   assert.equal(requests.length, 2, "a stale boot cannot issue another enrollment");
-  await assert.rejects(authenticateRun({ runId, vmIdentity: "fly:vm-1", bootEpoch }), /invalid proxy enrollment identity/);
+  await assert.rejects(authenticateRun({ runId, vmIdentity: "fly:vm-2", bootEpoch }), /run credential is unavailable/);
   assert.equal(requests.length, 2, "a missing job run credential cannot issue enrollment");
 });

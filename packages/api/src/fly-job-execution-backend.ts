@@ -22,6 +22,8 @@ export type FlyJobGuest = {
   download?(path: string): Promise<Uint8Array>;
 };
 
+export type FlyProxyGuest = Pick<FlyJobGuest, "run">;
+
 const capabilities = ["stop", "recovery"] as const;
 
 /** Fly Machine lifecycle adapter. Machine creation is idempotent by run ID;
@@ -38,6 +40,8 @@ export class FlyJobExecutionBackend implements ExecutionBackend, JobResultReader
       size: string;
       machines: FlyJobMachines;
       guest: (machine: FlyMachine) => FlyJobGuest;
+      proxyIdentity?: string;
+      proxyGuest?: FlyProxyGuest;
       destinationUrl?: (machine: FlyMachine) => string;
     },
   ) {}
@@ -77,6 +81,14 @@ export class FlyJobExecutionBackend implements ExecutionBackend, JobResultReader
     if (!machine.id) throw new Error("Fly returned a Machine without an id");
     const actualHandle = { backendKind: this.kind, id: `${this.options.app}/${machine.id}`, operationId };
     try {
+      if (request.runProxy) {
+        if (!this.options.proxyIdentity || !this.options.proxyGuest) throw new Error("Fly credential proxy delivery is unavailable");
+        const vmIdentity = `fly:${this.options.app}:${machine.id}`;
+        const delivered = await this.options.proxyGuest.run(["/usr/local/bin/factorize-proxy-authorize-run"], `${JSON.stringify({
+          runId: request.runId, vmIdentity, credential: request.runProxy.credential,
+        })}\n`);
+        if (!delivered.ok || delivered.stdout.trim() !== "Run credential delivered to proxy memory") throw new Error("Fly credential proxy did not confirm run credential delivery");
+      }
       await this.options.machines.startMachine(this.options.app, machine.id);
       const guest = this.options.guest(machine);
       const installed = await guest.run(["/bin/sh", "-c", "command -v python3 >/dev/null && command -v runuser >/dev/null && id exedev >/dev/null && mkdir -p /usr/local/bin && install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job && cat > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job"], FACTORIZE_JOB_LAUNCHER);

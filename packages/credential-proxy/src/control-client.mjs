@@ -176,7 +176,7 @@ export async function readProxyRunRevocations({ controlOrigin, token, bootEpoch,
 /** Poll durable control-plane state. A failed request leaves established
  * connections running and the next bounded poll retries when communication
  * recovers; it does not add an authorization lease or expiry. */
-export function startProxyRunRevocationMonitor({ controlOrigin, controlCredential, bootEpoch, runtime, intervalMs = 5_000, fetchImpl = fetch } = {}) {
+export function startProxyRunRevocationMonitor({ controlOrigin, controlCredential, bootEpoch, runtime, onRevoked = () => {}, intervalMs = 5_000, fetchImpl = fetch } = {}) {
   if (!runtime || typeof runtime.revokeRun !== "function" || !Number.isInteger(intervalMs) || intervalMs < 100 || intervalMs > 60_000) {
     throw new TypeError("invalid proxy revocation monitor configuration");
   }
@@ -188,7 +188,7 @@ export function startProxyRunRevocationMonitor({ controlOrigin, controlCredentia
     polling = (async () => {
       try {
         const runIds = await readProxyRunRevocations({ controlOrigin, token: controlCredential, bootEpoch, fetchImpl });
-        for (const runId of runIds) await runtime.revokeRun(runId);
+        for (const runId of runIds) { await runtime.revokeRun(runId); await onRevoked(runId); }
       } catch {
         // Keep existing connections alive during an outage and retry on schedule.
       } finally {
@@ -216,15 +216,17 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
  * using its private control credential. Integration secrets stay in the
  * proxy's local grant resolver and never cross this control API.
  */
-export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCredential, bootEpoch, resolveGrants, fetchImpl = fetch } = {}) {
+export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCredential, bootEpoch, resolveGrants, resolveRunCredential, fetchImpl = fetch } = {}) {
   if (!/^fzc_[A-Za-z0-9_-]{43}$/.test(controlCredential ?? "")) throw new TypeError("invalid proxy control credential");
   if (!bootEpochPattern.test(bootEpoch ?? "")) throw new TypeError("invalid proxy boot epoch");
-  if (typeof resolveGrants !== "function") throw new TypeError("proxy enrollment requires a local grant resolver");
+  if (typeof resolveGrants !== "function" || typeof resolveRunCredential !== "function") throw new TypeError("proxy enrollment requires local grant and run credential resolvers");
   validateOrigin(controlOrigin);
   let credential = controlCredential;
-  return async function authenticateRun({ runId, vmIdentity, runCredential, bootEpoch: requestedBootEpoch }) {
+  return async function authenticateRun({ runId, vmIdentity, bootEpoch: requestedBootEpoch }) {
     if (!uuidPattern.test(runId ?? "") || typeof vmIdentity !== "string" || !vmIdentity.trim() || vmIdentity.length > 255
-        || !/^fzt_run_[A-Za-z0-9_-]{43,200}$/.test(runCredential ?? "") || requestedBootEpoch !== bootEpoch) throw new Error("invalid proxy enrollment identity");
+        || requestedBootEpoch !== bootEpoch) throw new Error("invalid proxy enrollment identity");
+    const runCredential = resolveRunCredential(runId, vmIdentity);
+    if (!/^fzt_run_[A-Za-z0-9_-]+_[A-Za-z0-9_-]{43}$/.test(runCredential ?? "")) throw new Error("run credential is unavailable for this VM");
     const options = { controlOrigin, token: credential, fetchImpl };
     const requested = { runId, vmIdentity, runCredential };
     const enrollment = await issueProxyEnrollment({ ...options, body: requested });

@@ -15,8 +15,10 @@ function fixture() {
     run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "started\n", stderr: "" })),
     download: vi.fn(async (path: string) => new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "saved log")),
   };
-  const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest });
-  return { backend, machines, guest };
+  const proxyGuest = { run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "Run credential delivered to proxy memory\n", stderr: "" })) };
+  const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest,
+    proxyIdentity: "fly:factorize-test:proxy-1", proxyGuest });
+  return { backend, machines, guest, proxyGuest };
 }
 
 describe("Fly job execution backend", () => {
@@ -39,6 +41,19 @@ describe("Fly job execution backend", () => {
     const receipt = await f.backend.launch({ runId: "11111111-1111-4111-8111-111111111111", prompt: "" });
     expect(receipt.handle.id).toBe("factorize-test/machine-1");
     expect(receipt.observation).toMatchObject({ state: "failed", failure: { code: "launch_failed" } });
+  });
+
+  it("delivers the scoped run credential to proxy memory before starting the VM and omits it from guest payload", async () => {
+    const f = fixture();
+    const runId = "11111111-1111-4111-8111-111111111111";
+    const credential = `fzt_run_${Buffer.from(runId).toString("base64url")}_${"R".repeat(43)}`;
+    await f.backend.launch({ runId, prompt: "task", runProxy: { targetOrigin: "https://factorize.example", credential } });
+    expect(f.proxyGuest.run).toHaveBeenCalledOnce();
+    expect(f.proxyGuest.run).toHaveBeenCalledWith(["/usr/local/bin/factorize-proxy-authorize-run"], expect.stringContaining(`"credential":"${credential}"`));
+    expect(f.proxyGuest.run.mock.invocationCallOrder[0]).toBeLessThan(f.machines.startMachine.mock.invocationCallOrder[0]);
+    const payload = f.guest.run.mock.calls.at(-1)?.[1] as string;
+    expect(payload).not.toContain(credential);
+    expect(payload).toContain(runId);
   });
 
   it("destroys a stopped Machine after confirming provider state", async () => {
