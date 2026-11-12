@@ -24,7 +24,7 @@ test("model account settings issue short-lived capabilities and display the boun
   await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
   await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
   await page.route("**/api/v1/model-accounts", async route => {
-    if (route.request().method() === "GET") return route.fulfill({ json: { accounts: [{ id: accountId, name: "Work account", description: null, revision: 0 }] } });
+    if (route.request().method() === "GET") return route.fulfill({ json: { revision: 1, accounts: [{ id: accountId, name: "Work account", description: null, revision: 1 }] } });
     const action = route.request().postDataJSON().action;
     return route.fulfill({ json: { endpoint: `${proxyOrigin}/model-accounts/${accountId}/${action}`, capability: `one-use-${action}` } });
   });
@@ -49,6 +49,70 @@ test("model account settings issue short-lived capabilities and display the boun
   await models.getByText("Device authorization canceled.", { exact: true }).waitFor();
   assert.deepEqual(proxyCalls.map(call => call.authorization), ["Bearer one-use-authorize", "Bearer one-use-cancel"]);
   assert.deepEqual(proxyCalls.map(call => call.body), ["{}", "{}"]);
+  await context.close();
+});
+test("model account create/delete encrypts initial state and uses the current collection revision", async () => {
+  const { context, page } = await setup();
+  await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
+  let verification = null, revision = 0, account = null, createBody = null, deleteBodies = [], staleOnce = true;
+  await page.route("**/api/v1/unlock-key/verification", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { ownerId: "owner", verification } });
+    const body = route.request().postDataJSON(); verification = { generationId: body.generationId, encryptedVerification: body.encryptedVerification };
+    return route.fulfill({ json: { generationId: body.generationId } });
+  });
+  await page.route("**/api/v1/model-accounts", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { revision, accounts: account ? [account] : [] } });
+    createBody = route.request().postDataJSON();
+    assert.deepEqual(Object.keys(createBody).sort(), ["description", "encryptedPayload", "expectedRevision", "id", "idempotencyKey", "name"]);
+    assert.equal(createBody.expectedRevision, revision);
+    assert.equal(createBody.name, "Work account");
+    assert.equal(createBody.encryptedPayload.includes("{}"), false);
+    assert.equal(createBody.encryptedPayload.includes("fzk1."), false);
+    assert.match(createBody.encryptedPayload, /^[A-Za-z0-9+/]+=*\.[A-Za-z0-9+/]+=*$/u);
+    revision++; account = { id: createBody.id, name: createBody.name, description: createBody.description, revision };
+    return route.fulfill({ status: 201, json: { revision, duplicate: false } });
+  });
+  await page.route("**/api/v1/model-accounts/*", async route => {
+    assert.equal(route.request().method(), "DELETE");
+    const body = route.request().postDataJSON(); deleteBodies.push(body);
+    assert.deepEqual(Object.keys(body).sort(), ["expectedRevision", "idempotencyKey"]);
+    if (staleOnce) {
+      staleOnce = false; revision++;
+      return route.fulfill({ status: 409, json: { error: { code: "stale_revision", message: "The model account collection changed." } } });
+    }
+    assert.equal(body.expectedRevision, revision);
+    revision++; account = null;
+    return route.fulfill({ json: { id: createBody.id, deleted: true, revision, duplicate: false } });
+  });
+
+  await page.goto(origin + "/settings/integrations");
+  await page.getByRole("button", { name: "Generate unlock key" }).click();
+  const unlockKey = await page.getByLabel("New unlock key").inputValue();
+  await page.getByRole("checkbox", { name: "I saved this key somewhere safe." }).check();
+  await page.getByRole("button", { name: "I saved my key" }).click();
+  await page.getByText("Unlock key verification is set up.", { exact: false }).waitFor();
+
+  const models = page.getByRole("region", { name: "ChatGPT model accounts" });
+  await models.getByLabel("Name").fill("Work account");
+  await models.getByLabel("Description (optional)").fill("Personal account");
+  await models.getByLabel("Unlock key").fill(unlockKey);
+  await models.getByRole("button", { name: "Add model account" }).click();
+  await models.getByText("Work account", { exact: true }).waitFor();
+  assert.equal(createBody.expectedRevision, 0);
+  assert.equal(createBody.description, "Personal account");
+
+  page.once("dialog", dialog => dialog.accept());
+  const refreshAfterConflict = page.waitForResponse(response => response.url().includes("/api/v1/model-accounts") && response.request().method() === "GET" && response.status() === 200);
+  await models.getByRole("button", { name: "Delete account" }).click();
+  await models.getByRole("alert").filter({ hasText: "collection changed" }).waitFor();
+  await refreshAfterConflict;
+  page.once("dialog", dialog => dialog.accept());
+  await models.getByRole("button", { name: "Delete account" }).click();
+  await models.getByText("No model accounts are configured yet.", { exact: true }).waitFor();
+  assert.equal(deleteBodies.length, 2);
+  assert.equal(deleteBodies[0].expectedRevision, 1);
+  assert.equal(deleteBodies[1].expectedRevision, 2);
   await context.close();
 });
 test("unlock-key setup requires acknowledgement, stores ciphertext only, verifies entered keys and survives refresh without a saved key", async () => {

@@ -1810,19 +1810,23 @@ paths:
     get:
       summary: List model accounts available to the owner
       description: |-
-        Requires an interactive owner browser session. Returns account metadata only; encrypted account caches and credentials are never returned.
+        Requires an interactive owner browser session. Returns account metadata and the collection revision only; encrypted account caches and credentials are never returned.
 
         Requires the integrations:read scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       responses:
         "200":
-          description: Model account metadata
+          description: Model account metadata and collection revision
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
                   accounts:
                     type: array
                     items:
@@ -1849,6 +1853,7 @@ paths:
                         - revision
                       additionalProperties: false
                 required:
+                  - revision
                   - accounts
                 additionalProperties: false
         "400":
@@ -1875,6 +1880,187 @@ paths:
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
+    post:
+      summary: Create a model account
+      description: |-
+        Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted initial account state; credentials are established directly with the credential proxy.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "201":
+          description: Created model account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  duplicate:
+                    type: boolean
+                required:
+                  - revision
+                  - duplicate
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_model_accounts
+      tags:
+        - model-accounts
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                idempotencyKey:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                description:
+                  anyOf:
+                    - type: string
+                      maxLength: 500
+                    - type: "null"
+                encryptedPayload:
+                  type: string
+                  minLength: 1
+                  maxLength: 65536
+              required:
+                - id
+                - expectedRevision
+                - idempotencyKey
+                - name
+                - description
+                - encryptedPayload
+              additionalProperties: false
+  /api/v1/model-accounts/{accountId}:
+    delete:
+      summary: Delete a model account
+      description: |-
+        Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future snapshots and unlock reconciliation cannot restore the account.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Deleted model account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  deleted:
+                    type: boolean
+                    const: true
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  duplicate:
+                    type: boolean
+                required:
+                  - id
+                  - deleted
+                  - revision
+                  - duplicate
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: delete_api_v1_model_accounts_accountId
+      tags:
+        - model-accounts
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                idempotencyKey:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+              required:
+                - expectedRevision
+                - idempotencyKey
+              additionalProperties: false
   /api/v1/model-accounts/{accountId}/browser-capability:
     post:
       summary: Issue a short-lived browser capability for a paired model account

@@ -132,6 +132,13 @@ const bearerIntegrationUpdate = bearerIntegrationCreate.omit({ id: true });
 const bearerIntegrationDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
 const bearerIntegrationList = z.object({ revision: z.number().int().nonnegative(), integrations: z.array(bearerIntegrationMetadata) });
 const modelAccountMetadata = z.object({ id: z.uuid(), name: z.string(), description: z.string().nullable(), revision: z.number().int().nonnegative() });
+const modelAccountCreate = z.object({
+  id: z.uuid(), expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid(),
+  name: z.string().trim().min(1).max(120), description: z.string().max(500).nullable(),
+  encryptedPayload: z.string().min(1).max(65_536),
+}).strict();
+const modelAccountDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
+const modelAccountList = z.object({ revision: z.number().int().nonnegative(), accounts: z.array(modelAccountMetadata) });
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const unlockKeyVerification = z.object({ ownerId: z.string(), verification: z.object({ generationId: z.uuid(), encryptedVerification: z.string() }).strict().nullable() }).strict();
@@ -217,9 +224,19 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 export const API_ROUTES: RouteContract[] = [
   route("GET", "/api/v1/model-accounts", "integrations:read", {
     summary: "List model accounts available to the owner",
-    description: "Requires an interactive owner browser session. Returns account metadata only; encrypted account caches and credentials are never returned.",
-    responses: { "200": { description: "Model account metadata", content: { "application/json": { schema: jsonSchema(z.object({ accounts: z.array(modelAccountMetadata) }), "output") } } } },
+    description: "Requires an interactive owner browser session. Returns account metadata and the collection revision only; encrypted account caches and credentials are never returned.",
+    responses: { "200": { description: "Model account metadata and collection revision", content: { "application/json": { schema: jsonSchema(modelAccountList, "output") } } } },
   }, service => service.listModelAccounts(), { ownerSession: true }),
+  route("POST", "/api/v1/model-accounts", "integrations:write", {
+    summary: "Create a model account",
+    description: "Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted initial account state; credentials are established directly with the credential proxy.",
+    responses: { "201": { description: "Created model account", content: { "application/json": { schema: jsonSchema(bearerIntegrationWriteResult, "output") } } } },
+  }, (service, { body }) => service.createModelAccount(body), { body: modelAccountCreate, maxBodyBytes: 70_000, ownerSession: true }),
+  route("DELETE", "/api/v1/model-accounts/{accountId}", "integrations:write", {
+    summary: "Delete a model account",
+    description: "Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future snapshots and unlock reconciliation cannot restore the account.",
+    responses: { "200": { description: "Deleted model account", content: { "application/json": { schema: jsonSchema(bearerIntegrationDeleteResult, "output") } } } },
+  }, (service, { params, body }) => service.deleteModelAccount(params.accountId, body), { body: modelAccountDelete, maxBodyBytes: 4096, ownerSession: true, parameters: z.object({ accountId: z.uuid() }) }),
   route("POST", "/api/v1/model-accounts/{accountId}/browser-capability", "integrations:write", {
     summary: "Issue a short-lived browser capability for a paired model account",
     description: "Requires an interactive owner browser session. Returns a single-use, 60-second capability scoped to the account, action, proxy boot and exact application origin. The browser sends it directly to the paired proxy; Factorize never receives model-account tokens.",
