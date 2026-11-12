@@ -159,6 +159,10 @@ export function createModelAccountPersistenceAdapter({ controlOrigin, controlCre
  * set is intentional: it closes runs revoked while this proxy was offline and
  * runtime.revokeRun is idempotent. */
 export async function readProxyRunRevocations({ controlOrigin, token, bootEpoch, fetchImpl = fetch } = {}) {
+  return (await readProxyControlState({ controlOrigin, token, bootEpoch, fetchImpl })).revokedRunIds;
+}
+
+export async function readProxyControlState({ controlOrigin, token, bootEpoch, fetchImpl = fetch } = {}) {
   if (!bootEpochPattern.test(bootEpoch ?? "")) throw new TypeError("invalid proxy boot epoch");
   const result = await proxyControlRequest({
     controlOrigin,
@@ -170,7 +174,7 @@ export async function readProxyRunRevocations({ controlOrigin, token, bootEpoch,
   if (!Array.isArray(result?.revokedRunIds) || result.revokedRunIds.some(id => !uuidPattern.test(id))) {
     throw new Error("invalid proxy revocation response");
   }
-  return result.revokedRunIds;
+  return { revokedRunIds: result.revokedRunIds, lockProxy: result.lockProxy === true };
 }
 
 /** Poll durable control-plane state. A failed request leaves established
@@ -187,8 +191,9 @@ export function startProxyRunRevocationMonitor({ controlOrigin, controlCredentia
     if (stopped || polling) return;
     polling = (async () => {
       try {
-        const runIds = await readProxyRunRevocations({ controlOrigin, token: controlCredential, bootEpoch, fetchImpl });
-        for (const runId of runIds) { await runtime.revokeRun(runId); await onRevoked(runId); }
+        const state = await readProxyControlState({ controlOrigin, token: controlCredential, bootEpoch, fetchImpl });
+        for (const runId of state.revokedRunIds) { await runtime.revokeRun(runId); await onRevoked(runId); }
+        if (state.lockProxy && runtime.state !== "locked") await runtime.lock();
       } catch {
         // Keep existing connections alive during an outage and retry on schedule.
       } finally {

@@ -79,6 +79,24 @@ test("run revocation closes every established connection and rejects later enrol
   }
 });
 
+test("key-generation replacement locks proxy memory and closes every connection", async () => {
+  const closed = [];
+  const runtime = createProxyRuntime({ bootEpoch, listenerFactory: async ({ connection: value }) => ({ connectionId: value.connectionId, close: async () => { closed.push(value.connectionId); } }) });
+  runtime.unlock("synthetic-old-unlock-key");
+  await runtime.acceptAuthenticatedConnection(connection("run-old-key", "connection-old-key"));
+  const monitor = startProxyRunRevocationMonitor({
+    controlOrigin: "https://factorize.example", controlCredential: `fzc_${"A".repeat(43)}`, bootEpoch, runtime, intervalMs: 100,
+    fetchImpl: async () => Response.json({ revokedRunIds: [], lockProxy: true }),
+  });
+  try {
+    const deadline = Date.now() + 1_000;
+    while (runtime.state !== "locked" && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(runtime.state, "locked");
+    assert.deepEqual(closed, ["connection-old-key"]);
+    assert.throws(() => runtime.getUnlockKey(), /locked/);
+  } finally { await monitor.close(); await runtime.shutdown(); }
+});
+
 test("revocation racing listener creation closes the new listener before accepting it", async () => {
   let resolveListener;
   let closed = false;

@@ -163,6 +163,25 @@ export class EncryptedIntegrationRepository {
       revision: safeRevision(row.revision), encryptedPayload: row.deleted_at || row.encrypted_payload === null ? null : await decrypt(row.encrypted_payload, this.serverEncryptionKey), deletedAt: row.deleted_at })));
   }
 
+  /** Owner-only rekey input. Includes tombstones and the retained change feed so
+   * a browser rotation can preserve pending edits without exposing plaintext to
+   * the API process. */
+  async rotationSnapshot(): Promise<{ revision: number; records: GenerationRecord[]; changes: GenerationChange[] }> {
+    const revision = await this.revision();
+    const records = await this.database.pool.query<{ id: string; kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string | null; deleted_at: Date | null }>(
+      "SELECT id,kind,name,origin,description,revision,encrypted_payload,deleted_at FROM app.integration_records WHERE tenant_id=$1 ORDER BY id", [this.tenantId]);
+    const changes = await this.database.pool.query<StoredChange & { revision: string | number; idempotency_key: string }>(
+      "SELECT revision,idempotency_key,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 ORDER BY revision", [this.tenantId]);
+    return {
+      revision,
+      records: await Promise.all(records.rows.map(async row => ({ id: row.id, kind: row.kind, name: row.name, origin: row.origin, description: row.description,
+        revision: safeRevision(row.revision), encryptedPayload: row.deleted_at || row.encrypted_payload === null ? null : await decrypt(row.encrypted_payload, this.serverEncryptionKey), deletedAt: row.deleted_at }))),
+      changes: await Promise.all(changes.rows.map(async row => ({ id: row.record_id, kind: row.kind, name: row.name, origin: row.origin, description: row.description,
+        revision: safeRevision(row.revision), idempotencyKey: row.idempotency_key, operation: row.operation,
+        encryptedPayload: row.encrypted_payload === null ? null : await decrypt(row.encrypted_payload, this.serverEncryptionKey) }))),
+    };
+  }
+
   /**
    * Replace only a model account's user-encrypted Codex cache. The account
    * revision is independent of the collection revision, so unrelated bearer
@@ -242,7 +261,7 @@ export class EncryptedIntegrationRepository {
   }
 
   /** Atomically archive and replace records, tombstones, changes and the collection revision. */
-  async commitGeneration(generationId: string, expectedRevision: number): Promise<{ revision: number; duplicate: boolean }> {
+  async commitGeneration(generationId: string, expectedRevision: number, keyReplacement?: { expectedVerificationGenerationId: string; verificationGenerationId: string; encryptedVerification: string }): Promise<{ revision: number; duplicate: boolean }> {
     return this.database.transaction(async client => {
       await client.query("INSERT INTO app.integration_collections(tenant_id) VALUES($1) ON CONFLICT DO NOTHING", [this.tenantId]);
       const collection = (await client.query<{ revision: string | number }>("SELECT revision FROM app.integration_collections WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0]!;
@@ -252,6 +271,19 @@ export class EncryptedIntegrationRepository {
       if (journal.state === "committed") return { revision: safeRevision(journal.committed_revision!), duplicate: true };
       if (journal.state !== "staged") throw new IntegrationValidationError("staged generation is no longer available");
       if (current !== expectedRevision) throw new StaleIntegrationGenerationError(current);
+      if (keyReplacement) {
+        const currentKey = (await client.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0];
+        if (!currentKey || currentKey.generation_id !== keyReplacement.expectedVerificationGenerationId) throw new StaleIntegrationGenerationError(current);
+        if (!/^[0-9a-f-]{36}$/i.test(keyReplacement.verificationGenerationId) || keyReplacement.verificationGenerationId === currentKey.generation_id
+            || keyReplacement.encryptedVerification.length > 4096) throw new IntegrationValidationError("replacement key verification is invalid");
+        let envelope: any;
+        try { envelope = JSON.parse(keyReplacement.encryptedVerification); } catch { throw new IntegrationValidationError("replacement key verification is malformed"); }
+        if (!envelope || typeof envelope !== "object" || Array.isArray(envelope) || envelope.version !== 1 || envelope.algorithm !== "A256GCM"
+            || Object.keys(envelope).sort().join(",") !== "algorithm,ciphertext,nonce,version" || typeof envelope.nonce !== "string"
+            || !/^[A-Za-z0-9_-]{16}$/u.test(envelope.nonce) || typeof envelope.ciphertext !== "string" || !/^[A-Za-z0-9_-]{22,}$/u.test(envelope.ciphertext)) {
+          throw new IntegrationValidationError("replacement key verification is malformed");
+        }
+      }
       await client.query("DELETE FROM app.integration_generation_previous_records WHERE tenant_id=$1", [this.tenantId]);
       await client.query("DELETE FROM app.integration_generation_previous_changes WHERE tenant_id=$1", [this.tenantId]);
       await client.query(`INSERT INTO app.integration_generation_previous_records(tenant_id,id,kind,name,origin,description,revision,encrypted_payload,deleted_at,created_at,updated_at,generation_id) SELECT tenant_id,id,kind,name,origin,description,revision,encrypted_payload,deleted_at,created_at,updated_at,$2 FROM app.integration_records WHERE tenant_id=$1`, [this.tenantId,generationId]);
@@ -265,6 +297,12 @@ export class EncryptedIntegrationRepository {
       const revision = current + 1;
       await client.query("UPDATE app.integration_collections SET revision=$2,updated_at=now() WHERE tenant_id=$1", [this.tenantId,revision]);
       await client.query("UPDATE app.integration_generation_journal SET state='committed',committed_revision=$3,committed_at=now() WHERE tenant_id=$1 AND generation_id=$2", [this.tenantId,generationId,revision]);
+      if (keyReplacement) {
+        await client.query("UPDATE app.unlock_key_verifications SET generation_id=$2,encrypted_verification=$3,created_at=now() WHERE tenant_id=$1", [this.tenantId,keyReplacement.verificationGenerationId,keyReplacement.encryptedVerification]);
+        await client.query("UPDATE app.credential_run_grants SET revoked_at=now() WHERE tenant_id=$1 AND revoked_at IS NULL", [this.tenantId]);
+        await client.query("UPDATE app.credential_run_enrollments SET consumed_at=now() WHERE tenant_id=$1 AND consumed_at IS NULL", [this.tenantId]);
+        await client.query("UPDATE app.credential_proxy_states SET unlocked=false,updated_at=now() WHERE tenant_id=$1", [this.tenantId]);
+      }
       return { revision, duplicate: false };
     });
   }

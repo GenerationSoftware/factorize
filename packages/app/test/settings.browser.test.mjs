@@ -161,6 +161,58 @@ test("unlock-key setup requires acknowledgement, stores ciphertext only, verifie
   assert.equal(await page.evaluate(() => localStorage.length), 0);
   await context.close();
 });
+
+test("owner can rotate the unlock key or reset lost-key integrations without sending keys to the API", async () => {
+  const { context, page } = await setup();
+  await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
+  let generationId = "11111111-1111-4111-8111-111111111111", firstGenerationId, encryptedVerification = "", setupDone = false, rotationBody;
+  const verification = () => setupDone ? ({ generationId, encryptedVerification }) : null;
+  await page.route("**/api/v1/unlock-key/verification", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { ownerId: "owner", verification: verification() } });
+    const body = route.request().postDataJSON();
+    assert.equal("unlockKey" in body, false);
+    if (!setupDone) firstGenerationId = body.generationId;
+    generationId = body.generationId; encryptedVerification = body.encryptedVerification; setupDone = true;
+    return route.fulfill({ json: { generationId } });
+  });
+  await page.route("**/api/v1/unlock-key/rotation-snapshot", route => route.fulfill({ json: { ownerId: "owner", generationId, revision: 0, records: [], changes: [] } }));
+  await page.route("**/api/v1/unlock-key/rotation", async route => {
+    rotationBody = route.request().postDataJSON();
+    assert.equal("unlockKey" in rotationBody, false);
+    assert.deepEqual(rotationBody.records, []);
+    assert.deepEqual(rotationBody.changes, []);
+    generationId = rotationBody.generationId; encryptedVerification = rotationBody.encryptedVerification; setupDone = true;
+    return route.fulfill({ json: { generationId, revision: 1, duplicate: false } });
+  });
+
+  await page.goto(origin + "/settings/integrations");
+  await page.getByRole("button", { name: "Generate unlock key" }).click();
+  const initialKey = await page.getByLabel("New unlock key").inputValue();
+  await page.getByRole("checkbox", { name: "I saved this key somewhere safe." }).check();
+  await page.getByRole("button", { name: "I saved my key" }).click();
+  await page.getByText("Unlock key verification is set up.", { exact: false }).waitFor();
+
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "Reset integrations and model accounts" }).click();
+  const resetKey = await page.getByLabel("New unlock key").inputValue();
+  assert.notEqual(resetKey, initialKey);
+  await page.getByRole("checkbox", { name: "I saved the new key somewhere safe." }).check();
+  await page.getByRole("button", { name: "Reset and replace key" }).click();
+  await page.getByRole("button", { name: "Rotate unlock key" }).waitFor();
+  assert.equal(rotationBody.expectedGenerationId, firstGenerationId);
+  assert.equal(JSON.stringify(rotationBody).includes(resetKey), false);
+
+  await page.getByRole("region", { name: "Unlock key" }).getByLabel("Unlock key").fill(resetKey);
+  await page.getByRole("button", { name: "Rotate unlock key" }).click();
+  const nextKey = await page.getByLabel("New unlock key").inputValue();
+  await page.getByLabel("Current unlock key").fill(resetKey);
+  await page.getByRole("checkbox", { name: "I saved the new key somewhere safe." }).check();
+  await page.getByRole("button", { name: "Replace unlock key" }).click();
+  await page.getByRole("button", { name: "Rotate unlock key" }).waitFor();
+  assert.equal(JSON.stringify(rotationBody).includes(nextKey), false);
+  await context.close();
+});
 test("bearer integrations encrypt in the browser, clear secrets, handle conflicts and delete conditionally", async () => {
   const { context, page } = await setup();
   await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));

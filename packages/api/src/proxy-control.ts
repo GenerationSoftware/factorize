@@ -58,7 +58,8 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
       SELECT c.run_id FROM app.run_credentials c JOIN app.job_runs r ON r.tenant_id=c.tenant_id AND r.id=c.run_id
       WHERE c.tenant_id=$1 AND r.state IN ('succeeded','failed','stopped') ORDER BY run_id`,
     [proxy.tenantId, proxy.proxyIdentity, proxy.bootEpoch]);
-    return json({ revokedRunIds: revoked.rows.map(row => row.run_id) });
+    const state = await databaseFor(env).pool.query<{ unlocked: boolean }>("SELECT unlocked FROM app.credential_proxy_states WHERE tenant_id=$1 AND proxy_identity=$2 AND boot_epoch=$3", [proxy.tenantId, proxy.proxyIdentity, proxy.bootEpoch]);
+    return json({ revokedRunIds: revoked.rows.map(row => row.run_id), lockProxy: !state.rows[0]?.unlocked });
   }
   if (url.pathname === "/internal/credential-proxy/model-account-cache") {
     if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid_request" }, 400);

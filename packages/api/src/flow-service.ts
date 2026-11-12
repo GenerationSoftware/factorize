@@ -584,6 +584,52 @@ export class ApiService {
     if (!rows.length) throw new ServiceError(409, "conflict", "An unlock key is already set up for this account.");
     return { generationId: input.generationId };
   }
+  async getUnlockKeyRotationSnapshot() {
+    await this.authorizeOwnerSession("integrations:read");
+    const repository = this.encryptedIntegrations();
+    const [snapshot, verification] = await Promise.all([
+      repository.rotationSnapshot(),
+      databaseFor(this.env).pool.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [this.auth.tenantId]),
+    ]);
+    const generationId = verification.rows[0]?.generation_id;
+    if (!generationId) throw new ServiceError(409, "conflict", "Set up an unlock key before rotating or resetting integrations.");
+    const modelRevisions = new Map<string, number>();
+    const changes = snapshot.changes.map(change => {
+      let recordRevision: number | null = null;
+      if (change.kind === "model" && change.operation === "delete") modelRevisions.delete(change.id);
+      if (change.kind === "model" && change.operation === "upsert" && change.encryptedPayload !== null) {
+        recordRevision = modelRevisions.has(change.id) ? modelRevisions.get(change.id)! + 1 : change.revision;
+        modelRevisions.set(change.id, recordRevision);
+      }
+      return { ...change, recordRevision };
+    });
+    return { ownerId: this.auth.userId, generationId, ...snapshot, changes };
+  }
+  async replaceUnlockKeyGeneration(input: {
+    expectedGenerationId: string; generationId: string; expectedRevision: number; encryptedVerification: string;
+    records: Array<{ id: string; kind: "bearer" | "model"; name: string; origin: string | null; description: string | null; revision: number; encryptedPayload: string | null; deletedAt: string | null }>;
+    changes: Array<{ id: string; kind: "bearer" | "model"; name: string; origin: string | null; description: string | null; revision: number; idempotencyKey: string; operation: "upsert" | "delete"; encryptedPayload: string | null; recordRevision?: number | null }>;
+  }) {
+    await this.authorizeOwnerSession("integrations:write");
+    if (input.expectedGenerationId === input.generationId) throw new ServiceError(400, "invalid_request", "A replacement key generation must be new.");
+    const repository = this.encryptedIntegrations();
+    const records = input.records.map(record => ({ ...record, deletedAt: record.deletedAt === null ? null : new Date(record.deletedAt) }));
+    const changes = input.changes.map(({ recordRevision: _recordRevision, ...change }) => change);
+    try {
+      await repository.stageGeneration({ generationId: input.generationId, expectedRevision: input.expectedRevision, records, changes });
+      const committed = await repository.commitGeneration(input.generationId, input.expectedRevision, {
+        expectedVerificationGenerationId: input.expectedGenerationId,
+        verificationGenerationId: input.generationId,
+        encryptedVerification: input.encryptedVerification,
+      });
+      return { generationId: input.generationId, ...committed };
+    } catch (error) {
+      if (error instanceof StaleIntegrationRevisionError || (error as Error)?.name === "StaleIntegrationGenerationError") throw new ServiceError(409, "stale_revision", "Integration records changed during key replacement. Reload and retry with the current unlock key.");
+      if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "This key replacement ID was already used for different encrypted data.");
+      if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
+      throw error;
+    }
+  }
   async issueModelAccountBrowserCapability(accountId: string, action: "authorize" | "status" | "cancel") {
     await this.authorizeOwnerSession("integrations:write");
     if (!this.env.MODEL_ACCOUNT_CAPABILITY_PRIVATE_KEY) throw new ServiceError(503, "operation_failed", "Model-account browser authorization is unavailable.");
