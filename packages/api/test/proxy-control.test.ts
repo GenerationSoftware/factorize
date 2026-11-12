@@ -67,7 +67,7 @@ describe("dedicated proxy boot registration endpoint", () => {
       body: { bootEpoch },
     }), env);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ revokedRunIds: [runId] });
+    expect(await response.json()).toEqual({ revokedRunIds: [runId], lockProxy: true });
     const revocationsQuery = env.query.mock.calls.find((call: any[]) => call[0].includes("FROM app.credential_run_grants"))?.[0] as string;
     expect(revocationsQuery).toContain("JOIN app.job_runs");
     expect(revocationsQuery).toContain("r.state IN ('succeeded','failed','stopped')");
@@ -198,7 +198,7 @@ describe("dedicated proxy boot registration endpoint", () => {
       body: { bootEpoch },
     }), env);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ revokedRunIds: [runId] });
+    expect(await response.json()).toEqual({ revokedRunIds: [runId], lockProxy: true });
     expect(env.query.mock.calls[1][0]).toContain("revoked_at IS NOT NULL");
     expect(env.query.mock.calls[1][1]).toEqual(["11111111-1111-4111-8111-111111111111", "proxy-fixture", bootEpoch]);
     const stale = await proxyControlFetch(request({

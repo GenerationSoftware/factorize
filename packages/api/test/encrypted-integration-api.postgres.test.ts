@@ -55,9 +55,8 @@ describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (Po
       const flyConnectionBefore = (await f.db.pool.query("SELECT kind,encrypted_value FROM app.connections WHERE tenant_id=$1 ORDER BY kind", [f.tenantId])).rows;
       const executionConfigBefore = (await f.db.pool.query("SELECT id,execution_config FROM app.jobs WHERE tenant_id=$1 ORDER BY id", [f.tenantId])).rows;
       await f.db.pool.query("INSERT INTO app.credential_proxy_states(tenant_id,proxy_identity,boot_epoch,unlocked) VALUES($1,'proxy-test',$2,true)", [f.tenantId, crypto.randomUUID()]);
-      const runId = crypto.randomUUID(), jobId = crypto.randomUUID(), triggerId = crypto.randomUUID(), invocationId = crypto.randomUUID();
-      await f.db.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit) VALUES ($1,$2,$3,'Rotation test','rotation-test','test','{}',1)", [f.tenantId, jobId, f.projectId]);
-      await f.db.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES ($1,$2,$3,'manual','manual')", [f.tenantId, triggerId, jobId]);
+      const runId = crypto.randomUUID(), jobId = f.jobIds[0], invocationId = crypto.randomUUID();
+      const triggerId = (await f.db.pool.query("SELECT id FROM app.triggers WHERE tenant_id=$1 AND job_id=$2 AND kind='manual' LIMIT 1", [f.tenantId, jobId])).rows[0].id;
       await f.db.pool.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context) VALUES ($1,$2,$3,'manual','rotation-test',$4,'{}')", [f.tenantId, invocationId, jobId, triggerId]);
       await f.db.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'running','test')", [f.tenantId, runId, jobId, invocationId]);
       const enrollmentRepository = new RunEnrollmentRepository(f.db);
