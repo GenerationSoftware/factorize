@@ -52,6 +52,14 @@ export class RunRetentionRepository {
         SELECT 'vm_image_verifications'::text,count(*)::int,floor(extract(epoch FROM now()-min(created_at)))::int
         FROM app.vm_image_verifications WHERE status IN ('succeeded','failed') AND created_at < now()-interval '14 days'
         UNION ALL
+        SELECT 'integration_changes'::text,count(*)::int,floor(extract(epoch FROM now()-min(created_at)))::int
+        FROM app.integration_changes WHERE created_at < now()-interval '14 days'
+        UNION ALL
+        SELECT 'integration_generations'::text,count(*)::int,floor(extract(epoch FROM now()-min(created_at)))::int
+        FROM app.integration_generation_journal WHERE (state='staged' AND created_at < now()-interval '1 day')
+          OR (state='committed' AND committed_at < now()-interval '7 days')
+          OR (state IN ('rolled_back','expired') AND created_at < now()-interval '1 day')
+        UNION ALL
         SELECT 'expired_temporary_records'::text,
           (SELECT count(*)::int FROM app.github_setup_states WHERE expires_at < now() OR used_at IS NOT NULL)
           +(SELECT count(*)::int FROM app.oauth_consent_previews WHERE expires_at < now() OR used_at IS NOT NULL)
@@ -124,6 +132,23 @@ export class RunRetentionRepository {
         SELECT tenant_id,id FROM app.access_tokens WHERE expires_at < now() OR revoked_at IS NOT NULL
         ORDER BY expires_at,tenant_id,id LIMIT $1 FOR UPDATE SKIP LOCKED
       ) DELETE FROM app.access_tokens t USING expired x WHERE t.tenant_id=x.tenant_id AND t.id=x.id`],
+      // Keep the incremental cursor honest: any consumer older than this
+      // floor must fetch the current collection instead of applying a gap.
+      ["integration_changes", `WITH expired AS (
+        SELECT tenant_id,revision FROM app.integration_changes WHERE created_at < now()-interval '14 days'
+        ORDER BY created_at,tenant_id,revision LIMIT $1
+      ), floors AS (SELECT tenant_id,max(revision) AS revision FROM expired GROUP BY tenant_id),
+      advanced AS (UPDATE app.integration_collections c SET changes_pruned_through=GREATEST(c.changes_pruned_through,f.revision)
+        FROM floors f WHERE c.tenant_id=f.tenant_id RETURNING c.tenant_id)
+      DELETE FROM app.integration_changes c USING expired x WHERE c.tenant_id=x.tenant_id AND c.revision=x.revision
+        AND EXISTS (SELECT 1 FROM advanced) RETURNING c.revision`],
+      ["integration_generations", `WITH expired AS (
+        SELECT tenant_id,generation_id FROM app.integration_generation_journal
+        WHERE (state='staged' AND created_at < now()-interval '1 day')
+           OR (state='committed' AND committed_at < now()-interval '7 days')
+           OR (state IN ('rolled_back','expired') AND created_at < now()-interval '1 day')
+        ORDER BY created_at,tenant_id,generation_id LIMIT $1 FOR UPDATE SKIP LOCKED
+      ) DELETE FROM app.integration_generation_journal j USING expired x WHERE j.tenant_id=x.tenant_id AND j.generation_id=x.generation_id`],
     ];
     const result: IndependentHistoryCleanupResult = [];
     for (const [queue, statement] of lanes) {

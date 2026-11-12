@@ -120,9 +120,9 @@ describe("RunRetentionRepository", () => {
     const statements: string[] = [];
     const query = vi.fn(async (sql: string) => { statements.push(sql); return { rows: [], rowCount: 7 }; });
     const result = await new RunRetentionRepository({ pool: { query } } as any).cleanupIndependentHistory();
-    expect(result).toHaveLength(10);
+    expect(result).toHaveLength(12);
     expect(result.every(lane => lane.deleted === 7)).toBe(true);
-    expect(query).toHaveBeenCalledTimes(10);
+    expect(query).toHaveBeenCalledTimes(12);
     expect(query).toHaveBeenCalledWith(expect.stringContaining("FOR UPDATE SKIP LOCKED"), [500]);
     expect(statements.find(sql => sql.includes("webhook_deliveries d"))).toContain("d.outcome <> 'received'");
     expect(statements.find(sql => sql.includes("webhook_deliveries d"))).toContain("app.pending_verifications");

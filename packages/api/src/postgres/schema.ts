@@ -42,7 +42,7 @@ export const accessTokens = app.table("access_tokens", {
 
 export const connections = app.table("connections", { tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), kind: text("kind").notNull(), encryptedValue: text("encrypted_value").notNull(), updatedAt: updatedAt() }, t => [primaryKey({ columns: [t.tenantId, t.kind] })]);
 export const integrationCollections = app.table("integration_collections", {
-  tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }), revision: bigint("revision", { mode: "number" }).notNull().default(0), createdAt: createdAt(), updatedAt: updatedAt(),
+  tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }), revision: bigint("revision", { mode: "number" }).notNull().default(0), changesPrunedThrough: bigint("changes_pruned_through", { mode: "number" }).notNull().default(0), createdAt: createdAt(), updatedAt: updatedAt(),
 });
 export const integrationRecords = app.table("integration_records", {
   tenantId: uuid("tenant_id").notNull().references(() => integrationCollections.tenantId, { onDelete: "cascade" }), id: uuid("id").notNull(), kind: text("kind").$type<"bearer" | "model">().notNull(), name: text("name").notNull(), origin: text("origin"), description: text("description"), revision: bigint("revision", { mode: "number" }).notNull(), encryptedPayload: text("encrypted_payload"), deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "date" }), createdAt: createdAt(), updatedAt: updatedAt(),

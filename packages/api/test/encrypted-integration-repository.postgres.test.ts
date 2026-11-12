@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import pg from "pg";
 import { decrypt } from "../src/crypto";
 import { Database } from "../src/postgres/database";
+import { RunRetentionRepository } from "../src/postgres/run-retention-repository";
 import { EncryptedIntegrationRepository, IntegrationIdempotencyConflictError, StaleIntegrationGenerationError, StaleIntegrationRevisionError } from "../src/postgres/encrypted-integration-repository";
 
 const url = process.env.AUTH_TEST_DATABASE_URL;
@@ -105,6 +106,19 @@ describe.skipIf(!url)("encrypted integration persistence (PostgreSQL)", () => {
     expect(tombstone.rows[0]).toMatchObject({ encrypted_payload: null, revision: String(deleteResult.revision) });
     expect(tombstone.rows[0].deleted_at).toBeInstanceOf(Date);
     await expect(repository.write({ ...first, name: "Different operation with same key" })).rejects.toBeInstanceOf(IntegrationIdempotencyConflictError);
+  });
+
+  it("prunes bounded old change history and tells stale consumers to reload the full collection", async () => {
+    const { tenantId, repository } = await freshRepository();
+    const encryptedPayload = await userEncrypt("retained synthetic integration");
+    await repository.write({ id: crypto.randomUUID(), idempotencyKey: crypto.randomUUID(), expectedRevision: 0, operation: "upsert", kind: "model", name: "Retained", origin: null, description: null, encryptedPayload });
+    await db.pool.query("UPDATE app.integration_changes SET created_at=now()-interval '15 days' WHERE tenant_id=$1", [tenantId]);
+
+    const result = await new RunRetentionRepository(db).cleanupIndependentHistory();
+    expect(result.find(row => row.queue === "integration_changes")?.deleted).toBe(1);
+    await expect(repository.changesSince(0)).rejects.toMatchObject({ name: "StaleIntegrationRevisionError", currentRevision: 1, resyncRequired: true });
+    expect(await repository.changesSince(1)).toEqual([]);
+    expect((await repository.records()).map(record => record.name)).toEqual(["Retained"]);
   });
 
   it("stages ciphertext only, atomically replaces the whole generation, and makes a lost commit reply retryable", async () => {
