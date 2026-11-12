@@ -26,9 +26,11 @@ export class WebhookService {
     return result.rows[0]?.id ?? (await this.database.pool.query<any>("SELECT id FROM app.webhook_deliveries WHERE tenant_id=$1 AND provider=$2 AND delivery_id=$3", [this.tenantId, provider, deliveryId])).rows[0].id;
   }
   private async event(deliveryPk: string, jobId: string, provider: string, deliveryId: string, outcome: string, detail: string) {
-    await this.database.pool.query("INSERT INTO app.job_events(tenant_id,id,job_id,provider,delivery_id,outcome,detail) VALUES ($1,$2,$3,$4,$5,$6,$7)", [this.tenantId, crypto.randomUUID(), jobId, provider, deliveryId, outcome, detail]);
-    await this.database.pool.query("INSERT INTO app.webhook_delivery_events(tenant_id,id,delivery_id,job_id,outcome,detail) VALUES ($1,$2,$3,$4,$5,$6)", [this.tenantId, crypto.randomUUID(), deliveryPk, jobId, outcome, detail]);
-    await this.database.pool.query("UPDATE app.webhook_deliveries SET outcome=$4,detail=$5 WHERE tenant_id=$1 AND id=$2 AND delivery_id=$3", [this.tenantId, deliveryPk, deliveryId, outcome, detail]);
+    await this.database.transaction(async client => {
+      await client.query("INSERT INTO app.job_events(tenant_id,id,job_id,provider,delivery_id,outcome,detail) VALUES ($1,$2,$3,$4,$5,$6,$7)", [this.tenantId, crypto.randomUUID(), jobId, provider, deliveryId, outcome, detail]);
+      await client.query("INSERT INTO app.webhook_delivery_events(tenant_id,id,delivery_id,job_id,outcome,detail) VALUES ($1,$2,$3,$4,$5,$6)", [this.tenantId, crypto.randomUUID(), deliveryPk, jobId, outcome, detail]);
+      await client.query("UPDATE app.webhook_deliveries SET outcome=$4,detail=$5 WHERE tenant_id=$1 AND id=$2 AND delivery_id=$3", [this.tenantId, deliveryPk, deliveryId, outcome, detail]);
+    });
   }
   private async invoke(provider: WebhookProvider, deliveryId: string, source: Record<string, any> | ((config: WebhookTriggerConfig) => Record<string, any>), eventName?: string) {
     const base = typeof source === "function" ? {} : source;

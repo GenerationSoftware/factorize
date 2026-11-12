@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { RunRepository } from "../src/postgres/run-repository";
+import { RunScheduler } from "../src/postgres/run-scheduler";
 
 describe("terminal provider cleanup reconciliation", () => {
   it("claims only terminal incomplete cleanup with a bounded lease", async () => {
@@ -22,6 +23,33 @@ describe("terminal provider cleanup reconciliation", () => {
     expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining("vm_cleanup_complete=true"), ["tenant", "run"]);
     await repository.retryProviderCleanup("tenant", "run", 9, new Error("provider unavailable"));
     expect(query).toHaveBeenNthCalledWith(2, expect.stringContaining("provider_cleanup_next_at=now()+make_interval(secs=>$3)"), ["tenant", "run", 15_360, "provider unavailable"]);
+  });
+
+  it("retains provider cleanup ownership when stop succeeds but database acknowledgment fails", async () => {
+    const writes: Array<{ sql: string; values: unknown[] }> = [];
+    const poolQuery = vi.fn(async (sql: string, values: unknown[] = []) => {
+      writes.push({ sql, values });
+      if (sql.includes("vm_cleanup_complete=true")) throw new Error("database acknowledgment unavailable");
+      return { rows: [], rowCount: 1 };
+    });
+    const txQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("app.deleted_job_provider_cleanup")) return { rows: [], rowCount: 0 };
+      if (sql.includes("WITH candidates")) return { rows: [{ tenant_id: "tenant", id: "run", execution_config: {}, execution_handle: { backendKind: "exe-vm", id: "provider-run" }, execution_backend_kind: "exe-vm", provider_cleanup_attempt: 1, started_at: new Date("2026-10-01T00:00:00Z") }], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+    const database = { pool: { query: poolQuery }, transaction: (work: (client: any) => unknown) => work({ query: txQuery }) } as any;
+    const scheduler = new RunScheduler(database, {} as any);
+    const stop = vi.fn().mockResolvedValue({ state: "stopped" });
+    vi.spyOn(scheduler as any, "backend").mockResolvedValue({ stop });
+
+    await (scheduler as any).reconcileProviderCleanup();
+
+    expect(stop).toHaveBeenCalledWith({ backendKind: "exe-vm", id: "provider-run" });
+    expect(writes.map(write => write.sql)).toEqual(expect.arrayContaining([
+      expect.stringContaining("vm_cleanup_complete=true"),
+      expect.stringContaining("provider_cleanup_next_at=now()+make_interval(secs=>$3)"),
+    ]));
+    expect(writes.at(-1)).toMatchObject({ values: ["tenant", "run", 60, "database acknowledgment unavailable"] });
   });
 
   it("leases independent ownership after job deletion and keeps failed provider work retryable", async () => {

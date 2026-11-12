@@ -4,6 +4,7 @@ import { Database } from "../src/postgres/database";
 import { PostgresJobRepository } from "../src/postgres/job-repository";
 import { AutomationScheduler } from "../src/postgres/automation-scheduler";
 import { RunRepository } from "../src/postgres/run-repository";
+import { RunRetentionRepository } from "../src/postgres/run-retention-repository";
 import { RunQueryRepository } from "../src/postgres/run-query-repository";
 import { InvocationService, type Job, type Trigger } from "../src/job-domain";
 import { decrypt, encrypt } from "../src/crypto";
@@ -85,6 +86,26 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect(await invocations(a, target.id)).toMatchObject([{ context: { "trigger-1": { sourceRunId: runId, sourceJobId: source.id, state: "succeeded" } } }]);
     expect(await invocations(a, target.id)).toHaveLength(1);
     expect(await deliveries()).toHaveLength(1);
+  });
+
+  it("retains an expired source run until its enabled lifecycle delivery is acknowledged", async () => {
+    const a = await tenant(), source = await job(a);
+    const target = await job(a, { sourceJobIds: [source.id], states: ["succeeded"] });
+    const sourceRunId = await complete(a, source);
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60_000);
+    await database.pool.query("UPDATE app.runs SET created_at=$3 WHERE tenant_id=$1 AND id=$2", [a, sourceRunId, new Date(cutoff.getTime() - 60_000)]);
+
+    const retention = new RunRetentionRepository(database);
+    await expect(retention.sweep(cutoff, 10)).resolves.toMatchObject({ deleted: 0 });
+    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, sourceRunId])).rowCount).toBe(1);
+    expect(await deliveries()).toHaveLength(0);
+
+    await deliver();
+    expect(await invocations(a, target.id)).toMatchObject([{ context: { "trigger-1": { sourceRunId, state: "succeeded" } } }]);
+    expect(await deliveries()).toHaveLength(1);
+    await expect(retention.sweep(cutoff, 10)).resolves.toMatchObject({ deleted: 1 });
+    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, sourceRunId])).rowCount).toBe(0);
+    expect(await invocations(a, target.id)).toHaveLength(1);
   });
 
   it("does not replay terminal history when a trigger is created disabled then enabled", async () => {
