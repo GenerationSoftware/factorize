@@ -100,6 +100,25 @@ describe("Fly job execution backend", () => {
     expect(receipt.observation).toMatchObject({ state: "failed", failure: { code: "launch_failed" } });
   });
 
+  it("retains cleanup ownership when Fly starts a Machine but loses the start acknowledgement", async () => {
+    const f = fixture();
+    f.machines.startMachine.mockRejectedValueOnce(new Error("Fly start response timed out"));
+
+    const receipt = await f.backend.launch({ runId: "11111111-1111-4111-8111-111111111111", prompt: "" });
+
+    expect(receipt).toMatchObject({
+      handle: { backendKind: "fly", id: "factorize-test/machine-1" },
+      observation: { state: "failed", failure: { code: "launch_failed" } },
+    });
+    expect(f.guest.run).not.toHaveBeenCalled();
+
+    f.machines.inspectMachine.mockResolvedValueOnce({ ...machine, state: "started" }).mockResolvedValueOnce({ ...machine, state: "stopped" });
+    await expect(f.backend.stop(receipt.handle)).resolves.toEqual({ state: "stopped" });
+
+    expect(f.machines.stopMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
+    expect(f.machines.destroyMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
+  });
+
   it("delivers the scoped run credential to proxy memory before starting the VM and omits it from guest payload", async () => {
     const f = fixture();
     const runId = "11111111-1111-4111-8111-111111111111";
