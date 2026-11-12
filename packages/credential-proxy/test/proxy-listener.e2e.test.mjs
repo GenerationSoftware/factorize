@@ -8,6 +8,7 @@ import { createBearerForwarder } from "../src/bearer-forwarder.mjs";
 import { createAuthenticatedProxyListener } from "../src/proxy-listener.mjs";
 import { createProxyRuntime } from "../src/runtime.mjs";
 import { createProxyRunCredentialStore } from "../src/run-credential-store.mjs";
+import { createOriginConnector } from "../src/destination-policy.mjs";
 import { createAuthenticatedTunnelServer, peerIdentity, startAuthenticatedProxyTunnel, startVmTunnelHelper } from "../src/tunnel-transport.mjs";
 
 const fixtures = new URL("./fixtures/", import.meta.url);
@@ -419,5 +420,190 @@ test("VM helper authenticates the active run while the proxy performs authentica
     await tunnel.close();
     await runtime.shutdown();
     runCredentials.clear();
+  }
+});
+
+test("authenticated reconnect receives current grants after live changes and lock/unlock", { timeout: 10_000 }, async () => {
+  let currentGrants = [{ id: "tool-1", origin: "https://api.example.test", credential: "initial-grant" }];
+  const observedAuthorization = [];
+  let authentications = 0;
+  const upstream = createHttpsServer({ key, cert }, (_request, response) => {
+    observedAuthorization.push(_request.headers.authorization);
+    response.end("current-grant");
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamPort = upstream.address().port;
+  const forwarder = createBearerForwarder({
+    connectorFactory: configuredOrigin => async requestUrl => {
+      assert.equal(configuredOrigin, `https://api.example.test:${upstreamPort}`);
+      const url = new URL(requestUrl);
+      const socket = tlsConnect({ host: "127.0.0.1", port: upstreamPort, servername: url.hostname, ca: cert });
+      await once(socket, "secureConnect");
+      return { socket, url };
+    },
+  });
+  const runtime = createProxyRuntime({
+    listenerFactory: ({ connection }) => createAuthenticatedProxyListener({ connection, forwarder }),
+  });
+  const tunnel = createAuthenticatedTunnelServer({
+    tls: { key, cert, ca: cert },
+    runtime,
+    authenticateRun: async ({ runId, vmIdentity, bootEpoch }) => {
+      authentications++;
+      if (runtime.state !== "unlocked") throw new Error("proxy is locked");
+      return {
+        authenticated: true,
+        enrollmentConsumed: true,
+        vmIdentity,
+        bootEpoch,
+        connectionId: `reconnect-${authentications}`,
+        runId,
+        vmId: vmIdentity,
+      grants: currentGrants.map(grant => ({ ...grant, origin: `https://api.example.test:${upstreamPort}` })),
+      };
+    },
+  });
+  await tunnel.listening;
+  runtime.unlock("synthetic-unlock-key");
+  const local = await startVmTunnelHelper({
+    tls: { key, cert, ca: cert, servername: "api.example.test" },
+    runId: "33333333-3333-4333-8333-333333333333",
+    proxyHost: "127.0.0.1",
+    proxyPort: tunnel.address().port,
+    wait: milliseconds => new Promise(resolve => setTimeout(resolve, Math.min(milliseconds, 10))),
+  });
+  const request = async id => {
+    const response = await fetch(`http://127.0.0.1:${local.address.port}/integrations/${id}/echo`, {
+      headers: { connection: "close" },
+    });
+    return { status: response.status, body: await response.text() };
+  };
+  try {
+    assert.deepEqual(await request("tool-1"), { status: 200, body: "current-grant" });
+    assert.deepEqual(observedAuthorization, ["Bearer initial-grant"]);
+
+    currentGrants = [{ id: "tool-2", origin: "https://api.example.test", credential: "live-update" }];
+    assert.deepEqual(await request("tool-1"), { status: 403, body: "" }, "a new authenticated tunnel cannot retain an old grant");
+    assert.deepEqual(await request("tool-2"), { status: 200, body: "current-grant" });
+    assert.deepEqual(observedAuthorization, ["Bearer initial-grant", "Bearer live-update"]);
+
+    await runtime.lock();
+    currentGrants = [{ id: "tool-3", origin: "https://api.example.test", credential: "after-unlock" }];
+    const pending = request("tool-3");
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.ok(authentications >= 5, "the helper retries with fresh authenticated connections while locked");
+    runtime.unlock("synthetic-unlock-key");
+    assert.deepEqual(await pending, { status: 200, body: "current-grant" });
+    assert.deepEqual(observedAuthorization, ["Bearer initial-grant", "Bearer live-update", "Bearer after-unlock"]);
+  } finally {
+    await local.close();
+    await tunnel.close();
+    await runtime.shutdown();
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
+test("TLS forwarding keeps the configured origin through redirects and never replays an interrupted write", { timeout: 10_000 }, async () => {
+  let requests = 0;
+  let writeStartedResolve;
+  const writeStarted = new Promise(resolve => { writeStartedResolve = resolve; });
+  const upstream = createHttpsServer({ key, cert }, async (request, response) => {
+    requests++;
+    if (request.url === "/redirect") {
+      response.writeHead(302, { location: "https://other.example.test/should-not-be-requested" }).end();
+      return;
+    }
+    if (request.url === "/write") {
+      writeStartedResolve();
+      request.resume();
+      await new Promise(resolve => request.socket.once("close", resolve));
+      return;
+    }
+    response.end("bound-origin");
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const upstreamPort = upstream.address().port;
+  const origin = `https://api.example.test:${upstreamPort}`;
+  const forwarder = createBearerForwarder({
+    connectorFactory: configuredOrigin => createOriginConnector(configuredOrigin, {
+      resolve: async hostname => {
+        assert.equal(hostname, "api.example.test");
+        return [{ address: "93.184.216.34", family: 4 }];
+      },
+      connect: async ({ hostname, port, address }) => {
+        const socket = tlsConnect({ host: "127.0.0.1", port, servername: hostname, ca: cert });
+        await once(socket, "secureConnect");
+        // The fixture maps a validated public test address to this local TLS upstream.
+        Object.defineProperty(socket, "remoteAddress", { value: address });
+        return socket;
+      },
+    }),
+  });
+  const runtime = createProxyRuntime({
+    listenerFactory: ({ connection }) => createAuthenticatedProxyListener({ connection, forwarder }),
+  });
+  runtime.unlock("synthetic-unlock-key");
+  const listener = await runtime.acceptAuthenticatedConnection({
+    authenticated: true,
+    enrollmentConsumed: true,
+    bootEpoch: runtime.bootEpoch,
+    connectionId: "destination-boundary-connection",
+    runId: "destination-boundary-run",
+    vmId: "destination-boundary-vm",
+    grants: [{ id: "tool-1", origin, credential: "synthetic-bearer" }],
+  });
+  const tunnel = createAuthenticatedTunnelServer({
+    tls: { key, cert, ca: cert },
+    runtime,
+    authenticateEnrollment: async ({ token, vmIdentity, bootEpoch }) => ({
+      authenticated: true,
+      enrollmentConsumed: true,
+      vmIdentity,
+      bootEpoch,
+      connectionId: `destination-${token.slice(0, 4)}`,
+      runId: "destination-boundary-run",
+      vmId: vmIdentity,
+      grants: [{ id: "tool-1", origin, credential: "synthetic-bearer" }],
+    }),
+  });
+  await tunnel.listening;
+  const local = await startVmTunnelHelper({
+    tls: { key, cert, ca: cert, servername: "api.example.test" },
+    enrollment: async () => ({ token: "E".repeat(43) }),
+    proxyHost: "127.0.0.1",
+    proxyPort: tunnel.address().port,
+    wait: async () => {},
+  });
+  const base = `http://127.0.0.1:${local.address.port}`;
+  try {
+    const ok = await fetch(`${base}/integrations/tool-1/safe/path?next=https%3A%2F%2Fother.example.test`, { headers: { connection: "close" } });
+    assert.equal(ok.status, 200);
+    assert.equal(await ok.text(), "bound-origin");
+
+    const redirected = await fetch(`${base}/integrations/tool-1/redirect`, { headers: { connection: "close" } });
+    assert.equal(redirected.status, 502, "a redirect response is surfaced as an upstream failure");
+    assert.equal(requests, 2, "the redirect target is never contacted");
+
+    const interrupted = fetch(`${base}/integrations/tool-1/write`, {
+      method: "POST",
+      headers: { connection: "close", "content-type": "text/plain" },
+      body: "single-write",
+    });
+    await writeStarted;
+    await runtime.lock();
+    const interruptedResponse = await interrupted;
+    assert.equal(interruptedResponse.status, 499, "the interrupted operation is reported as cancelled");
+    assert.equal(await interruptedResponse.text(), "request cancelled");
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(requests, 3, "the interrupted POST was sent once and never replayed");
+    assert.equal(forwarder.activeRequests, 0);
+  } finally {
+    await local.close();
+    await tunnel.close();
+    await runtime.disconnect(listener.connectionId);
+    await runtime.shutdown();
+    await new Promise((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
   }
 });
