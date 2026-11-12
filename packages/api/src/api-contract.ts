@@ -1127,6 +1127,15 @@ export const API_ROUTES: RouteContract[] = [
     { summary: "Stop run", responses: { "200": { description: "Stopped" } } },
     (service, { params }) => service.stopRun(params.runId),
   ),
+  route("POST", "/api/v1/runs/{runId}/retry-launch", "runs:cancel", {
+    summary: "Manually retry a blocked launch",
+    description: "Retries only a pre-launch proxy-gated run after its prerequisites have been resolved. The run remains blocked until an interactive owner explicitly retries it; unlock or status changes do not automatically launch it.",
+    responses: {
+      "200": { description: "Manual retry queued", content: { "application/json": { schema: { type: "object", required: ["runId", "retryRequested"], properties: { runId: { type: "string", format: "uuid" }, retryRequested: { type: "boolean", const: true } }, additionalProperties: false } } } },
+      "403": { description: "Interactive owner session required" },
+      "409": { description: "Run is not waiting for a manual launch retry" },
+    },
+  }, (service, { params }) => service.retryBlockedLaunch(params.runId), { ownerSession: true, parameters: z.object({ runId: z.uuid() }) }),
   route(
     "POST",
     "/api/v1/runs/{runId}/kill",

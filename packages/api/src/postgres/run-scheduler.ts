@@ -20,6 +20,7 @@ import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./trace-project
 import { LiveTraceRepository } from "./live-trace-repository";
 import { JOB_RESULT_INSTRUCTIONS, parseJobResult } from "../job-result";
 import { issueRunCredential, runProxyInstructions } from "../run-credentials";
+import { ProxyLaunchBlockedError } from "../proxy-launch-policy";
 
 export class RunScheduler {
   private runs: RunRepository;
@@ -29,7 +30,12 @@ export class RunScheduler {
     await this.runs.consumeWakeHint();
     await new AutomationScheduler(this.database, this.env).process();
     for (const run of await this.runs.dueForPoll()) await this.poll(run).catch(error => this.fail(run, error, "poll"));
-    for (let count = 0; count < 20; count++) { const run = await this.runs.claimNext(); if (!run) break; await this.launch(run).catch(error => this.fail(run, error, "launch")); }
+    for (let count = 0; count < 20; count++) {
+      const run = await this.runs.claimNext(); if (!run) break;
+      await this.launch(run).catch(error => error instanceof ProxyLaunchBlockedError
+        ? this.runs.blockLaunch(run, `Credential proxy ${error.reason}; resolve the prerequisite and manually retry this run.`)
+        : this.fail(run, error, "launch"));
+    }
   }
 
   private connections(run: PersistedRun) { return new ConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
