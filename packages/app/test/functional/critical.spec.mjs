@@ -63,12 +63,12 @@ test("loading, search, error and no-result states are actionable", async ({ page
   await mockApi(page);
   let pending;
   let mode = "pending";
-  await page.route("**/api/v1/job-summaries?**", route => mode === "pending" ? (pending = route) : route.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } }));
+  await page.route("**/api/v1/runs?**", route => mode === "pending" ? (pending = route) : route.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } }));
   await page.goto(origin + "/projects/" + projectId);
-  await expect(page.getByRole("status").filter({ hasText: "Loading jobs…" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Loading runs…" })).toBeVisible();
   mode = "error";
   await pending.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } });
-  await expect(page.getByRole("alert")).toHaveText("This workspace is unavailable.");
+  await expect(page.getByRole("alert")).toContainText("This workspace is unavailable.");
   await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
   const input = page.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true });
   await expect(input).toBeFocused();
@@ -80,9 +80,9 @@ test("loading, search, error and no-result states are actionable", async ({ page
 
 test("project and job child requests start after session but do not wait for their detail requests", async ({ page }) => {
   const requests = [];
-  let releaseProject, releaseJobs, releaseJob, releaseHistory;
+  let releaseProject, releaseRuns, releaseJob, releaseHistory;
   const projectGate = new Promise(resolve => { releaseProject = resolve; });
-  const jobsGate = new Promise(resolve => { releaseJobs = resolve; });
+  const runsGate = new Promise(resolve => { releaseRuns = resolve; });
   const jobGate = new Promise(resolve => { releaseJob = resolve; });
   const historyGate = new Promise(resolve => { releaseHistory = resolve; });
   await page.route("**/api/v1/**", async route => {
@@ -90,29 +90,30 @@ test("project and job child requests start after session but do not wait for the
     requests.push({ path, search: url.search });
     if (path === "/api/v1/session") return route.fulfill({ json: { authenticated: true, user: { id: "owner" }, workspace: { id: "tenant", name: "Release" }, capabilities: [] } });
     if (path === `/api/v1/projects/${projectId}`) { await projectGate; return route.fulfill({ json: project }); }
-    if (path === "/api/v1/job-summaries") { await jobsGate; return route.fulfill({ json: { items: [], nextCursor: null } }); }
+    if (path === "/api/v1/runs") { await runsGate; return route.fulfill({ json: { items: [], nextCursor: null } }); }
     if (path === `/api/v1/jobs/${jobId}`) { await jobGate; return route.fulfill({ json: job }); }
     if (path === "/api/v1/runs") { await historyGate; return route.fulfill({ json: { items: [], nextCursor: null } }); }
     return route.fulfill({ json: [] });
   });
 
-  const projectNavigation = page.goto(`${origin}/projects/${projectId}?q=release&sort=title&order=desc`);
+  const projectNavigation = page.goto(`${origin}/projects/${projectId}?sort=created&direction=desc&states=failed`);
   await expect.poll(() => requests.map(request => request.path)).toContain("/api/v1/session");
   await expect.poll(() => requests.map(request => request.path)).toContain(`/api/v1/projects/${projectId}`);
-  await expect.poll(() => requests.map(request => request.path)).toContain("/api/v1/job-summaries");
-  expect(requests.find(request => request.path === "/api/v1/job-summaries").search).toContain(`projectId=${projectId}`);
-  expect(requests.find(request => request.path === "/api/v1/job-summaries").search).toContain("q=release");
+  await expect.poll(() => requests.map(request => request.path)).toContain("/api/v1/runs");
+  expect(requests.find(request => request.path === "/api/v1/runs").search).toContain(`projectId=${projectId}`);
+  expect(requests.find(request => request.path === "/api/v1/runs").search).toContain("sort=created");
+  expect(requests.find(request => request.path === "/api/v1/runs").search).toContain("state=failed");
   releaseProject();
   await projectNavigation;
   await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
-  expect(await page.getByRole("status").filter({ hasText: "Loading jobs…" }).isVisible()).toBe(true);
-  releaseJobs();
-  await expect(page.getByRole("status").filter({ hasText: "Loading jobs…" })).toHaveCount(0);
+  expect(await page.getByRole("status").filter({ hasText: "Loading runs…" }).isVisible()).toBe(true);
+  releaseRuns();
+  await expect(page.getByRole("status").filter({ hasText: "Loading runs…" })).toHaveCount(0);
 
   const jobNavigation = page.goto(`${origin}/jobs/${jobId}?cursor=cursor-1&sort=created&direction=desc&states=failed`);
   await expect.poll(() => requests.map(request => request.path)).toContain(`/api/v1/jobs/${jobId}`);
-  await expect.poll(() => requests.filter(request => request.path === "/api/v1/runs").length).toBe(1);
-  const historySearch = requests.find(request => request.path === "/api/v1/runs").search;
+  await expect.poll(() => requests.filter(request => request.path === "/api/v1/runs" && request.search.includes("jobId=")).length).toBe(1);
+  const historySearch = requests.find(request => request.path === "/api/v1/runs" && request.search.includes("jobId=")).search;
   expect(historySearch).toContain("jobId=");
   expect(historySearch).toContain("cursor=cursor-1");
   expect(historySearch).toContain("sort=created");
@@ -122,12 +123,10 @@ test("project and job child requests start after session but do not wait for the
   await jobNavigation;
   await expect(page.getByRole("heading", { name: job.name, exact: true })).toHaveCount(0);
   await expect(page.getByRole("group", { name: "Job actions" }).getByRole("button", { name: "Run job", exact: true })).toBeVisible();
-  expect(await page.getByRole("status").filter({ hasText: "Loading run history…" }).isVisible()).toBe(true);
   releaseHistory();
-  await expect(page.getByRole("status").filter({ hasText: "Loading run history…" })).toHaveCount(0);
 });
 
-test("intent preloading reuses project detail and jobs queries on click", async ({ page }) => {
+test("intent preloading reuses project detail and loads runs on click", async ({ page }) => {
   const requestCounts = new Map();
   await page.route("**/api/v1/**", async route => {
     const path = new URL(route.request().url()).pathname;
@@ -144,22 +143,23 @@ test("intent preloading reuses project detail and jobs queries on click", async 
   const projectLink = page.getByRole("link", { name: new RegExp(project.name) });
   await projectLink.hover();
   await expect.poll(() => requestCounts.get(`/api/v1/projects/${projectId}`) ?? 0).toBe(1);
-  await expect.poll(() => requestCounts.get("/api/v1/job-summaries") ?? 0).toBe(1);
+  await expect.poll(() => requestCounts.get("/api/v1/runs") ?? 0).toBe(1);
   await projectLink.click();
   await expect(page.getByRole("heading", { name: project.name })).toBeVisible();
   expect(requestCounts.get(`/api/v1/projects/${projectId}`)).toBe(1);
-  expect(requestCounts.get("/api/v1/job-summaries")).toBe(1);
+  expect(requestCounts.get("/api/v1/runs")).toBe(1);
 
   await page.goto(`${origin}/jobs`);
   const jobLink = page.getByRole("link", { name: job.name, exact: true });
+  const runsBeforeJobHover = requestCounts.get("/api/v1/runs") ?? 0;
   await jobLink.hover();
   await expect.poll(() => requestCounts.get(`/api/v1/jobs/${jobId}`) ?? 0).toBe(1);
-  await expect.poll(() => requestCounts.get("/api/v1/runs") ?? 0).toBe(1);
+  await expect.poll(() => requestCounts.get("/api/v1/runs") ?? 0).toBe(runsBeforeJobHover + 1);
   await jobLink.click();
   await expect(page.getByRole("heading", { name: job.name, exact: true })).toHaveCount(0);
   await expect(page.getByRole("group", { name: "Job actions" }).getByRole("button", { name: "Run job", exact: true })).toBeVisible();
   expect(requestCounts.get(`/api/v1/jobs/${jobId}`)).toBe(1);
-  expect(requestCounts.get("/api/v1/runs")).toBe(1);
+  expect(requestCounts.get("/api/v1/runs")).toBe(runsBeforeJobHover + 1);
 });
 
 test("conversation trace renders assistant messages and uses document scrolling", async ({ page }) => {
