@@ -107,7 +107,7 @@ describe("Fly job execution backend", () => {
     const runId = "11111111-1111-4111-8111-111111111111";
     const backend = new FlyJobExecutionBackend({
       app: "factorize-test", image: "registry.example/custom-code:reviewed",
-      region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest,
+      region: "ord", size: "performance-2x", machines: f.machines, guest: () => f.guest,
     });
 
     const receipt = await backend.launch({
@@ -117,7 +117,13 @@ describe("Fly job execution backend", () => {
     });
 
     const machineConfig = f.machines.createMachine.mock.calls[0]![1];
-    expect(machineConfig.image).toBe("registry.example/custom-code:reviewed");
+    expect(machineConfig).toMatchObject({
+      image: "registry.example/custom-code:reviewed",
+      region: "ord",
+      guest: { cpu_kind: "performance", cpus: 2, memory_mb: 2048 },
+      auto_start: false,
+      restart: { policy: "no" },
+    });
     // Leave cmd unset so Fly runs the image's own entrypoint during startup.
     expect(machineConfig).not.toHaveProperty("cmd");
     expect(f.machines.startMachine.mock.invocationCallOrder[0]).toBeLessThan(f.guest.run.mock.invocationCallOrder[0]!);
