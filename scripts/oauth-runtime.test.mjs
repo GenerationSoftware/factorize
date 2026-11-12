@@ -6,6 +6,7 @@ import https from 'node:https';
 import { randomUUID, randomBytes, createHmac, createHash } from 'node:crypto';
 import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
 // Real public wire operations only; no imports from the backend or mocked OAuth helpers.
@@ -30,7 +31,8 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     const origin = `https://localhost:${port}`, secret = randomBytes(32).toString('hex');
     const body = Buffer.from(JSON.stringify({ tenantId, userId, email, exp: Math.floor(Date.now()/1000)+600, sessionVersion: 1 })).toString('base64url');
     const cookie = 'factorize_session=' + encodeURIComponent(body + '.' + createHmac('sha256', secret).update(body).digest('base64'));
-    child = spawn('npm', ['exec', '--workspace=factorize', '--', 'wrangler', 'dev', '--local', '--local-protocol', 'https', '--port', String(port), '--persist-to', directory, '--var', `APP_ORIGIN:${origin}`, '--var', `SESSION_SIGNING_SECRET:${secret}`, '--var', `CREDENTIAL_ENCRYPTION_KEY:${randomBytes(32).toString('base64')}`], { detached: true, stdio: ['ignore','pipe','pipe'], env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: base.href } });
+    const wranglerCli = fileURLToPath(new URL('../node_modules/wrangler/bin/wrangler.js', import.meta.url));
+    child = spawn(process.execPath, [wranglerCli, 'dev', '--local', '--local-protocol', 'https', '--port', String(port), '--persist-to', directory, '--var', `APP_ORIGIN:${origin}`, '--var', `SESSION_SIGNING_SECRET:${secret}`, '--var', `CREDENTIAL_ENCRYPTION_KEY:${randomBytes(32).toString('base64')}`], { cwd: fileURLToPath(new URL('../packages/api/', import.meta.url)), detached: true, stdio: ['ignore','pipe','pipe'], env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: base.href } });
     await new Promise((resolve, reject) => {
       let readyOutput = ''; const deadline = setTimeout(() => reject(new Error('Local protocol Worker did not start')), 30000);
       const chunk = value => { readyOutput += value; if (readyOutput.includes('Ready on')) { clearTimeout(deadline); resolve(); } };
