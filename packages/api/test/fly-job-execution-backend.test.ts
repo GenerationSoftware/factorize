@@ -12,7 +12,7 @@ function fixture() {
     destroyMachine: vi.fn(async () => undefined),
   };
   const guest = {
-    run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "started\n", stderr: "" })),
+    run: vi.fn(async (_command: readonly string[], _input?: string | Uint8Array) => ({ ok: true, exitCode: 0, stdout: "started\n", stderr: "" })),
     download: vi.fn(async (path: string) => new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "saved log")),
   };
   const proxyGuest = { run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "Run credential delivered to proxy memory\n", stderr: "" })) };
@@ -51,7 +51,7 @@ describe("Fly job execution backend", () => {
     expect(f.proxyGuest.run).toHaveBeenCalledOnce();
     expect(f.proxyGuest.run).toHaveBeenCalledWith(["/usr/local/bin/factorize-proxy-authorize-run"], expect.stringContaining(`"credential":"${credential}"`));
     expect(f.proxyGuest.run.mock.invocationCallOrder[0]).toBeLessThan(f.machines.startMachine.mock.invocationCallOrder[0]);
-    const payload = f.guest.run.mock.calls.at(-1)?.[1] as string;
+    const payload = String(f.guest.run.mock.calls.at(-1)?.[1] ?? "");
     expect(payload).not.toContain(credential);
     expect(payload).toContain(runId);
   });
