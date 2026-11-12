@@ -71,4 +71,26 @@ describe("shared factorize-job launcher", () => {
       expect(JSON.parse(execFileSync("python3", [helper, "status"], { encoding: "utf8" }))).toEqual({ state: "exited", exitCode: 0 });
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
+
+  it("allows a custom image entrypoint to finish setup before execing the shared launcher", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "factorize-custom-image-launcher-"));
+    const root = join(directory, "job"), log = join(directory, "factorize.log"), helper = join(directory, "factorize-job");
+    const setup = join(directory, "image-setup.complete");
+    const source = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-job", root).replace("/tmp/factorize.log", log).replace("/tmp/factorize.stderr", join(directory, "factorize.stderr"));
+    try {
+      await writeFile(helper, source, { mode: 0o700 });
+      await mkdir(root, { mode: 0o700 });
+      const entrypoint = `printf '%s' ready > '${setup}'; exec python3 '${helper}' launch --foreground`;
+      const payload = JSON.stringify({
+        version: 1,
+        runId: "custom-image-run",
+        code: { script: "printf '%s' '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"; printf 'custom-image-ok\\n'", context: {} },
+      });
+
+      expect(execFileSync("sh", ["-c", entrypoint], { input: payload, encoding: "utf8" }).trim()).toBe("custom-image-ok");
+      expect(await readFile(setup, "utf8")).toBe("ready");
+      expect(JSON.parse(await readFile(join(root, "results.json"), "utf8"))).toEqual({ status: "succeeded" });
+      expect(JSON.parse(await readFile(join(root, "process.json"), "utf8"))).toEqual({ state: "exited", exitCode: 0 });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
 });
