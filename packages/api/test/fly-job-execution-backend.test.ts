@@ -13,7 +13,10 @@ function fixture() {
     destroyMachine: vi.fn(async () => undefined),
   };
   const guest = {
-    run: vi.fn(async (_command: readonly string[], _input?: string | Uint8Array) => ({ ok: true, exitCode: 0, stdout: "started\n", stderr: "" })),
+    run: vi.fn(async (command: readonly string[], _input?: string | Uint8Array) => ({
+      ok: true, exitCode: 0,
+      stdout: command.at(-1) === "--version" ? "codex-cli 0.167.1\n" : "started\n", stderr: "",
+    })),
     upload: vi.fn(async () => undefined),
     download: vi.fn(async (path: string) => new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "saved log")),
   };
@@ -51,6 +54,7 @@ describe("Fly job execution backend", () => {
 
     const receipt = await backend.launch({ runId, prompt: "continue", harness });
 
+    expect(f.guest.run).toHaveBeenCalledWith(["/usr/sbin/runuser", "-u", "exedev", "--", "codex", "--version"]);
     expect(f.machines.createMachine).toHaveBeenCalledWith("factorize-test", expect.objectContaining({
       image: "registry.example/factorize-codex:reviewed",
       region: "ord",
@@ -63,6 +67,33 @@ describe("Fly job execution backend", () => {
       expect.stringContaining('"executable":"codex"'),
     );
     expect(receipt.observation).toMatchObject({ state: "running" });
+  });
+
+  it.each([
+    { ok: false, exitCode: 127, stdout: "", stderr: "codex: not found" },
+    { ok: true, exitCode: 0, stdout: "codex-cli 0.166.0\n", stderr: "" },
+  ])("rejects a custom Codex image without the supported CLI version", async version => {
+    const f = fixture();
+    f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: "", stderr: "" });
+    f.guest.run.mockResolvedValueOnce(version);
+
+    const receipt = await f.backend.launch({
+      runId: "11111111-1111-4111-8111-111111111111",
+      prompt: "continue",
+      harness: agentDriver("codex").launch("11111111-1111-4111-8111-111111111111", {}),
+    });
+
+    expect(receipt).toMatchObject({
+      handle: { backendKind: "fly", id: "factorize-test/machine-1" },
+      observation: {
+        state: "failed",
+        detail: "Fly guest requires codex-cli 0.167.1 for Codex jobs",
+        failure: { code: "launch_failed" },
+      },
+    });
+    expect(f.guest.run).toHaveBeenCalledTimes(2);
+    expect(f.guest.run.mock.calls[1]?.[0]).toEqual(["/usr/sbin/runuser", "-u", "exedev", "--", "codex", "--version"]);
+    expect(receipt.observation.detail?.length).toBeLessThanOrEqual(120);
   });
 
   it("lets custom image setup finish before invoking the shared launcher without replacing its entrypoint", async () => {

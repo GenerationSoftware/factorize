@@ -9,6 +9,8 @@ import { sourceCommand } from "./trace-source";
 import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
 import { FACTORIZE_FLY_TUNNEL_HELPER } from "./fly-job-tunnel-helper";
 
+const SUPPORTED_CODEX_CLI_VERSION = "codex-cli 0.167.1";
+
 export type FlyJobMachines = {
   findMachineByOperationId?(app: string, operationId: string): Promise<FlyMachine | undefined>;
   createMachine(app: string, config: FlyMachineConfig, operationId: string): Promise<FlyMachine>;
@@ -101,6 +103,12 @@ export class FlyJobExecutionBackend implements ExecutionBackend, JobResultReader
       if (!installed.ok) throw new Error(request.runProxy
         ? "Fly guest is missing python3, runuser, Node.js, OpenSSL, or the exedev user, or could not install the shared Factorize job launcher"
         : "Fly guest is missing python3, runuser, or the exedev user, or could not install the shared Factorize job launcher");
+      if (request.harness?.executable === "codex") {
+        const version = await guest.run(["/usr/sbin/runuser", "-u", "exedev", "--", "codex", "--version"]);
+        if (!version.ok || version.stdout.trim() !== SUPPORTED_CODEX_CLI_VERSION) {
+          throw new Error(`Fly guest requires ${SUPPORTED_CODEX_CLI_VERSION} for Codex jobs`);
+        }
+      }
       if (request.runProxy) {
         if (!guest.upload) throw new Error("Fly guest transport cannot install the credential proxy tunnel helper");
         const vmIdentity = `fly:${this.options.app}:${machine.id}`;
