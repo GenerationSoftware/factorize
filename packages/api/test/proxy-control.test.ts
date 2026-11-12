@@ -13,7 +13,7 @@ function envFor({ credentialFound = true, stateSaved = true } = {}) {
     if (sql.includes("INSERT INTO app.credential_proxy_states")) return { rows: stateSaved ? [{ tenant_id: "11111111-1111-4111-8111-111111111111" }] : [], rowCount: stateSaved ? 1 : 0 };
     return { rows: [], rowCount: 1 };
   });
-  const query = vi.fn(async (sql: string) => sql.includes("proxy_token_digest")
+  const query = vi.fn(async (sql: string) => sql.includes("SELECT user_id FROM app.members") ? { rows: [{ user_id: "11111111-1111-4111-8111-111111111111" }], rowCount: 1 } : sql.includes("proxy_token_digest")
     ? { rows: credentialFound ? [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }] : [], rowCount: credentialFound ? 1 : 0 }
     : sql.includes("SET unlocked=$3") ? { rows: [], rowCount: credentialFound ? 1 : 0 }
     : sql.includes("FROM app.run_credentials")
@@ -162,6 +162,7 @@ describe("dedicated proxy boot registration endpoint", () => {
     const env = envFor();
     env.CREDENTIAL_ENCRYPTION_KEY = key;
     env.query.mockImplementation(async (sql: string, values: unknown[] = []) => {
+      if (sql.includes("SELECT user_id FROM app.members")) return { rows: [{ user_id: "11111111-1111-4111-8111-111111111111" }], rowCount: 1 };
       if (sql.includes("proxy_token_digest")) return { rows: [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }], rowCount: 1 };
       if (sql.includes("FROM app.runs r")) return { rows: [{ execution_config: { portableIntegrationIds: [integrationId, "99999999-9999-4999-8999-999999999999"], modelAccess: "portable", modelAccountId }, grant_revision: 3 }], rowCount: 1 };
       if (sql.includes("FROM app.integration_records")) return values[1] === "bearer" ? { rows: [

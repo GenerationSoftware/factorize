@@ -18,7 +18,7 @@ import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { EncryptedIntegrationRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./postgres/encrypted-integration-repository";
 import { ProxyControlRepository } from "./postgres/proxy-control-repository";
-import { issueModelAccountCapability } from "./proxy-browser-capability";
+import { issueModelAccountCapability, issueProxyCapability } from "./proxy-browser-capability";
 import { decrypt, encrypt } from "./crypto";
 import { InvocationService, type Job, type Trigger } from "./job-domain";
 import { RunQueryRepository } from "./postgres/run-query-repository";
@@ -79,6 +79,10 @@ export class ApiService {
     // so they do not necessarily have RFC 4122 version/variant bits. Any
     // UUID-shaped value is still safe to use in the UUID query; non-UUID values
     // are the legacy connection IDs.
+    if (id === "docker") {
+      if (this.env.TEST_DOCKER_EXECUTION?.enabled !== true) throw new ServiceError(400, "invalid_request", "execution integration not found");
+      return { targetId: id, connectionId: id, workspace: "", cwd: "", agentKind: "code", tags: [], image: this.env.TEST_DOCKER_EXECUTION.image, executionProvider: "docker" as const };
+    }
     if (id.startsWith("amp:")) {
       const connectionId = id.slice(4), value = await this.connections().get<{ project: string }>(`amp:${connectionId}`);
       if (!value) throw new ServiceError(400, "invalid_request", "execution integration not found");
@@ -93,6 +97,7 @@ export class ApiService {
   }
 
   private async portableSelections(config: Awaited<ReturnType<ApiService["executionConfig"]>>, executionType: "agent" | "code", input: JobInput, current?: Job) {
+    if (config.executionProvider === "docker" && executionType !== "code") throw new ServiceError(400, "invalid_request", "Docker test execution supports code jobs only.");
     const portableIntegrationIds = input.portableIntegrationIds ?? current?.portableIntegrationIds ?? current?.executionConfig.portableIntegrationIds ?? [];
     if (executionType === "code" && input.modelAccess === "portable") throw new ServiceError(400, "invalid_request", "Code jobs cannot select model access.");
     const modelAccess = executionType === "code" ? "native" : input.modelAccess ?? current?.modelAccess ?? current?.executionConfig.modelAccess ?? (config.executionProvider === "fly" ? "portable" : "native");
@@ -109,6 +114,7 @@ export class ApiService {
   }
 
   private async validateExecutionOptions(id: string, model: string, effort: string, tags: string[]) {
+    if (id === "docker") throw new ServiceError(400, "invalid_request", "Docker test execution supports code jobs only.");
     if (id.startsWith("amp:")) return;
     const connection = await this.connections().get<ExeConnection>(`exe:${id}`);
     if (!connection) {
@@ -629,6 +635,20 @@ export class ApiService {
       if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
       throw error;
     }
+  }
+  async setupCredentialProxy(operationId: string) {
+    await this.authorizeOwnerSession("integrations:write");
+    if (!this.env.CREDENTIAL_PROXY_HOST) throw new ServiceError(503, "operation_failed", "Credential proxy execution host is unavailable.");
+    return this.env.CREDENTIAL_PROXY_HOST.setup(this.auth.tenantId, operationId);
+  }
+  async issueCredentialProxyCapability(action: "unlock" | "lock" | "apply" | "status") {
+    await this.authorizeOwnerSession("integrations:write");
+    const pairing = await new ProxyControlRepository(databaseFor(this.env)).browserPairing(this.auth.tenantId);
+    if (!pairing || !this.env.MODEL_ACCOUNT_CAPABILITY_PRIVATE_KEY) throw new ServiceError(503, "operation_failed", "Credential proxy is not paired.");
+    const capability = await issueProxyCapability({ privateKeyPem: this.env.MODEL_ACCOUNT_CAPABILITY_PRIVATE_KEY,
+      proxyIdentity: pairing.proxyIdentity, ownerId: this.auth.tenantId, action,
+      appOrigin: this.env.APP_ORIGIN, generation: pairing.bootEpoch });
+    return { endpoint: `${pairing.browserOrigin}/proxy/${action}`, capability };
   }
   async issueModelAccountBrowserCapability(accountId: string, action: "authorize" | "status" | "cancel") {
     await this.authorizeOwnerSession("integrations:write");

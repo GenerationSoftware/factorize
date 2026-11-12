@@ -29,9 +29,12 @@ import { createFlyMachinesClient } from "../fly-machines-client";
 import { FlyJobExecutionBackend, flyJobGuest } from "../fly-job-execution-backend";
 import { createFlyCredentialProxyGuest } from "../fly-credential-proxy-provisioner";
 
+/** Host runners may supply infrastructure without patching scheduler internals. */
+export type RunBackendFactory = (run: PersistedRun) => ExecutionBackend | undefined | Promise<ExecutionBackend | undefined>;
+
 export class RunScheduler {
   private runs: RunRepository;
-  constructor(private database: Database, private env: Env) { this.runs = new RunRepository(database); }
+  constructor(private database: Database, private env: Env, private readonly backendFactory?: RunBackendFactory) { this.runs = new RunRepository(database); }
 
   async process(): Promise<void> {
     await this.runs.consumeWakeHint();
@@ -123,6 +126,8 @@ export class RunScheduler {
     return typeof (backend as unknown as Record<PropertyKey, unknown>)[method] === "function";
   }
   private async backend(run: PersistedRun): Promise<ExecutionBackend> {
+    const supplied = await this.backendFactory?.(run);
+    if (supplied) return supplied;
     const id = String(run.executionConfig.connectionId ?? "");
     if (run.backendKind === "fly" || run.executionConfig.executionProvider === "fly") {
       const [connection, configuration] = await Promise.all([
@@ -157,7 +162,7 @@ export class RunScheduler {
   private async launch(run: PersistedRun) {
     const config = run.executionConfig;
     const decision = proxyLaunchDecision({
-      executionProvider: config.executionProvider === "fly" ? "fly" : "exe",
+      executionProvider: config.executionProvider === "fly" || config.executionProvider === "docker" ? "fly" : "exe",
       executionType: config.executionType === "code" ? "code" : "agent",
       portableIntegrationIds: config.portableIntegrationIds,
       modelAccess: config.modelAccess,

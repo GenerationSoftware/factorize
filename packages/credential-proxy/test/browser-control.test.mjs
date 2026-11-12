@@ -74,3 +74,31 @@ test("authorization is refused while locked and expiry remains bounded to one mi
   });
   assert.equal(response.status, 401);
 });
+
+test("proxy lifecycle capabilities bind action and boot, are one-use, and verify keys before unlock", async t => {
+  const { createProxyRuntime } = await import('../src/runtime.mjs');
+  const runtime = createProxyRuntime();
+  let prepared = 0, reported = 0;
+  const server = await startBrowserControl({ runtime, lifecycle: {}, publicKey, proxyId, ownerId, generation, appOrigin, port: 0, host: '127.0.0.1', now: () => 1_900_000_000,
+    prepareUnlock: async key => { if (key !== 'synthetic-key') throw new Error('invalid verification'); prepared++; }, reportStatus: async () => { reported++; } });
+  t.after(async () => { await server.close(); await runtime.shutdown(); });
+  const post = (action, token, body = {}, origin = appOrigin) => fetch(`http://127.0.0.1:${server.address.port}/proxy/${action}`, {
+    method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+  const proxyCap = (action, extra = {}) => {
+    const header = Buffer.from(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' })).toString('base64url');
+    const claims = Buffer.from(JSON.stringify({ iss: 'factorize', aud: proxyId, sub: ownerId, action: `proxy:${action}`, origin: appOrigin, generation, exp: 1_900_000_030, jti: crypto.randomUUID(), ...extra })).toString('base64url');
+    const input = `${header}.${claims}`;
+    return `${input}.${sign(null, Buffer.from(input), privateKey).toString('base64url')}`;
+  };
+  assert.equal((await post('unlock', proxyCap('unlock'), { key: 'wrong' })).status, 403);
+  assert.equal(runtime.state, 'locked');
+  assert.equal((await post('unlock', proxyCap('lock'), { key: 'synthetic-key' })).status, 401);
+  assert.equal((await post('unlock', proxyCap('unlock', { generation: 99 }), { key: 'synthetic-key' })).status, 401);
+  assert.equal((await post('unlock', proxyCap('unlock'), { key: 'synthetic-key' }, 'https://foreign.example')).status, 403);
+  const token = proxyCap('unlock');
+  assert.equal((await post('unlock', token, { key: 'synthetic-key' })).status, 200);
+  assert.equal((await post('unlock', token, { key: 'synthetic-key' })).status, 401);
+  assert.equal(runtime.state, 'unlocked'); assert.equal(prepared, 1);
+  assert.equal((await post('lock', proxyCap('lock'))).status, 200);
+  assert.equal(runtime.state, 'locked'); assert.equal(reported, 2);
+});

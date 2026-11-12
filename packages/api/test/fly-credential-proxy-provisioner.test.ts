@@ -226,9 +226,9 @@ describe("Fly credential proxy guest adapter", () => {
     }) as any;
     const guest = createFlyCredentialProxyGuest({ app: input.app, machine: machine.id, token: "server-token-fixture", spawnProcess });
     await guest.startProxy({ tenantId: input.tenantId, proxyIdentity: "fly:factorize-proxies:machine-1", bootEpoch: epoch, controlOrigin: input.controlOrigin, browserOrigin: `https://${input.app}.fly.dev`, credential: `fzc_${"c".repeat(43)}` });
-    expect(calls[0]?.[1]).toContain("/usr/local/bin/factorize-proxy-startup");
-    expect(String(calls[1]?.[1])).toContain(`"type":"register-boot"`);
-    expect(String(calls[1]?.[1])).toContain(`"credential":"fzc_${"c".repeat(43)}"`);
+    expect(calls[2]?.[1]).toContain("/usr/local/bin/factorize-proxy-startup");
+    expect(String(calls[3]?.[1])).toContain(`"type":"register-boot"`);
+    expect(String(calls[3]?.[1])).toContain(`"credential":"fzc_${"c".repeat(43)}"`);
   });
 
   it("requests a VM CSR signature through the private guest channel and verifies both bindings", async () => {

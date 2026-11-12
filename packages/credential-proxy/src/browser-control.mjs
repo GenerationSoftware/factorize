@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { createPublicKey, verify } from "node:crypto";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -69,6 +70,10 @@ export async function startBrowserControl({
   appOrigin,
   host = "0.0.0.0",
   port = 8080,
+  tls,
+  prepareUnlock,
+  reportStatus,
+  applyChanges,
   now = () => Math.floor(Date.now() / 1000),
 } = {}) {
   if (!runtime || !lifecycle || !publicKey || typeof proxyId !== "string" || !proxyId
@@ -82,7 +87,7 @@ export async function startBrowserControl({
   const consumed = new Map();
   const authorizations = new Map();
 
-  const server = createServer(async (request, response) => {
+  const handler = async (request, response) => {
     const origin = request.headers.origin;
     if (origin !== appOrigin) return json(response, 403, { error: "origin_rejected" });
     if (request.method === "OPTIONS") {
@@ -102,8 +107,9 @@ export async function startBrowserControl({
     }
     if (request.method !== "POST") return json(response, 405, { error: "method_not_allowed" }, appOrigin);
     const match = /^\/model-accounts\/([0-9a-f-]{36})\/(authorize|status|cancel)$/.exec(new URL(request.url ?? "/", "http://proxy.internal").pathname);
-    if (!match || !UUID.test(match[1])) return json(response, 404, { error: "not_found" }, appOrigin);
-    const [, accountId, operation] = match;
+    const proxyMatch = /^\/proxy\/(unlock|lock|apply|status)$/.exec(new URL(request.url ?? "/", "http://proxy.internal").pathname);
+    if ((!match || !UUID.test(match[1])) && !proxyMatch) return json(response, 404, { error: "not_found" }, appOrigin);
+    const [, accountId, operation] = match ?? [null, undefined, proxyMatch[1]];
     if (request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
       return json(response, 415, { error: "unsupported_media_type" }, appOrigin);
     }
@@ -112,7 +118,7 @@ export async function startBrowserControl({
     let claims;
     try { claims = parseCapability(authorization.slice(7), verifyKey); }
     catch { return json(response, 401, { error: "invalid_capability" }, appOrigin); }
-    const expectedAction = `model-account:${operation}`;
+    const expectedAction = `${proxyMatch ? "proxy" : "model-account"}:${operation}`;
     if (claims.iss !== "factorize" || claims.aud !== proxyId || claims.sub !== ownerId
         || claims.action !== expectedAction || claims.accountId !== accountId || claims.origin !== appOrigin
         || claims.generation !== generation || !Number.isSafeInteger(claims.exp) || claims.exp <= now()
@@ -125,6 +131,24 @@ export async function startBrowserControl({
 
     try {
       const body = await readJson(request);
+      if (proxyMatch) {
+        if (!body || typeof body !== "object" || Array.isArray(body)) return json(response, 400, { error: "invalid_request" }, appOrigin);
+        if (operation === "unlock") {
+          if (Object.keys(body).join(",") !== "key" || typeof body.key !== "string" || body.key.length > 128 || !prepareUnlock) return json(response, 400, { error: "invalid_request" }, appOrigin);
+          try { await runtime.unlockAndPrepare(body.key, () => prepareUnlock(body.key)); }
+          catch { return json(response, 403, { error: "unlock_rejected" }, appOrigin); }
+          finally { body.key = undefined; }
+        } else {
+          if (Object.keys(body).length) return json(response, 400, { error: "invalid_request" }, appOrigin);
+          if (operation === "lock") await runtime.lock();
+          if (operation === "apply") {
+            if (runtime.state !== "unlocked") return json(response, 423, { error: "proxy_locked" }, appOrigin);
+            await applyChanges?.();
+          }
+        }
+        await reportStatus?.();
+        return json(response, 200, { state: runtime.state }, appOrigin);
+      }
       if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) {
         return json(response, 400, { error: "invalid_request" }, appOrigin);
       }
@@ -151,7 +175,8 @@ export async function startBrowserControl({
       return json(response, Number.isInteger(error?.status) ? error.status : 400,
         { error: "model_account_operation_failed" }, appOrigin);
     }
-  });
+  };
+  const server = tls ? createHttpsServer(tls, handler) : createServer(handler);
   server.on("connect", (_request, socket) => socket.end("HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n"));
   server.on("upgrade", (_request, socket) => socket.destroy());
   await new Promise((resolve, reject) => {

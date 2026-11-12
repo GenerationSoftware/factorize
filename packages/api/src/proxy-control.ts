@@ -4,12 +4,18 @@ import { RunEnrollmentRepository } from "./postgres/run-enrollment-repository";
 import { EncryptedIntegrationRepository } from "./postgres/encrypted-integration-repository";
 import { authenticateRunCredential } from "./run-credentials";
 
+async function recordOwner(env: Parameters<typeof databaseFor>[0], tenantId: string): Promise<string> {
+  const result = await databaseFor(env).pool.query<{ user_id: string }>("SELECT user_id FROM app.members WHERE tenant_id=$1 AND role='owner' ORDER BY created_at,user_id LIMIT 1", [tenantId]);
+  if (!result.rows[0]) throw new Error("Proxy record owner is unavailable");
+  return result.rows[0].user_id;
+}
+
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 /** Dedicated service-to-service endpoint. The run API credential is intentionally not accepted here. */
 export async function proxyControlFetch(request: Request, env: Parameters<typeof databaseFor>[0]): Promise<Response> {
   const url = new URL(request.url);
-  if (!["/internal/credential-proxy/register-boot", "/internal/credential-proxy/status", "/internal/credential-proxy/enroll", "/internal/credential-proxy/consume-enrollment", "/internal/credential-proxy/integration-snapshot", "/internal/credential-proxy/model-account-cache", "/internal/credential-proxy/revocations"].includes(url.pathname)) return json({ error: "not_found" }, 404);
+  if (!["/internal/credential-proxy/register-boot", "/internal/credential-proxy/status", "/internal/credential-proxy/unlock-verification", "/internal/credential-proxy/enroll", "/internal/credential-proxy/consume-enrollment", "/internal/credential-proxy/integration-snapshot", "/internal/credential-proxy/model-account-cache", "/internal/credential-proxy/revocations"].includes(url.pathname)) return json({ error: "not_found" }, 404);
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return json({ error: "unsupported_media_type" }, 415);
   const authorization = request.headers.get("authorization") ?? "";
@@ -37,7 +43,7 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join(",") !== "bootEpoch,browserOrigin" || typeof (body as any).bootEpoch !== "string" || typeof (body as any).browserOrigin !== "string") return json({ error: "invalid_request" }, 400);
     const registration = await repository.registerBoot(token, (body as any).bootEpoch, (body as any).browserOrigin);
     if (!registration) return json({ error: "proxy_registration_unavailable" }, 403);
-    return json({ registered: true, tenantId: registration.tenantId, proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch, controlCredential: registration.controlCredential });
+    return json({ registered: true, tenantId: registration.tenantId, proxyIdentity: registration.proxyIdentity, bootEpoch: registration.bootEpoch, controlCredential: registration.controlCredential, recordOwnerId: await recordOwner(env, registration.tenantId) });
   }
 
   if (url.pathname === "/internal/credential-proxy/status") {
@@ -49,6 +55,12 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
 
   const proxy = await repository.authenticateProxy(token);
   if (!proxy) return json({ error: "unauthorized" }, 401);
+  if (url.pathname === "/internal/credential-proxy/unlock-verification") {
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) return json({ error: "invalid_request" }, 400);
+    const value = await databaseFor(env).pool.query("SELECT generation_id,encrypted_verification FROM app.unlock_key_verifications WHERE tenant_id=$1", [proxy.tenantId]);
+    if (!value.rows[0]) return json({ error: "not_found" }, 404);
+    return json({ ownerId: await recordOwner(env, proxy.tenantId), generationId: value.rows[0].generation_id, encryptedVerification: value.rows[0].encrypted_verification });
+  }
   if (url.pathname === "/internal/credential-proxy/revocations") {
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "bootEpoch")
         || typeof (body as any).bootEpoch !== "string" || (body as any).bootEpoch !== proxy.bootEpoch) return json({ error: "invalid_request" }, 400);
@@ -69,7 +81,7 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
       const accounts = await new EncryptedIntegrationRepository(databaseFor(env), proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).records("model");
       const keyState = await databaseFor(env).pool.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [proxy.tenantId]);
       if (!keyState.rows[0]) return json({ error: "model_account_unavailable" }, 404);
-      return json({ ownerId: proxy.tenantId, keyGeneration: keyState.rows[0].generation_id,
+      return json({ ownerId: await recordOwner(env, proxy.tenantId), keyGeneration: keyState.rows[0].generation_id,
         accounts: accounts.map(({ id, revision }) => ({ id, revision, kind: "model", origin: null })) });
     }
     if (input.operation === "read" && Object.keys(input).sort().join(",") === "accountId,operation"
@@ -79,7 +91,7 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
       if (!account) return json({ error: "model_account_unavailable" }, 404);
       const keyState = await databaseFor(env).pool.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [proxy.tenantId]);
       if (!keyState.rows[0]) return json({ error: "model_account_unavailable" }, 404);
-      return json({ ownerId: proxy.tenantId, account: { ...account, keyGeneration: keyState.rows[0].generation_id } });
+      return json({ ownerId: await recordOwner(env, proxy.tenantId), account: { ...account, keyGeneration: keyState.rows[0].generation_id } });
     }
     if (input.operation !== "save" || Object.keys(input).sort().join(",") !== "accountId,encryptedPayload,expectedRevision,idempotencyKey,keyGeneration,operation"
         || typeof input.accountId !== "string" || !uuid.test(input.accountId)
@@ -137,7 +149,7 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     }
     // Only the selected model account's user-encrypted payload crosses the
     // control plane. It remains encrypted until the proxy is unlocked.
-    return json({ ownerId: proxy.tenantId, records, modelAccount });
+    return json({ ownerId: await recordOwner(env, proxy.tenantId), records, modelAccount });
   }
   const enrollments = new RunEnrollmentRepository(databaseFor(env));
   if (url.pathname === "/internal/credential-proxy/enroll") {

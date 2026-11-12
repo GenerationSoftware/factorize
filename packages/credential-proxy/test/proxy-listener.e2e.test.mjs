@@ -491,7 +491,8 @@ test("authenticated reconnect receives current grants after live changes and loc
     await runtime.lock();
     currentGrants = [{ id: "tool-3", origin: "https://api.example.test", credential: "after-unlock" }];
     const pending = request("tool-3");
-    await new Promise(resolve => setTimeout(resolve, 40));
+    const retryDeadline = Date.now() + 2_000;
+    while (authentications < 5 && Date.now() < retryDeadline) await new Promise(resolve => setTimeout(resolve, 10));
     assert.ok(authentications >= 5, "the helper retries with fresh authenticated connections while locked");
     runtime.unlock("synthetic-unlock-key");
     assert.deepEqual(await pending, { status: 200, body: "current-grant" });

@@ -1,3 +1,9 @@
+import { readFile } from "node:fs/promises";
+import { createAuthenticatedProxyListener } from "./proxy-listener.mjs";
+import { createBearerForwarder } from "./bearer-forwarder.mjs";
+import { createTestOriginConnector } from "./destination-policy.mjs";
+import { readProxyUnlockVerification, reportProxyRuntimeStatus } from "./control-client.mjs";
+import { verifyProxyUnlockKey } from "./decrypted-grants.mjs";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { createProxyRuntime } from "./runtime.mjs";
@@ -15,7 +21,15 @@ import { createProxyRunCredentialStore } from "./run-credential-store.mjs";
 
 const epochIndex = process.argv.indexOf("--boot-epoch");
 const bootEpoch = epochIndex < 0 ? randomUUID() : process.argv[epochIndex + 1];
-const runtime = createProxyRuntime({ bootEpoch });
+let listenerFactory;
+if (process.env.FACTORIZE_PROXY_TEST_TRANSPORT) {
+  if (process.env.NODE_ENV !== "test" || process.env.FACTORIZE_PROXY_TEST_MODE !== "true") throw new Error("test transport requires explicit test environment");
+  const config = JSON.parse(process.env.FACTORIZE_PROXY_TEST_TRANSPORT);
+  const connectorFactory = createTestOriginConnector({ testMode: true, origin: config.origin, address: config.address, ca: await readFile(config.caFile, "utf8") });
+  const forwarder = createBearerForwarder({ connectorFactory });
+  listenerFactory = ({ connection }) => createAuthenticatedProxyListener({ connection, forwarder });
+}
+const runtime = createProxyRuntime({ bootEpoch, ...(listenerFactory ? { listenerFactory } : {}) });
 const runCredentials = createProxyRunCredentialStore();
 const tunnelPort = Number(process.env.FACTORIZE_PROXY_TUNNEL_PORT ?? "9090");
 if (!Number.isInteger(tunnelPort) || tunnelPort < 1 || tunnelPort > 65535) throw new Error("invalid proxy tunnel port");
@@ -37,7 +51,7 @@ async function activateRegistration(registration, origin, browserOrigin) {
   const persistence = createModelAccountPersistenceAdapter({
     controlOrigin: origin,
     controlCredential: registration.controlCredential,
-    ownerId: registration.tenantId,
+    ownerId: registration.recordOwnerId ?? registration.tenantId,
   });
   modelAccounts = persistence;
   modelAccountLifecycle = createModelAccountLifecycle({
@@ -57,6 +71,14 @@ async function activateRegistration(registration, origin, browserOrigin) {
     proxyId: registration.proxyIdentity,
     ownerId: registration.tenantId,
     generation: registration.bootEpoch,
+    tls: process.env.FACTORIZE_PROXY_BROWSER_TLS_CERT ? { cert: await readFile(process.env.FACTORIZE_PROXY_BROWSER_TLS_CERT), key: await readFile(process.env.FACTORIZE_PROXY_BROWSER_TLS_KEY) } : undefined,
+    prepareUnlock: async key => {
+      const verification = await readProxyUnlockVerification({ controlOrigin: origin, token: registration.controlCredential });
+      await verifyProxyUnlockKey(key, verification);
+      await modelAccountLifecycle.reconcileAll(await persistence.listAccounts());
+    },
+    reportStatus: () => reportProxyRuntimeStatus({ controlOrigin: origin, token: registration.controlCredential, bootEpoch: runtime.bootEpoch, unlocked: runtime.state === "unlocked" }),
+    applyChanges: async () => { await modelAccountLifecycle.reconcileAll(await persistence.listAccounts()); },
     appOrigin: process.env.FACTORIZE_APP_ORIGIN ?? "https://app.factorize.sh",
   });
   const resolveGrants = createProxyIntegrationGrantResolver({ runtime, controlOrigin: origin, controlCredential: registration.controlCredential });
@@ -113,6 +135,8 @@ function respondStatus() {
 async function stop() {
   if (closing) return;
   closing = true;
+  shutdownDeadline = setTimeout(() => process.exit(1), 2_000);
+  shutdownDeadline.unref();
   controlCredential = undefined;
   controlOrigin = undefined;
   runCredentials.clear();
@@ -134,8 +158,6 @@ async function stop() {
 
 process.once("SIGTERM", stop);
 process.once("SIGINT", stop);
-shutdownDeadline = setTimeout(() => process.exit(1), 2_000);
-shutdownDeadline.unref();
 respond({ type: "ready", state: runtime.state, bootEpoch: runtime.bootEpoch });
 
 lines.on("line", async (line) => {

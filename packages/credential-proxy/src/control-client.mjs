@@ -26,7 +26,7 @@ export async function registerProxyBoot({ controlOrigin, token, bootEpoch, brows
     const result = await response.json();
     if (result?.registered !== true || result.bootEpoch !== bootEpoch || typeof result.proxyIdentity !== "string"
         || !uuidPattern.test(result.tenantId ?? "") || !/^fzc_[A-Za-z0-9_-]{43}$/.test(result.controlCredential ?? "")) throw new Error("invalid proxy boot registration response");
-    return { tenantId: result.tenantId, proxyIdentity: result.proxyIdentity, bootEpoch: result.bootEpoch, controlCredential: result.controlCredential };
+    return { ...(result.recordOwnerId ? { recordOwnerId: result.recordOwnerId } : {}), tenantId: result.tenantId, proxyIdentity: result.proxyIdentity, bootEpoch: result.bootEpoch, controlCredential: result.controlCredential };
   } finally {
     credential = "";
   }
@@ -258,4 +258,8 @@ export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCrede
       refreshGrants: () => resolveGrants(binding),
     };
   };
+}
+
+export async function readProxyUnlockVerification({ fetchImpl = fetch, ...options } = {}) {
+  return proxyControlRequest({ ...options, fetchImpl, path: "/internal/credential-proxy/unlock-verification", body: {} });
 }

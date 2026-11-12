@@ -19,6 +19,29 @@ async function userEncrypt(plaintext: string): Promise<string> {
 }
 
 describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (PostgreSQL)", { timeout: 60_000 }, () => {
+  it("keeps Docker test selection and proxy setup behind explicit environment and owner boundaries", async () => {
+    const f = await loadingFixture(databaseUrl!);
+    try {
+      const request = (path: string, body: unknown, cookie = f.cookie) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1" + path, {
+        method: "POST", headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify(body),
+      }), f.env, { waitUntil() {} } as any);
+      const body = { name: "Docker", slug: "docker-test", executionType: "code", script: "echo test", executionConfigId: "docker", triggers: [] };
+      expect((await request("/jobs", body)).status).toBe(400);
+      f.env.TEST_DOCKER_EXECUTION = { enabled: true, image: "sha256:" + "a".repeat(64) };
+      expect((await request("/jobs", body)).status).toBe(201);
+      expect((await request("/jobs", { ...body, slug: "agent-test", executionType: "agent", promptTemplate: "test" })).status).toBe(400);
+      const setup = vi.fn(async () => ({ proxyIdentity: "fixture", bootEpoch: crypto.randomUUID() }));
+      f.env.CREDENTIAL_PROXY_HOST = { setup };
+      expect((await request("/credential-proxy/setup", { operationId: crypto.randomUUID() }, "invalid")).status).toBe(401);
+      expect(setup).not.toHaveBeenCalled();
+      const agent = await protectedApiFetch(new Request(f.env.APP_ORIGIN + "/api/v1/credential-proxy/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationId: crypto.randomUUID() }) }), f.env, { ...f.auth, scopes: ["integrations:write"], authMethod: "access_token" }, {} as any);
+      expect(agent.status).toBe(403); expect(setup).not.toHaveBeenCalled();
+      const operationId = crypto.randomUUID();
+      expect((await request("/credential-proxy/setup", { operationId })).status).toBe(200);
+      expect(setup).toHaveBeenCalledWith(f.tenantId, operationId);
+      expect((await request("/credential-proxy/browser-capability", { action: "unlock", key: "must-not-be-accepted" })).status).toBe(400);
+    } finally { await f.cleanup(); }
+  });
   it("stores one ciphertext-only unlock verification per owner and never accepts a plaintext key", async () => {
     const f = await loadingFixture(databaseUrl!);
     try {

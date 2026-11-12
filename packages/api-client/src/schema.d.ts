@@ -56,6 +56,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/credential-proxy/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Provision and register the owner's credential proxy
+         * @description Interactive owner session required. Calls the configured execution host; bootstrap credentials cross only the private guest transport. Reuse operationId for retries.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_credential_proxy_setup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credential-proxy/browser-capability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Authorize a direct browser-to-proxy lifecycle operation
+         * @description Owner session only. One-use capability bound to action, owner, application origin and proxy boot, valid for 60 seconds. Unlock keys go directly to the proxy and are never accepted by this API.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_credential_proxy_browser_capability"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/model-accounts/{accountId}/browser-capability": {
         parameters: {
             query?: never;
@@ -2949,6 +2997,86 @@ export interface operations {
                         deleted: true;
                         revision: number;
                         duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_credential_proxy_setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    operationId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Registered proxy identity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        proxyIdentity: string;
+                        /** Format: uuid */
+                        bootEpoch: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_credential_proxy_browser_capability: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    action: "unlock" | "lock" | "apply" | "status";
+                };
+            };
+        };
+        responses: {
+            /** @description Proxy endpoint and one-use capability */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        endpoint: string;
+                        capability: string;
                     };
                 };
             };

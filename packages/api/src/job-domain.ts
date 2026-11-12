@@ -18,7 +18,7 @@ export interface ExecutionConfig {
   portableIntegrationIds?: string[];
   modelAccess?: "native" | "portable";
   modelAccountId?: string;
-  executionProvider?: "exe" | "fly";
+  executionProvider?: "exe" | "fly" | "docker";
   region?: string;
   size?: string;
 }

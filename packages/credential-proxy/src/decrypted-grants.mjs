@@ -130,3 +130,16 @@ export function createProxyIntegrationGrantResolver({ runtime, controlOrigin, co
     getUnlockKey: () => runtime.getUnlockKey(),
   });
 }
+
+/** Verify the current user-encrypted generation before opening access. */
+export async function verifyProxyUnlockKey(key, record) {
+  const envelope = JSON.parse(record.encryptedVerification);
+  if (envelope.version !== 1 || envelope.algorithm !== "A256GCM" || Object.keys(envelope).sort().join(",") !== "algorithm,ciphertext,nonce,version") throw new Error("invalid unlock verification");
+  const nonce = decodeBase64Url(envelope.nonce, "nonce");
+  const ciphertext = decodeBase64Url(envelope.ciphertext, "ciphertext");
+  const aad = encoder.encode(JSON.stringify(["factorize-record-v1", record.ownerId, record.generationId, "unlock-verification", "factorize", 0]));
+  const aesKey = await deriveKey(key);
+  const plain = new Uint8Array(await webcrypto.subtle.decrypt({ name: "AES-GCM", iv: nonce, additionalData: aad, tagLength: 128 }, aesKey, ciphertext));
+  try { if (decoder.decode(plain) !== "factorize-unlock-key-verification-v1") throw new Error("invalid unlock verification"); }
+  finally { plain.fill(0); }
+}

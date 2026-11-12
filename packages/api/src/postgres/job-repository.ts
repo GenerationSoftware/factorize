@@ -180,7 +180,7 @@ export class PostgresJobRepository implements JobRepository {
       await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,encrypted_skill_snapshot,run_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.encryptedSkillSnapshot ?? null, run.runName ?? "", run.createdAt, run.updatedAt]);
       await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_config,execution_capabilities,result_protocol_version,created_at,updated_at)
         SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_config->>'agentKind',$7,
-          CASE WHEN j.execution_config->>'agentKind'='Amp' THEN 'amp' ELSE 'exe-vm' END,
+          CASE WHEN j.execution_config->>'executionProvider'='docker' THEN 'docker' WHEN j.execution_config->>'agentKind'='Amp' THEN 'amp' ELSE 'exe-vm' END,
           j.execution_config || jsonb_build_object('model',j.model,'effort',j.effort,'tags',j.tags,'inputContext',i.context,'runScopes',j.run_scopes),
           CASE WHEN j.execution_config->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,1,$9,$10
         FROM app.jobs j JOIN app.invocations i ON i.tenant_id=j.tenant_id AND i.id=$4

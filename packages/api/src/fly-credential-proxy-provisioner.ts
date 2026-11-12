@@ -44,9 +44,16 @@ export function createFlyCredentialProxyGuest(options: {
   spawnProcess?: typeof import("node:child_process").spawn;
 }): FlyCredentialProxyGuest {
   const transport = createFlyGuestTransport({ ...options, timeoutMs: 30_000, outputLimitBytes: 16 * 1024 });
+  return createCredentialProxyGuest(transport);
+}
+
+/** Shared provisioner protocol over a private infrastructure guest transport. */
+export function createCredentialProxyGuest(transport: Pick<FlyCredentialProxyGuest, "run">): FlyCredentialProxyGuest {
   return {
     run: (command, input) => transport.run(command, input),
     async startProxy(input) {
+      const ready = await transport.run(["/bin/sh", "-c", "n=0; until test -S /run/factorize-proxy/bootstrap.sock; do n=$((n+1)); test $n -lt 100 || exit 1; sleep 0.1; done"]);
+      if (!ready.ok) throw new Error("Credential proxy bootstrap socket did not become ready");
       const result = await transport.run(["/usr/local/bin/factorize-proxy-startup"], `${JSON.stringify({
         type: "register-boot",
         controlOrigin: input.controlOrigin,
@@ -84,6 +91,14 @@ export type FlyCredentialProxyProvisionerOptions = {
   reviewedImage: string;
   /** Injectable to keep boot identity deterministic in boundary tests. */
   newBootEpoch?: () => string;
+  infrastructure?: {
+    kind: "docker";
+    validateImage(image: string): void;
+    identity(machine: FlyMachine): string;
+    browserOrigin(machine: FlyMachine): Promise<string>;
+    serverName: string;
+    environment: Record<string, string>;
+  };
 };
 
 function validate(input: FlyCredentialProxyConfig, reviewedImage: string): void {
@@ -103,10 +118,17 @@ function validate(input: FlyCredentialProxyConfig, reviewedImage: string): void 
  * never part of the Machine config; the guest adapter must deliver it over its
  * private stdin startup channel.
  */
-export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyProvisionerOptions) {
+export function createFlyCredentialProxyProvisioner(options: Omit<FlyCredentialProxyProvisionerOptions, "infrastructure">) {
+  return createMachineCredentialProxyProvisioner(options);
+}
+
+export function createMachineCredentialProxyProvisioner(options: FlyCredentialProxyProvisionerOptions) {
   return {
     async start(input: FlyCredentialProxyConfig): Promise<{ proxyIdentity: string; bootEpoch: string; machine: FlyMachine }> {
-      validate(input, options.reviewedImage);
+      if (options.infrastructure) {
+        if (input.image !== options.reviewedImage) throw new TypeError("Proxy image does not match reviewed local image identity");
+        options.infrastructure.validateImage(input.image);
+      } else validate(input, options.reviewedImage);
       const origin = new URL(input.controlOrigin);
       if (origin.protocol !== "https:" || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) {
         throw new TypeError("controlOrigin must be an HTTPS origin");
@@ -120,7 +142,8 @@ export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyP
         cmd: ["/usr/local/bin/factorize-credential-proxy", "--boot-epoch", candidateBootEpoch],
         guest: { cpu_kind: size[1] === "shared-cpu" ? "shared" : "performance", cpus: Number(size[2]), memory_mb: input.memoryMb ?? 512 },
         env: {
-          FACTORIZE_PROXY_TUNNEL_SERVER_NAME: `${input.app}.internal`,
+          FACTORIZE_PROXY_TUNNEL_SERVER_NAME: options.infrastructure?.serverName ?? `${input.app}.internal`,
+          ...options.infrastructure?.environment,
           FACTORIZE_PROXY_TUNNEL_PORT: "9090",
           FACTORIZE_PROXY_BROWSER_CAPABILITY_PUBLIC_KEY: input.browserCapabilityPublicKey,
         },
@@ -157,20 +180,21 @@ export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyP
             || metadata.factorize_operation_id !== input.operationId) {
           throw new Error("Fly returned a credential proxy Machine with mismatched provisioning identity");
         }
-        const proxyIdentity = `fly:${input.app}:${machine.id}`;
+        const proxyIdentity = options.infrastructure?.identity(machine) ?? `fly:${input.app}:${machine.id}`;
+        if (options.infrastructure) await options.machines.startMachine(input.app, machine.id);
         const bootstrap = {
           tenantId: input.tenantId,
           proxyIdentity,
           bootEpoch,
           controlOrigin: origin.origin,
-          browserOrigin: `https://${input.app}.fly.dev`,
+          browserOrigin: options.infrastructure ? await options.infrastructure.browserOrigin(machine) : `https://${input.app}.fly.dev`,
         };
         await provisionCredentialProxy(bootstrap, {
           control: options.control,
           startProxy: async (request) => {
             // Fly Machine startup is explicit. Machine config and metadata only
             // hold public identity/configuration; the token crosses stdin.
-            await options.machines.startMachine(input.app, machine.id);
+            if (!options.infrastructure) await options.machines.startMachine(input.app, machine.id);
             await options.guest(machine).startProxy(request);
           },
         });

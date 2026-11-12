@@ -2061,6 +2061,142 @@ paths:
                 - expectedRevision
                 - idempotencyKey
               additionalProperties: false
+  /api/v1/credential-proxy/setup:
+    post:
+      summary: Provision and register the owner's credential proxy
+      description: |-
+        Interactive owner session required. Calls the configured execution host; bootstrap credentials cross only the private guest transport. Reuse operationId for retries.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Registered proxy identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proxyIdentity:
+                    type: string
+                  bootEpoch:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                required:
+                  - proxyIdentity
+                  - bootEpoch
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_credential_proxy_setup
+      tags:
+        - credential-proxy
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operationId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+              required:
+                - operationId
+              additionalProperties: false
+  /api/v1/credential-proxy/browser-capability:
+    post:
+      summary: Authorize a direct browser-to-proxy lifecycle operation
+      description: |-
+        Owner session only. One-use capability bound to action, owner, application origin and proxy boot, valid for 60 seconds. Unlock keys go directly to the proxy and are never accepted by this API.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Proxy endpoint and one-use capability
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoint:
+                    type: string
+                    format: uri
+                  capability:
+                    type: string
+                required:
+                  - endpoint
+                  - capability
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_credential_proxy_browser_capability
+      tags:
+        - credential-proxy
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - unlock
+                    - lock
+                    - apply
+                    - status
+              required:
+                - action
+              additionalProperties: false
   /api/v1/model-accounts/{accountId}/browser-capability:
     post:
       summary: Issue a short-lived browser capability for a paired model account

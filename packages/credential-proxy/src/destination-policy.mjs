@@ -109,10 +109,11 @@ async function resolveAll(hostname) {
   return lookup(hostname, { all: true, verbatim: true });
 }
 
-function openTlsSocket({ hostname, port, address, timeoutMs = 10_000 }) {
+function openTlsSocket({ hostname, port, address, ca, timeoutMs = 10_000 }) {
   return new Promise((resolve, reject) => {
     const socket = tlsConnect({
       host: address,
+      ca,
       port,
       servername: isIP(hostname) ? undefined : hostname,
       checkServerIdentity: (_server, certificate) => checkServerIdentity(hostname, certificate),
@@ -159,5 +160,22 @@ export function createOriginConnector(configuredOrigin, { resolve = resolveAll, 
       throw new Error("connected peer did not match the validated public address");
     }
     return { socket, url: target.url };
+  };
+}
+
+/** Exact fixture origin/address only; production connector is unchanged. */
+export function createTestOriginConnector({ testMode, origin, address, ca }) {
+  if (testMode !== true || !isIP(address) || typeof ca !== "string" || !ca.startsWith("-----BEGIN CERTIFICATE-----")) throw new TypeError("invalid test transport");
+  const configured = parseHttpsUrl(origin, "test origin");
+  if (configured.url.origin !== origin) throw new TypeError("test origin must be canonical");
+  return (requestedOrigin) => {
+    if (requestedOrigin !== origin) return createOriginConnector(requestedOrigin);
+    return async requestUrl => {
+      const target = parseHttpsUrl(requestUrl, "request URL");
+      if (target.url.origin !== origin) throw new Error("test origin mismatch");
+      const socket = await openTlsSocket({ hostname: configured.hostname, port: configured.port, address, ca });
+      if (normalizeAddress(socket.remoteAddress) !== normalizeAddress(address)) { socket.destroy(); throw new Error("test peer mismatch"); }
+      return { socket, url: target.url };
+    };
   };
 }

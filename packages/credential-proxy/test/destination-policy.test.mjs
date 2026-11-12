@@ -108,3 +108,24 @@ test("accepts equivalent IPv6 peer spellings after address pinning", async () =>
   });
   await connect("https://[2606:4700:4700::1111]/health");
 });
+
+test("exact test transport retains TLS hostname/CA verification and production private-address denial", async t => {
+  const { createServer } = await import('node:https');
+  const { readFile } = await import('node:fs/promises');
+  const { once } = await import('node:events');
+  const { createTestOriginConnector } = await import('../src/destination-policy.mjs');
+  const cert = await readFile(new URL('./fixtures/upstream-cert.pem', import.meta.url), 'utf8');
+  const key = await readFile(new URL('./fixtures/upstream-key.pem', import.meta.url), 'utf8');
+  const server = createServer({ key, cert }, (_req, res) => res.end('ok'));
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const origin = `https://api.example.test:${server.address().port}`;
+  assert.throws(() => createTestOriginConnector({ testMode: false, origin, address: '127.0.0.1', ca: cert }));
+  const factory = createTestOriginConnector({ testMode: true, origin, address: '127.0.0.1', ca: cert });
+  const connected = await factory(origin)(origin + '/path'); connected.socket.destroy();
+  await assert.rejects(factory('https://127.0.0.1')('https://127.0.0.1/private'), /non-public/);
+  await assert.rejects(factory(origin)('https://foreign.example/path'), /mismatch/);
+  const wrongOrigin = `https://wrong.example.test:${server.address().port}`;
+  const wrongHost = createTestOriginConnector({ testMode: true, origin: wrongOrigin, address: '127.0.0.1', ca: cert });
+  await assert.rejects(wrongHost(wrongOrigin)(wrongOrigin + '/path'), /Hostname\/IP|altnames/);
+});

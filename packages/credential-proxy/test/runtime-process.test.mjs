@@ -61,6 +61,8 @@ test("process starts locked, unlocks in memory, shuts down bounded, and restarts
     await writeFile(join(directory, "public-metadata.json"), JSON.stringify({ displayName: "fixture" }));
     const first = await startProxy(directory);
     processes.push(first);
+    await new Promise(resolve => setTimeout(resolve, 2_200));
+    assert.equal(first.child.exitCode, null, "startup must not arm the shutdown deadline");
     assert.deepEqual(await first.command({ type: "status" }), { type: "status", state: "locked", proxyControlRegistered: false });
     assert.deepEqual(await first.command({ type: "unlock", key: keyMarker }), { type: "status", state: "unlocked", proxyControlRegistered: false });
     first.child.kill("SIGTERM");

@@ -241,6 +241,14 @@ export const API_ROUTES: RouteContract[] = [
     description: "Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future snapshots and unlock reconciliation cannot restore the account.",
     responses: { "200": { description: "Deleted model account", content: { "application/json": { schema: jsonSchema(bearerIntegrationDeleteResult, "output") } } } },
   }, (service, { params, body }) => service.deleteModelAccount(params.accountId, body), { body: modelAccountDelete, maxBodyBytes: 4096, ownerSession: true, parameters: z.object({ accountId: z.uuid() }) }),
+  route("POST", "/api/v1/credential-proxy/setup", "integrations:write", {
+    summary: "Provision and register the owner's credential proxy", description: "Interactive owner session required. Calls the configured execution host; bootstrap credentials cross only the private guest transport. Reuse operationId for retries.",
+    responses: { "200": { description: "Registered proxy identity", content: { "application/json": { schema: jsonSchema(z.object({ proxyIdentity: z.string(), bootEpoch: z.uuid() }), "output") } } } },
+  }, (service, { body }) => service.setupCredentialProxy(body.operationId), { body: z.object({ operationId: z.uuid() }).strict(), ownerSession: true, maxBodyBytes: 1024 }),
+  route("POST", "/api/v1/credential-proxy/browser-capability", "integrations:write", {
+    summary: "Authorize a direct browser-to-proxy lifecycle operation", description: "Owner session only. One-use capability bound to action, owner, application origin and proxy boot, valid for 60 seconds. Unlock keys go directly to the proxy and are never accepted by this API.",
+    responses: { "200": { description: "Proxy endpoint and one-use capability", content: { "application/json": { schema: jsonSchema(z.object({ endpoint: z.url(), capability: z.string() }), "output") } } } },
+  }, (service, { body }) => service.issueCredentialProxyCapability(body.action), { body: z.object({ action: z.enum(["unlock", "lock", "apply", "status"]) }).strict(), ownerSession: true, maxBodyBytes: 1024 }),
   route("POST", "/api/v1/model-accounts/{accountId}/browser-capability", "integrations:write", {
     summary: "Issue a short-lived browser capability for a paired model account",
     description: "Requires an interactive owner browser session. Returns a single-use, 60-second capability scoped to the account, action, proxy boot and exact application origin. The browser sends it directly to the paired proxy; Factorize never receives model-account tokens.",

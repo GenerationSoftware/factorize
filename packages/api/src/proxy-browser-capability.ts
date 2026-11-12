@@ -9,12 +9,13 @@ function decodePem(pem: string): Uint8Array {
 }
 
 /** Issue a one-use capability accepted only by the paired proxy listener. */
-export async function issueModelAccountCapability(input: {
+async function issueCapability(input: {
   privateKeyPem: string;
   proxyIdentity: string;
   ownerId: string;
-  accountId: string;
-  action: "authorize" | "status" | "cancel";
+  accountId?: string;
+  action: string;
+  family: "model-account" | "proxy";
   appOrigin: string;
   generation: number | string;
   now?: number;
@@ -24,7 +25,7 @@ export async function issueModelAccountCapability(input: {
   const header = base64url(encoder.encode(JSON.stringify({ alg: "EdDSA", typ: "JWT" })));
   const claims = base64url(encoder.encode(JSON.stringify({
     iss: "factorize", aud: input.proxyIdentity, sub: input.ownerId,
-    action: `model-account:${input.action}`, accountId: input.accountId,
+    action: `${input.family}:${input.action}`, accountId: input.accountId,
     origin: input.appOrigin, generation: input.generation, exp: now + 60,
     jti: input.jti ?? base64url(crypto.getRandomValues(new Uint8Array(24))),
   })));
@@ -35,4 +36,11 @@ export async function issueModelAccountCapability(input: {
   const key = await crypto.subtle.importKey("pkcs8", keyData, { name: "Ed25519" }, false, ["sign"]);
   const signature = await crypto.subtle.sign("Ed25519", key, encoder.encode(payload));
   return `${payload}.${base64url(new Uint8Array(signature))}`;
+}
+
+export function issueModelAccountCapability(input: Omit<Parameters<typeof issueCapability>[0], "family"> & { accountId: string; action: "authorize" | "status" | "cancel" }) {
+  return issueCapability({ ...input, family: "model-account" });
+}
+export function issueProxyCapability(input: Omit<Parameters<typeof issueCapability>[0], "family" | "accountId"> & { action: "unlock" | "lock" | "apply" | "status" }) {
+  return issueCapability({ ...input, family: "proxy" });
 }

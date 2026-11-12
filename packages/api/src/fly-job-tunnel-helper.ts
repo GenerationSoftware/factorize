@@ -6,7 +6,7 @@ import { createServer } from "node:net";
 const root = "/home/exedev/.factorize-job/proxy";
 const config = JSON.parse(await readFile(root + "/config.json", "utf8"));
 const [key, cert, ca] = await Promise.all(["client.key", "client.crt", "ca.crt"].map(name => readFile(root + "/" + name)));
-const tls = { key, cert, ca, rejectUnauthorized: true, servername: config.proxyHost };
+const tls = { key, cert, ca, rejectUnauthorized: true, servername: config.proxyServerName ?? config.proxyHost };
 const server = createServer(local => {
   local.pause();
   let closed = false;

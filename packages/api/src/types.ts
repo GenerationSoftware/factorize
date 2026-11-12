@@ -3,6 +3,10 @@ export interface MatchRule { type: FilterType; targetId: string; }
 export type RunState = "queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "stopping" | "stopped" | "succeeded";
 
 export interface Env {
+  /** Explicit local test environment; never configured on deployed Workers. */
+  TEST_DOCKER_EXECUTION?: { enabled: true; image: string };
+  /** Infrastructure host boundary. Host process credentials stay outside Workers. */
+  CREDENTIAL_PROXY_HOST?: { setup(tenantId: string, operationId: string): Promise<{ proxyIdentity: string; bootEpoch: string }> };
   SCHEDULER?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
