@@ -49,6 +49,30 @@ describe("Fly job execution backend", () => {
     expect(JSON.stringify(f.machines.createMachine.mock.calls)).not.toContain("echo ok");
   });
 
+  it("reports a nonzero Fly guest process exit as a failed run", async () => {
+    const f = fixture();
+    f.machines.inspectMachine.mockResolvedValue({ ...machine, state: "started" });
+    f.guest.run.mockResolvedValue({
+      ok: true,
+      exitCode: 0,
+      stdout: JSON.stringify({ state: "exited", exitCode: 7 }),
+      stderr: "",
+    });
+
+    await expect(f.backend.inspect({
+      backendKind: "fly",
+      id: "factorize-test/machine-1",
+    })).resolves.toMatchObject({
+      state: "failed",
+      detail: "The guest job process exited unsuccessfully",
+      failure: { source: "run", code: "process_failed" },
+    });
+
+    expect(f.guest.run).toHaveBeenCalledWith([
+      "/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "status",
+    ]);
+  });
+
   it("uses the selected custom image, region, and size for Codex launches", async () => {
     const f = fixture();
     const backend = new FlyJobExecutionBackend({
