@@ -45,7 +45,7 @@ function fixture() {
   return { scheduler, run, backend, events, stored };
 }
 
-function localFlyFixture(options: { ambiguousCreate?: boolean; failFirstInspect?: boolean; failFirstResult?: boolean; failFirstDestroy?: boolean } = {}) {
+function localFlyFixture(options: { ambiguousCreate?: boolean; failFirstInspect?: boolean; failFirstResult?: boolean; failFirstDestroy?: boolean; jobFiles?: string[] } = {}) {
   const events: string[] = [];
   const runId = "11111111-1111-4111-8111-111111111111";
   let machine: FlyMachine | undefined = options.ambiguousCreate ? undefined : {
@@ -79,11 +79,13 @@ function localFlyFixture(options: { ambiguousCreate?: boolean; failFirstInspect?
   const guest = {
     run: vi.fn(async (command: readonly string[]) => {
       if (command.at(-1) === "status") return { ok: true, exitCode: 0, stdout: JSON.stringify({ state: "exited", exitCode: 0 }), stderr: "" };
+      if (command.at(-1)?.startsWith("find ")) return { ok: true, exitCode: 0, stdout: (options.jobFiles ?? []).map(path => `${path}\t4`).join("\n"), stderr: "" };
       return { ok: true, exitCode: 0, stdout: "", stderr: "" };
     }),
     download: vi.fn(async (path: string) => {
       events.push(path.endsWith("results.json") ? "result" : "log");
       if (path.endsWith("results.json") && options.failFirstResult && resultReads++ === 0) throw new Error("local guest result transport timed out");
+      if (path.endsWith("report.json")) events.push("download-job-file");
       return new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "local Fly guest log\n");
     }),
   };
@@ -196,6 +198,23 @@ describe("Fly scheduler lifecycle", () => {
 
     await f.scheduler.poll(f.run);
     expect(fly.machines.destroyMachine).toHaveBeenCalledTimes(2);
+    expect(f.events.at(-1)).toBe("terminal");
+  });
+
+  it("collects and uploads Fly job files before destroying the Machine", async () => {
+    const fly = localFlyFixture({ jobFiles: ["report.json"] });
+    const f = schedulerForLocalFly(fly.backend);
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      fly.events.push("upload-job-file");
+      return new Response(null, { status: 200 });
+    }));
+
+    await f.scheduler.poll(f.run);
+
+    expect(fly.events.indexOf("download-job-file")).toBeGreaterThanOrEqual(0);
+    expect(fly.events.indexOf("download-job-file")).toBeLessThan(fly.events.indexOf("destroy"));
+    expect(fly.events.indexOf("upload-job-file")).toBeLessThan(fly.events.indexOf("destroy"));
+    expect(fly.guest.download).toHaveBeenCalledWith("/home/exedev/.factorize-job/report.json");
     expect(f.events.at(-1)).toBe("terminal");
   });
 });
