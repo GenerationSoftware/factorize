@@ -281,6 +281,31 @@ test("running trace shows animated dots and polls forward from its latest event"
   assert.deepEqual(tailRequests.slice(0, 2), [1, 2], "each poll should request events after the latest displayed sequence");
   await context.close();
 });
+test("active job run preview refreshes recent activity without scrolling and shows Running at the bottom", async () => {
+  const { context, page } = await setup(); const tailRequests = [];
+  const event = sequence => ({ id: `preview-${sequence}`, sequence, type: "assistant_message", title: `Preview ${sequence}`, preview: `Preview ${sequence}`, display: {} });
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, job_id: jobId, job_name: "Job", run_name: "Live preview", state: "running", finalizing: false, trace_revision: "preview", artifact_state: "pending", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => {
+    const query = new URL(route.request().url()).searchParams;
+    if (query.has("after")) {
+      const after = Number(query.get("after")); tailRequests.push(after);
+      return route.fulfill({ json: { items: [event(after + 1)], nextCursor: null, previousCursor: null, revision: "preview", reset: false } });
+    }
+    return route.fulfill({ json: { items: [event(1)], nextCursor: null, previousCursor: null, revision: "preview", reset: false } });
+  });
+  await page.goto(origin + "/job-runs/" + runId);
+  const trace = page.locator("[data-run-trace-preview]");
+  const indicator = trace.locator("[data-run-trace-live]");
+  await indicator.waitFor();
+  assert.equal(await indicator.locator(".trace-live-dots > span").count(), 3);
+  assert.equal(await trace.locator("[data-run-trace-scroll]").count(), 0, "recent activity should not use the scrolling history trace");
+  await page.evaluate(() => { document.scrollingElement.scrollTop = 0; });
+  await page.getByText("Preview 3", { exact: true }).waitFor({ timeout: 7000 });
+  assert.deepEqual(tailRequests.slice(0, 2), [1, 2], "preview polling should continue after the latest displayed sequence");
+  assert.ok(await trace.getByText("Preview 3", { exact: true }).count());
+  assert.equal(await page.evaluate(() => document.scrollingElement.scrollTop), 0, "new activity should not auto-scroll the page through older entries");
+  await context.close();
+});
 test("full run trace uses pull-to-load history, preserves the anchor, and never crashes on disclosure toggles", async () => {
   const { context, page } = await setup(); const requests = [];
   const event = (sequence, type = "assistant_message") => ({ id: `trace-${sequence}`, sequence, type, title: `Trace ${sequence}`, preview: `Trace ${sequence}`, display: {} });

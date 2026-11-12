@@ -71,7 +71,7 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
   const latestSequence = items.at(-1)?.sequence ?? 0;
   const live = useQuery({
     queryKey: ["runs", runId, "conversation-tail", revision],
-    enabled: !preview && active && visible && !!trace.data,
+    enabled: active && visible && !!trace.data,
     queryFn: async ({ signal }) => {
       const { data, error, response } = await api.GET("/api/v1/runs/{runId}/trace-pages", { signal, params: { path: { runId }, query: { after: latestSequence, revision, limit: 100 } } });
       if (!data || error) throw response.status === 404 ? new RunNotFoundError() : new Error(messageOf(error)); return data;
@@ -182,6 +182,7 @@ export function ContinuousTrace({ runId, revision, active, onReset, preview = fa
     {trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
     {!trace.isPending && !grouped.length && <p className="text-sm text-slate-600 dark:text-slate-400">No assistant messages yet.</p>}
     {grouped.map(item => item.kind === "assistant" ? <article key={item.event.id} className="min-w-0"><EventBody event={item.event} /></article> : <Disclosure key={groupKey(item)} className={traceClasses("tool_call")} open={expanded.has(groupKey(item))} onToggle={event => { const key = groupKey(item); const open = event.currentTarget.open; setExpanded(previous => { const next = new Set(previous); open ? next.add(key) : next.delete(key); return next; }); }}><Summary>{item.count} Tool Call{item.count === 1 ? "" : "s"}</Summary>{expanded.has(groupKey(item)) && <div className="space-y-3">{item.events.map(event => <div key={event.id}><EventBody event={event} /></div>)}</div>}</Disclosure>)}
+    {active && <p data-run-trace-live role="status" aria-label="Run is still running" className="mt-5 flex items-center gap-2 text-sm font-medium"><RunStatusLabel state="running" /><span className="trace-live-dots" aria-hidden="true"><span /><span /><span /></span></p>}
   </div>;
   const virtualItems = virtualizer.getVirtualItems();
   return <>{trace.error && <p role="alert">{trace.error.message}</p>}{trace.isPending && <p role="status">Loading conversation…</p>}
