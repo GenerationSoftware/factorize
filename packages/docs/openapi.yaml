@@ -9937,7 +9937,7 @@ paths:
       summary: List a source job's manual invocation destinations
       responses:
         "200":
-          description: Configured tenant-local destination jobs
+          description: Configured destination jobs in the same project
           content:
             application/json:
               schema:
@@ -9995,7 +9995,7 @@ paths:
     put:
       summary: Replace a source job's manual invocation destinations
       description: |-
-        Requires an owner session, scoped API key, or authorized OAuth client with jobs:write. Destinations must exist in the same tenant. A source job may include itself to opt in to explicitly requested successor runs; this does not schedule runs automatically. Lifecycle subscriptions do not create permissions.
+        Requires an owner session, scoped API key, or authorized OAuth client with jobs:write. Destinations must belong to the source job's project; self-invocation is allowed. A run token may invoke a configured destination only while both jobs remain in the same project. Lifecycle subscriptions do not create permissions.
 
         Requires the jobs:write scope.
 
