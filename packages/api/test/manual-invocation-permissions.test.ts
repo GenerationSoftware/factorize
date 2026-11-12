@@ -9,20 +9,22 @@ const tenantId = "00000000-0000-4000-8000-000000000001";
 const sourceId = "00000000-0000-4000-8000-000000000002";
 const destinationId = "00000000-0000-4000-8000-000000000003";
 const foreignId = "00000000-0000-4000-8000-000000000004";
+const crossProjectId = "00000000-0000-4000-8000-000000000005";
+const projectA = "00000000-0000-4000-8000-000000000020";
 
 function fixture(options: { member?: boolean; activeToken?: boolean } = {}) {
   const persisted: string[] = [];
   const query = async (sql: string, values: unknown[] = []) => {
     if (sql.includes("SELECT m.user_id,m.email")) return { rows: options.member === false ? [] : [{ user_id: "owner", email: "owner@example.com", role: "owner", session_version: 1 }], rowCount: options.member === false ? 0 : 1 };
     if (sql.includes("SELECT 1 FROM app.access_tokens")) return { rows: options.activeToken === false ? [] : [{ ok: 1 }], rowCount: options.activeToken === false ? 0 : 1 };
-    if (sql.includes("SELECT 1 FROM app.jobs")) return { rows: values[1] === sourceId ? [{ ok: 1 }] : [], rowCount: values[1] === sourceId ? 1 : 0 };
+    if (sql.includes("SELECT project_id FROM app.jobs")) return { rows: values[1] === sourceId ? [{ project_id: projectA }] : [], rowCount: values[1] === sourceId ? 1 : 0 };
     if (sql.includes("SELECT id FROM app.jobs")) {
-      const ids = (values[1] as string[]).filter(id => id === destinationId || id === sourceId);
+      const ids = values[2] === projectA ? (values[1] as string[]).filter(id => id === destinationId || id === sourceId) : [];
       return { rows: ids.map(id => ({ id })), rowCount: ids.length };
     }
     if (sql.includes("DELETE FROM app.manual_invocation_permissions")) { persisted.length = 0; return { rows: [], rowCount: 1 }; }
     if (sql.includes("INSERT INTO app.manual_invocation_permissions")) { persisted.push(...values[2] as string[]); return { rows: [], rowCount: persisted.length }; }
-    if (sql.includes("SELECT destination_job_id")) return { rows: persisted.map(destination_job_id => ({ destination_job_id })), rowCount: persisted.length };
+    if (sql.includes("SELECT p.destination_job_id")) { const ids = persisted.filter(id => id === destinationId || id === sourceId); return { rows: ids.map(destination_job_id => ({ destination_job_id })), rowCount: ids.length }; }
     throw new Error(`Unexpected SQL: ${sql}`);
   };
   const database = { pool: { query }, transaction: async (work: (client: any) => Promise<unknown>) => work({ query }) } as any;
@@ -64,7 +66,7 @@ describe("manual invocation permission management", () => {
     }
   });
 
-  it.each(["session", "access_token", "oauth"] as const)("authorizes %s at the service and preserves tenant-local destination checks", async method => {
+  it.each(["session", "access_token", "oauth"] as const)("authorizes %s at the service and enforces same-project destination checks", async method => {
     const f = fixture();
     const service = new ApiService(f.env, auth(method, ["jobs:write"], method === "access_token" ? "token-id" : undefined));
     await expect(service.setInvocationPermissions(sourceId, [sourceId, destinationId])).resolves.toEqual({ sourceJobId: sourceId, destinationJobIds: [sourceId, destinationId] });
@@ -72,6 +74,15 @@ describe("manual invocation permission management", () => {
     await expect(service.setInvocationPermissions(sourceId, [destinationId])).resolves.toEqual({ sourceJobId: sourceId, destinationJobIds: [destinationId] });
     expect(f.persisted).toEqual([destinationId]);
     await expect(service.setInvocationPermissions(sourceId, [foreignId])).rejects.toMatchObject({ status: 400, code: "invalid_request" });
+    await expect(service.setInvocationPermissions(sourceId, [crossProjectId])).rejects.toMatchObject({ status: 400, code: "invalid_request" });
+  });
+
+  it("returns only same-project destinations and rejects cross-project grants", async () => {
+    const f = fixture();
+    f.persisted.push(destinationId, crossProjectId);
+    const service = new ApiService(f.env, auth("session", ["jobs:read", "jobs:write"]));
+    await expect(service.getInvocationPermissions(sourceId)).resolves.toEqual({ sourceJobId: sourceId, destinationJobIds: [destinationId] });
+    await expect(service.setInvocationPermissions(sourceId, [crossProjectId])).rejects.toMatchObject({ status: 400, code: "invalid_request" });
   });
 
   it("rejects missing scopes, missing credentials, invalid or revoked owner credentials, and run tokens", async () => {

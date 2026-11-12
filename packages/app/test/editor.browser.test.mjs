@@ -63,11 +63,11 @@ test("All runs complete source jobs stay within the edited job project during se
   assert.ok(selectorRequests.filter(url => url.searchParams.has("projectId")).every(url => url.searchParams.get("projectId") === projectA));
   assert.ok(selectorRequests.some(url => url.searchParams.get("q") === "Alpha"));
   assert.deepEqual(saved.triggers[0].config.sourceJobIds, [sameProjectJob]);
-  const manualSelector = page.waitForResponse(response => { const url = new URL(response.url()); return url.pathname === "/api/v1/job-selector" && !url.searchParams.has("projectId"); });
+  const manualSelector = page.waitForResponse(response => { const url = new URL(response.url()); return url.pathname === "/api/v1/job-selector" && url.searchParams.get("projectId") === projectA; });
   await page.goto(origin + `/jobs/${id}/settings/permissions`);
   await page.getByRole("heading", { name: "Manual invocation permissions" }).waitFor();
   await manualSelector;
-  assert.ok(selectorRequests.some(url => !url.searchParams.has("projectId")), "manual permission selector lists tenant jobs across projects");
+  assert.ok(selectorRequests.some(url => url.searchParams.get("projectId") === projectA), "manual permission selector is limited to the source job's project");
   assert.equal(projectA, current.projectId); assert.notEqual(projectA, projectB);
   await context.close();
 });
@@ -92,7 +92,7 @@ test("run permission scopes autosave and survive reload", async () => {
   assert.deepEqual(saved.runScopes, ["jobs:read", "runs:read"]);
   await context.close();
 });
-test("manual invocation permissions include the current job and tenant jobs from other projects", async () => {
+test("manual invocation permissions include the current job and jobs in the same project", async () => {
   const { context, page } = await setup();
   const projectA = "00000000-0000-4000-8000-000000000020", destination = "00000000-0000-4000-8000-000000000024";
   let saved, selectorUrl;
@@ -101,14 +101,14 @@ test("manual invocation permissions include the current job and tenant jobs from
     if (route.request().method() === "GET") return route.fulfill({ json: { sourceJobId: id, destinationJobIds: [] } });
     saved = route.request().postDataJSON(); return route.fulfill({ json: { sourceJobId: id, ...saved } });
   });
-  await page.route("**/api/v1/job-selector?**", route => { selectorUrl = new URL(route.request().url()); return route.fulfill({ json: { items: [{ id: destination, name: "Cross project destination", slug: "cross-project", enabled: true }], nextCursor: null } }); });
+  await page.route("**/api/v1/job-selector?**", route => { selectorUrl = new URL(route.request().url()); return route.fulfill({ json: { items: [{ id: destination, name: "Same project destination", slug: "same-project", enabled: true }], nextCursor: null } }); });
   await page.goto(origin + `/jobs/${id}/settings/permissions`);
   await page.getByLabel("Current job (allow this job to invoke itself)", { exact: true }).check();
-  await page.getByLabel("Cross project destination", { exact: true }).check();
+  await page.getByLabel("Same project destination", { exact: true }).check();
   await page.getByRole("button", { name: "Save permissions" }).click();
   await page.getByRole("status").filter({ hasText: "Manual invocation permissions saved." }).waitFor();
   assert.deepEqual(saved, { destinationJobIds: [id, destination] });
-  assert.equal(selectorUrl.searchParams.has("projectId"), false);
+  assert.equal(selectorUrl.searchParams.get("projectId"), projectA);
   await context.close();
 });
 test("create uses bounded lifecycle selector, lazy provider reads, schedule preview and typed form submission on mobile", async () => {

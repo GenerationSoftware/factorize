@@ -459,6 +459,8 @@ export class ApiService {
       if (!this.auth.runId || !this.auth.runJobId) throw new ServiceError(401, "invalid_token", "A verified run identity is required.");
       const permission = await databaseFor(this.env).pool.query(`SELECT 1 FROM app.run_credentials c
         JOIN app.job_runs r ON r.tenant_id=c.tenant_id AND r.id=c.run_id
+        JOIN app.jobs source ON source.tenant_id=r.tenant_id AND source.id=r.job_id
+        JOIN app.jobs destination ON destination.tenant_id=source.tenant_id AND destination.id=$3 AND destination.project_id=source.project_id
         JOIN app.manual_invocation_permissions p ON p.tenant_id=c.tenant_id AND p.source_job_id=r.job_id AND p.destination_job_id=$3
         WHERE c.tenant_id=$1 AND c.run_id=$2 AND c.digest=$4 AND c.expires_at>now() AND r.state IN ('reserved','starting','running','blocked','stopping')`, [this.auth.tenantId, this.auth.runId, jobId, this.auth.runCredentialDigest]);
       if (!permission.rowCount) throw new ServiceError(403, "forbidden", "This run is no longer active or its source job is not authorized to invoke the destination.");
@@ -473,7 +475,10 @@ export class ApiService {
   async getInvocationPermissions(sourceJobId: string) {
     await this.authorize("jobs:read");
     if (!await this.jobs().getJob(sourceJobId)) throw new ServiceError(404, "not_found", "Job not found");
-    const rows = await databaseFor(this.env).pool.query<{ destination_job_id: string }>("SELECT destination_job_id FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2 ORDER BY destination_job_id", [this.auth.tenantId, sourceJobId]);
+    const rows = await databaseFor(this.env).pool.query<{ destination_job_id: string }>(`SELECT p.destination_job_id FROM app.manual_invocation_permissions p
+      JOIN app.jobs source ON source.tenant_id=p.tenant_id AND source.id=p.source_job_id
+      JOIN app.jobs destination ON destination.tenant_id=p.tenant_id AND destination.id=p.destination_job_id AND destination.project_id=source.project_id
+      WHERE p.tenant_id=$1 AND p.source_job_id=$2 ORDER BY p.destination_job_id`, [this.auth.tenantId, sourceJobId]);
     return publicValue(invocationPermissionsResponse, { sourceJobId, destinationJobIds: rows.rows.map(row => row.destination_job_id) });
   }
   async setInvocationPermissions(sourceJobId: string, destinationJobIds: string[]) {
@@ -485,11 +490,11 @@ export class ApiService {
     if (unique.length !== destinationJobIds.length) throw new ServiceError(400, "invalid_request", "Destination jobs must be unique.");
     const db = databaseFor(this.env);
     await db.transaction(async client => {
-      const sources = await client.query("SELECT 1 FROM app.jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.auth.tenantId, sourceJobId]);
+      const sources = await client.query<{ project_id: string }>("SELECT project_id FROM app.jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.auth.tenantId, sourceJobId]);
       if (!sources.rowCount) throw new ServiceError(404, "not_found", "Source job not found");
       if (unique.length) {
-        const found = await client.query("SELECT id FROM app.jobs WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [this.auth.tenantId, unique]);
-        if (found.rowCount !== unique.length) throw new ServiceError(400, "invalid_request", "Every destination must be an existing job in this tenant.");
+        const found = await client.query("SELECT id FROM app.jobs WHERE tenant_id=$1 AND project_id=$3 AND id=ANY($2::uuid[])", [this.auth.tenantId, unique, sources.rows[0].project_id]);
+        if (found.rowCount !== unique.length) throw new ServiceError(400, "invalid_request", "Every destination must be an existing job in the source job's project.");
       }
       await client.query("DELETE FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2", [this.auth.tenantId, sourceJobId]);
       if (unique.length) await client.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_job_id,destination_job_id) SELECT $1,$2,unnest($3::uuid[])", [this.auth.tenantId, sourceJobId, unique]);

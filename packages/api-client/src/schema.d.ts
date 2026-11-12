@@ -1566,7 +1566,7 @@ export interface paths {
         get: operations["get_api_v1_jobs_jobId_invocation_permissions"];
         /**
          * Replace a source job's manual invocation destinations
-         * @description Requires an owner session, scoped API key, or authorized OAuth client with jobs:write. Destinations must exist in the same tenant. A source job may include itself to opt in to explicitly requested successor runs; this does not schedule runs automatically. Lifecycle subscriptions do not create permissions.
+         * @description Requires an owner session, scoped API key, or authorized OAuth client with jobs:write. Destinations must belong to the source job's project; self-invocation is allowed. A run token may invoke a configured destination only while both jobs remain in the same project. Lifecycle subscriptions do not create permissions.
          *
          *     Requires the jobs:write scope.
          *
@@ -6656,7 +6656,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Configured tenant-local destination jobs */
+            /** @description Configured destination jobs in the same project */
             200: {
                 headers: {
                     [name: string]: unknown;
