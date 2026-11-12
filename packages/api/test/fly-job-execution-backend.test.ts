@@ -100,6 +100,48 @@ describe("Fly job execution backend", () => {
     expect(receipt.observation).toMatchObject({ state: "failed", failure: { code: "launch_failed" } });
   });
 
+  it("returns a bounded prerequisite diagnosis and retains cleanup ownership for an incompatible custom image", async () => {
+    const f = fixture();
+    f.guest.run.mockResolvedValueOnce({ ok: false, exitCode: 1, stdout: "", stderr: "python3: not found" });
+
+    const receipt = await f.backend.launch({
+      runId: "11111111-1111-4111-8111-111111111111",
+      prompt: "",
+    });
+
+    expect(receipt.handle).toMatchObject({ backendKind: "fly", id: "factorize-test/machine-1" });
+    expect(receipt.observation).toMatchObject({
+      state: "failed",
+      detail: "Fly guest is missing python3, runuser, or the exedev user, or could not install the shared Factorize job launcher",
+      failure: { code: "launch_failed", reason: "Fly guest launch failed" },
+    });
+    expect(f.guest.run).toHaveBeenCalledOnce();
+    expect(receipt.observation.detail).not.toContain("python3: not found");
+  });
+
+  it("reports a bounded launcher error when a custom image entrypoint does not invoke factorize-job", async () => {
+    const f = fixture();
+    f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: "", stderr: "" });
+    f.guest.run.mockResolvedValueOnce({ ok: false, exitCode: 127, stdout: "", stderr: "factorize-job: command not found" });
+
+    const receipt = await f.backend.launch({
+      runId: "11111111-1111-4111-8111-111111111111",
+      prompt: "",
+    });
+
+    expect(f.machines.startMachine).toHaveBeenCalledOnce();
+    expect(f.guest.run).toHaveBeenCalledTimes(2);
+    expect(f.guest.run.mock.calls[1]?.[0]).toEqual([
+      "/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch",
+    ]);
+    expect(receipt.observation).toMatchObject({
+      state: "failed",
+      detail: "Fly guest did not confirm job launch",
+      failure: { code: "launch_failed", reason: "Fly guest launch failed" },
+    });
+    expect(receipt.observation.detail?.length).toBeLessThanOrEqual(120);
+  });
+
   it("retains cleanup ownership when Fly starts a Machine but loses the start acknowledgement", async () => {
     const f = fixture();
     f.machines.startMachine.mockRejectedValueOnce(new Error("Fly start response timed out"));
