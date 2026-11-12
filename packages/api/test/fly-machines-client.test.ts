@@ -42,6 +42,7 @@ describe("bounded Fly Machines client", () => {
         let raw = ""; for await (const chunk of req) raw += chunk;
         const body = JSON.parse(raw);
         expect(body.config.metadata.factorize_operation_id).toBe("op-1");
+        expect(body.config.restart).toEqual({ policy: "no" });
         return json(res, 200, machine);
       }
       if (req.method === "GET" && req.url === "/v1/apps/app-a/machines/m-1") return json(res, 200, machine);
@@ -53,7 +54,7 @@ describe("bounded Fly Machines client", () => {
       json(res, 404, { error: "not found" });
     });
     const client = createFlyMachinesClient({ token, apiOrigin: origin, wait: async () => undefined });
-    const created = await client.createMachine("app-a", { image: "example/image", metadata: { keep: "yes" } }, "op-1");
+    const created = await client.createMachine("app-a", { image: "example/image", restart: { policy: "always" }, metadata: { keep: "yes" } }, "op-1");
     expect(created.id).toBe("m-1");
     expect((await client.inspectMachine("app-a", "m-1")).id).toBe("m-1");
     await client.startMachine("app-a", "m-1");
