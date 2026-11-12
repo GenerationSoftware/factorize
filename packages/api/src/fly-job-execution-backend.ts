@@ -245,7 +245,9 @@ export class FlyJobExecutionBackend implements ExecutionBackend, JobResultReader
     if (!id) return { state: "stopped" };
     const machine = await this.options.machines.inspectMachine(this.options.app, id);
     if (["destroyed", "destroying"].includes(String(machine.state ?? "").toLowerCase())) return { state: "stopped" };
-    await this.options.machines.stopMachine(this.options.app, id);
+    if (String(machine.state ?? "").toLowerCase() !== "stopped") {
+      await this.options.machines.stopMachine(this.options.app, id);
+    }
     const after = await this.options.machines.inspectMachine(this.options.app, id);
     if (!["stopped", "destroyed"].includes(String(after.state ?? "").toLowerCase())) return { state: "stopping" };
     await this.options.machines.destroyMachine(this.options.app, id);

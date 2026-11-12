@@ -122,7 +122,16 @@ describe("Fly job execution backend", () => {
     const f = fixture();
     f.machines.inspectMachine.mockResolvedValue({ ...machine, state: "stopped" });
     await expect(f.backend.stop({ backendKind: "fly", id: "factorize-test/machine-1" })).resolves.toEqual({ state: "stopped" });
+    expect(f.machines.stopMachine).not.toHaveBeenCalled();
     expect(f.machines.destroyMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
+  });
+
+  it("keeps a Machine when the provider has not confirmed it stopped", async () => {
+    const f = fixture();
+    f.machines.inspectMachine.mockResolvedValueOnce({ ...machine, state: "started" }).mockResolvedValueOnce({ ...machine, state: "stopping" });
+    await expect(f.backend.stop({ backendKind: "fly", id: "factorize-test/machine-1" })).resolves.toEqual({ state: "stopping" });
+    expect(f.machines.stopMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
+    expect(f.machines.destroyMachine).not.toHaveBeenCalled();
   });
 
   it("collects structured results and logs through the guest transport", async () => {
