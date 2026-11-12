@@ -65,6 +65,33 @@ describe("Fly job execution backend", () => {
     expect(receipt.observation).toMatchObject({ state: "running" });
   });
 
+  it("lets custom image setup finish before invoking the shared launcher without replacing its entrypoint", async () => {
+    const f = fixture();
+    const runId = "11111111-1111-4111-8111-111111111111";
+    const backend = new FlyJobExecutionBackend({
+      app: "factorize-test", image: "registry.example/custom-code:reviewed",
+      region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest,
+    });
+
+    const receipt = await backend.launch({
+      runId,
+      prompt: "",
+      code: { script: "echo ready", context: {} },
+    });
+
+    const machineConfig = f.machines.createMachine.mock.calls[0]![1];
+    expect(machineConfig.image).toBe("registry.example/custom-code:reviewed");
+    // Leave cmd unset so Fly runs the image's own entrypoint during startup.
+    expect(machineConfig).not.toHaveProperty("cmd");
+    expect(f.machines.startMachine.mock.invocationCallOrder[0]).toBeLessThan(f.guest.run.mock.invocationCallOrder[0]!);
+    expect(f.guest.run).toHaveBeenNthCalledWith(
+      2,
+      ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"],
+      expect.stringContaining('"script":"echo ready"'),
+    );
+    expect(receipt.observation).toMatchObject({ state: "running" });
+  });
+
   it("retains provider cleanup ownership when guest startup fails", async () => {
     const f = fixture();
     f.guest.run.mockResolvedValue({ ok: false, exitCode: 1, stdout: "", stderr: "failure" });

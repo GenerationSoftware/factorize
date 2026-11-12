@@ -71,6 +71,22 @@ describe("Fly credential proxy startup", () => {
     expect(machines.destroyMachine).toHaveBeenCalledWith(input.app, machine.id);
   });
 
+  it("revokes bootstrap authority and attempts Machine cleanup when explicit start fails", async () => {
+    const f = fixture();
+    const startupFailure = new Error("local Fly fixture start failed");
+    f.machines.startMachine.mockRejectedValue(startupFailure);
+    // Cleanup failure must not replace the original provisioning diagnosis.
+    f.machines.destroyMachine.mockRejectedValue(new Error("local Fly fixture cleanup failed"));
+
+    await expect(f.provisioner.start(input)).rejects.toBe(startupFailure);
+
+    expect(f.control.provisionCredential).toHaveBeenCalledOnce();
+    expect(f.control.revokeCredential).toHaveBeenCalledWith(input.tenantId, "fly:factorize-proxies:machine-1");
+    expect(f.control.revokeCredential.mock.invocationCallOrder[0]).toBeLessThan(f.machines.destroyMachine.mock.invocationCallOrder[0]!);
+    expect(f.machines.destroyMachine).toHaveBeenCalledWith(input.app, machine.id);
+    expect(f.guest).not.toHaveBeenCalled();
+  });
+
   it("rejects mutable images and unsafe control origins before provisioning", async () => {
     const { machines, provisioner } = fixture();
     await expect(provisioner.start({ ...input, image: "ghcr.io/example/proxy:latest" })).rejects.toThrow("pinned by sha256 digest");
