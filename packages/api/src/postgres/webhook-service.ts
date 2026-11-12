@@ -22,8 +22,8 @@ export class WebhookService {
   }
   private async ensure(provider: string, deliveryId: string, type: unknown, action: unknown) {
     const id = crypto.randomUUID();
-    const result = await this.database.pool.query<any>(`INSERT INTO app.webhook_deliveries(tenant_id,id,provider,delivery_id,event_type,event_action,outcome,detail) VALUES ($1,$2,$3,$4,$5,$6,'received','Delivery received; processing is in progress.') ON CONFLICT (tenant_id,provider,delivery_id) DO NOTHING RETURNING id`, [this.tenantId, id, provider, deliveryId, String(type || "unknown"), String(action || "unknown")]);
-    return result.rows[0]?.id ?? (await this.database.pool.query<any>("SELECT id FROM app.webhook_deliveries WHERE tenant_id=$1 AND provider=$2 AND delivery_id=$3", [this.tenantId, provider, deliveryId])).rows[0].id;
+    const result = await this.database.pool.query<any>(`INSERT INTO app.webhook_deliveries(tenant_id,id,provider,delivery_id,event_type,event_action,outcome,detail) VALUES ($1,$2,$3,$4,$5,$6,'received','Delivery received; processing is in progress.') ON CONFLICT (tenant_id,provider,delivery_id) DO UPDATE SET delivery_id=EXCLUDED.delivery_id RETURNING id`, [this.tenantId, id, provider, deliveryId, String(type || "unknown"), String(action || "unknown")]);
+    return result.rows[0].id;
   }
   private async event(deliveryPk: string, jobId: string, provider: string, deliveryId: string, outcome: string, detail: string) {
     await this.database.transaction(async client => {

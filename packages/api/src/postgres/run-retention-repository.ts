@@ -3,11 +3,13 @@ import { safeDiagnosticText } from "../harness-diagnostics";
 
 export type RetentionSweepResult = { selected: number; deleted: number; cleanupQueued: number };
 export type ArtifactCleanupResult = { attempted: number; completed: number; retried: number };
+export type IndependentHistoryCleanupResult = { queue: string; deleted: number }[];
 export type RetentionBacklog = { queue: string; pending: number; oldestAgeSeconds: number | null };
 
 const CLEANUP_BATCH_SIZE = 20;
 const CLEANUP_LEASE_MS = 10 * 60_000;
 const CLEANUP_MAX_BACKOFF_MS = 6 * 60 * 60_000;
+const HISTORY_BATCH_SIZE = 500;
 
 /**
  * Bounded retention deletion. The fixed cutoff is supplied by the caller so a
@@ -38,8 +40,97 @@ export class RunRetentionRepository {
           floor(extract(epoch FROM now()-min(created_at)))::int
         FROM app.runs WHERE state IN ('queued','reserved','starting','running','blocked','stopping')
           AND created_at < now()-interval '14 days'
+        UNION ALL
+        SELECT 'job_events'::text,count(*)::int,floor(extract(epoch FROM now()-min(received_at)))::int
+        FROM app.job_events WHERE received_at < now()-interval '14 days'
+        UNION ALL
+        SELECT 'webhook_deliveries'::text,count(*)::int,floor(extract(epoch FROM now()-min(d.received_at)))::int
+        FROM app.webhook_deliveries d
+        WHERE d.received_at < now()-interval '14 days' AND d.outcome <> 'received'
+          AND NOT EXISTS (SELECT 1 FROM app.pending_verifications p WHERE p.tenant_id=d.tenant_id AND p.delivery_id=d.delivery_id)
+        UNION ALL
+        SELECT 'vm_image_verifications'::text,count(*)::int,floor(extract(epoch FROM now()-min(created_at)))::int
+        FROM app.vm_image_verifications WHERE status IN ('succeeded','failed') AND created_at < now()-interval '14 days'
+        UNION ALL
+        SELECT 'expired_temporary_records'::text,
+          (SELECT count(*)::int FROM app.github_setup_states WHERE expires_at < now() OR used_at IS NOT NULL)
+          +(SELECT count(*)::int FROM app.oauth_consent_previews WHERE expires_at < now() OR used_at IS NOT NULL)
+          +(SELECT count(*)::int FROM app.oauth_device_authorizations WHERE expires_at < now())
+          +(SELECT count(*)::int FROM app.oauth_connections WHERE expires_at < now() OR used_at IS NOT NULL)
+          +(SELECT count(*)::int FROM app.auth_reset_tokens WHERE expires_at < now() OR used_at IS NOT NULL)
+          +(SELECT count(*)::int FROM app.auth_sessions WHERE expires_at < now() OR revoked_at IS NOT NULL)
+          +(SELECT count(*)::int FROM app.access_tokens WHERE expires_at < now() OR revoked_at IS NOT NULL),
+          GREATEST(
+            COALESCE(floor(extract(epoch FROM now()-(SELECT min(expires_at) FROM app.github_setup_states WHERE expires_at < now() OR used_at IS NOT NULL))),0),
+            COALESCE(floor(extract(epoch FROM now()-(SELECT min(expires_at) FROM app.oauth_consent_previews WHERE expires_at < now() OR used_at IS NOT NULL))),0),
+            COALESCE(floor(extract(epoch FROM now()-(SELECT min(expires_at) FROM app.oauth_device_authorizations WHERE expires_at < now()))),0),
+            COALESCE(floor(extract(epoch FROM now()-(SELECT min(expires_at) FROM app.oauth_connections WHERE expires_at < now() OR used_at IS NOT NULL))),0),
+            COALESCE(floor(extract(epoch FROM now()-(SELECT min(expires_at) FROM app.auth_reset_tokens WHERE expires_at < now() OR used_at IS NOT NULL))),0),
+            COALESCE(floor(extract(epoch FROM now()-(SELECT min(expires_at) FROM app.auth_sessions WHERE expires_at < now() OR revoked_at IS NOT NULL))),0),
+            COALESCE(floor(extract(epoch FROM now()-(SELECT min(expires_at) FROM app.access_tokens WHERE expires_at < now() OR revoked_at IS NOT NULL))),0)
+          )::int
       ) backlog ORDER BY queue`);
     return result.rows.map(row => ({ queue: row.queue, pending: row.pending, oldestAgeSeconds: row.oldest_age_seconds }));
+  }
+
+  /**
+   * Bound independent history and expired one-time record growth. Every lane
+   * selects and deletes under row locks, so concurrent maintenance workers
+   * divide the work instead of blocking each other. Pending webhook delivery
+   * and resource cleanup ownership are deliberately retained.
+   */
+  async cleanupIndependentHistory(): Promise<IndependentHistoryCleanupResult> {
+    const lanes: Array<[string, string]> = [
+      ["job_events", `WITH expired AS (
+        SELECT tenant_id,id FROM app.job_events WHERE received_at < now()-interval '14 days'
+        ORDER BY received_at,tenant_id,id LIMIT $1 FOR UPDATE SKIP LOCKED
+      ) DELETE FROM app.job_events e USING expired x WHERE e.tenant_id=x.tenant_id AND e.id=x.id`],
+      ["webhook_deliveries", `WITH expired AS (
+        SELECT d.tenant_id,d.id FROM app.webhook_deliveries d
+        WHERE d.received_at < now()-interval '14 days' AND d.outcome <> 'received'
+          AND NOT EXISTS (SELECT 1 FROM app.pending_verifications p WHERE p.tenant_id=d.tenant_id AND p.delivery_id=d.delivery_id)
+        ORDER BY d.received_at,d.tenant_id,d.id LIMIT $1 FOR UPDATE OF d SKIP LOCKED
+      ) DELETE FROM app.webhook_deliveries d USING expired x WHERE d.tenant_id=x.tenant_id AND d.id=x.id`],
+      ["vm_image_verifications", `WITH expired AS (
+        SELECT tenant_id,id FROM app.vm_image_verifications WHERE status IN ('succeeded','failed')
+          AND created_at < now()-interval '14 days'
+        ORDER BY created_at,tenant_id,id LIMIT $1 FOR UPDATE SKIP LOCKED
+      ) DELETE FROM app.vm_image_verifications v USING expired x WHERE v.tenant_id=x.tenant_id AND v.id=x.id`],
+      ["github_setup_states", `WITH expired AS (
+        SELECT tenant_id,nonce FROM app.github_setup_states WHERE expires_at < now() OR used_at IS NOT NULL
+        ORDER BY expires_at,tenant_id,nonce LIMIT $1 FOR UPDATE SKIP LOCKED
+      ) DELETE FROM app.github_setup_states s USING expired x WHERE s.tenant_id=x.tenant_id AND s.nonce=x.nonce`],
+      ["oauth_consent_previews", `WITH expired AS (
+        SELECT id FROM app.oauth_consent_previews WHERE expires_at < now() OR used_at IS NOT NULL
+        ORDER BY expires_at,id LIMIT $1 FOR UPDATE SKIP LOCKED
+      ) DELETE FROM app.oauth_consent_previews p USING expired x WHERE p.id=x.id`],
+      ["oauth_device_authorizations", `WITH expired AS (
+        SELECT device_code FROM app.oauth_device_authorizations WHERE expires_at < now()
+        ORDER BY expires_at,device_code LIMIT $1 FOR UPDATE SKIP LOCKED
+      ) DELETE FROM app.oauth_device_authorizations a USING expired x WHERE a.device_code=x.device_code`],
+      ["oauth_connections", `WITH expired AS (
+        SELECT id FROM app.oauth_connections WHERE expires_at < now() OR used_at IS NOT NULL
+        ORDER BY expires_at,id LIMIT $1 FOR UPDATE SKIP LOCKED
+      ) DELETE FROM app.oauth_connections c USING expired x WHERE c.id=x.id`],
+      ["auth_reset_tokens", `WITH expired AS (
+        SELECT digest FROM app.auth_reset_tokens WHERE expires_at < now() OR used_at IS NOT NULL
+        ORDER BY expires_at,digest LIMIT $1 FOR UPDATE SKIP LOCKED
+      ) DELETE FROM app.auth_reset_tokens t USING expired x WHERE t.digest=x.digest`],
+      ["auth_sessions", `WITH expired AS (
+        SELECT id FROM app.auth_sessions WHERE expires_at < now() OR revoked_at IS NOT NULL
+        ORDER BY expires_at,id LIMIT $1 FOR UPDATE SKIP LOCKED
+      ) DELETE FROM app.auth_sessions s USING expired x WHERE s.id=x.id`],
+      ["access_tokens", `WITH expired AS (
+        SELECT tenant_id,id FROM app.access_tokens WHERE expires_at < now() OR revoked_at IS NOT NULL
+        ORDER BY expires_at,tenant_id,id LIMIT $1 FOR UPDATE SKIP LOCKED
+      ) DELETE FROM app.access_tokens t USING expired x WHERE t.tenant_id=x.tenant_id AND t.id=x.id`],
+    ];
+    const result: IndependentHistoryCleanupResult = [];
+    for (const [queue, statement] of lanes) {
+      const deleted = await this.database.pool.query(statement, [HISTORY_BATCH_SIZE]);
+      result.push({ queue, deleted: deleted.rowCount ?? 0 });
+    }
+    return result;
   }
 
   /**

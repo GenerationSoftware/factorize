@@ -98,4 +98,18 @@ describe("RunRetentionRepository", () => {
     expect(query.mock.calls[0]![0]).toContain("'overdue_nonterminal'");
     expect(query.mock.calls[0]![0]).not.toContain("run_id");
   });
+
+  it("cleans independent histories in bounded lanes and protects pending work", async () => {
+    const statements: string[] = [];
+    const query = vi.fn(async (sql: string) => { statements.push(sql); return { rows: [], rowCount: 7 }; });
+    const result = await new RunRetentionRepository({ pool: { query } } as any).cleanupIndependentHistory();
+    expect(result).toHaveLength(10);
+    expect(result.every(lane => lane.deleted === 7)).toBe(true);
+    expect(query).toHaveBeenCalledTimes(10);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("FOR UPDATE SKIP LOCKED"), [500]);
+    expect(statements.find(sql => sql.includes("webhook_deliveries d"))).toContain("d.outcome <> 'received'");
+    expect(statements.find(sql => sql.includes("webhook_deliveries d"))).toContain("app.pending_verifications");
+    expect(statements.find(sql => sql.includes("vm_image_verifications"))).toContain("status IN ('succeeded','failed')");
+    expect(statements.find(sql => sql.includes("access_tokens"))).toContain("expires_at < now() OR revoked_at IS NOT NULL");
+  });
 });

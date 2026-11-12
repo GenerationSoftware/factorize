@@ -31,7 +31,7 @@ test("actual Cloudflare local runtime enforces static/API/protocol ownership, he
   }
   const database = databaseUrl.href;
   assert.ok(["localhost", "127.0.0.1"].includes(new URL(database).hostname), "Hosting runtime requires a local database URL");
-  const child = spawn("npm", ["exec", "--workspace=factorize", "--", "wrangler", "dev", "--local", "--local-protocol", "https", "--port", String(port), "--var", `APP_ORIGIN:https://localhost:${port}`], { env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: database }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn("npm", ["exec", "-w", "factorize", "--", "wrangler", "dev", "--local", "--local-protocol", "https", "--port", String(port), "--var", `APP_ORIGIN:https://localhost:${port}`], { env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: database }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   const ready = new Promise((resolve, reject) => {
     const deadline = setTimeout(() => reject(new Error("Local Worker did not start: " + output)), 30_000);
