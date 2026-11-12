@@ -73,6 +73,13 @@ describe("versioned API contract", () => {
     expect(route?.body?.safeParse({ action: "authorize", accountId: "attacker" }).success).toBe(false);
     expect(openapi.paths["/api/v1/model-accounts/{accountId}/browser-capability"].post.requestBody).toBeDefined();
   });
+  it("lists only safe model account metadata for the owner browser", () => {
+    const route = API_ROUTES.find(item => item.method === "GET" && item.path === "/api/v1/model-accounts");
+    expect(route?.scope).toBe("integrations:read");
+    expect(route?.ownerSession).toBe(true);
+    expect(route?.documentation.responses["200"].content["application/json"].schema.properties.accounts.items.properties.encryptedPayload).toBeUndefined();
+    expect(openapi.paths["/api/v1/model-accounts"].get).toBeDefined();
+  });
   it("accepts code jobs without agent prompts or models and rejects missing scripts", () => {
     const code = { name: "Export", slug: "export", executionType: "code", script: "#!/bin/sh\nprintf '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"", executionConfigId: "exe", triggers: [] };
     expect(jobInputSchema.safeParse(code).success).toBe(true);

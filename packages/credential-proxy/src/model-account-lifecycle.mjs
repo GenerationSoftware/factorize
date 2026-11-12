@@ -120,7 +120,7 @@ export function createModelAccountLifecycle({
         if (outcome?.state !== "authorized") return { state: outcome?.state ?? "reauthentication-required" };
         return persist(id, generation);
       });
-      return { state: "pending", completion };
+      return { state: "pending", challenge: result.challenge, completion };
     });
   }
 

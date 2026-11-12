@@ -22,7 +22,7 @@ test("private browser control requires exact origin and one-use owner/proxy/acti
   const calls = [];
   const runtime = { state: "unlocked" };
   const lifecycle = {
-    async deviceLogin(id) { calls.push(["authorize", id]); return { state: "pending", completion: Promise.resolve({ state: "saved" }) }; },
+    async deviceLogin(id) { calls.push(["authorize", id]); return { state: "pending", challenge: { verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-1234" }, completion: Promise.resolve({ state: "saved" }) }; },
     async cancel(id) { calls.push(["cancel", id]); return { state: "canceled" }; },
   };
   const server = await startBrowserControl({ runtime, lifecycle, publicKey, proxyId, ownerId, generation, appOrigin, port: 0, host: "127.0.0.1", now: () => now });
@@ -44,13 +44,13 @@ test("private browser control requires exact origin and one-use owner/proxy/acti
   const authToken = capability({ action: "model-account:authorize" });
   const started = await post("model-account:authorize", authToken);
   assert.equal(started.status, 202);
-  assert.deepEqual(await started.json(), { state: "pending" });
+  assert.deepEqual(await started.json(), { state: "pending", verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-1234" });
   assert.deepEqual(calls[0], ["authorize", accountId]);
   const replay = await post("model-account:authorize", authToken);
   assert.equal(replay.status, 401);
 
   const status = await post("model-account:status", capability({ action: "model-account:status" }));
-  assert.deepEqual(await status.json(), { state: "saved" });
+  assert.deepEqual(await status.json(), { state: "authorized" });
   const wrongAudience = await post("model-account:cancel", capability({ action: "model-account:cancel", aud: "fly:other:machine" }));
   assert.equal(wrongAudience.status, 401);
   const expired = await post("model-account:cancel", capability({ action: "model-account:cancel", exp: now - 1 }));

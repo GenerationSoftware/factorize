@@ -589,6 +589,11 @@ export class ApiService {
     });
     return { endpoint: `${pairing.browserOrigin}/model-accounts/${accountId}/${action}`, capability };
   }
+  async listModelAccounts() {
+    await this.authorizeOwnerSession("integrations:read");
+    const accounts = await this.encryptedIntegrations().records("model");
+    return { accounts: accounts.map(({ id, name, description, revision }) => ({ id, name, description, revision })) };
+  }
   async removeTailIntegration(id: string) { await this.authorize("integrations:write"); if (!await this.connections().delete(`cloudflare-tail:${id}`)) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
   async linearProjects() { await this.authorize("integrations:read"); return publicValue(z.array(namedOption), await this.providers().linearProjects()); }
   async linearOptions() { await this.authorize("integrations:read"); return publicValue(providerOptions, await this.providers().linearOptions()); }

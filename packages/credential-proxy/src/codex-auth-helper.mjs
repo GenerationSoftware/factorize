@@ -99,6 +99,7 @@ export function createCodexAuthHelper({
       if (logins.has(accountId)) throw new Error("device authorization is already running for this account");
       const home = await prepareHome(accountId);
       let child;
+      const challenge = {};
       const completion = new Promise((resolveRun, rejectRun) => {
         child = spawnProcess(codexPath, ["login", "--device-auth"], {
           env: { PATH: process.env.PATH ?? "", CODEX_HOME: home, HOME: home },
@@ -109,6 +110,10 @@ export function createCodexAuthHelper({
         timer.unref?.();
         child.stdout.on("data", chunk => {
           stdout = (stdout + chunk.toString("utf8")).slice(-16_384);
+          const url = stdout.match(/https:\/\/auth\.openai\.com\/codex\/device(?:\b|\/)/u)?.[0];
+          const code = stdout.match(/\b(?:user\s+)?code\s*:\s*([A-Z0-9]{4,6}-[A-Z0-9]{4,6}|[A-Z0-9]{8,12})\b/iu)?.[1];
+          if (url) challenge.verificationUrl = "https://auth.openai.com/codex/device";
+          if (code) challenge.userCode = code.toUpperCase();
         });
         child.stderr.on("data", chunk => {
           // Retain no provider error text, which could include device details.
@@ -124,7 +129,7 @@ export function createCodexAuthHelper({
       const entry = { child, completion };
       logins.set(accountId, entry);
       completion.finally(() => { if (logins.get(accountId) === entry) logins.delete(accountId); }).catch(() => {});
-      return { state: "pending", completion };
+      return { state: "pending", challenge, completion };
     }
     if (request.method === "cancel") {
       const login = logins.get(accountId);

@@ -18,6 +18,35 @@ test("integration setup tests credentials, submits typed fields, clears secrets 
   await form.getByLabel("exe.dev account token").fill("private-input"); await form.getByRole("button", { name: "Test credentials" }).click(); await form.getByText("✓ Credentials verified.", { exact: true }).waitFor(); await form.getByLabel("VM tags").selectOption(["dev"]); await form.getByRole("button", { name: "Save integration", exact: true }).click();
   await form.getByText("Integration saved", { exact: true }).waitFor(); assert.deepEqual(body.tags, ["dev"]); assert.equal(body.agentKind, "codex"); assert.equal(await form.getByLabel("exe.dev account token").inputValue(), ""); assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes("private-input")), false); await page.getByText("dev", { exact: true }).waitFor(); await context.close();
 });
+test("model account settings issue short-lived capabilities and display the bounded device challenge", async () => {
+  const { context, page } = await setup();
+  const accountId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", proxyOrigin = "https://proxy.example";
+  await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
+  await page.route("**/api/v1/model-accounts", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { accounts: [{ id: accountId, name: "Work account", description: null, revision: 0 }] } });
+    const action = route.request().postDataJSON().action;
+    return route.fulfill({ json: { endpoint: `${proxyOrigin}/model-accounts/${accountId}/${action}`, capability: `one-use-${action}` } });
+  });
+  const proxyCalls = [];
+  await page.route(`${proxyOrigin}/model-accounts/**`, async route => {
+    const request = route.request();
+    if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers: { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "Authorization, Content-Type" } });
+    proxyCalls.push({ path: new URL(request.url()).pathname, authorization: request.headers().authorization, body: request.postData() });
+    const response = request.url().endsWith("/authorize") ? { state: "pending", verificationUrl: "https://auth.openai.com/codex/device", userCode: "ABCD-1234" } : { state: "canceled" };
+    return route.fulfill({ json: response, headers: { "Access-Control-Allow-Origin": origin, "Cache-Control": "no-store" } });
+  });
+  await page.goto(origin + "/settings/integrations");
+  const models = page.getByRole("region", { name: "ChatGPT model accounts" });
+  await models.getByRole("button", { name: "Connect ChatGPT" }).click();
+  await models.getByText("ABCD-1234", { exact: false }).waitFor();
+  await models.getByRole("link", { name: "OpenAI device authorization" }).waitFor();
+  await models.getByRole("button", { name: "Cancel authorization" }).click();
+  await models.getByText("Device authorization canceled.", { exact: true }).waitFor();
+  assert.deepEqual(proxyCalls.map(call => call.authorization), ["Bearer one-use-authorize", "Bearer one-use-cancel"]);
+  assert.deepEqual(proxyCalls.map(call => call.body), ["{}", "{}"]);
+  await context.close();
+});
 test("unlock-key setup requires acknowledgement, stores ciphertext only, verifies entered keys and survives refresh without a saved key", async () => {
   const { context, page } = await setup();
   await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));

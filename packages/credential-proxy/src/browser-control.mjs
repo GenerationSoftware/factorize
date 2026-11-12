@@ -32,6 +32,18 @@ function json(response, status, body, origin) {
   response.writeHead(status, headers).end(JSON.stringify(body));
 }
 
+function publicAuthorization(value) {
+  if (!value || typeof value !== "object") return { state: "idle" };
+  const result = { state: value.state };
+  const challenge = value.challenge;
+  if (challenge?.verificationUrl === "https://auth.openai.com/codex/device"
+      && typeof challenge.userCode === "string" && (/^[A-Z0-9]{4,6}-[A-Z0-9]{4,6}$/u.test(challenge.userCode) || /^[A-Z0-9]{8,12}$/u.test(challenge.userCode))) {
+    result.verificationUrl = challenge.verificationUrl;
+    result.userCode = challenge.userCode;
+  }
+  return result;
+}
+
 async function readJson(request) {
   const chunks = [];
   let size = 0;
@@ -119,16 +131,19 @@ export async function startBrowserControl({
       if (operation === "authorize") {
         if (runtime.state !== "unlocked") return json(response, 423, { error: "proxy_locked" }, appOrigin);
         const login = await lifecycle.deviceLogin(accountId);
-        const state = { state: "pending" };
+        const state = { state: "pending", challenge: login.challenge };
         authorizations.set(accountId, state);
         Promise.resolve(login.completion).then(result => {
-          if (authorizations.get(accountId) === state) authorizations.set(accountId, { ...result });
+          if (authorizations.get(accountId) === state) {
+            const next = result?.state === "saved" ? "authorized" : result?.state === "unsaved" ? "authorized-unsaved" : result?.state ?? "reauthentication-required";
+            authorizations.set(accountId, { state: next });
+          }
         }, () => {
           if (authorizations.get(accountId) === state) authorizations.set(accountId, { state: "failed" });
         });
-        return json(response, 202, state, appOrigin);
+        return json(response, 202, publicAuthorization(state), appOrigin);
       }
-      if (operation === "status") return json(response, 200, authorizations.get(accountId) ?? { state: "idle" }, appOrigin);
+      if (operation === "status") return json(response, 200, publicAuthorization(authorizations.get(accountId)), appOrigin);
       const result = await lifecycle.cancel(accountId);
       authorizations.set(accountId, { state: "canceled" });
       return json(response, 200, { state: result?.state === "idle" ? "idle" : "canceled" }, appOrigin);

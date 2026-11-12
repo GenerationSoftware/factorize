@@ -131,6 +131,7 @@ const bearerIntegrationCreate = z.object({
 const bearerIntegrationUpdate = bearerIntegrationCreate.omit({ id: true });
 const bearerIntegrationDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
 const bearerIntegrationList = z.object({ revision: z.number().int().nonnegative(), integrations: z.array(bearerIntegrationMetadata) });
+const modelAccountMetadata = z.object({ id: z.uuid(), name: z.string(), description: z.string().nullable(), revision: z.number().int().nonnegative() });
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const unlockKeyVerification = z.object({ ownerId: z.string(), verification: z.object({ generationId: z.uuid(), encryptedVerification: z.string() }).strict().nullable() }).strict();
@@ -214,6 +215,11 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 }
 
 export const API_ROUTES: RouteContract[] = [
+  route("GET", "/api/v1/model-accounts", "integrations:read", {
+    summary: "List model accounts available to the owner",
+    description: "Requires an interactive owner browser session. Returns account metadata only; encrypted account caches and credentials are never returned.",
+    responses: { "200": { description: "Model account metadata", content: { "application/json": { schema: jsonSchema(z.object({ accounts: z.array(modelAccountMetadata) }), "output") } } } },
+  }, service => service.listModelAccounts(), { ownerSession: true }),
   route("POST", "/api/v1/model-accounts/{accountId}/browser-capability", "integrations:write", {
     summary: "Issue a short-lived browser capability for a paired model account",
     description: "Requires an interactive owner browser session. Returns a single-use, 60-second capability scoped to the account, action, proxy boot and exact application origin. The browser sends it directly to the paired proxy; Factorize never receives model-account tokens.",
