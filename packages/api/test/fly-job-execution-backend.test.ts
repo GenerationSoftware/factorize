@@ -35,7 +35,13 @@ describe("Fly job execution backend", () => {
     const runId = "11111111-1111-4111-8111-111111111111";
     const reservation = f.backend.reserve!(runId);
     const receipt = await f.backend.launch({ runId, reservation, prompt: "", code: { script: "echo ok", context: { value: 1 } } });
-    expect(f.machines.createMachine).toHaveBeenCalledWith("factorize-test", expect.objectContaining({ auto_start: false, restart: { policy: "no" } }), runId);
+    expect(f.machines.createMachine).toHaveBeenCalledWith("factorize-test", expect.objectContaining({
+      image: "ghcr.io/acme/code:v1",
+      region: "iad",
+      guest: { cpu_kind: "shared", cpus: 1, memory_mb: 1024 },
+      auto_start: false,
+      restart: { policy: "no" },
+    }), runId);
     expect(f.machines.startMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
     expect(f.guest.run).toHaveBeenNthCalledWith(1, ["/bin/sh", "-c", expect.stringContaining("factorize-job")], expect.stringContaining("#!/usr/bin/env python3"));
     expect(f.guest.run).toHaveBeenNthCalledWith(2, ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"], expect.stringContaining('"script":"echo ok"'));

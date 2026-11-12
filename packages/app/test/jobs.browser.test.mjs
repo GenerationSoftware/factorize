@@ -224,6 +224,15 @@ test("project graph does not zoom when the desktop wheel scrolls over it", async
   const graph = page.getByRole("region", { name: /1 jobs and 0 connections/ });
   await graph.waitFor();
   const viewport = graph.locator(".react-flow__viewport");
+  await page.waitForFunction(async () => {
+    const element = document.querySelector('[role="region"] .react-flow__viewport');
+    if (!element) return false;
+    const first = element.getAttribute("style");
+    await new Promise(requestAnimationFrame);
+    const second = element.getAttribute("style");
+    await new Promise(requestAnimationFrame);
+    return first === second && second === element.getAttribute("style");
+  });
   const initialTransform = await viewport.getAttribute("style");
   const bounds = await graph.boundingBox();
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
