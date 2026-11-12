@@ -18,7 +18,7 @@ async function fixture(t, overrides = {}) {
   const helper = { invoke: async request => {
     methods.push(request.method);
     if (request.method === "device-login") return { state: "pending", completion: overrides.completion ?? Promise.resolve({ state: "authorized" }) };
-    if (request.method === "refresh") { calls.push("refresh"); return { state: "refreshed" }; }
+    if (request.method === "refresh") { calls.push("refresh"); return overrides.refreshResult ?? { state: "refreshed" }; }
     if (request.method === "account-status") return { state: "authenticated" };
     return { state: request.method === "cancel" ? "canceled" : "logged-out" };
   } };
@@ -67,6 +67,12 @@ test("denied or expired device authorization does not persist token state", asyn
   assert.equal(f.saves, 0);
 });
 
+test("expired refresh explicitly requires reauthentication without saving stale tokens", async t => {
+  const f = await fixture(t, { refreshResult: { state: "reauthentication-required" } });
+  assert.deepEqual(await f.lifecycle.refresh(accountId), { state: "reauthentication-required" });
+  assert.equal(f.saves, 0);
+});
+
 test("refresh keeps the working local cache and reports bounded encrypted-save failures", async t => {
   const f = await fixture(t, { retryDelaysMs: [0, 0], persistEncrypted: async () => { throw new Error("fixture outage"); } });
   assert.deepEqual(await f.lifecycle.refresh(accountId), { state: "unsaved", attempts: 3 });
@@ -93,6 +99,28 @@ test("refresh requests for one account serialize and use the latest revision", a
   assert.equal(f.saves, 2);
 });
 
+test("refresh re-encrypts against a newer account revision after a concurrent edit", async t => {
+  let revision = 4;
+  const f = await fixture(t, {
+    getAccount: () => ({ ...account, revision }),
+    persistEncrypted: async request => {
+      if (request.expectedRevision !== revision || f.saves === 1) {
+        revision++;
+        const error = new Error("stale model account revision");
+        error.code = "stale_revision";
+        throw error;
+      }
+      revision++;
+    },
+  });
+  assert.deepEqual(await f.lifecycle.refresh(accountId), { state: "saved" });
+  const writes = f.events.filter(event => event.type === "persist").map(event => event.request);
+  assert.deepEqual(writes.map(request => request.expectedRevision), [4, 5]);
+  assert.notEqual(writes[0].idempotencyKey, writes[1].idempotencyKey);
+  const encryptions = f.events.filter(event => event.type === "encrypt");
+  assert.deepEqual(encryptions.map(event => event.binding.revision), [5, 6]);
+});
+
 test("deletion invalidates a retry and removes the account cache", async t => {
   let release;
   const waiting = new Promise(resolve => { release = resolve; });
@@ -110,6 +138,18 @@ test("deletion invalidates a retry and removes the account cache", async t => {
   assert.deepEqual(await deleting, { state: "deleted" });
   await assert.rejects(readFile(join(f.home, "auth.json")), { code: "ENOENT" });
   assert.ok(f.methods.includes("logout"));
+});
+
+test("deletion racing pending device login prevents a late authorization from restoring its cache", async t => {
+  let complete;
+  const f = await fixture(t, { completion: new Promise(resolve => { complete = resolve; }) });
+  const login = await f.lifecycle.deviceLogin(accountId);
+  const deleting = f.lifecycle.deleteAccount(accountId);
+  complete({ state: "authorized" });
+  assert.deepEqual(await login.completion, { state: "deleted" });
+  assert.deepEqual(await deleting, { state: "deleted" });
+  await assert.rejects(readFile(join(f.home, "auth.json")), { code: "ENOENT" });
+  assert.equal(f.saves, 0);
 });
 
 test("unlock reconciliation restores the encrypted Codex cache before checking account status", async t => {

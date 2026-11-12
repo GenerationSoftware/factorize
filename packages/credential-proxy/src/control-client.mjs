@@ -39,7 +39,15 @@ async function proxyControlRequest({ controlOrigin, token, path, body, fetchImpl
     method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(body), signal: AbortSignal.timeout(10_000), redirect: "error",
   });
-  if (!response.ok) throw new Error("proxy control request rejected");
+  if (!response.ok) {
+    let code;
+    try { code = (await response.clone().json())?.error; } catch { /* Keep error handling bounded to the HTTP status. */ }
+    const error = new Error("proxy control request rejected");
+    error.name = "ProxyControlRequestError";
+    error.status = response.status;
+    if (typeof code === "string") error.code = code;
+    throw error;
+  }
   return response.json();
 }
 
