@@ -138,3 +138,39 @@ test("connection grant refresh swaps current integrations and tolerates failed p
     await runtime.shutdown();
   }
 });
+
+test("a delayed grant refresh cannot restore access after run revocation", async () => {
+  let resolveRefresh;
+  let refreshStarted;
+  const started = new Promise(resolve => { refreshStarted = resolve; });
+  const refreshed = new Promise(resolve => { resolveRefresh = resolve; });
+  const replaced = [];
+  let closed = false;
+  const runId = "run-refresh-revoked";
+  const runtime = createProxyRuntime({
+    bootEpoch,
+    grantRefreshIntervalMs: 100,
+    listenerFactory: async ({ connection: value }) => ({
+      connectionId: value.connectionId,
+      replaceGrants: grants => replaced.push(grants),
+      close: async () => { closed = true; },
+    }),
+  });
+  runtime.unlock("synthetic-unlock-key");
+  try {
+    await runtime.acceptAuthenticatedConnection({
+      ...connection(runId, "connection-refresh-revoked"),
+      refreshGrants: async () => { refreshStarted(); return refreshed; },
+    });
+    await started;
+    assert.equal(await runtime.revokeRun(runId), 1);
+    assert.equal(closed, true);
+
+    resolveRefresh(["stale-restored-grant"]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(replaced, [], "a delayed snapshot must not replace grants after revocation");
+  } finally {
+    resolveRefresh([]);
+    await runtime.shutdown();
+  }
+});
