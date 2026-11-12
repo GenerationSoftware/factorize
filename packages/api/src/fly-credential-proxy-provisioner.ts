@@ -80,14 +80,17 @@ export type FlyCredentialProxyProvisionerOptions = {
   control: Pick<ProxyControlRepository, "provisionCredential" | "revokeCredential">;
   machines: FlyCredentialProxyMachineClient;
   guest: (machine: FlyMachine) => FlyCredentialProxyGuest;
+  /** Exact reviewed proxy artifact selected by deployment configuration. */
+  reviewedImage: string;
   /** Injectable to keep boot identity deterministic in boundary tests. */
   newBootEpoch?: () => string;
 };
 
-function validate(input: FlyCredentialProxyConfig): void {
+function validate(input: FlyCredentialProxyConfig, reviewedImage: string): void {
   if (!input.tenantId || !input.app || !input.operationId || input.operationId.length > 200) throw new TypeError("Invalid credential proxy provisioning identity");
   if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(input.app)) throw new TypeError("Invalid credential proxy Fly app name");
   if (!IMAGE_DIGEST.test(input.image)) throw new TypeError("Credential proxy image must be pinned by sha256 digest");
+  if (!IMAGE_DIGEST.test(reviewedImage) || input.image !== reviewedImage) throw new TypeError("Credential proxy image must match the configured reviewed image");
   if (!/^[a-z0-9]{3}$/.test(input.region)) throw new TypeError("Invalid credential proxy region");
   if (!/^[a-z0-9-]{1,64}$/.test(input.size)) throw new TypeError("Invalid credential proxy size");
   if (!input.browserCapabilityPublicKey.startsWith("-----BEGIN PUBLIC KEY-----")) throw new TypeError("Proxy browser capability public key is required");
@@ -103,7 +106,7 @@ function validate(input: FlyCredentialProxyConfig): void {
 export function createFlyCredentialProxyProvisioner(options: FlyCredentialProxyProvisionerOptions) {
   return {
     async start(input: FlyCredentialProxyConfig): Promise<{ proxyIdentity: string; bootEpoch: string; machine: FlyMachine }> {
-      validate(input);
+      validate(input, options.reviewedImage);
       const origin = new URL(input.controlOrigin);
       if (origin.protocol !== "https:" || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) {
         throw new TypeError("controlOrigin must be an HTTPS origin");

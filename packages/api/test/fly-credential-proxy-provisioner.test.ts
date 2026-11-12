@@ -25,7 +25,7 @@ function fixture() {
     destroyMachine: vi.fn(async () => undefined),
   };
   const guest = vi.fn(() => ({ run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "" })), startProxy: vi.fn(async () => undefined), issueVmCertificate: vi.fn(async () => ({ certificate: "", trustBundle: "" })) }));
-  const provisioner = createFlyCredentialProxyProvisioner({ control, machines, guest, newBootEpoch: () => epoch });
+  const provisioner = createFlyCredentialProxyProvisioner({ control, machines, guest, reviewedImage: input.image, newBootEpoch: () => epoch });
   return { control, machines, guest, provisioner };
 }
 
@@ -85,7 +85,7 @@ describe("Fly credential proxy startup", () => {
   it("revokes bootstrap authority and removes a Machine when startup fails", async () => {
     const { control, machines, guest } = fixture();
     guest.mockReturnValue({ run: vi.fn(), startProxy: vi.fn().mockRejectedValue(new Error("private startup channel failed")), issueVmCertificate: vi.fn() });
-    const provisioner = createFlyCredentialProxyProvisioner({ control, machines, guest, newBootEpoch: () => epoch });
+    const provisioner = createFlyCredentialProxyProvisioner({ control, machines, guest, reviewedImage: input.image, newBootEpoch: () => epoch });
     await expect(provisioner.start(input)).rejects.toThrow("private startup channel failed");
     expect(control.revokeCredential).toHaveBeenCalledWith(input.tenantId, "fly:factorize-proxies:machine-1");
     expect(machines.destroyMachine).toHaveBeenCalledWith(input.app, machine.id);
@@ -112,6 +112,13 @@ describe("Fly credential proxy startup", () => {
     await expect(provisioner.start({ ...input, image: "ghcr.io/example/proxy:latest" })).rejects.toThrow("pinned by sha256 digest");
     await expect(provisioner.start({ ...input, controlOrigin: "http://factorize.example" })).rejects.toThrow("HTTPS origin");
     await expect(provisioner.start({ ...input, app: "invalid/app" })).rejects.toThrow("Fly app name");
+    expect(machines.createMachine).not.toHaveBeenCalled();
+  });
+
+  it("rejects a different digest-pinned image instead of treating any immutable image as reviewed", async () => {
+    const { machines, provisioner } = fixture();
+    await expect(provisioner.start({ ...input, image: `ghcr.io/generationsoftware/credential-proxy@sha256:${"c".repeat(64)}` }))
+      .rejects.toThrow("configured reviewed image");
     expect(machines.createMachine).not.toHaveBeenCalled();
   });
 });
