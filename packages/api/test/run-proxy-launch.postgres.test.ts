@@ -67,5 +67,13 @@ describe.skipIf(!url)("proxy-gated scheduler lifecycle (PostgreSQL/API)", () => 
     expect((await db.pool.query<any>("SELECT action FROM app.run_activity WHERE tenant_id=$1 AND run_id=$2 ORDER BY created_at", [tenantId, runId])).rows.map((row: any) => row.action)).toEqual(["launch_blocked", "launch_retry_requested"]);
     expect((await db.pool.query<any>("SELECT key FROM app.wake_hints WHERE key='global'")).rowCount).toBe(1);
     expect((await request()).status).toBe(409);
+
+    // The explicit retry only requeues the run. If proxy state changes before
+    // the scheduler claims it, the launch gate must block it again.
+    await db.pool.query("UPDATE app.credential_proxy_states SET unlocked=false,updated_at=now() WHERE tenant_id=$1", [tenantId]);
+    await new RunScheduler(db, env).process();
+    expect((await db.pool.query<any>(`SELECT jr.state job_state,r.state run_state,r.failure_code,r.execution_handle
+      FROM app.job_runs jr JOIN app.runs r USING (tenant_id,id) WHERE jr.tenant_id=$1 AND jr.id=$2`, [tenantId, runId])).rows[0]).toMatchObject({ job_state: "blocked", run_state: "blocked", failure_code: "proxy_launch_blocked", execution_handle: null });
+    expect((await db.pool.query<any>("SELECT action FROM app.run_activity WHERE tenant_id=$1 AND run_id=$2 ORDER BY created_at", [tenantId, runId])).rows.map((row: any) => row.action)).toEqual(["launch_blocked", "launch_retry_requested", "launch_blocked"]);
   }, 30_000);
 });
