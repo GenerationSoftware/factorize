@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createModelAccountLifecycle } from "../src/model-account-lifecycle.mjs";
 
 const accountId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const resetAccountId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const account = { id: accountId, kind: "model", ownerId: "owner", keyGeneration: "generation", revision: 4 };
 
 async function fixture(t, overrides = {}) {
@@ -189,4 +190,28 @@ test("unlock reconciliation removes stale cache when the account key generation 
   assert.deepEqual(await f.lifecycle.reconcile(accountId), { state: "reauthentication-required" });
   await assert.rejects(readFile(join(f.home, "auth.json")), { code: "ENOENT" });
   assert.equal(f.methods.includes("account-status"), false);
+});
+
+test("unlock snapshot reconciliation logs out and removes cached accounts deleted by reset", async t => {
+  const f = await fixture(t);
+  const staleHome = join(f.root, resetAccountId);
+  await mkdir(staleHome, { recursive: true });
+  await writeFile(join(staleHome, "auth.json"), JSON.stringify({ tokens: { access_token: "stale-reset-token" } }));
+
+  assert.deepEqual(await f.lifecycle.reconcileAll([account]), {
+    removed: [resetAccountId],
+    accounts: [{ accountId, state: "saved" }],
+  });
+  await assert.rejects(readFile(join(staleHome, "auth.json")), { code: "ENOENT" });
+  assert.ok(f.methods.includes("logout"));
+  assert.equal(f.saves, 1);
+});
+
+test("unlock snapshot rejects duplicate account identities before touching local state", async t => {
+  const f = await fixture(t);
+  await assert.rejects(f.lifecycle.reconcileAll([account, account]), /snapshot is invalid/);
+  assert.deepEqual(JSON.parse(await readFile(join(f.home, "auth.json"), "utf8")), {
+    tokens: { access_token: "synthetic-access", refresh_token: "synthetic-refresh" },
+  });
+  assert.equal(f.methods.length, 0);
 });

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join, resolve, sep } from "node:path";
 
@@ -31,6 +31,7 @@ export function createModelAccountLifecycle({
   readCache = readFile,
   writeCache = writeFile,
   makeDirectory = mkdir,
+  readDirectory = readdir,
   replaceFile = rename,
   getEncryptedCache,
   decryptCache,
@@ -220,15 +221,8 @@ export function createModelAccountLifecycle({
     return { state: "restored", revision: encrypted.revision };
   }
 
-  return Object.freeze({
-    deviceLogin,
-    cancel,
-    refresh,
-    deleteAccount,
-    restore,
-    isUnsaved: id => unsaved.has(id),
-    /** Invoke after encrypted snapshots are reconciled at unlock. */
-    reconcile: async id => serialize(id, async () => {
+  async function reconcile(id) {
+    return serialize(id, async () => {
       if (!await getAccount(id)) {
         await removeCache(resolve(accountHomeRoot, id), { recursive: true, force: true });
         unsaved.delete(id);
@@ -240,7 +234,40 @@ export function createModelAccountLifecycle({
       }
       const result = await authHelper.invoke({ method: "account-status", accountId: id });
       return result.state === "authenticated" ? persist(id, currentGeneration(id)) : { state: "reauthentication-required" };
-    }),
+    });
+  }
+
+  return Object.freeze({
+    deviceLogin,
+    cancel,
+    refresh,
+    deleteAccount,
+    restore,
+    reconcile,
+    isUnsaved: id => unsaved.has(id),
+    /** Reconcile a complete server snapshot after unlock. A reset removes every
+     * prior model account from that snapshot, so stale local Codex homes must
+     * be logged out and removed before any current account is admitted. */
+    reconcileAll: async accounts => {
+      if (!Array.isArray(accounts) || accounts.some(account => !account || !UUID.test(account.id ?? "") || account.kind !== "model")
+          || new Set(accounts.map(account => account.id)).size !== accounts.length) {
+        throw new TypeError("model account snapshot is invalid");
+      }
+      const activeIds = new Set(accounts.map(account => account.id));
+      const entries = await readDirectory(accountHomeRoot, { withFileTypes: true }).catch(error => {
+        if (error?.code === "ENOENT") return [];
+        throw error;
+      });
+      const removed = [];
+      for (const entry of entries) {
+        if (!UUID.test(entry.name) || activeIds.has(entry.name)) continue;
+        await deleteAccount(entry.name);
+        removed.push(entry.name);
+      }
+      const states = [];
+      for (const account of accounts) states.push({ accountId: account.id, ...(await reconcile(account.id)) });
+      return { removed, accounts: states };
+    },
   });
 }
 
