@@ -43,9 +43,31 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       unlockMaterial = Buffer.from(key, "utf8");
       state = "unlocked";
     },
+    /** Keep access locked until the caller has reconciled the current encrypted
+     * snapshot. The preparation callback can read the transient key, but no
+     * agent connection can be admitted while it is running. */
+    async unlockAndPrepare(key, prepare) {
+      if (shutdown) throw new Error("runtime is shutting down");
+      if (locking) throw new Error("proxy is locking");
+      if (typeof key !== "string" || key.length === 0) throw new TypeError("unlock key must be a non-empty string");
+      if (typeof prepare !== "function") throw new TypeError("unlock preparation callback is required");
+      unlockMaterial?.fill(0);
+      unlockMaterial = Buffer.from(key, "utf8");
+      state = "preparing";
+      try {
+        await prepare();
+        if (shutdown || locking || state !== "preparing") throw new Error("proxy unlock was interrupted");
+        state = "unlocked";
+      } catch (error) {
+        unlockMaterial?.fill(0);
+        unlockMaterial = undefined;
+        if (!shutdown && !locking) state = "locked";
+        throw error;
+      }
+    },
     /** Return a transient copy only to the local grant resolver. */
     getUnlockKey() {
-      if (shutdown || locking || state !== "unlocked" || !unlockMaterial) throw new Error("proxy is locked");
+      if (shutdown || locking || !["unlocked", "preparing"].includes(state) || !unlockMaterial) throw new Error("proxy is locked");
       return unlockMaterial.toString("utf8");
     },
     async lock() {

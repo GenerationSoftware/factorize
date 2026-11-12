@@ -9,6 +9,48 @@ function connection(runId, connectionId) {
   return { authenticated: true, enrollmentConsumed: true, runId, connectionId, bootEpoch };
 }
 
+test("unlock keeps proxy access closed until encrypted account reconciliation finishes", async () => {
+  const runtime = createProxyRuntime({ bootEpoch, listenerFactory: async ({ connection: value }) => ({ connectionId: value.connectionId, close: async () => {} }) });
+  let finishPreparation;
+  let preparing;
+  const started = new Promise(resolve => { preparing = resolve; });
+  const prepared = new Promise(resolve => { finishPreparation = resolve; });
+  try {
+    const unlocking = runtime.unlockAndPrepare("synthetic-unlock-key", async () => {
+      assert.equal(runtime.state, "preparing");
+      assert.equal(runtime.getUnlockKey(), "synthetic-unlock-key");
+      preparing();
+      await prepared;
+    });
+    await started;
+    await assert.rejects(runtime.acceptAuthenticatedConnection(connection("run-pending", "connection-pending")), /locked/);
+    assert.equal(runtime.state, "preparing");
+    finishPreparation();
+    await unlocking;
+    assert.equal(runtime.state, "unlocked");
+    const listener = await runtime.acceptAuthenticatedConnection(connection("run-pending", "connection-ready"));
+    assert.equal(listener.connectionId, "connection-ready");
+  } finally {
+    finishPreparation();
+    await runtime.shutdown();
+  }
+});
+
+test("unlock preparation failure clears the key and leaves proxy locked", async () => {
+  const runtime = createProxyRuntime({ bootEpoch });
+  try {
+    await assert.rejects(runtime.unlockAndPrepare("synthetic-unlock-key", async () => {
+      assert.equal(runtime.getUnlockKey(), "synthetic-unlock-key");
+      throw new Error("snapshot reconciliation failed");
+    }), /snapshot reconciliation failed/);
+    assert.equal(runtime.state, "locked");
+    assert.throws(() => runtime.getUnlockKey(), /locked/);
+    await assert.rejects(runtime.acceptAuthenticatedConnection(connection("run-failed", "connection-failed")), /locked/);
+  } finally {
+    await runtime.shutdown();
+  }
+});
+
 test("run revocation closes every established connection and rejects later enrollment", async () => {
   const closed = [];
   const runtime = createProxyRuntime({

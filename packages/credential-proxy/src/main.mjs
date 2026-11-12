@@ -145,16 +145,12 @@ lines.on("line", async (line) => {
     command = JSON.parse(line);
     if (command?.type === "status") respondStatus();
     else if (command?.type === "unlock") {
-      runtime.unlock(command.key);
-      if (modelAccountLifecycle && modelAccounts) {
-        try {
+      await runtime.unlockAndPrepare(command.key, async () => {
+        if (modelAccountLifecycle && modelAccounts) {
           const accounts = await modelAccounts.listAccounts();
           await modelAccountLifecycle.reconcileAll(accounts);
-        } catch (error) {
-          await runtime.lock();
-          throw error;
         }
-      }
+      });
       respondStatus();
     } else if (command?.type === "lock") {
       await runtime.lock();
