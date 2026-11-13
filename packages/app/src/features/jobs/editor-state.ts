@@ -10,7 +10,7 @@ export function canonicalizeVmImage(value: string): string {
   return `${name.toLowerCase()}${tag}${digest}`;
 }
 export function editableJob(job: Job): JobInput {
-  return { runScopes: job.runScopes ?? [...defaultRunScopes], executionType: job.executionType ?? "agent", projectId: job.projectId, name: job.name, description: job.description ?? "", slug: job.slug, promptTemplate: job.promptTemplate, script: job.script ?? "", runNameTemplate: job.runNameTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], vmImage: job.executionConfig?.image ?? "", model: job.model, effort: job.effort ?? "", skillIds: job.skills?.map(skill => skill.id) ?? [], triggers: job.triggers.map(trigger => {
+  return { modelAccountId: job.modelAccountId, modelAccess: job.modelAccess, portableIntegrationIds: job.portableIntegrationIds, runScopes: job.runScopes ?? [...defaultRunScopes], executionType: job.executionType ?? "agent", projectId: job.projectId, name: job.name, description: job.description ?? "", slug: job.slug, promptTemplate: job.promptTemplate, script: job.script ?? "", runNameTemplate: job.runNameTemplate, executionConfigId: job.executionConfigId, concurrencyLimit: job.concurrencyLimit, tags: job.tags ?? [], vmImage: job.executionConfig?.image ?? "", model: job.model, effort: job.effort ?? "", skillIds: job.skills?.map(skill => skill.id) ?? [], triggers: job.triggers.map(trigger => {
     const { id, slug, kind, enabled } = trigger;
     const config = trigger.kind === "webhook" ? Object.fromEntries(Object.entries(trigger.config).filter(([key]) => !["destination", "secretConfigured"].includes(key))) : trigger.config;
     return { id, slug, kind, enabled, config } as Trigger;
@@ -39,6 +39,7 @@ export function validateJobInput(input: JobInput): string | undefined {
   if (input.executionType === "agent" && (!input.promptTemplate || input.promptTemplate.length > 50_000)) return "Enter a prompt template between 1 and 50,000 characters.";
   if (input.executionType === "code" && (!input.script?.trim() || input.script.length > 50_000)) return "Enter a script between 1 and 50,000 characters.";
   if (!Number.isInteger(input.concurrencyLimit) || input.concurrencyLimit < 1 || input.concurrencyLimit > 50) return "Concurrency limit must be between 1 and 50.";
+  if (input.executionConfigId === "fly-new") return "Save Fly VM settings before saving the job.";
   if (!input.executionConfigId) return "Choose an execution integration.";
   if ((input.tags?.length ?? 0) > 20 || input.tags?.some(tag => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(tag))) return "VM tags are invalid.";
   if (input.vmImage && !/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$/.test(canonicalizeVmImage(input.vmImage))) return input.vmImage.trim().startsWith("https://") ? "Enter an image reference without a URL scheme." : "Enter a public Docker/OCI image reference.";

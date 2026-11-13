@@ -401,3 +401,41 @@ test("authorized client revocation refreshes the grants list", async () => {
   await page.route("**/api/v1/access/authorized-clients/client", route => { revoked = true; return route.fulfill({ json: { revoked: 1 } }); });
   await page.goto(origin + "/settings/authorized-clients"); await page.getByText("External client", { exact: true }).waitFor(); page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "Revoke client" }).click(); await page.getByText("No authorized clients.", { exact: true }).waitFor(); await context.close();
 });
+
+test("Fly.io verifies credentials, reports rejection, saves without retaining the token, and disconnects", async () => {
+  const { context, page } = await setup(); let connection = null, reject = true; const calls = [];
+  await page.route("**/api/v1/**", route => route.fulfill({ status: 404, json: { error: { code: "not_found", message: "Unused fixture endpoint" } } }));
+  await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [] } }));
+  await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] } } }));
+  await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: { revision: 0, accounts: [] } }));
+  await page.route("**/api/v1/integrations/bearer", route => route.fulfill({ json: { revision: 0, integrations: [] } }));
+  await page.route("**/api/v1/fly/connection/test", route => {
+    calls.push(route.request().postDataJSON());
+    return route.fulfill(reject ? { status: 401, json: { error: { code: "fly_auth_failed", message: "Fly authentication failed" } } } : { json: { valid: true, connection: { organizationSlug: "test-org", organizationName: "Test org" } } });
+  });
+  await page.route("**/api/v1/fly/connection", route => {
+    if (route.request().method() === "PUT") { calls.push(route.request().postDataJSON()); connection = { organizationSlug: "test-org", organizationName: "Test org" }; }
+    if (route.request().method() === "DELETE") connection = null;
+    return route.fulfill({ json: { connection, deleted: true } });
+  });
+  await page.goto(origin + "/settings/integrations");
+  const fly = page.getByRole("region", { name: "Fly.io integration", exact: true });
+  await fly.getByLabel("Fly organization slug").fill("test-org");
+  await fly.getByLabel("Fly organization token").fill("synthetic-fly-secret");
+  await fly.getByRole("button", { name: "Verify connection", exact: true }).click();
+  await fly.getByRole("alert").filter({ hasText: "Fly authentication failed" }).waitFor();
+  reject = false;
+  await fly.getByRole("button", { name: "Verify connection", exact: true }).click();
+  await fly.getByText("Fly.io connection verified.", { exact: true }).waitFor();
+  await fly.getByRole("button", { name: "Save Fly.io integration", exact: true }).click();
+  await fly.getByText("Connected to Test org (test-org)").waitFor();
+  assert.equal(await fly.getByLabel("Fly organization token").inputValue(), "");
+  assert.deepEqual(calls, Array(3).fill({ token: "synthetic-fly-secret", organizationSlug: "test-org" }));
+  assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes("synthetic-fly-secret")), false);
+  page.once("dialog", dialog => dialog.accept());
+  await fly.getByRole("button", { name: "Disconnect Fly.io", exact: true }).click();
+  await fly.getByText("Fly.io disconnected.", { exact: true }).waitFor();
+  assert.equal(connection, null);
+  await context.close();
+});
