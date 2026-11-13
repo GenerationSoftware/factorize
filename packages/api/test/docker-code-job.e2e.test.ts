@@ -75,7 +75,12 @@ it("runs saved code through the real API, encrypted grant, mTLS proxy and schedu
       fetch: request => worker.fetch(request, env, { waitUntil() {} } as any) });
     env.APP_ORIGIN = `https://${process.env.FACTORIZE_E2E_HOST_IP ?? "172.17.0.1"}:${api.port}`;
     const jobInputs: string[] = [];
-    const host = createDockerExecutionHost({ observeJobInput: (_command, input) => { if (input) jobInputs.push(typeof input === "string" ? input : new TextDecoder().decode(input)); }, testMode: true, database: db, env, namespace, jobNetwork, upstreamNetwork, jobImage, proxyImage, tlsDirectory, upstreamOrigin, upstreamAddress: fakeAddress });
+    let destructionEvidence: { marker: string; storedLog: boolean } | undefined;
+    const host = createDockerExecutionHost({ observeJobDestruction: async id => {
+      const result = await db.pool.query(`SELECT r.job_result, EXISTS(SELECT 1 FROM app.run_artifacts a WHERE a.tenant_id=r.tenant_id AND a.run_id=r.id AND a.kind='terminal_log' AND a.state='stored') AS stored_log
+        FROM app.runs r WHERE tenant_id=$1 AND execution_handle->>'id'=$2`, [ownerId, `${namespace}-jobs/${id}`]);
+      destructionEvidence = { marker: result.rows[0]?.job_result?.outputs?.marker, storedLog: result.rows[0]?.stored_log };
+    }, observeJobInput: (_command, input) => { if (input) jobInputs.push(typeof input === "string" ? input : new TextDecoder().decode(input)); }, testMode: true, database: db, env, namespace, jobNetwork, upstreamNetwork, jobImage, proxyImage, tlsDirectory, upstreamOrigin, upstreamAddress: fakeAddress });
     env.CREDENTIAL_PROXY_HOST = host;
     const member = await new IdentityRepository(db, ownerId).member(userId);
     const cookie = `factorize_session=${await signSession({ tenantId: ownerId, userId, email: "docker-owner@example.test", sessionVersion: member!.sessionVersion, exp: Math.floor(Date.now()/1000)+600 }, env.SESSION_SIGNING_SECRET)}`;
@@ -126,6 +131,8 @@ it("runs saved code through the real API, encrypted grant, mTLS proxy and schedu
     const containerConfig = docker("inspect", containerId);
     const inspected = JSON.parse(containerConfig)[0];
     expect(inspected.Config.Image).toBe(jobImage);
+    expect(inspected.Mounts).toEqual([]);
+    expect(inspected.HostConfig.Privileged).toBe(false);
     expect(inspected.Config.Labels["sh.factorize.test.operation"]).toBe(runId);
     expect(containerConfig.includes(upstreamSecret)).toBe(false);
     expect(/fzt_run_|fzc_/.test(containerConfig)).toBe(false);
@@ -145,6 +152,7 @@ it("runs saved code through the real API, encrypted grant, mTLS proxy and schedu
     expect(readReceipts().length).toBe(beforeLock);
     expect((await lifecycle("unlock", { key: unlockKey })).status).toBe(200);
     await until(async () => { await runner!.tick(); return (await db.pool.query("SELECT state,artifact_state,failure_code,failure_reason FROM app.runs WHERE tenant_id=$1 AND id=$2", [ownerId, runId])).rows[0]; }, row => ["succeeded", "failed", "stopped"].includes(row.state), "normal scheduler finalization", 60_000).then(row => { if (row.state !== "succeeded" || row.artifact_state !== "stored") throw new Error(`Finalization: ${JSON.stringify(row)}`); });
+    expect(destructionEvidence).toEqual({ marker, storedLog: true });
     expect(docker("ps", "-aq", "--filter", `id=${containerId}`)).toBe("");
     const receipt = readReceipts();
     expect(receipt).toEqual([{ credentialMatched: true, method: "POST", path: `/echo/${marker}`, body: marker }]);

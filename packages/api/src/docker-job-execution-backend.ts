@@ -3,6 +3,7 @@ import { createDockerJobInfrastructure } from "./docker-job-infrastructure";
 
 /** Explicit host-runner construction; Docker is never selected by production API configuration. */
 export function createDockerJobExecutionBackend(options: {
+  beforeDestroy?: (id: string) => Promise<void>;
   observeGuestInput?: (command: readonly string[], input?: string | Uint8Array) => void;
   testMode: true; namespace: string; network: string; image: string;
   proxyHost: string; proxyServerName?: string; proxyPort: number; proxyIdentity: string; proxyBootEpoch: string; proxyGuest: ProxyGuest;

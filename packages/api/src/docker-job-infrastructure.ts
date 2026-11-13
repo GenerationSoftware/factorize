@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import type { JobMachines, JobGuest } from "./machine-job-execution-backend";
 
 /** Host-only test infrastructure. Never import this module into a Worker runner. */
-export function createDockerJobInfrastructure(options: { testMode: true; network: string; namespace: string; additionalNetworks?: string[]; mounts?: { source: string; target: string }[]; publishBrowserPort?: boolean; observeGuestInput?: (command: readonly string[], input?: string | Uint8Array) => void }) {
+export function createDockerJobInfrastructure(options: { testMode: true; network: string; namespace: string; additionalNetworks?: string[]; mounts?: { source: string; target: string }[]; publishBrowserPort?: boolean; beforeDestroy?: (id: string) => Promise<void>; observeGuestInput?: (command: readonly string[], input?: string | Uint8Array) => void }) {
   if (options.testMode !== true || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(options.namespace)
       || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(options.network)) {
     throw new TypeError("Explicit test mode and isolated Docker namespace/network are required");
@@ -96,7 +96,9 @@ export function createDockerJobInfrastructure(options: { testMode: true; network
     inspectMachine: (_app, id) => inspect(id),
     async startMachine(_app, id) { await inspect(id); await checked(["start", id]); },
     async stopMachine(_app, id) { await inspect(id); await checked(["stop", "--time", "5", id]); },
-    async destroyMachine(_app, id) { if ((await inspect(id)).state !== "destroyed") await checked(["rm", id]); },
+    async destroyMachine(_app, id) {
+      if ((await inspect(id)).state !== "destroyed") { await options.beforeDestroy?.(id); await checked(["rm", id]); }
+    },
   };
   function guest(id: string): JobGuest {
     const path = (value: string) => {

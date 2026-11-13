@@ -8,6 +8,7 @@ import type { RunBackendFactory } from "./postgres/run-scheduler";
 
 /** Test-only host implementation. Image IDs are verified locally, without registry publication. */
 export function createDockerExecutionHost(options: {
+  observeJobDestruction?: (id: string) => Promise<void>;
   observeJobInput?: (command: readonly string[], input?: string | Uint8Array) => void;
   testMode: true; database: Database; env: Env; namespace: string; jobNetwork: string; upstreamNetwork: string;
   jobImage: string; proxyImage: string; tlsDirectory: string; upstreamOrigin: string; upstreamAddress: string;
@@ -57,7 +58,7 @@ export function createDockerExecutionHost(options: {
     if (proxy.state !== "started") throw new Error("Docker credential proxy is unavailable");
     // Container IP is reachable only within the job's isolated network; certificate uses proxy.local.
     return createDockerJobExecutionBackend({ testMode: true, namespace: `${options.namespace}-jobs`, network: options.jobNetwork, image: options.jobImage,
-      observeGuestInput: options.observeJobInput, proxyHost: await proxies.address(id, options.jobNetwork), proxyPort: 9090, proxyServerName: "proxy.local", proxyIdentity: pairing.proxyIdentity, proxyBootEpoch: pairing.bootEpoch,
+      beforeDestroy: options.observeJobDestruction, observeGuestInput: options.observeJobInput, proxyHost: await proxies.address(id, options.jobNetwork), proxyPort: 9090, proxyServerName: "proxy.local", proxyIdentity: pairing.proxyIdentity, proxyBootEpoch: pairing.bootEpoch,
       proxyGuest: createCredentialProxyGuest(proxies.guest(id)) });
   };
   return { setup, backendFactory };
