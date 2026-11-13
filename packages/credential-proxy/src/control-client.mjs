@@ -187,13 +187,18 @@ export function startProxyRunRevocationMonitor({ controlOrigin, controlCredentia
   let stopped = false;
   let timer;
   let polling;
+  let suspensionDepth = 0;
+  let transitionRevision = 0;
   const poll = async () => {
     if (stopped || polling) return;
+    if (suspensionDepth) { timer = setTimeout(poll, intervalMs); return; }
+    const revision = transitionRevision;
     polling = (async () => {
       try {
         const state = await readProxyControlState({ controlOrigin, token: controlCredential, bootEpoch, fetchImpl });
+        if (stopped || suspensionDepth || revision !== transitionRevision) return;
         for (const runId of state.revokedRunIds) { await runtime.revokeRun(runId); await onRevoked(runId); }
-        if (state.lockProxy && runtime.state !== "locked") await runtime.lock();
+        if (!suspensionDepth && revision === transitionRevision && state.lockProxy && runtime.state !== "locked") await runtime.lock();
       } catch {
         // Keep existing connections alive during an outage and retry on schedule.
       } finally {
@@ -204,6 +209,12 @@ export function startProxyRunRevocationMonitor({ controlOrigin, controlCredentia
   };
   void poll();
   return Object.freeze({
+    /** Discard in-flight status snapshots across an authenticated local state transition. */
+    suspend() {
+      suspensionDepth++; transitionRevision++;
+      let resumed = false;
+      return () => { if (!resumed) { resumed = true; suspensionDepth--; transitionRevision++; } };
+    },
     async close() {
       stopped = true;
       clearTimeout(timer);

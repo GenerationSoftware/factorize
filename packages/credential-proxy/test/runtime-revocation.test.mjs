@@ -234,3 +234,17 @@ test("a delayed grant refresh cannot restore access after run revocation", async
     await runtime.shutdown();
   }
 });
+
+test("failed re-unlock clears established listener grants before verification runs", async () => {
+  let locked = false;
+  const runtime = createProxyRuntime({ bootEpoch, listenerFactory: async ({ connection: c }) => ({ connectionId: c.connectionId, lock() { locked = true; }, close: async () => {} }) });
+  runtime.unlock('initial-key');
+  try {
+    await runtime.acceptAuthenticatedConnection(connection('run-existing', 'connection-existing'));
+    await assert.rejects(runtime.unlockAndPrepare('wrong-key', async () => {
+      assert.equal(locked, true, 'existing connections must lose credentials during preparation');
+      throw new Error('invalid verification');
+    }), /invalid verification/);
+    assert.equal(runtime.state, 'locked');
+  } finally { await runtime.shutdown(); }
+});

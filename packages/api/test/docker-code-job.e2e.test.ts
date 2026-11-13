@@ -142,6 +142,8 @@ it("runs saved code through the real API, encrypted grant, mTLS proxy and schedu
     expect(/fzt_run_|fzc_/.test(surfaces.stdout)).toBe(false);
     expect(jobInputs.some(input => input.includes('"code"'))).toBe(true);
     for (const input of jobInputs) { expect(input.includes(upstreamSecret)).toBe(false); expect(/fzt_run_|fzc_/.test(input)).toBe(false); }
+    await until(async () => (await guest.run(["test", "-s", "/home/exedev/.factorize-job/results.json"])).ok,
+      ready => ready, "saved code finishes its correlated request", 20_000);
     // The same real run/tunnel must deny access to a saved but ungranted integration.
     const denied = await guest.run(["runuser", "-u", "exedev", "--", "node", "-e", `fetch('http://127.0.0.1:18180/integrations/${ungrantedId}/echo/${marker}',{method:'POST',body:'${marker}',signal:AbortSignal.timeout(3000)}).then(r=>console.log(r.status))`]);
     expect(denied.stdout.trim()).toBe("403");

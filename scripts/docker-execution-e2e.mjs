@@ -44,13 +44,13 @@ try {
 } finally {
   for (const signal of ['SIGINT', 'SIGTERM']) process.removeListener(signal, interrupted);
   // Independent fallback after failures/signals. Lifecycle assertions run in the test before this.
-  for (const scope of [namespace, `${namespace}-jobs`]) {
+  for (const scope of [namespace, `${namespace}-jobs`, `${namespace}-infra`]) {
     try {
       const ids = run('docker', ['ps', '-aq', '--filter', `label=sh.factorize.test.namespace=${scope}`], 10_000).split('\n').filter(Boolean);
       for (const id of ids) run('docker', ['rm', '-f', id], 10_000);
     } catch { console.error('Docker E2E fallback cleanup needs manual inspection for namespace ' + scope); }
   }
-  for (const network of [`${namespace}-jobs`, `${namespace}-api`]) { try { run('docker', ['network', 'rm', network], 10_000); } catch {} }
+  for (const network of [`${namespace}-jobs`, `${namespace}-api`, `${namespace}-infra`]) { try { run('docker', ['network', 'rm', network], 10_000); } catch {} }
   try { run('psql', [database.href, '-v', 'ON_ERROR_STOP=1', '-c', `DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`], 10_000); }
   catch { console.error('Remove isolated E2E database ' + databaseName + ' after stopping its runner.'); }
   await rm(tls, { recursive: true, force: true });

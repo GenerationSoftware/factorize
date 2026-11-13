@@ -74,6 +74,7 @@ export async function startBrowserControl({
   prepareUnlock,
   reportStatus,
   applyChanges,
+  withLifecycleTransition = work => work(),
   now = () => Math.floor(Date.now() / 1000),
 } = {}) {
   if (!runtime || !lifecycle || !publicKey || typeof proxyId !== "string" || !proxyId
@@ -131,7 +132,7 @@ export async function startBrowserControl({
 
     try {
       const body = await readJson(request);
-      if (proxyMatch) {
+      if (proxyMatch) return await withLifecycleTransition(async () => {
         if (!body || typeof body !== "object" || Array.isArray(body)) return json(response, 400, { error: "invalid_request" }, appOrigin);
         if (operation === "unlock") {
           if (Object.keys(body).join(",") !== "key" || typeof body.key !== "string" || body.key.length > 128 || !prepareUnlock) return json(response, 400, { error: "invalid_request" }, appOrigin);
@@ -148,7 +149,7 @@ export async function startBrowserControl({
         }
         await reportStatus?.();
         return json(response, 200, { state: runtime.state }, appOrigin);
-      }
+      });
       if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) {
         return json(response, 400, { error: "invalid_request" }, appOrigin);
       }

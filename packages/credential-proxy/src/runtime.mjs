@@ -15,6 +15,7 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
   let state = "locked";
   let shutdown = false;
   let locking = false;
+  let grantEpoch = 0;
   const listeners = new Set();
   const listenerRuns = new Map();
   const listenerConnections = new Map();
@@ -31,13 +32,28 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
     await Promise.allSettled(current.map((listener) => listener.close()));
   }
 
+  async function lockCurrentListeners() {
+        for (const listener of [...listeners]) {
+          if (typeof listener.lock === "function") listener.lock();
+          else {
+            await listener.close().catch(() => {});
+            listeners.delete(listener);
+            listenerRuns.delete(listener);
+            listenerConnections.delete(listener);
+            clearInterval(grantRefreshTimers.get(listener));
+            grantRefreshTimers.delete(listener);
+          }
+        }
+  }
+
   async function refreshActiveGrants() {
+    const epoch = grantEpoch;
     const current = [...listeners];
     await Promise.allSettled(current.map(async listener => {
       const connection = listenerConnections.get(listener);
       if (!connection || typeof connection.refreshGrants !== "function" || typeof listener.replaceGrants !== "function") return;
       const grants = await connection.refreshGrants();
-      if (state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId) && listeners.has(listener)) listener.replaceGrants(grants);
+      if (epoch === grantEpoch && state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId) && listeners.has(listener)) listener.replaceGrants(grants);
     }));
   }
 
@@ -53,6 +69,7 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       if (typeof key !== "string" || key.length === 0) throw new TypeError("unlock key must be a non-empty string");
       unlockMaterial?.fill(0);
       unlockMaterial = Buffer.from(key, "utf8");
+      grantEpoch++;
       state = "unlocked";
       void refreshActiveGrants();
     },
@@ -66,8 +83,10 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       if (typeof prepare !== "function") throw new TypeError("unlock preparation callback is required");
       unlockMaterial?.fill(0);
       unlockMaterial = Buffer.from(key, "utf8");
+      grantEpoch++;
       state = "preparing";
       try {
+        await lockCurrentListeners();
         await prepare();
         if (shutdown || locking || state !== "preparing") throw new Error("proxy unlock was interrupted");
         state = "unlocked";
@@ -86,21 +105,12 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
     },
     async lock() {
       locking = true;
+      grantEpoch++;
       state = "locked";
       unlockMaterial?.fill(0);
       unlockMaterial = undefined;
       try {
-        for (const listener of [...listeners]) {
-          if (typeof listener.lock === "function") listener.lock();
-          else {
-            await listener.close().catch(() => {});
-            listeners.delete(listener);
-            listenerRuns.delete(listener);
-            listenerConnections.delete(listener);
-            clearInterval(grantRefreshTimers.get(listener));
-            grantRefreshTimers.delete(listener);
-          }
-        }
+        await lockCurrentListeners();
       }
       finally { locking = false; }
     },
@@ -134,9 +144,10 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
         const refresh = async () => {
           if (refreshing || shutdown || locking || state !== "unlocked" || revokedRuns.has(connection.runId)) return;
           refreshing = true;
+          const epoch = grantEpoch;
           try {
             const next = await connection.refreshGrants();
-            if (state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId)) listener.replaceGrants(next);
+            if (epoch === grantEpoch && state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId)) listener.replaceGrants(next);
           } catch {
             // A control-plane outage does not expire established grants. Retry
             // on the next interval; durable revocation has its own monitor.

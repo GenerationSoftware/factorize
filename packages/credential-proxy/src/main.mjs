@@ -72,6 +72,10 @@ async function activateRegistration(registration, origin, browserOrigin) {
     ownerId: registration.tenantId,
     generation: registration.bootEpoch,
     tls: process.env.FACTORIZE_PROXY_BROWSER_TLS_CERT ? { cert: await readFile(process.env.FACTORIZE_PROXY_BROWSER_TLS_CERT), key: await readFile(process.env.FACTORIZE_PROXY_BROWSER_TLS_KEY) } : undefined,
+    withLifecycleTransition: async work => {
+      const resume = revocationMonitor?.suspend();
+      try { return await work(); } finally { resume?.(); }
+    },
     prepareUnlock: async key => {
       const verification = await readProxyUnlockVerification({ controlOrigin: origin, token: registration.controlCredential });
       await verifyProxyUnlockKey(key, verification);

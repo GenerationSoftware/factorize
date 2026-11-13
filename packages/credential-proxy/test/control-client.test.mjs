@@ -201,3 +201,22 @@ test("proxy enrollment authenticator binds issued and consumed state to the mTLS
   await assert.rejects(authenticateRun({ runId, vmIdentity: "fly:vm-2", bootEpoch }), /run credential is unavailable/);
   assert.equal(requests.length, 2, "a missing job run credential cannot issue enrollment");
 });
+
+test("local lifecycle transition discards a stale lock snapshot and resumes durable monitoring", async () => {
+  let completeFirst;
+  const first = new Promise(resolve => { completeFirst = resolve; });
+  let polls = 0, locks = 0;
+  const monitor = startProxyRunRevocationMonitor({ controlOrigin: 'https://factorize.example', controlCredential: token, bootEpoch, intervalMs: 100,
+    runtime: { state: 'unlocked', revokeRun: async () => {}, lock: async () => { locks++; } },
+    fetchImpl: async () => { polls++; if (polls === 1) await first; return Response.json({ revokedRunIds: [], lockProxy: true }); } });
+  try {
+    const resume = monitor.suspend();
+    completeFirst();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(locks, 0, 'a stale locked status cannot interrupt authenticated unlock preparation');
+    resume(); resume();
+    const deadline = Date.now() + 1000;
+    while (!locks && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.ok(locks > 0, 'fresh durable lock requests still apply after the transition');
+  } finally { completeFirst(); await monitor.close(); }
+});

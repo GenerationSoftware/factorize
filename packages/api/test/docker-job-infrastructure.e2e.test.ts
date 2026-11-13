@@ -4,16 +4,17 @@ import { expect, it } from "vitest";
 import { createDockerJobInfrastructure } from "../src/docker-job-infrastructure";
 
 it("recovers real containers by operation identity, isolates ownership and removes stopped containers", async () => {
-  const namespace = `factorize-test-${randomUUID()}`;
+  const namespace = process.env.FACTORIZE_E2E_NAMESPACE ? `${process.env.FACTORIZE_E2E_NAMESPACE}-infra` : `factorize-test-${randomUUID()}`;
+  const image = process.env.FACTORIZE_E2E_JOB_IMAGE ?? "alpine:3.22";
   execFileSync("docker", ["network", "create", "--internal", namespace], { timeout: 15_000 });
   const infra = createDockerJobInfrastructure({ testMode: true, namespace, network: namespace });
   const other = createDockerJobInfrastructure({ testMode: true, namespace: `other-${randomUUID()}`, network: namespace });
   const operation = randomUUID();
   let id: string | undefined;
   try {
-    const machine = await infra.machines.createMachine(namespace, { image: "alpine:3.22" }, operation);
+    const machine = await infra.machines.createMachine(namespace, { image }, operation);
     id = machine.id;
-    expect((await infra.machines.createMachine(namespace, { image: "alpine:3.22" }, operation)).id).toBe(id);
+    expect((await infra.machines.createMachine(namespace, { image }, operation)).id).toBe(id);
     await expect(other.machines.inspectMachine(namespace, id)).rejects.toThrow("another namespace");
     await infra.machines.startMachine(namespace, id);
     const result = await infra.guest(id).run(["sh", "-c", "read marker; printf '%s' \"$marker\""], "container-executed\n");
