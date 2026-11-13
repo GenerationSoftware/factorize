@@ -33,6 +33,25 @@ For a separate local PostgreSQL container, bind its port to loopback and supply
 `?sslmode=disable` for a local server without TLS. Both URLs must use localhost or
 127.0.0.1; never use a shared or production database.
 
+For example, this creates a separate local PostgreSQL instance without changing
+an existing VM service:
+
+```sh
+docker run -d --name factorize-validation-postgres \
+  -e POSTGRES_PASSWORD=local-validation-only -p 127.0.0.1::5432 postgres:16-alpine
+for attempt in $(seq 1 30); do
+  docker exec factorize-validation-postgres pg_isready -U postgres && break
+  sleep 1
+done
+factorize_pg_port="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' factorize-validation-postgres)"
+export VALIDATION_DATABASE_URL="postgresql://postgres:local-validation-only@127.0.0.1:${factorize_pg_port}/factorize_validation?sslmode=disable"
+export VALIDATION_DATABASE_ADMIN_URL="postgresql://postgres:local-validation-only@127.0.0.1:${factorize_pg_port}/postgres?sslmode=disable"
+npm run bootstrap:test
+# Export the three variables printed by bootstrap, then run npm test or npm run test:docker.
+# When finished with this isolated helper:
+# docker rm -f factorize-validation-postgres
+```
+
 The complete scenario has a 120-second test deadline after image preparation;
 the host subprocess also has a deadline. Root validation includes this command
 and allows 760 seconds for the complete suite.
