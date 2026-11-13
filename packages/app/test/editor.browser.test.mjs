@@ -324,3 +324,58 @@ test("delayed autosave preserves newer edits and saves them with the acknowledge
   assert.equal(await page.getByLabel("Name", { exact: true }).inputValue(), "Newer name");
   assert.equal(await page.locator("textarea").inputValue(), "Newer description");
 });
+
+for (const executionType of ["agent", "code"]) test(`Fly.io ${executionType} job selects image, region and size, saves and reloads without provider calls`, async t => {
+  const { context, page } = await setup({ viewport: { width: 390, height: 844 } });
+  t.after(() => context.close());
+  const configId = "00000000-0000-4000-8000-000000000091", accountId = "00000000-0000-4000-8000-000000000092";
+  let configurations = [], configurationBody, jobBody, current, rejectConfiguration = true, exeVerifications = 0;
+  const externalCalls = [];
+  await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/, route => { externalCalls.push(route.request().url()); return route.abort(); });
+  await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: "00000000-0000-4000-8000-000000000010", name: "Project" }] }));
+  await page.route("**/api/v1/skills**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
+  await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: { accounts: [{ id: accountId, name: "Work ChatGPT", revision: 1 }] } }));
+  await page.route("**/api/v1/fly/connection", route => route.fulfill({ json: { connection: { organizationSlug: "test-org", organizationName: "Test org" } } }));
+  await page.route("**/api/v1/fly/execution-configurations", route => {
+    if (route.request().method() === "POST") {
+      configurationBody = route.request().postDataJSON();
+      if (rejectConfiguration) return route.fulfill({ status: 400, json: { error: { code: "invalid_fly_configuration", message: "The selected Fly region or VM size is unavailable." } } });
+      configurations = [{ ...configurationBody, id: configId }]; return route.fulfill({ json: { configuration: configurations[0] } });
+    }
+    return route.fulfill({ json: { configurations } });
+  });
+  await page.route("**/api/v1/vm-image-verifications", route => { exeVerifications++; return route.abort(); });
+  await page.route("**/api/v1/jobs", route => {
+    jobBody = route.request().postDataJSON(); current = { ...initial, ...jobBody, executionConfig: { connectionId: configId, agentKind: "codex", image: configurations[0].image, region: configurations[0].region, size: configurations[0].size } };
+    return route.fulfill({ status: 201, json: current });
+  });
+  await page.route(`**/api/v1/jobs/${id}`, route => route.fulfill({ json: current }));
+  await page.goto(origin + "/jobs/new");
+  await page.getByLabel("Name", { exact: true }).fill("Fly job"); await page.getByLabel("Slug", { exact: true }).fill("fly-job");
+  await page.getByRole("combobox", { name: /^Execution type/ }).selectOption(executionType);
+  await page.getByRole("combobox", { name: /^Integration/ }).selectOption("fly-new");
+  assert.equal(await page.getByRole("button", { name: "Verify image", exact: true }).count(), 0);
+  await page.getByLabel("Execution configuration name").fill("Fly large runner");
+  await page.getByLabel("Fly VM image").fill("ghcr.io/acme/runner:v2");
+  await page.getByLabel("Fly region").selectOption("ord"); await page.getByLabel("Fly VM size").selectOption("performance-2x");
+  await page.getByRole("button", { name: "Save Fly VM settings", exact: true }).click();
+  await page.getByRole("alert").filter({ hasText: "The selected Fly region or VM size is unavailable." }).waitFor();
+  rejectConfiguration = false;
+  await page.getByRole("button", { name: "Save Fly VM settings", exact: true }).click();
+  await page.waitForFunction(configId => document.querySelector('select option:checked[value="' + configId + '"]'), configId);
+  if (executionType === "agent") {
+    await page.getByLabel("ChatGPT model account").selectOption(accountId);
+    await page.getByLabel("Prompt template", { exact: true }).fill("Run tests");
+  } else await page.getByLabel("Script", { exact: true }).fill("echo test");
+  await page.getByRole("button", { name: "Create job", exact: true }).click(); await page.waitForURL(`**/jobs/${id}`);
+  assert.deepEqual(configurationBody, { name: "Fly large runner", image: "ghcr.io/acme/runner:v2", region: "ord", size: "performance-2x" });
+  assert.equal(jobBody.executionConfigId, configId); assert.equal(jobBody.executionType, executionType); assert.equal(jobBody.vmImage, "");
+  if (executionType === "agent") { assert.equal(jobBody.modelAccountId, accountId); assert.equal(jobBody.modelAccess, "portable"); }
+  else { assert.equal(jobBody.modelAccountId, undefined); assert.equal(jobBody.script, "echo test"); }
+  await page.goto(origin + `/jobs/${id}/settings/execution`);
+  assert.equal(await page.getByLabel("Fly VM image").inputValue(), "ghcr.io/acme/runner:v2");
+  assert.equal(await page.getByLabel("Fly VM size").inputValue(), "performance-2x"); assert.equal(await page.getByLabel("Fly region").inputValue(), "ord");
+  if (executionType === "agent") assert.equal(await page.getByLabel("ChatGPT model account").inputValue(), accountId);
+  assert.equal(exeVerifications, 0); assert.deepEqual(externalCalls, []);
+  await context.close();
+});

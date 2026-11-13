@@ -10,6 +10,7 @@ import { IntegrationForm } from "./integration-form";
 import { messageOf } from "../auth/session";
 import { UnlockKeySetup } from "./unlock-key-setup";
 import { BearerIntegrations } from "./bearer-integrations";
+import { FlyIntegration, flyConnectionQuery } from "./fly";
 import { ModelAccounts } from "./model-accounts";
 
 const linkClass = "inline-flex min-h-10 items-center rounded-lg border border-stone-200 px-3 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800";
@@ -23,7 +24,7 @@ function ProviderCard({ kind, name, description, children }: { kind: string; nam
 }
 
 export function Integrations() {
-  const cache = useQueryClient(), status = useQuery(integrationsQuery), github = useQuery(installationsQuery), [openSetup, setOpenSetup] = useState<string | null>(null), [feedback, setFeedback] = useState<{ key: string; test: boolean; message: string; error: boolean } | null>(null);
+  const cache = useQueryClient(), status = useQuery(integrationsQuery), fly = useQuery(flyConnectionQuery), github = useQuery(installationsQuery), [openSetup, setOpenSetup] = useState<string | null>(null), [feedback, setFeedback] = useState<{ key: string; test: boolean; message: string; error: boolean } | null>(null);
   const action = useMutation({ retry: false, mutationFn: async ({ kind, id, test }: { kind: "exe" | "amp" | "cloudflareTail" | "github"; id: string; test?: boolean }) => {
     let result;
     if (kind === "exe") result = test ? await api.POST("/api/v1/integrations/exe/test", { body: { connectionId: id } }) : await api.DELETE("/api/v1/integrations/exe/{connectionId}", { params: { path: { connectionId: id } } });
@@ -44,7 +45,7 @@ export function Integrations() {
   return <SettingsLayout title="Integrations"><UnlockKeySetup />
     {status.isPending && <p role="status">Loading integrations…</p>}{[status.error, github.error].filter(Boolean).map((error, i) => <p role="alert" key={i}>{error?.message}</p>)}
     <section aria-labelledby="your-integrations-heading"><div className="mb-4"><h2 id="your-integrations-heading" className="text-2xl font-bold">Your integrations</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage the connections already available to your workspace.</p></div>
-      {!hasConnections && !status.isPending && <Card className="border-dashed"><p className="font-semibold">No integrations added yet</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Choose a provider from the available integrations below to get started.</p></Card>}
+      {!hasConnections && !fly.data && !status.isPending && !fly.isPending && <Card className="border-dashed"><p className="font-semibold">No integrations added yet</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Choose a provider from the available integrations below to get started.</p></Card>}
       {hasConnections && <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {status.data?.linear && <div className="flex flex-wrap items-center gap-3 border-b border-stone-200 p-4 dark:border-slate-800"><IntegrationIcon kind="linear" /><div className="min-w-40 flex-1"><p className="font-semibold">Linear</p><p className="text-sm text-slate-600 dark:text-slate-400">{status.data.linear.organizationName ?? status.data.linear.viewerEmail ?? "Connected account"}</p></div><Badge active>Connected</Badge><Button onClick={() => setOpenSetup(openSetup === "linear" ? null : "linear")}>Manage</Button>{manage("linear", <a className={linkClass} href="/auth/linear">Reconnect Linear</a>)}</div>}
         {status.data?.clickup && <div className="flex flex-wrap items-center gap-3 border-b border-stone-200 p-4 dark:border-slate-800"><IntegrationIcon kind="clickup" /><div className="min-w-40 flex-1"><p className="font-semibold">ClickUp</p><p className="text-sm text-slate-600 dark:text-slate-400">{status.data.clickup.teamName ?? "Connected workspace"}</p></div><Badge active>Connected</Badge><Button onClick={() => setOpenSetup(openSetup === "clickup" ? null : "clickup")}>Manage</Button>{manage("clickup", <a className={linkClass} href="/auth/clickup">Reconnect ClickUp</a>)}</div>}
@@ -54,7 +55,7 @@ export function Integrations() {
         {status.data?.cloudflareTail.installations.map(c => <div className="border-b border-stone-200 p-4 last:border-b-0 dark:border-slate-800" key={c.integrationId}><div className="flex flex-wrap items-center gap-3"><IntegrationIcon kind="tail" /><div className="min-w-40 flex-1"><p className="font-semibold">Cloudflare Tail · {c.name}</p><p className="text-sm text-slate-600 dark:text-slate-400">Referenced by {c.referencedJobCount} {c.referencedJobCount === 1 ? "job" : "jobs"}</p></div><Badge active>Connected</Badge><Button onClick={() => setOpenSetup(openSetup === `tail:${c.integrationId}` ? null : `tail:${c.integrationId}`)}>Manage</Button>{buttons("cloudflareTail", c.integrationId)}</div>{manage(`tail:${c.integrationId}`, <IntegrationForm kind="cloudflareTail" connectionId={c.integrationId} initialName={c.name} />)}</div>)}
       </div>}
     </section>
-    <BearerIntegrations /><ModelAccounts />
+    <FlyIntegration /><BearerIntegrations /><ModelAccounts />
     <section aria-labelledby="available-integrations-heading" className="mt-10"><div className="mb-4"><h2 id="available-integrations-heading" className="text-2xl font-bold">Available integrations</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Connect a provider to add it to your workspace. Connected providers remain available for additional connections.</p></div><div className="grid gap-4 sm:grid-cols-2">
       <ProviderCard kind="linear" name="Linear" description="Create and update issues from automated workflows."><SetupDisclosure title={status.data?.linear ? "Add another Linear account" : "Connect Linear"} onToggle={open => setOpenSetup(open ? "linear-new" : null)}><a className={linkClass} href="/auth/linear">{status.data?.linear ? "Add another Linear account" : "Connect Linear"}</a></SetupDisclosure></ProviderCard>
       <ProviderCard kind="clickup" name="ClickUp" description="Trigger workflows from ClickUp tasks and lists."><SetupDisclosure title={status.data?.clickup ? "Add another ClickUp workspace" : "Connect ClickUp"} onToggle={open => setOpenSetup(open ? "clickup-new" : null)}><a className={linkClass} href="/auth/clickup">{status.data?.clickup ? "Add another ClickUp workspace" : "Connect ClickUp"}</a></SetupDisclosure></ProviderCard>
