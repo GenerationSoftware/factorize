@@ -1,3 +1,7 @@
+import { spawnSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExeImageVerificationError, ExeVmBackend, isOwnedVmName, tagsFromInventory, vmNameFor } from "../src/exe-vm-backend";
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
@@ -96,7 +100,7 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("--uid=exedev --gid=exedev");
     expect(requests[1]).toContain("--property=Type=exec");
     expect(requests[1]).toContain("--property=RemainAfterExit=yes");
-    expect(requests[1]).toContain("--property=StandardInput=/dev/null");
+    expect(requests[1]).toContain("--property=StandardInput=null");
     expect(requests[1]).toContain("--property=StandardOutput=append:/tmp/factorize.log");
     expect(requests[1]).toContain("--property=StandardError=append:/tmp/factorize.stderr");
     expect(launchPayload(requests[1]).traceSources.primary.path).toBe("/tmp/trace/events.jsonl");
@@ -104,6 +108,31 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).not.toContain("nohup");
     expect(requests[1]).toContain("; echo started");
     expect(requests[1]).toContain("systemctl show");
+  });
+
+  it("generates standard I/O settings accepted by systemd", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      requests.push(String(init.body));
+      return new Response(requests.length === 1 ? "{}" : "started", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    await new ExeVmBackend(connection).launch({ runId: "stdin-regression", prompt: "", code: { script: "true", context: {} } });
+    const command = requests.find(value => value.includes("sudo systemd-run"))!;
+    const properties = [...command.matchAll(/--property=(Standard(?:Input|Output|Error)=[^\s]+)/g)].map(match => match[1]);
+    expect(properties).toHaveLength(3);
+    const directory = await mkdtemp(join(tmpdir(), "factorize-systemd-"));
+    try {
+      const unit = join(directory, "launch.service");
+      await writeFile(unit, `[Service]\nType=exec\n${properties.join("\n")}\nExecStart=/bin/true\n`);
+      const verified = spawnSync("systemd-analyze", ["verify", unit], { encoding: "utf8", timeout: 10_000 });
+      expect(verified.error).toBeUndefined();
+      expect(verified.status).toBe(0);
+      // Invalid StandardInput values are warnings in unit files but fatal to
+      // systemd-run's transient-unit API. Reject parser warnings as well.
+      expect(verified.stderr).toBe("");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("quotes a snapshotted public image in the exe.dev VM creation command", async () => {
