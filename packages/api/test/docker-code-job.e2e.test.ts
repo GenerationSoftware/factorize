@@ -19,7 +19,10 @@ import type { Env } from "../src/types";
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class {}, getOAuthApi: () => ({}) }));
 
-const docker = (...args: string[]) => execFileSync("docker", args, { timeout: 30_000, maxBuffer: 1024 * 1024, encoding: "utf8" }).trim();
+const docker = (...args: string[]) => {
+  try { return execFileSync("docker", args, { timeout: 30_000, maxBuffer: 1024 * 1024, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
+  catch { throw new Error(`Docker fixture ${args[0]} failed; command arguments and output withheld`); }
+};
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function until<T>(read: () => Promise<T>, ready: (value: T) => boolean, label: string, ms = 15_000) {
   const end = Date.now() + ms;
