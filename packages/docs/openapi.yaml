@@ -1689,6 +1689,18 @@ components:
           type: string
           format: uuid
           pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        githubInstallationIds:
+          maxItems: 100
+          type: array
+          items:
+            type: integer
+            exclusiveMinimum: 0
+            maximum: 9007199254740991
+        linearConnectionId:
+          anyOf:
+            - type: string
+              const: linear
+            - type: "null"
       required:
         - name
         - slug
@@ -2657,6 +2669,8 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 4096
+                preserveManagedModelCaches:
+                  type: boolean
                 records:
                   maxItems: 5000
                   type: array
@@ -8660,6 +8674,17 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  githubInstallationIds:
+                    type: array
+                    items:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                  linearConnectionId:
+                    anyOf:
+                      - type: string
+                        const: linear
+                      - type: "null"
                   executionConfigId:
                     type: string
                   agentKind:
@@ -9486,6 +9511,17 @@ paths:
                       type: string
                       format: uuid
                       pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    githubInstallationIds:
+                      type: array
+                      items:
+                        type: integer
+                        exclusiveMinimum: 0
+                        maximum: 9007199254740991
+                    linearConnectionId:
+                      anyOf:
+                        - type: string
+                          const: linear
+                        - type: "null"
                     executionConfigId:
                       type: string
                     agentKind:
@@ -10079,6 +10115,17 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  githubInstallationIds:
+                    type: array
+                    items:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                  linearConnectionId:
+                    anyOf:
+                      - type: string
+                        const: linear
+                      - type: "null"
                   executionConfigId:
                     type: string
                   agentKind:
@@ -11165,6 +11212,17 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  githubInstallationIds:
+                    type: array
+                    items:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                  linearConnectionId:
+                    anyOf:
+                      - type: string
+                        const: linear
+                      - type: "null"
                   executionConfigId:
                     type: string
                   agentKind:
@@ -11771,6 +11829,17 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  githubInstallationIds:
+                    type: array
+                    items:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                  linearConnectionId:
+                    anyOf:
+                      - type: string
+                        const: linear
+                      - type: "null"
                   executionConfigId:
                     type: string
                   agentKind:
@@ -12659,6 +12728,18 @@ paths:
                   type: string
                   format: uuid
                   pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                githubInstallationIds:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                linearConnectionId:
+                  anyOf:
+                    - type: string
+                      const: linear
+                    - type: "null"
                 expectedUpdatedAt:
                   type: string
                   format: date-time

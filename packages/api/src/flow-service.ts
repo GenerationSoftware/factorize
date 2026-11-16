@@ -99,6 +99,8 @@ export class ApiService {
   private async portableSelections(config: Awaited<ReturnType<ApiService["executionConfig"]>>, executionType: "agent" | "code", input: JobInput, current?: Job) {
     if (config.executionProvider === "docker" && executionType !== "code") throw new ServiceError(400, "invalid_request", "Docker test execution supports code jobs only.");
     const portableIntegrationIds = input.portableIntegrationIds ?? current?.portableIntegrationIds ?? current?.executionConfig.portableIntegrationIds ?? [];
+    const githubInstallationIds = input.githubInstallationIds ?? current?.githubInstallationIds ?? current?.executionConfig.githubInstallationIds ?? [];
+    const linearConnectionId = input.linearConnectionId !== undefined ? input.linearConnectionId : current?.linearConnectionId ?? current?.executionConfig.linearConnectionId;
     if (executionType === "code" && input.modelAccess === "portable") throw new ServiceError(400, "invalid_request", "Code jobs cannot select model access.");
     const modelAccess = executionType === "code" ? "native" : input.modelAccess ?? current?.modelAccess ?? current?.executionConfig.modelAccess ?? (config.executionProvider === "fly" ? "portable" : "native");
     if (modelAccess === "native" && input.modelAccountId) throw new ServiceError(400, "invalid_request", "Native model access cannot select a portable model account.");
@@ -108,9 +110,13 @@ export class ApiService {
     const records = await new EncryptedIntegrationRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).records();
     const byId = new Map(records.map(record => [record.id, record]));
     if (new Set(portableIntegrationIds).size !== portableIntegrationIds.length || portableIntegrationIds.some(id => byId.get(id)?.kind !== "bearer")) throw new ServiceError(400, "invalid_request", "One or more selected portable integrations are unavailable.");
+    const installations = await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).installations();
+    const activeInstallationIds = new Set(installations.filter(item => item.state === "active").map(item => Number(item.installationId)));
+    if (new Set(githubInstallationIds).size !== githubInstallationIds.length || githubInstallationIds.some(id => !activeInstallationIds.has(id))) throw new ServiceError(400, "invalid_request", "One or more selected GitHub installations are unavailable.");
+    if (linearConnectionId && (!await this.connections().get("linear"))) throw new ServiceError(400, "invalid_request", "The selected Linear connection is unavailable.");
     if (modelAccountId && byId.get(modelAccountId)?.kind !== "model") throw new ServiceError(400, "invalid_request", "The selected model account is unavailable.");
     if (modelAccess === "portable" && executionType !== "code" && !modelAccountId) throw new ServiceError(400, "invalid_request", "Portable model access requires a model account.");
-    return { portableIntegrationIds, modelAccess, ...(modelAccountId ? { modelAccountId } : {}) };
+    return { portableIntegrationIds, githubInstallationIds, ...(linearConnectionId ? { linearConnectionId } : {}), modelAccess, ...(modelAccountId ? { modelAccountId } : {}) };
   }
 
   private async validateExecutionOptions(id: string, model: string, effort: string, tags: string[]) {
@@ -594,9 +600,6 @@ export class ApiService {
   async getUnlockKeyRotationSnapshot() {
     await this.authorizeOwnerSession("integrations:read");
     const repository = this.encryptedIntegrations();
-    if ((await repository.records("model")).some(record => record.encryptedPayload.startsWith("factorize-managed-model-cache-v1:"))) {
-      throw new ServiceError(409, "conflict", "Model account caches use Factorize-managed encryption and cannot be included in unlock-key rotation.");
-    }
     const [snapshot, verification] = await Promise.all([
       repository.rotationSnapshot(),
       databaseFor(this.env).pool.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [this.auth.tenantId]),
@@ -613,18 +616,31 @@ export class ApiService {
       }
       return { ...change, recordRevision };
     });
-    return { ownerId: this.auth.userId, generationId, ...snapshot, changes };
+    // Factorize-managed model caches are not encrypted with the unlock key.
+    // Omit them from the browser payload and preserve them server-side below.
+    const managed = (value: string | null) => value?.startsWith("factorize-managed-model-cache-v1:") ?? false;
+    const records = snapshot.records.filter(record => !(record.kind === "model" && managed(record.encryptedPayload)));
+    const retainedChanges = changes.filter(change => !(change.kind === "model" && managed(change.encryptedPayload)));
+    return { ownerId: this.auth.userId, generationId, revision: snapshot.revision, records, changes: retainedChanges };
   }
   async replaceUnlockKeyGeneration(input: {
-    expectedGenerationId: string; generationId: string; expectedRevision: number; encryptedVerification: string;
+    expectedGenerationId: string; generationId: string; expectedRevision: number; encryptedVerification: string; preserveManagedModelCaches?: boolean;
     records: Array<{ id: string; kind: "bearer" | "model"; name: string; origin: string | null; description: string | null; revision: number; encryptedPayload: string | null; deletedAt: string | null }>;
     changes: Array<{ id: string; kind: "bearer" | "model"; name: string; origin: string | null; description: string | null; revision: number; idempotencyKey: string; operation: "upsert" | "delete"; encryptedPayload: string | null; recordRevision?: number | null }>;
   }) {
     await this.authorizeOwnerSession("integrations:write");
     if (input.expectedGenerationId === input.generationId) throw new ServiceError(400, "invalid_request", "A replacement key generation must be new.");
     const repository = this.encryptedIntegrations();
-    const records = input.records.map(record => ({ ...record, deletedAt: record.deletedAt === null ? null : new Date(record.deletedAt) }));
-    const changes = input.changes.map(({ recordRevision: _recordRevision, ...change }) => change);
+    let suppliedRecords = input.records;
+    let suppliedChanges = input.changes;
+    if (input.preserveManagedModelCaches) {
+      const current = await repository.rotationSnapshot();
+      const managed = (value: string | null) => value?.startsWith("factorize-managed-model-cache-v1:") ?? false;
+      suppliedRecords = [...suppliedRecords, ...current.records.filter(record => record.kind === "model" && managed(record.encryptedPayload))];
+      suppliedChanges = [...suppliedChanges, ...current.changes.filter(change => change.kind === "model" && managed(change.encryptedPayload))];
+    }
+    const records = suppliedRecords.map(record => ({ ...record, deletedAt: record.deletedAt === null ? null : new Date(record.deletedAt) }));
+    const changes = suppliedChanges.map(({ recordRevision: _recordRevision, ...change }) => change);
     try {
       await repository.stageGeneration({ generationId: input.generationId, expectedRevision: input.expectedRevision, records, changes });
       const committed = await repository.commitGeneration(input.generationId, input.expectedRevision, {

@@ -69,7 +69,7 @@ export async function replaceUnlockKeyGeneration(oldKey: string | null, newKey: 
   }));
   const { data, error } = await api.POST("/api/v1/unlock-key/rotation", { body: {
     expectedGenerationId: snapshot.generationId, generationId, expectedRevision: snapshot.revision,
-    encryptedVerification, records, changes,
+    encryptedVerification, preserveManagedModelCaches: mode === "rotate", records, changes,
   } });
   if (!data || error) throw new Error(messageOf(error));
   return data;

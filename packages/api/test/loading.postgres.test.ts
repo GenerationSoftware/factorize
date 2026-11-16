@@ -8,6 +8,7 @@ import { ConnectionRepository } from "../src/postgres/connection-repository";
 import { EncryptedIntegrationRepository } from "../src/postgres/encrypted-integration-repository";
 import { FlyConnectionRepository } from "../src/postgres/fly-connection-repository";
 import { FlyExecutionConfigurationRepository } from "../src/postgres/fly-execution-configuration-repository";
+import { GitHubRepository } from "../src/postgres/github-repository";
 import { encrypt } from "../src/crypto";
 import { ApiService } from "../src/flow-service";
 import worker from "../src/worker";
@@ -149,6 +150,37 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
       await db.pool.query("DELETE FROM app.jobs WHERE tenant_id=$1 AND (slug LIKE 'portable-%' OR slug LIKE 'code-%' OR slug LIKE 'need-%')", [tenantId]);
       await db.pool.query("DELETE FROM app.fly_execution_configurations WHERE tenant_id=$1 AND id=$2", [tenantId, execution.id]);
       await new FlyConnectionRepository(db, tenantId, env.CREDENTIAL_ENCRYPTION_KEY).remove();
+    }
+  });
+  it("snapshots selected tenant GitHub and Linear connections and rejects disconnected or foreign selections", async () => {
+    const service = new ApiService(env, auth), github = new GitHubRepository(db, tenantId), otherGithub = new GitHubRepository(db, otherTenant);
+    const installationId = Number(`8${Date.now().toString().slice(-8)}`), foreignInstallationId = installationId + 1;
+    const connections = new ConnectionRepository(db, tenantId, env.CREDENTIAL_ENCRYPTION_KEY), priorLinear = await connections.get<any>("linear");
+    const slug = `provider-${crypto.randomUUID().slice(0, 8)}`;
+    const base = { name: "Provider selections", slug, promptTemplate: "Do work", executionConfigId: "local", concurrencyLimit: 1, triggers: [{ kind: "manual" as const, enabled: true, config: {} }] };
+    try {
+      await github.save({ installationId, accountLogin: "tenant-install", accountType: "Organization", state: "active" });
+      await otherGithub.save({ installationId: foreignInstallationId, accountLogin: "foreign-install", accountType: "Organization", state: "active" });
+      await connections.put("linear", { organizationName: "Tenant Linear", accessToken: "first" });
+      await expect(service.createJob({ ...base, githubInstallationIds: [foreignInstallationId] })).rejects.toMatchObject({ status: 400 });
+      const job = await service.createJob({ ...base, githubInstallationIds: [installationId], linearConnectionId: "linear" });
+      expect(job).toMatchObject({ githubInstallationIds: [installationId], linearConnectionId: "linear" });
+      const invoked = await service.invokeJob(job.id, { prompt: "run", data: {} });
+      const readSnapshot = async () => (await db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenantId, invoked.runId])).rows[0].execution_config;
+      const snapshot = await readSnapshot();
+      expect(snapshot).toMatchObject({ githubInstallationIds: [installationId], linearConnectionId: "linear" });
+      await connections.put("linear", { organizationName: "Tenant Linear", accessToken: "rotated" });
+      await expect(service.updateJob(job.id, { ...base, githubInstallationIds: [installationId], linearConnectionId: "linear" })).resolves.toMatchObject({ githubInstallationIds: [installationId], linearConnectionId: "linear" });
+      expect(await readSnapshot()).toEqual(snapshot);
+      await github.updateState(installationId, "suspended");
+      await expect(service.updateJob(job.id, { ...base, githubInstallationIds: [installationId], linearConnectionId: "linear" })).rejects.toMatchObject({ status: 400 });
+      await connections.delete("linear");
+      await expect(service.createJob({ ...base, slug: `${slug}-disconnected`, linearConnectionId: "linear" })).rejects.toMatchObject({ status: 400 });
+    } finally {
+      await db.pool.query("DELETE FROM app.jobs WHERE tenant_id=$1 AND slug LIKE $2", [tenantId, `${slug}%`]);
+      await db.pool.query("DELETE FROM app.github_installations WHERE tenant_id=$1 AND installation_id=ANY($2::bigint[])", [tenantId, [installationId]]);
+      await db.pool.query("DELETE FROM app.github_installations WHERE tenant_id=$1 AND installation_id=$2", [otherTenant, foreignInstallationId]);
+      if (priorLinear) await connections.put("linear", priorLinear); else await connections.delete("linear");
     }
   });
   it("enforces tenant and scope boundaries, email verification, cookie expiry and session revocation", async () => {

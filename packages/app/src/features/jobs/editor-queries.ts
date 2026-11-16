@@ -1,6 +1,12 @@
 import { queryOptions } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf } from "../auth/session";
+export const providerConnectionsQuery = queryOptions({ queryKey: ["editor", "provider-connections"], queryFn: async ({ signal }) => {
+  const [github, integrations] = await Promise.all([api.GET("/api/v1/github-installations", { signal }), api.GET("/api/v1/integrations", { signal })]);
+  if (!github.data || github.error) throw new Error(messageOf(github.error));
+  if (!integrations.data || integrations.error) throw new Error(messageOf(integrations.error));
+  return { githubInstallations: github.data, linear: integrations.data.linear };
+}, staleTime: 60_000 });
 export const targetsQuery = queryOptions({ queryKey: ["editor", "integrations"], queryFn: async ({ signal }) => {
   const { data, error } = await api.GET("/api/v1/integrations", { signal });
   if (!data || error) throw new Error(messageOf(error));

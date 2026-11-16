@@ -107,17 +107,23 @@ describe.skipIf(!databaseUrl)("owner-only managed credential API (PostgreSQL)", 
       expect((await f.db.pool.query("SELECT consumed_at FROM app.credential_run_enrollments WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, runId])).rows[0].consumed_at).toBeInstanceOf(Date);
       expect(await enrollmentRepository.consume(issued!.token, binding)).toBeNull();
       const rotatedCipher = await userEncrypt("rotated synthetic bearer payload"), rotatedId = crypto.randomUUID();
-      await new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).write({ id: rotatedId, kind: "bearer", expectedRevision: 2, idempotencyKey: crypto.randomUUID(), name: "Rotated", origin: "https://api.example.test", description: null, operation: "upsert", encryptedPayload: encrypted });
+      const integrationRepository = new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+      await integrationRepository.write({ id: rotatedId, kind: "bearer", expectedRevision: 2, idempotencyKey: crypto.randomUUID(), name: "Rotated", origin: "https://api.example.test", description: null, operation: "upsert", encryptedPayload: encrypted });
+      const modelId = crypto.randomUUID();
+      await integrationRepository.write({ id: modelId, kind: "model", expectedRevision: 0, idempotencyKey: crypto.randomUUID(), name: "Managed model", origin: null, description: null, operation: "upsert", managedModelPayload: JSON.stringify({ accessToken: "server-managed-fixture" }) });
       const rotationSnapshot = await (await request("/unlock-key/rotation-snapshot")).json() as any;
+      expect(rotationSnapshot.records.some((record: any) => record.id === modelId)).toBe(false);
+      expect(JSON.stringify(rotationSnapshot)).not.toContain("server-managed-fixture");
       const finalGeneration = crypto.randomUUID();
       const rotated = await request("/unlock-key/rotation", "POST", {
-        expectedGenerationId: newGeneration, generationId: finalGeneration, expectedRevision: 3,
-        encryptedVerification: verification(finalGeneration),
+        expectedGenerationId: newGeneration, generationId: finalGeneration, expectedRevision: 4,
+        encryptedVerification: verification(finalGeneration), preserveManagedModelCaches: true,
         records: rotationSnapshot.records.map((record: any) => ({ ...record, encryptedPayload: record.id === rotatedId ? rotatedCipher : record.encryptedPayload })),
         changes: rotationSnapshot.changes.map((change: any) => ({ ...change, encryptedPayload: change.id === rotatedId && change.operation === "upsert" ? rotatedCipher : change.encryptedPayload })),
       });
       expect(rotated.status).toBe(200);
-      expect(await rotated.json()).toEqual({ generationId: finalGeneration, revision: 4, duplicate: false });
+      expect(await rotated.json()).toEqual({ generationId: finalGeneration, revision: 5, duplicate: false });
+      expect(await integrationRepository.records("model")).toMatchObject([{ id: modelId, name: "Managed model", encryptedPayload: expect.stringContaining("factorize-managed-model-cache-v1:") }]);
       expect((await request("/integrations/bearer")).status).toBe(200);
       expect(JSON.stringify(await (await request("/integrations/bearer")).json())).not.toContain(rotatedCipher);
       const agent = await request("/unlock-key/rotation-snapshot", "GET", undefined, "untrusted-cookie");

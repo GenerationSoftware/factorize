@@ -2761,6 +2761,8 @@ export interface components {
             modelAccess?: "native" | "portable";
             /** Format: uuid */
             modelAccountId?: string;
+            githubInstallationIds?: number[];
+            linearConnectionId?: "linear" | null;
         };
         ManualInvocation: {
             /** @default  */
@@ -3286,6 +3288,7 @@ export interface operations {
                     generationId: string;
                     expectedRevision: number;
                     encryptedVerification: string;
+                    preserveManagedModelCaches?: boolean;
                     records: {
                         /** Format: uuid */
                         id: string;
@@ -6451,6 +6454,8 @@ export interface operations {
                         modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6748,6 +6753,8 @@ export interface operations {
                         modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6957,6 +6964,8 @@ export interface operations {
                         modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7448,6 +7457,8 @@ export interface operations {
                         modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7738,6 +7749,8 @@ export interface operations {
                     modelAccess?: "native" | "portable";
                     /** Format: uuid */
                     modelAccountId?: string;
+                    githubInstallationIds?: number[];
+                    linearConnectionId?: "linear" | null;
                     /** Format: date-time */
                     expectedUpdatedAt?: string;
                 };
@@ -7785,6 +7798,8 @@ export interface operations {
                         modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;

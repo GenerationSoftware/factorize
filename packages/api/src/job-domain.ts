@@ -18,6 +18,8 @@ export interface ExecutionConfig {
   portableIntegrationIds?: string[];
   modelAccess?: "native" | "portable";
   modelAccountId?: string;
+  githubInstallationIds?: number[];
+  linearConnectionId?: "linear" | null;
   executionProvider?: "exe" | "fly" | "docker";
   region?: string;
   size?: string;
@@ -58,6 +60,8 @@ export interface Job {
   portableIntegrationIds?: string[];
   modelAccess?: "native" | "portable";
   modelAccountId?: string;
+  githubInstallationIds?: number[];
+  linearConnectionId?: "linear" | null;
 }
 
 export interface InvocationRequest {
