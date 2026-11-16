@@ -73,6 +73,7 @@
           "self-hosting/deployment",
           "self-hosting/configuration",
           "self-hosting/operations",
+          "self-hosting/credential-cutover",
           "self-hosting/credential-proxy-security"
         ]
       }
