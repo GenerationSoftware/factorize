@@ -121,12 +121,12 @@ const accessTokenBody = z.object({
 });
 const bearerIntegrationMetadata = z.object({
   id: z.uuid(), name: z.string(), origin: z.string(), description: z.string().nullable(),
-  revision: z.number().int().nonnegative(), encryptedPayload: z.string(),
+  revision: z.number().int().nonnegative(),
 });
 const bearerIntegrationCreate = z.object({
   id: z.uuid(), expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid(),
   name: z.string().trim().min(1).max(120), origin: z.string().url().max(2048),
-  description: z.string().max(500).nullable(), encryptedPayload: z.string().min(1).max(65_536),
+  description: z.string().max(500).nullable(), token: z.string().min(1).max(32_768),
 }).strict();
 const bearerIntegrationUpdate = bearerIntegrationCreate.omit({ id: true });
 const bearerIntegrationDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
@@ -263,18 +263,18 @@ export const API_ROUTES: RouteContract[] = [
     responses: { "200": { description: "Key generation replaced", content: { "application/json": { schema: jsonSchema(z.object({ generationId: z.uuid(), revision: z.number().int().nonnegative(), duplicate: z.boolean() }), "output") } } } },
   }, (service, { body }) => service.replaceUnlockKeyGeneration(body), { body: unlockKeyGenerationReplacement, maxBodyBytes: 12_000_000, ownerSession: true }),
   route("GET", "/api/v1/integrations/bearer", "flows:read", {
-    summary: "List encrypted bearer integrations",
-    description: "Requires an interactive owner browser session. Returns safe metadata and user-encrypted ciphertext; credentials are never decrypted or revealed.",
-    responses: { "200": { description: "Encrypted bearer integration records", content: { "application/json": { schema: jsonSchema(bearerIntegrationList, "output") } } } },
+    summary: "List bearer integration metadata",
+    description: "Requires an interactive owner browser session. Returns secret-safe metadata only; stored bearer credentials are never returned.",
+    responses: { "200": { description: "Bearer integration metadata", content: { "application/json": { schema: jsonSchema(bearerIntegrationList, "output") } } } },
   }, service => service.listBearerIntegrations(), { ownerSession: true }),
   route("POST", "/api/v1/integrations/bearer", "flows:write", {
-    summary: "Create an encrypted bearer integration",
-    description: "Requires an interactive owner browser session. Accepts only user-encrypted ciphertext, never an unlock key or plaintext credential.",
+    summary: "Create a bearer integration",
+    description: "Requires an interactive owner browser session. Accepts the secret over the authenticated connection and encrypts it with Factorize-managed storage before persistence. The secret is never returned.",
     responses: { "201": { description: "Created integration", content: { "application/json": { schema: jsonSchema(bearerIntegrationWriteResult, "output") } } } },
   }, (service, { body }) => service.createBearerIntegration(body), { body: bearerIntegrationCreate, maxBodyBytes: 70_000, ownerSession: true }),
   route("PUT", "/api/v1/integrations/bearer/{integrationId}", "flows:write", {
-    summary: "Update an encrypted bearer integration",
-    description: "Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted ciphertext.",
+    summary: "Update a bearer integration",
+    description: "Requires an interactive owner browser session and the current collection revision. Accepts a replacement secret and encrypts it with Factorize-managed storage before persistence. The secret is never returned.",
     responses: { "200": { description: "Updated integration", content: { "application/json": { schema: jsonSchema(bearerIntegrationWriteResult, "output") } } } },
   }, (service, { params, body }) => service.updateBearerIntegration(params.integrationId, body), { body: bearerIntegrationUpdate, maxBodyBytes: 70_000, ownerSession: true }),
   route("DELETE", "/api/v1/integrations/bearer/{integrationId}", "flows:write", {

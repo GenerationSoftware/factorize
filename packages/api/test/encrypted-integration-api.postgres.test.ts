@@ -3,6 +3,7 @@ import worker from "../src/worker";
 import { protectedApiFetch } from "../src/protected-api";
 import { IdentityRepository } from "../src/postgres/identity-repository";
 import { RunEnrollmentRepository } from "../src/postgres/run-enrollment-repository";
+import { EncryptedIntegrationRepository } from "../src/postgres/encrypted-integration-repository";
 import { signSession } from "../src/session";
 import { loadingFixture } from "./helpers/loading-fixture";
 
@@ -18,7 +19,7 @@ async function userEncrypt(plaintext: string): Promise<string> {
   return `${encode(iv)}.${encode(new Uint8Array(body))}`;
 }
 
-describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (PostgreSQL)", { timeout: 60_000 }, () => {
+describe.skipIf(!databaseUrl)("owner-only managed credential API (PostgreSQL)", { timeout: 60_000 }, () => {
   it("keeps Docker test selection and proxy setup behind explicit environment and owner boundaries", async () => {
     const f = await loadingFixture(databaseUrl!);
     try {
@@ -72,7 +73,7 @@ describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (Po
       expect((await request("/unlock-key/verification", "POST", { generationId: oldGeneration, encryptedVerification: verification(oldGeneration) })).status).toBe(200);
       const encrypted = await userEncrypt("synthetic bearer payload");
       const integrationId = crypto.randomUUID();
-      expect((await request("/integrations/bearer", "POST", { id: integrationId, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), name: "Synthetic", origin: "https://api.example.test", description: null, encryptedPayload: encrypted })).status).toBe(201);
+      await new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).write({ id: integrationId, kind: "bearer", name: "Synthetic", origin: "https://api.example.test", description: null, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), operation: "upsert", encryptedPayload: encrypted });
       await f.db.pool.query("INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,'fly:connection-fixture','encrypted-fly-fixture')", [f.tenantId]);
       await f.db.pool.query("UPDATE app.jobs SET execution_config=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.jobIds[0], { provider: "fly", connectionId: "fly:connection-fixture", region: "ord", vmSize: "shared-cpu-1x" }]);
       const flyConnectionBefore = (await f.db.pool.query("SELECT kind,encrypted_value FROM app.connections WHERE tenant_id=$1 ORDER BY kind", [f.tenantId])).rows;
@@ -106,7 +107,7 @@ describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (Po
       expect((await f.db.pool.query("SELECT consumed_at FROM app.credential_run_enrollments WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, runId])).rows[0].consumed_at).toBeInstanceOf(Date);
       expect(await enrollmentRepository.consume(issued!.token, binding)).toBeNull();
       const rotatedCipher = await userEncrypt("rotated synthetic bearer payload"), rotatedId = crypto.randomUUID();
-      expect((await request("/integrations/bearer", "POST", { id: rotatedId, expectedRevision: 2, idempotencyKey: crypto.randomUUID(), name: "Rotated", origin: "https://api.example.test", description: null, encryptedPayload: encrypted })).status).toBe(201);
+      await new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).write({ id: rotatedId, kind: "bearer", expectedRevision: 2, idempotencyKey: crypto.randomUUID(), name: "Rotated", origin: "https://api.example.test", description: null, operation: "upsert", encryptedPayload: encrypted });
       const rotationSnapshot = await (await request("/unlock-key/rotation-snapshot")).json() as any;
       const finalGeneration = crypto.randomUUID();
       const rotated = await request("/unlock-key/rotation", "POST", {
@@ -118,7 +119,7 @@ describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (Po
       expect(rotated.status).toBe(200);
       expect(await rotated.json()).toEqual({ generationId: finalGeneration, revision: 4, duplicate: false });
       expect((await request("/integrations/bearer")).status).toBe(200);
-      expect((await (await request("/integrations/bearer")).json() as any).integrations[0].encryptedPayload).toBe(rotatedCipher);
+      expect(JSON.stringify(await (await request("/integrations/bearer")).json())).not.toContain(rotatedCipher);
       const agent = await request("/unlock-key/rotation-snapshot", "GET", undefined, "untrusted-cookie");
       expect(agent.status).toBe(401);
     } finally { await f.cleanup(); }
@@ -130,28 +131,30 @@ describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (Po
         method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }), f.env, { waitUntil() {} } as any);
-      const id = crypto.randomUUID(), idempotencyKey = crypto.randomUUID(), cipher = await userEncrypt("synthetic upstream bearer credential");
-      const created = await request("/integrations/bearer", "POST", { id, expectedRevision: 0, idempotencyKey, name: "Test service", origin: "https://api.example.test", description: "fixture", encryptedPayload: cipher });
+      const id = crypto.randomUUID(), idempotencyKey = crypto.randomUUID(), token = "synthetic upstream bearer credential";
+      const created = await request("/integrations/bearer", "POST", { id, expectedRevision: 0, idempotencyKey, name: "Test service", origin: "https://api.example.test", description: "fixture", token });
       expect(created.status).toBe(201);
       expect(await created.json()).toEqual({ revision: 1, duplicate: false });
 
       const listed = await request("/integrations/bearer");
       expect(listed.status).toBe(200);
       const result = await listed.json() as any;
-      expect(result).toEqual({ revision: 1, integrations: [{ id, kind: "bearer", name: "Test service", origin: "https://api.example.test", description: "fixture", revision: 1, encryptedPayload: cipher }] });
-      expect(JSON.stringify(result)).not.toContain("synthetic upstream bearer credential");
+      expect(result).toEqual({ revision: 1, integrations: [{ id, kind: "bearer", name: "Test service", origin: "https://api.example.test", description: "fixture", revision: 1 }] });
+      expect(JSON.stringify(result)).not.toContain(token);
       expect(result.integrations[0]).not.toHaveProperty("unlockKey");
       expect(result.integrations[0]).not.toHaveProperty("token");
 
-      const updated = await request(`/integrations/bearer/${id}`, "PUT", { expectedRevision: 1, idempotencyKey: crypto.randomUUID(), name: "Renamed service", origin: "https://api.example.test", description: null, encryptedPayload: cipher });
+      const updated = await request(`/integrations/bearer/${id}`, "PUT", { expectedRevision: 1, idempotencyKey: crypto.randomUUID(), name: "Renamed service", origin: "https://api.example.test", description: null, token });
       expect(updated.status).toBe(200);
       expect(await updated.json()).toEqual({ revision: 2, duplicate: false });
 
-      const malformed = await request("/integrations/bearer", "POST", { id: crypto.randomUUID(), expectedRevision: 2, idempotencyKey: crypto.randomUUID(), name: "Malformed", origin: "https://api.example.test", description: null, encryptedPayload: "not-ciphertext" });
+      const malformed = await request("/integrations/bearer", "POST", { id: crypto.randomUUID(), expectedRevision: 2, idempotencyKey: crypto.randomUUID(), name: "Malformed", origin: "https://api.example.test", description: null, token: "" });
       expect(malformed.status).toBe(400);
-      const plaintext = await request("/integrations/bearer", "POST", { id: crypto.randomUUID(), expectedRevision: 2, idempotencyKey: crypto.randomUUID(), name: "Plaintext", origin: "https://api.example.test", description: null, encryptedPayload: cipher, bearerToken: "must-not-be-accepted" });
-      expect(plaintext.status).toBe(400);
-      const stale = await request(`/integrations/bearer/${id}`, "PUT", { expectedRevision: 1, idempotencyKey: crypto.randomUUID(), name: "Stale", origin: "https://api.example.test", description: null, encryptedPayload: cipher });
+      const oldFormat = await request("/integrations/bearer", "POST", { id: crypto.randomUUID(), expectedRevision: 2, idempotencyKey: crypto.randomUUID(), name: "Old format", origin: "https://api.example.test", description: null, encryptedPayload: "cipher" });
+      expect(oldFormat.status).toBe(400);
+      const stored = await f.db.pool.query<{ encrypted_payload: string }>("SELECT encrypted_payload FROM app.integration_records WHERE tenant_id=$1 AND id=$2", [f.tenantId, id]);
+      expect(stored.rows[0]!.encrypted_payload).not.toContain(token);
+      const stale = await request(`/integrations/bearer/${id}`, "PUT", { expectedRevision: 1, idempotencyKey: crypto.randomUUID(), name: "Stale", origin: "https://api.example.test", description: null, token });
       expect(stale.status).toBe(409);
       expect((await stale.json() as any).error.code).toBe("stale_revision");
 
@@ -208,9 +211,11 @@ describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (Po
       const agent = await protectedApiFetch(new Request(path), f.env, { tenantId: f.tenantId, userId: f.userId, sessionVersion: 0, scopes: ["integrations:write"], authMethod: "access_token" } as any, {} as any);
       expect(agent.status).toBe(403);
 
-      const id = crypto.randomUUID(), cipher = await userEncrypt("tenant private credential");
-      const created = await worker.fetch(new Request(path, { method: "POST", headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify({ id, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), name: "Private", origin: "https://api.example.test", description: null, encryptedPayload: cipher }) }), f.env, { waitUntil() {} } as any);
+      const id = crypto.randomUUID(), token = "tenant private credential";
+      const created = await worker.fetch(new Request(path, { method: "POST", headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify({ id, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), name: "Private", origin: "https://api.example.test", description: null, token }) }), f.env, { waitUntil() {} } as any);
       expect(created.status).toBe(201);
+      const listed = await worker.fetch(new Request(path, { headers: { Cookie: f.cookie } }), f.env, { waitUntil() {} } as any);
+      expect(JSON.stringify(await listed.json())).not.toContain(token);
 
       const otherUser = crypto.randomUUID();
       await new IdentityRepository(f.db, f.otherTenant).upsertOwner(otherUser, "other-owner@example.test");
@@ -219,7 +224,7 @@ describe.skipIf(!databaseUrl)("browser-only encrypted bearer integration API (Po
       const otherList = await worker.fetch(new Request(path, { headers: { Cookie: otherCookie } }), f.env, { waitUntil() {} } as any);
       expect(otherList.status).toBe(200);
       expect(await otherList.json()).toEqual({ revision: 0, integrations: [] });
-      const otherUpdate = await worker.fetch(new Request(path + `/${id}`, { method: "PUT", headers: { Cookie: otherCookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevision: 0, idempotencyKey: crypto.randomUUID(), name: "Stolen", origin: "https://api.example.test", description: null, encryptedPayload: cipher }) }), f.env, { waitUntil() {} } as any);
+      const otherUpdate = await worker.fetch(new Request(path + `/${id}`, { method: "PUT", headers: { Cookie: otherCookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify({ expectedRevision: 0, idempotencyKey: crypto.randomUUID(), name: "Stolen", origin: "https://api.example.test", description: null, token }) }), f.env, { waitUntil() {} } as any);
       expect(otherUpdate.status).toBe(404);
     } finally { await f.cleanup(); }
   });

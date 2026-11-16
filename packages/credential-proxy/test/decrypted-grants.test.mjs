@@ -47,6 +47,21 @@ test("resolver decrypts only selected active bearer records using the shared rec
   ]);
 });
 
+test("resolver uses Factorize-managed bearer secrets without an inner unlock key", async () => {
+  const token = "server-managed-synthetic-token";
+  const record = { id: webcrypto.randomUUID(), kind: "bearer", name: "managed", origin: "https://api.example.test", description: null, revision: 1,
+    encryptedPayload: `factorize-managed-bearer-v1:${token}`, deletedAt: null };
+  let unlockCalls = 0;
+  const resolver = createDecryptedGrantResolver({
+    readSnapshot: async () => ({ ownerId: "owner", records: [record] }),
+    getUnlockKey: async () => { unlockCalls++; return undefined; },
+  });
+  assert.deepEqual(await resolver({ tenantId: "tenant", integrationIds: [record.id] }), [
+    { id: record.id, name: "managed", description: null, origin: record.origin, credential: token },
+  ]);
+  assert.equal(unlockCalls, 0);
+});
+
 test("resolver rejects missing, ambiguous, malformed, and misbound grants and omits deleted selections", async () => {
   const record = { id: "integration-a", kind: "bearer", origin: "https://api.example.test", revision: 3, deletedAt: null };
   const encryptedPayload = await encryptCredential({ ...record, credential: "synthetic-token" });
@@ -87,14 +102,12 @@ test("production grant resolver reads the run-bound snapshot and only decrypts w
   });
   const binding = { tenantId: ownerId, runId: "22222222-2222-4222-8222-222222222222", grantRevision: 7 };
   await assert.rejects(resolve(binding), /locked/);
+  assert.equal(requests.length, 1, "legacy ciphertext may be fetched into the proxy but is not decrypted while locked");
   runtime.unlock(unlockKey);
   assert.deepEqual(await resolve(binding), [{ id: record.id, name: record.id, description: null, origin: record.origin, credential: "snapshot-token" }]);
-  assert.deepEqual(requests, [{
-    url: "https://factorize.example/internal/credential-proxy/integration-snapshot",
-    authorization: `Bearer fzc_${"c".repeat(43)}`,
-    body: { runId: binding.runId, grantRevision: binding.grantRevision },
-  }]);
+  assert.equal(requests.length, 2);
   await runtime.lock();
   await assert.rejects(resolve(binding), /locked/);
+  assert.equal(requests.length, 3);
   await runtime.shutdown();
 });

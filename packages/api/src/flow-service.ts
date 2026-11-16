@@ -539,8 +539,8 @@ export class ApiService {
   async saveTailIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveTail(input); }
   async testTailIntegration(id: string) { await this.authorize("integrations:write"); const result = await this.integrations().testTail(id); if (!result) throw new ServiceError(404, "not_found", "Integration not found"); return result; }
   private encryptedIntegrations() { return new EncryptedIntegrationRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
-  private async bearerWrite(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; encryptedPayload?: string; operation: "upsert" | "delete" }) {
-    try { return await this.encryptedIntegrations().write({ ...input, kind: "bearer" }); }
+  private async bearerWrite(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; token?: string; operation: "upsert" | "delete" }) {
+    try { return await this.encryptedIntegrations().write({ ...input, managedSecret: input.token, kind: "bearer" }); }
     catch (error) {
       if (error instanceof StaleIntegrationRevisionError) throw new ServiceError(409, "stale_revision", `${error.resyncRequired ? "Integration change history expired; fetch the current collection to resynchronize. " : "The integration collection changed. "}Current revision is ${error.currentRevision}.`);
       if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different integration change.");
@@ -556,14 +556,15 @@ export class ApiService {
   async listBearerIntegrations() {
     await this.authorizeOwnerSession("integrations:read");
     const [revision, records] = await Promise.all([this.encryptedIntegrations().revision(), this.encryptedIntegrations().records("bearer")]);
-    return { revision, integrations: records };
+    // Secret values are only read by the server-side credential control path.
+    return { revision, integrations: records.map(({ encryptedPayload: _secret, ...record }) => record) };
   }
-  async createBearerIntegration(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; encryptedPayload: string }) {
+  async createBearerIntegration(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; token: string }) {
     await this.authorizeOwnerSession("integrations:write"); this.validateBearerOrigin(input.origin);
     if ((await this.encryptedIntegrations().records("bearer")).some(record => record.id === input.id)) throw new ServiceError(409, "conflict", "Integration already exists.");
     return this.bearerWrite({ ...input, operation: "upsert" });
   }
-  async updateBearerIntegration(id: string, input: { expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; encryptedPayload: string }) {
+  async updateBearerIntegration(id: string, input: { expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; token: string }) {
     await this.authorizeOwnerSession("integrations:write"); this.validateBearerOrigin(input.origin);
     const existing = (await this.encryptedIntegrations().records("bearer")).find(record => record.id === id);
     if (!existing) throw new ServiceError(404, "not_found", "Integration not found.");

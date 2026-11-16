@@ -9,6 +9,8 @@ export type IntegrationWrite = IntegrationMetadata & {
   operation: "upsert" | "delete";
   /** Ciphertext produced with the user's unlock key. This repository never interprets it. */
   encryptedPayload?: string;
+  /** Plaintext bearer value accepted only by the owner-session credential API. */
+  managedSecret?: string;
 };
 export type IntegrationChange = IntegrationMetadata & {
   revision: number;
@@ -18,6 +20,8 @@ export type IntegrationChange = IntegrationMetadata & {
 
 export type GenerationRecord = IntegrationMetadata & { revision: number; encryptedPayload: string | null; deletedAt: Date | null };
 export type GenerationChange = IntegrationMetadata & { revision: number; idempotencyKey: string; operation: "upsert" | "delete"; encryptedPayload: string | null };
+
+const MANAGED_BEARER_PREFIX = "factorize-managed-bearer-v1:";
 
 export class StaleIntegrationRevisionError extends Error {
   constructor(readonly currentRevision: number, readonly resyncRequired = false) { super(resyncRequired ? "Integration change history expired; fetch the current collection before continuing" : "Integration collection revision is stale"); this.name = "StaleIntegrationRevisionError"; }
@@ -63,7 +67,9 @@ function validate(change: IntegrationWrite): void {
   if (change.description !== null && change.description.length > 500) throw new IntegrationValidationError("description must be at most 500 characters");
   if (change.kind === "bearer" && (!change.origin || change.origin.length > 2048)) throw new IntegrationValidationError("bearer integrations require an origin of at most 2048 characters");
   if (change.kind === "model" && change.origin !== null) throw new IntegrationValidationError("model accounts do not have an origin");
-  if (change.operation === "upsert" && (typeof change.encryptedPayload !== "string" || !isUserCiphertext(change.encryptedPayload))) throw new IntegrationValidationError("upserts require a valid user-encrypted AES-GCM ciphertext envelope");
+  if (change.operation === "upsert" && !(typeof change.managedSecret === "string" && change.managedSecret.length > 0 && change.managedSecret.length <= 32_768)
+      && !(typeof change.encryptedPayload === "string" && isUserCiphertext(change.encryptedPayload))) throw new IntegrationValidationError("upserts require a credential value");
+  if (change.kind !== "bearer" && change.managedSecret !== undefined) throw new IntegrationValidationError("managed secrets are only supported for bearer integrations");
   if (change.operation === "delete" && change.encryptedPayload !== undefined) throw new IntegrationValidationError("deletions cannot contain ciphertext");
 }
 
@@ -83,9 +89,10 @@ export class EncryptedIntegrationRepository {
     const { rows } = await this.database.pool.query<StoredChange>("SELECT revision,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId, input.idempotencyKey]);
     const row = rows[0];
     if (!row) return null;
+    const suppliedPayload = input.managedSecret === undefined ? input.encryptedPayload : `${MANAGED_BEARER_PREFIX}${input.managedSecret}`;
     const sameCiphertext = row.encrypted_payload === null
       ? input.operation === "delete" && input.encryptedPayload === undefined
-      : input.operation === "upsert" && typeof input.encryptedPayload === "string" && await decrypt(row.encrypted_payload, this.serverEncryptionKey) === input.encryptedPayload;
+      : input.operation === "upsert" && typeof suppliedPayload === "string" && await decrypt(row.encrypted_payload, this.serverEncryptionKey) === suppliedPayload;
     if (row.record_id !== input.id || row.kind !== input.kind || row.name !== input.name || row.origin !== input.origin
         || row.description !== input.description || row.operation !== input.operation || !sameCiphertext) {
       throw new IntegrationIdempotencyConflictError();
@@ -106,11 +113,12 @@ export class EncryptedIntegrationRepository {
 
   async write(input: IntegrationWrite): Promise<{ revision: number; duplicate: boolean }> {
     validate(input);
-    const encryptedPayload = input.operation === "upsert" ? await encrypt(input.encryptedPayload!, this.serverEncryptionKey) : null;
+    const suppliedPayload = input.managedSecret === undefined ? input.encryptedPayload : `${MANAGED_BEARER_PREFIX}${input.managedSecret}`;
+    const encryptedPayload = input.operation === "upsert" ? await encrypt(suppliedPayload!, this.serverEncryptionKey) : null;
     const metadata = [input.id, input.kind, input.name, input.origin, input.description, input.operation, encryptedPayload];
     return this.database.transaction(async client => {
       const existing = async () => (await client.query<StoredChange>("SELECT revision,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId, input.idempotencyKey])).rows[0];
-      const isSame = async (row: StoredChange) => row.record_id === metadata[0] && row.kind === metadata[1] && row.name === metadata[2] && row.origin === metadata[3] && row.description === metadata[4] && row.operation === metadata[5] && (row.encrypted_payload === null ? encryptedPayload === null : encryptedPayload !== null && await decrypt(row.encrypted_payload, this.serverEncryptionKey) === input.encryptedPayload);
+      const isSame = async (row: StoredChange) => row.record_id === metadata[0] && row.kind === metadata[1] && row.name === metadata[2] && row.origin === metadata[3] && row.description === metadata[4] && row.operation === metadata[5] && (row.encrypted_payload === null ? encryptedPayload === null : encryptedPayload !== null && await decrypt(row.encrypted_payload, this.serverEncryptionKey) === suppliedPayload);
       const duplicate = await existing();
       if (duplicate) {
         if (!await isSame(duplicate)) throw new IntegrationIdempotencyConflictError();

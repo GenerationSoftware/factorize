@@ -8,6 +8,7 @@ const SALT = new TextEncoder().encode("factorize.unlock-key.v1");
 const INFO = new TextEncoder().encode("factorize.record.aes-256-gcm.v1");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
+const MANAGED_BEARER_PREFIX = "factorize-managed-bearer-v1:";
 
 function decodeBase64Url(value, label) {
   if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) throw new TypeError(`malformed ${label}`);
@@ -61,7 +62,7 @@ function validateOrigin(origin) {
  * layer; this helper never sends the user's unlock key or plaintext upstream.
  */
 export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resolveIntegrationIds } = {}) {
-  if (typeof readSnapshot !== "function" || typeof getUnlockKey !== "function"
+  if (typeof readSnapshot !== "function" || (getUnlockKey !== undefined && typeof getUnlockKey !== "function")
       || (resolveIntegrationIds !== undefined && typeof resolveIntegrationIds !== "function")) throw new TypeError("grant resolver requires snapshot and unlock-key readers");
   return async function resolveGrants(binding) {
     if (!binding || typeof binding.tenantId !== "string" || !binding.tenantId
@@ -70,8 +71,6 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
     if (requestedIds !== undefined && (!Array.isArray(requestedIds) || requestedIds.some(id => typeof id !== "string" || !id)
         || new Set(requestedIds).size !== requestedIds.length)) throw new TypeError("invalid run integration selection");
     if (requestedIds?.length === 0) return [];
-    const unlockKey = await getUnlockKey();
-    if (typeof unlockKey !== "string" || !unlockKey) throw new Error("proxy is locked");
     const snapshot = await readSnapshot(binding);
     if (!snapshot || !Array.isArray(snapshot.records) || typeof snapshot.ownerId !== "string" || !snapshot.ownerId) throw new Error("integration snapshot is unavailable");
     // Production snapshots are already filtered by the control plane using the
@@ -88,7 +87,11 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
     const selectedRecords = snapshot.records.filter(record => selected.has(record?.id) && record.kind === "bearer");
     const selectionWasNarrowedLocally = binding.integrationIds !== undefined || resolveIntegrationIds !== undefined;
     if (selectedRecords.length !== selected.size || (!selectionWasNarrowedLocally && snapshot.records.length !== selectedRecords.length)) throw new Error("selected integration is unavailable");
-    const aesKey = await deriveKey(unlockKey);
+    const needsLegacyKey = selectedRecords.some(record => record.deletedAt == null
+      && typeof record.encryptedPayload === "string" && !record.encryptedPayload.startsWith(MANAGED_BEARER_PREFIX));
+    const unlockKey = needsLegacyKey ? await getUnlockKey?.() : null;
+    if (needsLegacyKey && (typeof unlockKey !== "string" || !unlockKey)) throw new Error("proxy is locked");
+    const aesKey = unlockKey ? await deriveKey(unlockKey) : null;
     const grants = [];
     for (const record of selectedRecords) {
       if (record.deletedAt != null) {
@@ -97,9 +100,14 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
       }
       if (typeof record.encryptedPayload !== "string") throw new Error("selected integration is unavailable");
       const origin = validateOrigin(record.origin);
-      const { nonce, ciphertext } = decodeStoredCiphertext(record.encryptedPayload);
-      const plaintext = new Uint8Array(await webcrypto.subtle.decrypt({ name: "AES-GCM", iv: nonce,
-        additionalData: recordAad(snapshot.ownerId, record), tagLength: 128 }, aesKey, ciphertext));
+      let nonce, ciphertext, plaintext;
+      if (record.encryptedPayload.startsWith(MANAGED_BEARER_PREFIX)) {
+        plaintext = encoder.encode(record.encryptedPayload.slice(MANAGED_BEARER_PREFIX.length));
+      } else {
+        ({ nonce, ciphertext } = decodeStoredCiphertext(record.encryptedPayload));
+        plaintext = new Uint8Array(await webcrypto.subtle.decrypt({ name: "AES-GCM", iv: nonce,
+          additionalData: recordAad(snapshot.ownerId, record), tagLength: 128 }, aesKey, ciphertext));
+      }
       try {
         const credential = decoder.decode(plaintext);
         if (!credential || credential.length > 16_384 || /[\u0000-\u001f\u007f]/.test(credential)) throw new TypeError("invalid bearer credential");
@@ -112,8 +120,8 @@ export function createDecryptedGrantResolver({ readSnapshot, getUnlockKey, resol
         }));
       } finally {
         plaintext.fill(0);
-        nonce.fill(0);
-        ciphertext.fill(0);
+        nonce?.fill(0);
+        ciphertext?.fill(0);
       }
     }
     return grants;

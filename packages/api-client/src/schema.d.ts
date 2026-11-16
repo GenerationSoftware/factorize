@@ -216,8 +216,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List encrypted bearer integrations
-         * @description Requires an interactive owner browser session. Returns safe metadata and user-encrypted ciphertext; credentials are never decrypted or revealed.
+         * List bearer integration metadata
+         * @description Requires an interactive owner browser session. Returns secret-safe metadata only; stored bearer credentials are never returned.
          *
          *     Requires the integrations:read scope.
          *
@@ -226,8 +226,8 @@ export interface paths {
         get: operations["get_api_v1_integrations_bearer"];
         put?: never;
         /**
-         * Create an encrypted bearer integration
-         * @description Requires an interactive owner browser session. Accepts only user-encrypted ciphertext, never an unlock key or plaintext credential.
+         * Create a bearer integration
+         * @description Requires an interactive owner browser session. Accepts the secret over the authenticated connection and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
          *
          *     Requires the integrations:write scope.
          *
@@ -249,8 +249,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Update an encrypted bearer integration
-         * @description Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted ciphertext.
+         * Update a bearer integration
+         * @description Requires an interactive owner browser session and the current collection revision. Accepts a replacement secret and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
          *
          *     Requires the integrations:write scope.
          *
@@ -3351,7 +3351,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Encrypted bearer integration records */
+            /** @description Bearer integration metadata */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3366,7 +3366,6 @@ export interface operations {
                             origin: string;
                             description: string | null;
                             revision: number;
-                            encryptedPayload: string;
                         }[];
                     };
                 };
@@ -3400,7 +3399,7 @@ export interface operations {
                     /** Format: uri */
                     origin: string;
                     description: string | null;
-                    encryptedPayload: string;
+                    token: string;
                 };
             };
         };
@@ -3447,7 +3446,7 @@ export interface operations {
                     /** Format: uri */
                     origin: string;
                     description: string | null;
-                    encryptedPayload: string;
+                    token: string;
                 };
             };
         };

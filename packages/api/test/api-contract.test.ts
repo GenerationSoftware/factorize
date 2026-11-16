@@ -89,6 +89,17 @@ describe("versioned API contract", () => {
     expect(openapi.paths["/api/v1/model-accounts/{accountId}"].delete).toBeDefined();
     expect(openapi.paths["/api/v1/model-accounts"].get).toBeDefined();
   });
+  it("accepts bearer secrets only at the owner session boundary and publishes metadata only", () => {
+    const list = API_ROUTES.find(item => item.method === "GET" && item.path === "/api/v1/integrations/bearer");
+    const create = API_ROUTES.find(item => item.method === "POST" && item.path === "/api/v1/integrations/bearer");
+    const input = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Build service", origin: "https://api.example.test", description: null, token: "server-managed-secret" };
+    expect(list?.ownerSession).toBe(true);
+    expect(create?.ownerSession).toBe(true);
+    expect(create?.body?.safeParse(input).success).toBe(true);
+    expect(create?.body?.safeParse({ ...input, unlockKey: "must-not-be-accepted" }).success).toBe(false);
+    expect(create?.body?.safeParse({ ...input, encryptedPayload: "legacy-user-ciphertext" }).success).toBe(false);
+    expect(list?.documentation.responses["200"].content["application/json"].schema.properties.integrations.items.properties.encryptedPayload).toBeUndefined();
+  });
   it("accepts code jobs without agent prompts or models and rejects missing scripts", () => {
     const code = { name: "Export", slug: "export", executionType: "code", script: "#!/bin/sh\nprintf '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"", executionConfigId: "exe", triggers: [] };
     expect(jobInputSchema.safeParse(code).success).toBe(true);

@@ -2784,16 +2784,16 @@ paths:
               additionalProperties: false
   /api/v1/integrations/bearer:
     get:
-      summary: List encrypted bearer integrations
+      summary: List bearer integration metadata
       description: |-
-        Requires an interactive owner browser session. Returns safe metadata and user-encrypted ciphertext; credentials are never decrypted or revealed.
+        Requires an interactive owner browser session. Returns secret-safe metadata only; stored bearer credentials are never returned.
 
         Requires the integrations:read scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       responses:
         "200":
-          description: Encrypted bearer integration records
+          description: Bearer integration metadata
           content:
             application/json:
               schema:
@@ -2824,15 +2824,12 @@ paths:
                           type: integer
                           minimum: 0
                           maximum: 9007199254740991
-                        encryptedPayload:
-                          type: string
                       required:
                         - id
                         - name
                         - origin
                         - description
                         - revision
-                        - encryptedPayload
                       additionalProperties: false
                 required:
                   - revision
@@ -2863,9 +2860,9 @@ paths:
       x-required-scope: integrations:read
       x-owner-session-required: true
     post:
-      summary: Create an encrypted bearer integration
+      summary: Create a bearer integration
       description: |-
-        Requires an interactive owner browser session. Accepts only user-encrypted ciphertext, never an unlock key or plaintext credential.
+        Requires an interactive owner browser session. Accepts the secret over the authenticated connection and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
 
         Requires the integrations:write scope.
 
@@ -2946,10 +2943,10 @@ paths:
                     - type: string
                       maxLength: 500
                     - type: "null"
-                encryptedPayload:
+                token:
                   type: string
                   minLength: 1
-                  maxLength: 65536
+                  maxLength: 32768
               required:
                 - id
                 - expectedRevision
@@ -2957,13 +2954,13 @@ paths:
                 - name
                 - origin
                 - description
-                - encryptedPayload
+                - token
               additionalProperties: false
   /api/v1/integrations/bearer/{integrationId}:
     put:
-      summary: Update an encrypted bearer integration
+      summary: Update a bearer integration
       description: |-
-        Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted ciphertext.
+        Requires an interactive owner browser session and the current collection revision. Accepts a replacement secret and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
 
         Requires the integrations:write scope.
 
@@ -3047,17 +3044,17 @@ paths:
                     - type: string
                       maxLength: 500
                     - type: "null"
-                encryptedPayload:
+                token:
                   type: string
                   minLength: 1
-                  maxLength: 65536
+                  maxLength: 32768
               required:
                 - expectedRevision
                 - idempotencyKey
                 - name
                 - origin
                 - description
-                - encryptedPayload
+                - token
               additionalProperties: false
     delete:
       summary: Delete an encrypted bearer integration

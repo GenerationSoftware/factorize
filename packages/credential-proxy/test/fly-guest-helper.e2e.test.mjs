@@ -292,7 +292,7 @@ test("locked scoped run reconnects with its current grant while another VM stays
     const waitingWhileLocked = fetch(`http://127.0.0.1:${helperPort}/integrations/${integrationId}/echo`);
     await new Promise(resolve => setTimeout(resolve, 80));
     assert.equal(runtime.state, "locked");
-    assert.equal(snapshotReads, 0, "locked proxy denies selected Factorize grants before decrypting a snapshot");
+    assert.ok(snapshotReads > 0, "locked proxy may fetch server-encrypted snapshots but does not decrypt or forward legacy grants");
     assert.deepEqual(observedAuthorizations, [], "locked proxy does not forward to the upstream");
 
     runtime.unlock(unlockKey);
