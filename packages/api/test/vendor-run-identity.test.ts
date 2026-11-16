@@ -25,7 +25,7 @@ beforeAll(async () => {
 describe("vendor run identity", () => {
   it("accepts a signed Fly identity bound to the provisioned machine and active run", async () => {
     const identity = await verifyVendorRunIdentity({ token: await token(claims), binding: flyBinding, nowSeconds: now, resolveKey: async kid => kid === "key-1" ? publicJwk : undefined });
-    expect(identity).toMatchObject({ provider: "fly.io", runId: "run-1", vmId: "machine-1", subject: flyBinding.subject, keyId: "key-1" });
+    expect(identity).toMatchObject({ provider: "fly.io", runId: "run-1", vmId: "machine-1", subject: flyBinding.subject, issuedAt: now - 10, keyId: "key-1" });
   });
 
   it("accepts renewed vendor tokens for the same VM while an expired token is rejected", async () => {

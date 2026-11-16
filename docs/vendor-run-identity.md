@@ -2,7 +2,12 @@
 
 `packages/api/src/vendor-run-identity.ts` verifies signed OIDC identity tokens
 against provider trust configuration and the run/VM association loaded by
-Factorize. Callers must reject access unless the referenced run is still active.
+Factorize. `VendorRunIdentityRepository` stores verified claim bindings in
+PostgreSQL without storing JWTs. Each provider has one immutable VM, issuer,
+subject, audience, and run binding; renewal can extend its validity window but
+cannot change those values. VM and issuer/subject/audience uniqueness is
+enforced across tenants. Revoked, expired, or inactive-run bindings are not
+returned as active.
 Issuer discovery is pinned to the documented exe.dev or Fly.io HTTPS origin;
 the discovery response must repeat the configured issuer, and its JWKS URI
 must stay on that vendor origin. The verifier never trusts URLs or keys
@@ -32,7 +37,8 @@ token expires.
   pin the app issuer/audience and compare the signed machine ID to the
   provisioned machine.
 
-This module is the verification primitive for the first identity milestone.
-Proxy admission, vendor token acquisition/renewal wiring, and replacement of
-the existing proxy identity are later milestones and must not use a shared
-secret fallback.
+Fixture tests exercise the verifier and PostgreSQL repository independently;
+they do not establish live vendor behavior. Vendor token acquisition and
+renewal are not yet connected to execution provisioning, so this repository is
+not yet an admission path. Proxy admission and replacement of the existing
+proxy identity are later milestones and must not use a shared-secret fallback.

@@ -28,6 +28,7 @@ export type VendorIdentity = {
   audience: string;
   runId: string;
   vmId: string;
+  issuedAt: number;
   expiresAt: number;
   keyId: string;
 };
@@ -108,7 +109,7 @@ export async function verifyVendorRunIdentity(options: {
   const vmId = providerVmId(binding.provider, claims, binding);
   if (!vmId || vmId !== binding.vmId) throw new Error("Vendor identity VM mismatch");
 
-  return { provider: binding.provider, issuer: binding.issuer, subject: claims.sub, audience: binding.audience, runId: binding.runId, vmId, expiresAt: claims.exp, keyId: header.kid };
+  return { provider: binding.provider, issuer: binding.issuer, subject: claims.sub, audience: binding.audience, runId: binding.runId, vmId, issuedAt: claims.iat, expiresAt: claims.exp, keyId: header.kid };
 }
 
 /** A bounded JWKS cache. Unknown kids force one refresh so key rotation fails closed. */
