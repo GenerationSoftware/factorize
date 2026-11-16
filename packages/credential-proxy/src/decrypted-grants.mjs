@@ -139,6 +139,15 @@ export function createProxyIntegrationGrantResolver({ runtime, controlOrigin, co
   });
 }
 
+/** Resolve tenant-selected GitHub/Linear credentials through the same active
+ * run and grant-revision checked snapshot used for bearer grants. */
+export function createProxyProviderCredentialResolver({ controlOrigin, controlCredential, fetchImpl = fetch } = {}) {
+  if (typeof controlOrigin !== "string" || !/^fzc_[A-Za-z0-9_-]{43}$/.test(controlCredential ?? "")) {
+    throw new TypeError("provider credential resolver requires the registered proxy identity");
+  }
+  return async binding => (await readProxyIntegrationSnapshot({ controlOrigin, token: controlCredential, binding, fetchImpl })).providerCredentials;
+}
+
 /** Verify the current user-encrypted generation before opening access. */
 export async function verifyProxyUnlockKey(key, record) {
   const envelope = JSON.parse(record.encryptedVerification);

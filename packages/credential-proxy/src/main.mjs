@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { createProxyRuntime } from "./runtime.mjs";
 import { registerProxyBoot, startProxyRunRevocationMonitor, startProxyRuntimeStatusReporter } from "./control-client.mjs";
 import { startProxyBootstrapControl } from "./bootstrap-control.mjs";
-import { createProxyIntegrationGrantResolver } from "./decrypted-grants.mjs";
+import { createProxyIntegrationGrantResolver, createProxyProviderCredentialResolver } from "./decrypted-grants.mjs";
 import { startAuthenticatedProxyTunnel } from "./tunnel-transport.mjs";
 import { createProxyTlsAuthority } from "./tls-identity.mjs";
 import { createCodexAuthHelper } from "./codex-auth-helper.mjs";
@@ -78,12 +78,14 @@ async function activateRegistration(registration, origin, browserOrigin) {
     appOrigin: process.env.FACTORIZE_APP_ORIGIN ?? "https://app.factorize.sh",
   });
   const resolveGrants = createProxyIntegrationGrantResolver({ runtime, controlOrigin: origin, controlCredential: registration.controlCredential });
+  const resolveProviderCredentials = createProxyProviderCredentialResolver({ controlOrigin: origin, controlCredential: registration.controlCredential });
   const started = await startAuthenticatedProxyTunnel({
     tls: tlsAuthority.tls,
     runtime,
     controlOrigin: origin,
     controlCredential: registration.controlCredential,
     resolveGrants,
+    resolveProviderCredentials,
     resolveRunCredential: (runId, vmIdentity) => runCredentials.resolve(runId, vmIdentity),
     host: process.env.FACTORIZE_PROXY_TUNNEL_HOST ?? "0.0.0.0",
     port: tunnelPort,

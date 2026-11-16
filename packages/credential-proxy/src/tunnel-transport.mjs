@@ -118,10 +118,10 @@ export function createAuthenticatedTunnelServer({ tls, runtime, authenticateEnro
 /** Start the proxy's production-shaped mTLS listener using its boot-registered
  * control credential and process-local decrypted integration grants. */
 export async function startAuthenticatedProxyTunnel({
-  tls, runtime, controlOrigin, controlCredential, resolveGrants, resolveRunCredential, fetchImpl = fetch, host = "127.0.0.1", port = 0,
+  tls, runtime, controlOrigin, controlCredential, resolveGrants, resolveProviderCredentials, resolveRunCredential, fetchImpl = fetch, host = "127.0.0.1", port = 0,
 } = {}) {
   const authenticateRun = createProxyEnrollmentAuthenticator({
-    controlOrigin, controlCredential, bootEpoch: runtime?.bootEpoch, resolveGrants, resolveRunCredential, fetchImpl,
+    controlOrigin, controlCredential, bootEpoch: runtime?.bootEpoch, resolveGrants, resolveProviderCredentials, resolveRunCredential, fetchImpl,
   });
   const tunnel = createAuthenticatedTunnelServer({ tls, runtime, authenticateRun, host, port });
   try {

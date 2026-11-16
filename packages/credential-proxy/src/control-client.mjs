@@ -104,10 +104,22 @@ export async function readProxyIntegrationSnapshot({ controlOrigin, token, bindi
         || !(record.deletedAt != null && record.encryptedPayload === null
           || typeof record.origin === "string" && typeof record.encryptedPayload === "string") || !Number.isSafeInteger(record.revision))
       || !(modelAccount === null || (modelAccount && typeof modelAccount.id === "string" && modelAccount.kind === "model"
-        && modelAccount.origin === null && typeof modelAccount.encryptedPayload === "string" && Number.isSafeInteger(modelAccount.revision)))) {
+        && modelAccount.origin === null && typeof modelAccount.encryptedPayload === "string" && Number.isSafeInteger(modelAccount.revision)))
+      || !validProviderCredentials(result.providerCredentials)) {
     throw new Error("invalid proxy integration snapshot response");
   }
   return result;
+}
+
+function validProviderCredentials(value) {
+  if (!value || !Array.isArray(value.githubInstallations)
+      || value.githubInstallations.some(item => !item || !Number.isSafeInteger(item.installationId) || item.installationId <= 0
+        || typeof item.available !== "boolean" || (item.available ? typeof item.accessToken !== "string" || !item.accessToken : item.accessToken !== undefined))
+      || !(value.linearConnection === null || (value.linearConnection && value.linearConnection.connectionId === "linear"
+        && typeof value.linearConnection.available === "boolean"
+        && (value.linearConnection.available ? typeof value.linearConnection.accessToken === "string" && Boolean(value.linearConnection.accessToken)
+          : value.linearConnection.accessToken === undefined)))) return false;
+  return new Set(value.githubInstallations.map(item => item.installationId)).size === value.githubInstallations.length;
 }
 
 /** Concrete proxy-side adapters for revision-bound encrypted model caches. */
@@ -233,13 +245,13 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
  * Create the proxy-side half of enrollment. The job VM supplies only its run
  * ID over the already authenticated TLS connection; the proxy derives VM and
  * boot identity locally, then issues and consumes a fresh one-use enrollment
- * using its private control credential. Integration secrets stay in the
- * proxy's local grant resolver and never cross this control API.
+ * using its private control credential. Provider credentials are returned
+ * only to this process over the control channel and are never sent to the VM.
  */
-export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCredential, bootEpoch, resolveGrants, resolveRunCredential, fetchImpl = fetch } = {}) {
+export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCredential, bootEpoch, resolveGrants, resolveProviderCredentials, resolveRunCredential, fetchImpl = fetch } = {}) {
   if (!/^fzc_[A-Za-z0-9_-]{43}$/.test(controlCredential ?? "")) throw new TypeError("invalid proxy control credential");
   if (!bootEpochPattern.test(bootEpoch ?? "")) throw new TypeError("invalid proxy boot epoch");
-  if (typeof resolveGrants !== "function" || typeof resolveRunCredential !== "function") throw new TypeError("proxy enrollment requires local grant and run credential resolvers");
+  if (typeof resolveGrants !== "function" || typeof resolveProviderCredentials !== "function" || typeof resolveRunCredential !== "function") throw new TypeError("proxy enrollment requires local credential resolvers");
   validateOrigin(controlOrigin);
   let credential = controlCredential;
   return async function authenticateRun({ runId, vmIdentity, bootEpoch: requestedBootEpoch }) {
@@ -258,6 +270,8 @@ export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCrede
     }
     const grants = await resolveGrants(binding);
     if (!Array.isArray(grants)) throw new Error("proxy grants are unavailable");
+    const providerCredentials = await resolveProviderCredentials(binding);
+    if (!providerCredentials || !Array.isArray(providerCredentials.githubInstallations)) throw new Error("provider credentials are unavailable");
     return {
       authenticated: true,
       enrollmentConsumed: true,
@@ -271,6 +285,8 @@ export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCrede
       grantRevision: binding.grantRevision,
       grants,
       refreshGrants: () => resolveGrants(binding),
+      providerCredentials,
+      refreshProviderCredentials: () => resolveProviderCredentials(binding),
     };
   };
 }

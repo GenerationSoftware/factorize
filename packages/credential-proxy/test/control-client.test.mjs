@@ -49,7 +49,7 @@ test("boot registration uses a one-call control credential, HTTPS, exact path an
 
 test("proxy snapshot reader requests only the bound run revision and validates encrypted records", async () => {
   let request;
-  const snapshot = { ownerId: "owner-1", records: [{ id: "integration-1", kind: "bearer", origin: "https://api.example", revision: 4, encryptedPayload: "ciphertext" }], modelAccount: { id: "model-1", kind: "model", origin: null, revision: 5, encryptedPayload: "model-ciphertext" } };
+  const snapshot = { ownerId: "owner-1", records: [{ id: "integration-1", kind: "bearer", origin: "https://api.example", revision: 4, encryptedPayload: "ciphertext" }], modelAccount: { id: "model-1", kind: "model", origin: null, revision: 5, encryptedPayload: "model-ciphertext" }, providerCredentials: { githubInstallations: [], linearConnection: null } };
   const result = await readProxyIntegrationSnapshot({ controlOrigin: "https://factorize.example", token, binding: { runId, grantRevision: 7 }, fetchImpl: async (url, init) => {
     request = { url: String(url), init, body: JSON.parse(init.body) };
     return Response.json(snapshot);
@@ -174,6 +174,7 @@ test("proxy enrollment authenticator binds issued and consumed state to the mTLS
       assert.equal(binding.runId, "33333333-3333-4333-8333-333333333333");
       return grants;
     },
+    resolveProviderCredentials: async () => ({ githubInstallations: [], linearConnection: null }),
   });
   const connection = await authenticateRun({
     runId,

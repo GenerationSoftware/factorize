@@ -57,6 +57,17 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
     }));
   }
 
+  async function refreshActiveProviderCredentials() {
+    const epoch = grantEpoch;
+    const current = [...listeners];
+    await Promise.allSettled(current.map(async listener => {
+      const connection = listenerConnections.get(listener);
+      if (!connection || typeof connection.refreshProviderCredentials !== "function" || typeof listener.replaceProviderCredentials !== "function") return;
+      const credentials = await connection.refreshProviderCredentials();
+      if (epoch === grantEpoch && state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId) && listeners.has(listener)) listener.replaceProviderCredentials(credentials);
+    }));
+  }
+
   return Object.freeze({
     // A fresh process identity invalidates enrollments from every prior boot.
     bootEpoch,
@@ -72,6 +83,7 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
       grantEpoch++;
       state = "unlocked";
       void refreshActiveGrants();
+      void refreshActiveProviderCredentials();
     },
     /** Keep access locked until the caller has reconciled the current encrypted
      * snapshot. The preparation callback can read the transient key, but no
@@ -91,6 +103,7 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
         if (shutdown || locking || state !== "preparing") throw new Error("proxy unlock was interrupted");
         state = "unlocked";
         await refreshActiveGrants();
+        await refreshActiveProviderCredentials();
       } catch (error) {
         unlockMaterial?.fill(0);
         unlockMaterial = undefined;
@@ -148,6 +161,10 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
           try {
             const next = await connection.refreshGrants();
             if (epoch === grantEpoch && state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId)) listener.replaceGrants(next);
+            if (typeof connection.refreshProviderCredentials === "function" && typeof listener.replaceProviderCredentials === "function") {
+              const providers = await connection.refreshProviderCredentials();
+              if (epoch === grantEpoch && state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId)) listener.replaceProviderCredentials(providers);
+            }
           } catch {
             // A control-plane outage does not expire established grants. Retry
             // on the next interval; durable revocation has its own monitor.
@@ -157,6 +174,7 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
         const timer = setInterval(refresh, grantRefreshIntervalMs);
         timer.unref?.();
         grantRefreshTimers.set(listener, timer);
+        void refreshActiveProviderCredentials();
       }
       return listener;
     },

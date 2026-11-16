@@ -3,7 +3,7 @@ import { ProxyControlRepository } from "./postgres/proxy-control-repository";
 import { RunEnrollmentRepository } from "./postgres/run-enrollment-repository";
 import { EncryptedIntegrationRepository } from "./postgres/encrypted-integration-repository";
 import { authenticateRunCredential } from "./run-credentials";
-import { GitHubRepository } from "./postgres/github-repository";
+import { resolveRunProviderCredentials } from "./provider-credentials";
 
 async function recordOwner(env: Parameters<typeof databaseFor>[0], tenantId: string): Promise<string> {
   const result = await databaseFor(env).pool.query<{ user_id: string }>("SELECT user_id FROM app.members WHERE tenant_id=$1 AND role='owner' ORDER BY created_at,user_id LIMIT 1", [tenantId]);
@@ -146,18 +146,14 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     }
     const selectedGitHub = run.execution_config?.githubInstallationIds ?? [];
     if (!Array.isArray(selectedGitHub) || selectedGitHub.some(id => !Number.isSafeInteger(id) || id <= 0) || new Set(selectedGitHub).size !== selectedGitHub.length) return json({ error: "integration_snapshot_unavailable" }, 403);
-    const installations = await new GitHubRepository(database, proxy.tenantId).installations();
-    const byInstallation = new Map(installations.map(item => [Number(item.installationId), item]));
-    const githubInstallations = selectedGitHub.map((installationId: number) => ({ installationId, available: byInstallation.get(installationId)?.state === "active" }));
     const selectedLinear = run.execution_config?.linearConnectionId;
     if (selectedLinear !== undefined && selectedLinear !== "linear") return json({ error: "integration_snapshot_unavailable" }, 403);
-    const linearPresent = selectedLinear === "linear"
-      ? Boolean((await database.pool.query("SELECT 1 FROM app.connections WHERE tenant_id=$1 AND kind='linear'", [proxy.tenantId])).rowCount)
-      : false;
-    const linearConnection = selectedLinear === "linear" ? { connectionId: "linear", available: linearPresent } : null;
+    const providerCredentials = await resolveRunProviderCredentials({ database, env, tenantId: proxy.tenantId,
+      githubInstallationIds: selectedGitHub, linearSelected: selectedLinear === "linear" });
     // Only the selected model account's user-encrypted payload crosses the
-    // control plane. It remains encrypted until the proxy is unlocked.
-    return json({ ownerId: await recordOwner(env, proxy.tenantId), records, modelAccount, providerCredentials: { githubInstallations, linearConnection } });
+    // control plane. It remains encrypted until the proxy is unlocked. Provider
+    // credentials cross only this authenticated proxy control channel.
+    return json({ ownerId: await recordOwner(env, proxy.tenantId), records, modelAccount, providerCredentials });
   }
   const enrollments = new RunEnrollmentRepository(databaseFor(env));
   if (url.pathname === "/internal/credential-proxy/enroll") {

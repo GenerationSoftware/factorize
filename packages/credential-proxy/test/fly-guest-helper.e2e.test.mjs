@@ -97,6 +97,7 @@ test("generated Fly guest helper forwards through identity-bound mTLS and reject
     runtime,
     controlOrigin: "https://factorize.example",
     controlCredential: `fzc_${"c".repeat(43)}`,
+    resolveProviderCredentials: async () => ({ githubInstallations: [], linearConnection: null }),
     resolveRunCredential: (id, vmIdentity) => {
       if (id === crossVmRunId && vmIdentity === "api.example.test") rejectedRunBinding = true;
       return credentials.resolve(id, vmIdentity);
@@ -259,7 +260,7 @@ test("locked scoped run reconnects with its current grant while another VM stays
       assert.equal(activeRun.vmIdentity, vmIdentity);
       assert.deepEqual(activeRun.integrationIds, [integrationId]);
       snapshotReads++;
-      return Response.json({ ownerId, records: activeRun.integrationIds.includes(record.id) ? [record] : [], modelAccount: null });
+      return Response.json({ ownerId, records: activeRun.integrationIds.includes(record.id) ? [record] : [], modelAccount: null, providerCredentials: { githubInstallations: [], linearConnection: null } });
     }
     return Response.json({ error: "not found" }, { status: 404 });
   };
@@ -269,6 +270,7 @@ test("locked scoped run reconnects with its current grant while another VM stays
     tls: { key, cert: proxyCert, ca: cert }, runtime,
     controlOrigin: "https://factorize.example", controlCredential,
     resolveGrants,
+    resolveProviderCredentials: async () => ({ githubInstallations: [], linearConnection: null }),
     resolveRunCredential: (id, identity) => credentials.resolve(id, identity),
     fetchImpl: fetchControl,
   });

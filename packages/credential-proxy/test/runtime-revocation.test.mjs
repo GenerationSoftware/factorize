@@ -199,6 +199,41 @@ test("connection grant refresh swaps current integrations and tolerates failed p
   }
 });
 
+test("provider credential refresh removes disconnected credentials from an established tunnel", async () => {
+  let available = true;
+  const updates = [];
+  let revoked;
+  const revokedPromise = new Promise(resolve => { revoked = resolve; });
+  const runtime = createProxyRuntime({
+    bootEpoch,
+    grantRefreshIntervalMs: 100,
+    listenerFactory: async ({ connection: value }) => ({
+      connectionId: value.connectionId,
+      replaceGrants: () => {},
+      replaceProviderCredentials: next => {
+        updates.push(next);
+        if (next.linearConnection?.available === false) revoked();
+      },
+      close: async () => {},
+    }),
+  });
+  runtime.unlock("synthetic-unlock-key");
+  try {
+    await runtime.acceptAuthenticatedConnection({
+      ...connection("run-provider-refresh", "connection-provider-refresh"),
+      providerCredentials: { githubInstallations: [], linearConnection: { connectionId: "linear", available: true, accessToken: "initial" } },
+      refreshGrants: async () => [],
+      refreshProviderCredentials: async () => ({ githubInstallations: [], linearConnection: { connectionId: "linear", available, ...(available ? { accessToken: "current" } : {}) } }),
+    });
+    available = false;
+    await revokedPromise;
+    assert.ok(updates.some(value => value.linearConnection?.accessToken === "current"));
+    assert.deepEqual(updates.at(-1), { githubInstallations: [], linearConnection: { connectionId: "linear", available: false } });
+  } finally {
+    await runtime.shutdown();
+  }
+});
+
 test("a delayed grant refresh cannot restore access after run revocation", async () => {
   let resolveRefresh;
   let refreshStarted;

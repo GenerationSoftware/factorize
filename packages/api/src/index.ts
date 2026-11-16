@@ -75,14 +75,14 @@ app.get("/auth/linear/callback", async (c) => {
   if (!session || !code || !state || rawState !== getCookie(c, "linear_oauth_state") || state.tenantId !== session.tenantId || state.userId !== session.userId) return c.text("Invalid OAuth state", 400);
   deleteCookie(c, "linear_oauth_state", { path: "/auth/linear" });
   const tokenResponse = await fetch("https://api.linear.app/oauth/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, redirect_uri: `${c.env.APP_ORIGIN}/auth/linear/callback`, client_id: c.env.LINEAR_CLIENT_ID, client_secret: c.env.LINEAR_CLIENT_SECRET, grant_type: "authorization_code" }) });
-  const tokens = await tokenResponse.json() as { access_token?: string; refresh_token?: string };
+  const tokens = await tokenResponse.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
   if (!tokenResponse.ok || !tokens.access_token || !tokens.refresh_token) return c.text("Linear token exchange failed", 502);
   const meResponse = await fetch("https://api.linear.app/graphql", { method: "POST", headers: { Authorization: `Bearer ${tokens.access_token}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: "query { viewer { id email } organization { id name } }" }) });
   const me = await meResponse.json() as any;
   const organization = me.data?.organization;
   const viewer = me.data?.viewer;
   if (!organization?.id || !viewer?.id) return c.text("Could not identify Linear workspace", 502);
-  const connected = await new ConnectionRepository(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).putLinear(organization.id, { accessToken: tokens.access_token, refreshToken: tokens.refresh_token, organizationId: organization.id, organizationName: organization.name, viewerId: viewer.id, viewerEmail: viewer.email });
+  const connected = await new ConnectionRepository(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).putLinear(organization.id, { accessToken: tokens.access_token, refreshToken: tokens.refresh_token, accessTokenExpiresAt: Number.isFinite(tokens.expires_in) ? new Date(Date.now() + tokens.expires_in! * 1000).toISOString() : null, organizationId: organization.id, organizationName: organization.name, viewerId: viewer.id, viewerEmail: viewer.email });
   if (!connected) return c.text("This Linear workspace is already connected to another Factorize workspace. Sign in to that Factorize account to manage it.", 409);
   return c.redirect("/settings/integrations");
 });

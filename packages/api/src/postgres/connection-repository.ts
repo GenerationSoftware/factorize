@@ -35,6 +35,22 @@ export class ConnectionRepository {
       throw error;
     }
   }
+  /** Persist a rotated Linear token only while the connection still has the
+   * refresh token used for the exchange. This prevents a late refresh from
+   * replacing a reconnect or a newer token rotation. */
+  async rotateLinearTokens(expectedRefreshToken: string, value: Record<string, unknown>): Promise<Record<string, any> | null> {
+    return this.database.transaction(async client => {
+      const current = await client.query<{ encrypted_value: string }>(
+        "SELECT encrypted_value FROM app.connections WHERE tenant_id=$1 AND kind='linear' FOR UPDATE", [this.tenantId]);
+      if (!current.rows[0]) return null;
+      const connection = JSON.parse(await decrypt(current.rows[0].encrypted_value, this.encryptionKey));
+      if (connection.refreshToken !== expectedRefreshToken) return connection;
+      const encryptedValue = await encrypt(JSON.stringify({ ...connection, ...value }), this.encryptionKey);
+      await client.query("UPDATE app.connections SET encrypted_value=$3,updated_at=now() WHERE tenant_id=$1 AND kind='linear' AND encrypted_value=$2",
+        [this.tenantId, current.rows[0].encrypted_value, encryptedValue]);
+      return { ...connection, ...value };
+    });
+  }
   async delete(kind: string): Promise<boolean> { return Boolean((await this.database.orm.delete(connections).where(and(eq(connections.tenantId, this.tenantId), eq(connections.kind, kind))).returning({ kind: connections.kind })).length); }
   async kinds(prefix?: string): Promise<string[]> {
     const rows = await this.database.orm.select({ kind: connections.kind }).from(connections).where(and(eq(connections.tenantId, this.tenantId), ...(prefix ? [like(connections.kind, `${prefix}%`)] : []))).orderBy(connections.kind);

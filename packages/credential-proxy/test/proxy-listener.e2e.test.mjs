@@ -370,6 +370,7 @@ test("VM helper authenticates the active run while the proxy performs authentica
     runtime,
     controlOrigin: "https://factorize.example",
     controlCredential: `fzc_${"c".repeat(43)}`,
+    resolveProviderCredentials: async () => ({ githubInstallations: [], linearConnection: null }),
     resolveRunCredential: (id, vmIdentity) => runCredentials.resolve(id, vmIdentity),
     fetchImpl: async (url, init) => {
       const body = JSON.parse(init.body);
