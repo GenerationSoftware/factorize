@@ -173,9 +173,9 @@ describe.skipIf(!databaseUrl)("owner-only managed credential API (PostgreSQL)", 
         method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }), f.env, { waitUntil() {} } as any);
-      const ciphertext = await userEncrypt("{}"), createBody = {
+      const createBody = {
         id, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), name: "Work account",
-        description: "Personal subscription", encryptedPayload: ciphertext,
+        description: "Personal subscription", initialState: "{}",
       };
       const created = await request(path, "POST", createBody);
       expect(created.status).toBe(201);
