@@ -110,7 +110,7 @@ describe.skipIf(!databaseUrl)("owner-only managed credential API (PostgreSQL)", 
       const integrationRepository = new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
       await integrationRepository.write({ id: rotatedId, kind: "bearer", expectedRevision: 2, idempotencyKey: crypto.randomUUID(), name: "Rotated", origin: "https://api.example.test", description: null, operation: "upsert", encryptedPayload: encrypted });
       const modelId = crypto.randomUUID();
-      await integrationRepository.write({ id: modelId, kind: "model", expectedRevision: 0, idempotencyKey: crypto.randomUUID(), name: "Managed model", origin: null, description: null, operation: "upsert", managedModelPayload: JSON.stringify({ accessToken: "server-managed-fixture" }) });
+      await integrationRepository.write({ id: modelId, kind: "model", expectedRevision: 3, idempotencyKey: crypto.randomUUID(), name: "Managed model", origin: null, description: null, operation: "upsert", managedModelPayload: JSON.stringify({ accessToken: "server-managed-fixture" }) });
       const rotationSnapshot = await (await request("/unlock-key/rotation-snapshot")).json() as any;
       expect(rotationSnapshot.records.some((record: any) => record.id === modelId)).toBe(false);
       expect(JSON.stringify(rotationSnapshot)).not.toContain("server-managed-fixture");
