@@ -37,8 +37,16 @@ token expires.
   pin the app issuer/audience and compare the signed machine ID to the
   provisioned machine.
 
-Fixture tests exercise the verifier and PostgreSQL repository independently;
-they do not establish live vendor behavior. Vendor token acquisition and
-renewal are not yet connected to execution provisioning, so this repository is
-not yet an admission path. Proxy admission and replacement of the existing
-proxy identity are later milestones and must not use a shared-secret fallback.
+`packages/api/src/vendor-run-token-sources.ts` implements the documented guest
+token requests: exe.dev WIF `GET https://<integration>.int.exe.xyz/token` and
+Fly `POST http://localhost/v1/tokens/oidc` through the Machine's
+`/.fly/api` Unix socket with the configured `aud`. Renewal repeats the provider
+request and must pass the same verifier and immutable binding. Focused source
+tests use deterministic response fixtures; they do not establish live vendor
+behavior.
+
+The token sources are not yet invoked by execution provisioning, and verified
+identities are not yet persisted from a launch. This branch therefore remains
+an incomplete implementation checkpoint, not an admission path. Proxy
+admission and replacement of the existing proxy identity are later milestones
+and must not use a shared-secret fallback.
