@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { createJwksResolver, verifyVendorRunIdentity, type VendorRunBinding } from "../src/vendor-run-identity";
+import { createJwksResolver, discoverVendorIssuerTrust, verifyVendorRunIdentity, type VendorRunBinding } from "../src/vendor-run-identity";
 
 const now = 1_800_000_000;
 let privateKey: CryptoKey, publicJwk: JsonWebKey;
@@ -74,5 +74,18 @@ describe("vendor run identity", () => {
   it("rejects signatures from keys outside the configured issuer key set", async () => {
     const other = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
     await expect(verifyVendorRunIdentity({ token: await token(claims, "key-1", other.privateKey), binding: flyBinding, nowSeconds: now, resolveKey: async () => publicJwk })).rejects.toThrow("signature");
+  });
+
+  it("loads issuer keys only from matching HTTPS metadata on the vendor origin", async () => {
+    const calls: string[] = [];
+    const trust = await discoverVendorIssuerTrust({ provider: "fly.io", issuer: flyBinding.issuer, fetcher: async input => {
+      calls.push(String(input));
+      return Response.json({ issuer: flyBinding.issuer, jwks_uri: "https://oidc.fly.io/keys" });
+    } });
+    expect(trust).toMatchObject({ issuer: flyBinding.issuer, jwksUri: "https://oidc.fly.io/keys" });
+    expect(calls).toEqual([`${flyBinding.issuer}/.well-known/openid-configuration`]);
+    await expect(discoverVendorIssuerTrust({ provider: "fly.io", issuer: flyBinding.issuer, fetcher: async () => Response.json({ issuer: "https://attacker.example", jwks_uri: "https://attacker.example/keys" }) })).rejects.toThrow("metadata does not match");
+    await expect(discoverVendorIssuerTrust({ provider: "fly.io", issuer: "https://attacker.example/app", fetcher: fetch })).rejects.toThrow("not trusted");
+    await expect(discoverVendorIssuerTrust({ provider: "exe.dev", issuer: "https://exe.dev/issuer/team-workload", fetcher: async () => Response.json({ issuer: "https://exe.dev/issuer/team-workload", jwks_uri: "https://attacker.example/keys" }) })).rejects.toThrow("keys URL is not trusted");
   });
 });

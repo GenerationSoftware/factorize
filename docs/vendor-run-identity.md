@@ -3,8 +3,10 @@
 `packages/api/src/vendor-run-identity.ts` verifies signed OIDC identity tokens
 against provider trust configuration and the run/VM association loaded by
 Factorize. Callers must reject access unless the referenced run is still active.
-Issuer discovery and its JWKS URI must come from the provider's OIDC metadata;
-the verifier never trusts URLs or keys supplied by a guest.
+Issuer discovery is pinned to the documented exe.dev or Fly.io HTTPS origin;
+the discovery response must repeat the configured issuer, and its JWKS URI
+must stay on that vendor origin. The verifier never trusts URLs or keys
+supplied by a guest.
 
 The verifier allows only RS256 and ES256, validates the signature, exact issuer,
 audience, configured subject, issue and expiry times, and active run. It binds

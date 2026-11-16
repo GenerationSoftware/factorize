@@ -34,6 +34,8 @@ export type VendorIdentity = {
 
 export type JwksResolver = (keyId: string, refresh: boolean) => Promise<JsonWebKey | undefined>;
 
+export type VendorIssuerTrust = { issuer: string; jwksUri: string; resolveKey: JwksResolver };
+
 type JwtHeader = { alg?: unknown; kid?: unknown; typ?: unknown };
 type JwtClaims = Record<string, unknown> & { iss?: unknown; sub?: unknown; aud?: unknown; exp?: unknown; iat?: unknown; nbf?: unknown; machine_id?: unknown };
 
@@ -132,4 +134,32 @@ export function createJwksResolver(options: { jwksUri: string; fetcher?: typeof 
     await load(refresh);
     return keys.get(keyId);
   };
+}
+
+/** Load an OIDC issuer's signing keys only from the documented vendor origin. */
+export async function discoverVendorIssuerTrust(options: {
+  provider: VendorIdentityProvider;
+  issuer: string;
+  fetcher?: typeof fetch;
+  ttlMs?: number;
+  now?: () => number;
+}): Promise<VendorIssuerTrust> {
+  let issuerUrl: URL;
+  try { issuerUrl = new URL(options.issuer); }
+  catch { throw new Error("Vendor issuer URL is invalid"); }
+  const expectedOrigin = options.provider === "fly.io" ? "https://oidc.fly.io" : "https://exe.dev";
+  if (issuerUrl.protocol !== "https:" || issuerUrl.origin !== expectedOrigin || issuerUrl.username || issuerUrl.password || issuerUrl.search || issuerUrl.hash) throw new Error("Vendor issuer URL is not trusted");
+  if (options.provider === "exe.dev" && !/^\/issuer\/[A-Za-z0-9-]+\/?$/.test(issuerUrl.pathname)) throw new Error("exe.dev issuer path is invalid");
+  if (options.provider === "fly.io" && !/^\/[A-Za-z0-9-]+\/?$/.test(issuerUrl.pathname)) throw new Error("Fly.io issuer path is invalid");
+  const issuer = options.issuer.replace(/\/$/, "");
+  const discoveryUrl = `${issuer}/.well-known/openid-configuration`;
+  const response = await (options.fetcher ?? fetch)(discoveryUrl, { headers: { accept: "application/json" } });
+  if (!response.ok) throw new Error(`Vendor issuer metadata unavailable (${response.status})`);
+  const metadata = await response.json() as { issuer?: unknown; jwks_uri?: unknown };
+  if (metadata.issuer !== issuer || typeof metadata.jwks_uri !== "string") throw new Error("Vendor issuer metadata does not match the configured issuer");
+  let jwksUrl: URL;
+  try { jwksUrl = new URL(metadata.jwks_uri); }
+  catch { throw new Error("Vendor signing keys URL is invalid"); }
+  if (jwksUrl.protocol !== "https:" || jwksUrl.origin !== expectedOrigin || jwksUrl.username || jwksUrl.password || jwksUrl.search || jwksUrl.hash) throw new Error("Vendor signing keys URL is not trusted");
+  return { issuer, jwksUri: jwksUrl.href, resolveKey: createJwksResolver({ jwksUri: jwksUrl.href, fetcher: options.fetcher, ttlMs: options.ttlMs, now: options.now }) };
 }
