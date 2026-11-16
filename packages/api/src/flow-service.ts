@@ -630,6 +630,9 @@ export class ApiService {
   }) {
     await this.authorizeOwnerSession("integrations:write");
     if (input.expectedGenerationId === input.generationId) throw new ServiceError(400, "invalid_request", "A replacement key generation must be new.");
+    if (input.preserveManagedModelCaches && [...input.records.map(record => record.encryptedPayload), ...input.changes.map(change => change.encryptedPayload)].some(value => value?.startsWith("factorize-managed-model-cache-v1:"))) {
+      throw new ServiceError(400, "invalid_request", "Managed model cache payloads are preserved by the server and cannot be supplied by the browser.");
+    }
     const repository = this.encryptedIntegrations();
     let suppliedRecords = input.records;
     let suppliedChanges = input.changes;
@@ -642,7 +645,7 @@ export class ApiService {
     const records = suppliedRecords.map(record => ({ ...record, deletedAt: record.deletedAt === null ? null : new Date(record.deletedAt) }));
     const changes = suppliedChanges.map(({ recordRevision: _recordRevision, ...change }) => change);
     try {
-      await repository.stageGeneration({ generationId: input.generationId, expectedRevision: input.expectedRevision, records, changes });
+      await repository.stageGeneration({ generationId: input.generationId, expectedRevision: input.expectedRevision, records, changes, preserveManagedModelCaches: input.preserveManagedModelCaches });
       const committed = await repository.commitGeneration(input.generationId, input.expectedRevision, {
         expectedVerificationGenerationId: input.expectedGenerationId,
         verificationGenerationId: input.generationId,

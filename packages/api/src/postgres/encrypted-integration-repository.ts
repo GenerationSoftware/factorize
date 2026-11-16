@@ -248,15 +248,17 @@ export class EncryptedIntegrationRepository {
   }
 
   /** Store one complete replacement generation. Payloads must already be user-encrypted. */
-  async stageGeneration(input: { generationId: string; expectedRevision: number; records: GenerationRecord[]; changes: GenerationChange[] }): Promise<{ duplicate: boolean }> {
+  async stageGeneration(input: { generationId: string; expectedRevision: number; records: GenerationRecord[]; changes: GenerationChange[]; preserveManagedModelCaches?: boolean }): Promise<{ duplicate: boolean }> {
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuid.test(input.generationId) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw new IntegrationValidationError("generationId and expectedRevision are invalid");
     if (input.records.length > 5000 || input.changes.length > 10000) throw new IntegrationValidationError("generation exceeds staging limits");
     for (const record of input.records) {
-      if (!uuid.test(record.id) || (record.encryptedPayload !== null && !isUserCiphertext(record.encryptedPayload)) || (record.deletedAt === null) !== (record.encryptedPayload !== null)) throw new IntegrationValidationError("generation records must contain ciphertext or a tombstone");
+      const managedModel = input.preserveManagedModelCaches && record.kind === "model" && record.encryptedPayload?.startsWith(MANAGED_MODEL_PREFIX);
+      if (!uuid.test(record.id) || (record.encryptedPayload !== null && !isUserCiphertext(record.encryptedPayload) && !managedModel) || (record.deletedAt === null) !== (record.encryptedPayload !== null)) throw new IntegrationValidationError("generation records must contain ciphertext or a tombstone");
     }
     for (const change of input.changes) {
-      if (!uuid.test(change.id) || !uuid.test(change.idempotencyKey) || !Number.isSafeInteger(change.revision) || change.revision < 1 || (change.encryptedPayload !== null && !isUserCiphertext(change.encryptedPayload)) || (change.operation === "upsert") !== (change.encryptedPayload !== null)) throw new IntegrationValidationError("generation changes must contain ordered ciphertext or tombstones");
+      const managedModel = input.preserveManagedModelCaches && change.kind === "model" && change.encryptedPayload?.startsWith(MANAGED_MODEL_PREFIX);
+      if (!uuid.test(change.id) || !uuid.test(change.idempotencyKey) || !Number.isSafeInteger(change.revision) || change.revision < 1 || (change.encryptedPayload !== null && !isUserCiphertext(change.encryptedPayload) && !managedModel) || (change.operation === "upsert") !== (change.encryptedPayload !== null)) throw new IntegrationValidationError("generation changes must contain ordered ciphertext or tombstones");
     }
     const canonical = JSON.stringify({
       records: [...input.records].sort((a,b) => a.id.localeCompare(b.id)).map(row => ({ ...row, deletedAt: row.deletedAt?.toISOString() ?? null })),
