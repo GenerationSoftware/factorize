@@ -40,13 +40,18 @@ token expires.
 `packages/api/src/vendor-run-token-sources.ts` implements the documented guest
 token requests: exe.dev WIF `GET https://<integration>.int.exe.xyz/token` and
 Fly `POST http://localhost/v1/tokens/oidc` through the Machine's
-`/.fly/api` Unix socket with the configured `aud`. Renewal repeats the provider
-request and must pass the same verifier and immutable binding. Focused source
-tests use deterministic response fixtures; they do not establish live vendor
-behavior.
+`/.fly/api` Unix socket with the configured `aud`. Provisioning creates a
+uniquely named exe.dev WIF integration attached only to the run VM, reads its
+issuer and subject back from the provider inventory, and verifies the returned
+token before starting the job. Fly provisioning verifies its token against the
+configured app issuer and the returned Machine ID. The scheduler persists only
+verified claim bindings. Active VM polls renew through the same token source,
+verifier, active-run check, and immutable repository update; provider cleanup
+removes the per-run exe.dev integration after verifying its VM attachment.
 
-The token sources are not yet invoked by execution provisioning, and verified
-identities are not yet persisted from a launch. This branch therefore remains
-an incomplete implementation checkpoint, not an admission path. Proxy
-admission and replacement of the existing proxy identity are later milestones
-and must not use a shared-secret fallback.
+Focused backend tests use deterministic token and provider response fixtures,
+and the PostgreSQL repository tests cover immutable renewal, revocation,
+expiry, duplicate bindings, and inactive runs. They do not establish live
+vendor behavior. No live exe.dev or Fly token was observed in development or
+validation. The existing proxy admission and proxy identity remain outside this
+milestone; vendor verification does not add a shared-secret fallback.

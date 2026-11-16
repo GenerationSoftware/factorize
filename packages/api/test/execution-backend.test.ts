@@ -25,7 +25,7 @@ function launchPayload(command: string): any {
 describe("ExeVmBackend", () => {
   it("reserves its legacy VM and proxy handle for scheduler recovery", () => {
     const runId = "00000000-0000-4000-8000-000000000001";
-    expect(new ExeVmBackend(connection).reserve(runId)).toEqual({ backendKind: "exe-vm", id: vmNameFor(runId), runProxyName: runProxyName(runId) });
+    expect(new ExeVmBackend(connection).reserve(runId)).toEqual({ backendKind: "exe-vm", id: vmNameFor(runId), runProxyName: runProxyName(runId), operationId: runId, vendorIdentityIntegrationName: "fzrun-00000000000040008000000000000001" });
   });
   it("defines the supported effort choices by agent", () => {
     expect(effortOptions.codex).toEqual(["minimal", "low", "medium", "high", "xhigh"]);
@@ -108,6 +108,26 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).not.toContain("nohup");
     expect(requests[1]).toContain("; echo started");
     expect(requests[1]).toContain("systemctl show");
+  });
+
+  it("acquires a per-VM exe.dev WIF identity and verifies it before starting the job", async () => {
+    const requests: string[] = [], token = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2V4ZS5kZXYvaXNzdWVyL3Rlc3QifQ.c2ln";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const command = String(init.body); requests.push(command);
+      if (command.startsWith("new ")) return new Response("created", { headers: { "X-Exe-Exit": "0" } });
+      if (command.startsWith("integrations add wif")) return new Response("Added integration", { headers: { "X-Exe-Exit": "0" } });
+      if (command === "integrations list --json") return new Response(JSON.stringify([{ name: "fzrun-00000000000040008000000000000001", type: "wif", config: { issuer_id: "test", subject: "sub-test", audience: "factorize://runs/00000000-0000-4000-8000-000000000001" }, attachments: ["vm:factorize-00000000-0000-4000-8000-000000000001"] }]), { headers: { "X-Exe-Exit": "0" } });
+      if (command.includes("/token")) return new Response(token, { headers: { "X-Exe-Exit": "0" } });
+      return new Response("started", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    const verify = vi.fn(async () => undefined);
+    const runId = "00000000-0000-4000-8000-000000000001";
+    const launched = await new ExeVmBackend(connection).launch({ runId, prompt: "work", harness: agentDriver("codex").launch(runId, {}), verifyVendorIdentity: verify });
+    expect(launched.observation.state).toBe("running");
+    expect(requests[1]).toContain("integrations add wif");
+    expect(requests[1]).toContain("--attach='vm:factorize-00000000-0000-4000-8000-000000000001'");
+    expect(verify).toHaveBeenCalledWith({ provider: "exe.dev", vmId: "factorize-00000000-0000-4000-8000-000000000001", token, integrationName: "fzrun-00000000000040008000000000000001", expectedIssuer: "https://exe.dev/issuer/test", expectedSubject: "sub-test" });
+    expect(requests.indexOf(requests.find(value => value.includes("sudo systemd-run"))!)).toBeGreaterThan(requests.indexOf(requests.find(value => value.includes("/token"))!));
   });
 
   it("generates standard I/O settings accepted by systemd", async () => {

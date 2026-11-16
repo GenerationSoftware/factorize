@@ -49,6 +49,20 @@ describe("Fly job execution backend", () => {
     expect(JSON.stringify(f.machines.createMachine.mock.calls)).not.toContain("echo ok");
   });
 
+  it("verifies the Fly Machine OIDC token before installing or launching the job", async () => {
+    const f = fixture();
+    const token = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL29pZGMuZmx5LmlvL2ZhY3Rvcml6ZS10ZXN0In0.c2ln";
+    f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: token, stderr: "" });
+    const verify = vi.fn(async () => undefined);
+    const runId = "11111111-1111-4111-8111-111111111111";
+    const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
+    const receipt = await backend.launch({ runId, prompt: "work" });
+    expect(receipt.observation.state).toBe("running");
+    expect(f.guest.run.mock.calls[0]?.[0]).toContain("http://localhost/v1/tokens/oidc");
+    expect(verify).toHaveBeenCalledWith({ provider: "fly.io", vmId: "machine-1", token });
+    expect(verify.mock.invocationCallOrder[0]).toBeLessThan(f.guest.run.mock.invocationCallOrder.at(-1)!);
+  });
+
   it("reports a nonzero Fly guest process exit as a failed run", async () => {
     const f = fixture();
     f.machines.inspectMachine.mockResolvedValue({ ...machine, state: "started" });

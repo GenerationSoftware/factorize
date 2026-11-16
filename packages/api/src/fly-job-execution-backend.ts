@@ -17,6 +17,7 @@ export class FlyJobExecutionBackend extends MachineJobExecutionBackend {
       }),
       vmIdentity: machine => `fly:${options.app}:${machine.id}`,
       proxyAddress: { host: `${options.app}.internal`, port: 9090 },
+      vendorIdentityAudience: options.vendorIdentityAudience ?? (runId => `factorize://runs/${runId}`),
     });
   }
 }

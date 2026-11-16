@@ -7,6 +7,7 @@ import type { ArtifactCollectionRequest, ArtifactCollector, ExecutionTerminator,
 import { sourceCommand } from "./trace-source";
 import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
 import { FACTORIZE_FLY_TUNNEL_HELPER } from "./fly-job-tunnel-helper";
+import { acquireFlyMachineOidcToken } from "./vendor-run-token-sources";
 
 const SUPPORTED_CODEX_CLI_VERSION = "codex-cli 0.167.1";
 
@@ -51,6 +52,8 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
       proxyBootEpoch?: string;
       proxyGuest?: ProxyGuest;
       destinationUrl?: (machine: JobMachine) => string;
+      vendorIdentityAudience?: (runId: string) => string;
+      verifyVendorIdentity?: (input: { provider: "exe.dev" | "fly.io"; vmId: string; token: string; integrationName?: string; expectedIssuer?: string; expectedSubject?: string }) => Promise<void>;
     },
   ) {}
 
@@ -93,6 +96,13 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
       }
       await this.options.machines.startMachine(this.options.app, machine.id);
       const guest = this.options.guest(machine);
+      const verifyVendorIdentity = request.verifyVendorIdentity ?? this.options.verifyVendorIdentity;
+      if (this.kind === "fly" && verifyVendorIdentity) {
+        const audience = this.options.vendorIdentityAudience?.(request.runId);
+        if (!audience) throw new Error("Fly vendor identity audience is unavailable");
+        const token = await acquireFlyMachineOidcToken({ guest, audience });
+        await verifyVendorIdentity({ provider: "fly.io", vmId: machine.id, token });
+      }
       const tunnelPrerequisites = request.runProxy ? " && command -v node >/dev/null && command -v openssl >/dev/null" : "";
       const installed = await guest.run(["/bin/sh", "-c", `command -v python3 >/dev/null && command -v runuser >/dev/null${tunnelPrerequisites} && id exedev >/dev/null && mkdir -p /usr/local/bin && install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job && cat > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job`], FACTORIZE_JOB_LAUNCHER);
       if (!installed.ok) throw new Error(request.runProxy
@@ -159,6 +169,16 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
     const machine = await this.options.machines.inspectMachine(this.options.app, id);
     switch (String(machine.state ?? "").toLowerCase()) {
       case "started": {
+        const runId = handle.operationId;
+        const audience = runId && this.options.vendorIdentityAudience?.(runId);
+        if (runId && audience && this.options.verifyVendorIdentity) {
+          try {
+            const token = await acquireFlyMachineOidcToken({ guest: this.options.guest({ id }), audience });
+            await this.options.verifyVendorIdentity({ provider: "fly.io", vmId: id, token });
+          } catch {
+            return { state: "failed", detail: "Fly Machine vendor identity renewal failed", failure: { source: "system", code: "vendor_identity_renewal_failed", reason: "Fly Machine vendor identity renewal failed" } };
+          }
+        }
         try {
           const result = await this.options.guest(machine).run(["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "status"]);
           if (result.ok) {

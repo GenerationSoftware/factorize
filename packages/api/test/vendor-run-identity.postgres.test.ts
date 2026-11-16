@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Database } from "../src/postgres/database";
 import { VendorRunIdentityRepository } from "../src/postgres/vendor-run-identity-repository";
 import type { VendorIdentity } from "../src/vendor-run-identity";
+import { verifyAndPersistVendorRunIdentity } from "../src/vendor-run-identity-provisioning";
 
 const url = process.env.AUTH_TEST_DATABASE_URL;
 
@@ -59,5 +60,38 @@ describe.skipIf(!url)("durable vendor run identity bindings (PostgreSQL)", () =>
     const expired = await fixture();
     await expired.repository.persistVerified({ tenantId: expired.tenantId, identity: expired.identity, issuedAt: expired.identity.issuedAt, now: expired.now });
     expect(await expired.repository.getActive({ tenantId: expired.tenantId, runId: expired.runId, provider: "fly.io", now: new Date(expired.identity.expiresAt * 1000) })).toBeNull();
+  }, 30_000);
+
+  it("verifies a signed Fly token before persisting and renewing its active VM binding", async () => {
+    const f = await fixture();
+    const issuer = f.identity.issuer, audience = `factorize://runs/${f.runId}`, subject = f.identity.subject;
+    const pair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+    const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+    const base64url = (value: Uint8Array) => Buffer.from(value).toString("base64url");
+    const sign = async (issuedAt: number, machineId = f.identity.vmId) => {
+      const header = base64url(new TextEncoder().encode(JSON.stringify({ alg: "RS256", kid: "fixture-key" })));
+      const payload = base64url(new TextEncoder().encode(JSON.stringify({ iss: issuer, sub: subject, aud: audience, iat: issuedAt, exp: issuedAt + 600, machine_id: machineId })));
+      const input = `${header}.${payload}`;
+      const signature = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(input)));
+      return `${input}.${base64url(signature)}`;
+    };
+    const now = Math.floor(Date.now() / 1000);
+    const fetcher = vi.fn(async (url: string | URL | Request) => String(url).endsWith("/.well-known/openid-configuration")
+      ? Response.json({ issuer, jwks_uri: `${issuer}/keys` })
+      : Response.json({ keys: [{ ...jwk, kid: "fixture-key", use: "sig" }] }));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      const first = await sign(now - 5);
+      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: first, audience, expectedIssuer: issuer, now: new Date(now * 1000) }))
+        .resolves.toMatchObject({ provider: "fly.io", vmId: f.identity.vmId, issuer, subject, audience });
+      const renewed = await sign(now + 30);
+      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: renewed, audience, expectedIssuer: issuer, now: new Date((now + 30) * 1000) }))
+        .resolves.toMatchObject({ expiresAt: new Date((now + 630) * 1000) });
+      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: await sign(now + 60, "another-machine"), audience, expectedIssuer: issuer, now: new Date((now + 60) * 1000) }))
+        .rejects.toThrow("VM mismatch");
+      await f.repository.revoke({ tenantId: f.tenantId, runId: f.runId, provider: "fly.io", now: new Date((now + 60) * 1000) });
+      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: await sign(now + 90), audience, expectedIssuer: issuer, now: new Date((now + 90) * 1000) }))
+        .rejects.toThrow("binding is revoked");
+    } finally { vi.unstubAllGlobals(); }
   }, 30_000);
 });

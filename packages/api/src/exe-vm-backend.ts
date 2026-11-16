@@ -17,6 +17,11 @@ export function vmNameFor(runId: string): string {
   return `factorize-${suffix}`;
 }
 
+export function exeWifIntegrationNameFor(runId: string): string {
+  return `fzrun-${runId.replaceAll("-", "").toLowerCase().slice(0, 32)}`;
+}
+type ExeWifConfiguration = { integrationName: string; issuer: string; subject: string; audience: string };
+
 export function isOwnedVmName(vm: string): boolean {
   return /^factorize-[a-z0-9](?:[a-z0-9-]{0,47}[a-z0-9])?$/.test(vm);
 }
@@ -53,9 +58,59 @@ export class ExeVmBackend implements ExecutionBackend {
   readonly kind = "exe-vm";
   readonly capabilities = capabilities;
 
-  constructor(private readonly connection: Pick<ExeConnection, "apiToken" | "tags"> & { image?: string } | ExeRunConnection) {}
+  constructor(
+    private readonly connection: Pick<ExeConnection, "apiToken" | "tags"> & { image?: string } | ExeRunConnection,
+    private readonly vendorIdentityVerifier?: (input: { provider: "exe.dev" | "fly.io"; vmId: string; token: string; integrationName?: string; expectedIssuer?: string; expectedSubject?: string }) => Promise<void>,
+  ) {}
 
-  reserve(runId: string): RunHandle { return { backendKind: this.kind, id: vmNameFor(runId), runProxyName: runProxyName(runId) }; }
+  reserve(runId: string): RunHandle { return { backendKind: this.kind, id: vmNameFor(runId), runProxyName: runProxyName(runId), operationId: runId, vendorIdentityIntegrationName: exeWifIntegrationNameFor(runId) }; }
+
+  private async exeWifToken(vm: string, integrationName: string): Promise<string> {
+    const command = `curl --fail --silent --show-error https://${integrationName}.int.exe.xyz/token | python3 -c 'import json,sys;v=json.load(sys.stdin);t=v.get("token");sys.stdout.write(t if isinstance(t,str) else "")'`;
+    const result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(command)}`);
+    if (!result.ok || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(result.body.trim())) throw new Error("exe.dev WIF token request failed");
+    return result.body.trim();
+  }
+
+  private async ensureExeWif(vm: string, runId: string, create = true): Promise<ExeWifConfiguration> {
+    const name = exeWifIntegrationNameFor(runId), audience = `factorize://runs/${runId}`;
+    if (create) {
+      const created = await this.api(`integrations add wif --name=${shellAtom(name)} --audience=${shellAtom(audience)} --consumer=gcp --attach=${shellAtom(`vm:${vm}`)}`);
+      if (!created.ok) throw new Error(`exe.dev WIF integration setup failed (${created.status})`);
+    }
+    const listed = await this.api("integrations list --json");
+    if (!listed.ok) throw new Error("exe.dev WIF integration could not be verified");
+    try {
+      const parsed = JSON.parse(listed.body), integrations = Array.isArray(parsed) ? parsed : parsed.integrations;
+      const matches = Array.isArray(integrations) ? integrations.filter((item: any) => item?.name === name && item?.type === "wif") : [];
+      if (matches.length !== 1) throw new Error();
+      const config = matches[0].config;
+      if (typeof config?.issuer_id !== "string" || !/^[A-Za-z0-9-]+$/.test(config.issuer_id) || typeof config?.subject !== "string" || !config.subject || config.audience !== audience) throw new Error();
+      if (!Array.isArray(matches[0].attachments) || matches[0].attachments.length !== 1 || matches[0].attachments[0] !== `vm:${vm}`) throw new Error();
+      return { integrationName: name, issuer: `https://exe.dev/issuer/${config.issuer_id}`, subject: config.subject, audience };
+    } catch { throw new Error("exe.dev WIF integration metadata is invalid"); }
+  }
+
+  private async removeExeWif(vm: string, runId: string, name: string): Promise<void> {
+    if (name !== exeWifIntegrationNameFor(runId)) throw new Error("Refusing to remove an unrelated exe.dev WIF integration");
+    const listed = await this.api("integrations list --json");
+    if (!listed.ok) throw new Error("exe.dev WIF cleanup could not verify integration ownership");
+    let integrations: any[];
+    try {
+      const parsed = JSON.parse(listed.body);
+      integrations = Array.isArray(parsed) ? parsed : parsed.integrations;
+      if (!Array.isArray(integrations)) throw new Error();
+    } catch { throw new Error("exe.dev WIF cleanup inventory is invalid"); }
+    const matches = integrations.filter(item => item?.name === name);
+    if (!matches.length) return;
+    const audience = `factorize://runs/${runId}`;
+    if (matches.length !== 1 || matches[0]?.type !== "wif" || matches[0]?.config?.audience !== audience
+      || !Array.isArray(matches[0]?.attachments) || matches[0].attachments.length !== 1 || matches[0].attachments[0] !== `vm:${vm}`) {
+      throw new Error("exe.dev WIF ownership or attachment does not match");
+    }
+    const removed = await this.api(`integrations remove ${shellAtom(name)}`);
+    if (!removed.ok && removed.status !== 404) throw new Error("exe.dev WIF removal failed");
+  }
 
   private async api(command: string): Promise<BackendCommandResult> {
     const response = await fetch(API, { method: "POST", headers: { Authorization: `Bearer ${this.connection.apiToken}`, "Content-Type": "text/plain" }, body: command });
@@ -150,6 +205,10 @@ export class ExeVmBackend implements ExecutionBackend {
     if (!request.code && (!connection.agentKind || !request.harness)) throw new Error("The job is missing its agent harness launch plan");
     if (request.traceSources) validateTraceSources(request.traceSources);
     const handle: RunHandle = request.reservation ?? { backendKind: this.kind, id: vmNameFor(request.runId) };
+    if (request.verifyVendorIdentity ?? this.vendorIdentityVerifier) {
+      handle.operationId ??= request.runId;
+      handle.vendorIdentityIntegrationName ??= exeWifIntegrationNameFor(request.runId);
+    }
     const vm = this.vm(handle);
     let proxy: ExeRunProxy | undefined, plan: Awaited<ReturnType<ExeRunProxy["prepare"]>> | undefined;
     if (request.runProxy) {
@@ -184,6 +243,18 @@ export class ExeVmBackend implements ExecutionBackend {
       }
     }
 
+    const verifyVendorIdentity = request.verifyVendorIdentity ?? this.vendorIdentityVerifier;
+    if (verifyVendorIdentity) {
+      try {
+        const integration = await this.ensureExeWif(vm, request.runId);
+        handle.vendorIdentityIntegrationName = integration.integrationName;
+        const token = await this.exeWifToken(vm, integration.integrationName);
+        await verifyVendorIdentity({ provider: "exe.dev", vmId: vm, token, integrationName: integration.integrationName, expectedIssuer: integration.issuer, expectedSubject: integration.subject });
+      } catch (error) {
+        return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail: error instanceof Error ? error.message : "exe.dev vendor identity provisioning failed", failure: { source: "system", code: "vendor_identity_failed", reason: "exe.dev vendor identity provisioning failed" } } };
+      }
+    }
+
     const code = request.code, output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
     const launchPayload = JSON.stringify({ version: 1, runId: request.runId, ...(code ? { code } : { prompt: request.prompt, harness: request.harness }), ...(request.traceSources ? { traceSources: request.traceSources } : {}) });
     const launchPayloadPath = "/home/exedev/.factorize-job/launch.json";
@@ -214,6 +285,16 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async inspect(handle: RunHandle): Promise<ExecutionObservation> {
     const vm = this.vm(handle);
+    if (handle.operationId && handle.vendorIdentityIntegrationName && this.vendorIdentityVerifier) {
+      try {
+        const integration = await this.ensureExeWif(vm, handle.operationId, false);
+        if (integration.integrationName !== handle.vendorIdentityIntegrationName) throw new Error("WIF integration changed");
+        const token = await this.exeWifToken(vm, handle.vendorIdentityIntegrationName);
+        await this.vendorIdentityVerifier({ provider: "exe.dev", vmId: vm, token, integrationName: integration.integrationName, expectedIssuer: integration.issuer, expectedSubject: integration.subject });
+      } catch {
+        return { state: "failed", detail: "exe.dev vendor identity renewal failed", failure: { source: "system", code: "vendor_identity_renewal_failed", reason: "exe.dev vendor identity renewal failed" } };
+      }
+    }
     const inspect = `sudo systemctl show ${shellAtom(vm)} --property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus`;
     let response: BackendCommandResult;
     try { response = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(inspect)}`); }
@@ -315,6 +396,12 @@ export class ExeVmBackend implements ExecutionBackend {
     if (handle.runProxyName) {
       try { await new ExeRunProxy(command => this.api(command)).remove(handle.runProxyName, vm.slice("factorize-".length)); }
       catch { proxyError = "Run proxy cleanup failed; retry required"; }
+    }
+    if (handle.vendorIdentityIntegrationName) {
+      try {
+        if (!handle.operationId) throw new Error("WIF run identity is unavailable");
+        await this.removeExeWif(vm, handle.operationId, handle.vendorIdentityIntegrationName);
+      } catch { proxyError ??= "exe.dev WIF integration cleanup failed; retry required"; }
     }
     const result = await this.deleteVm(vm);
     return { state: result.ok && !proxyError ? "stopped" : "failed", detail: proxyError ?? (result.ok ? undefined : `VM deletion failed (${result.status}): ${result.body.slice(0, 300)}`), command: result };

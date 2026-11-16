@@ -28,6 +28,7 @@ import { FlyExecutionConfigurationRepository } from "./fly-execution-configurati
 import { createFlyMachinesClient } from "../fly-machines-client";
 import { FlyJobExecutionBackend, flyJobGuest } from "../fly-job-execution-backend";
 import { createFlyCredentialProxyGuest } from "../fly-credential-proxy-provisioner";
+import { verifyAndPersistVendorRunIdentity } from "../vendor-run-identity-provisioning";
 
 /** Host runners may supply infrastructure without patching scheduler internals. */
 export type RunBackendFactory = (run: PersistedRun) => ExecutionBackend | undefined | Promise<ExecutionBackend | undefined>;
@@ -122,6 +123,16 @@ export class RunScheduler {
 
   private connections(run: PersistedRun) { return new ConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
 
+  private vendorIdentityVerifier(run: PersistedRun, expectedIssuer?: string) {
+    return async (input: { provider: "exe.dev" | "fly.io"; vmId: string; token: string; integrationName?: string; expectedIssuer?: string; expectedSubject?: string }) => {
+      await verifyAndPersistVendorRunIdentity({
+        database: this.database, tenantId: run.tenantId, runId: run.id, provider: input.provider,
+        vmId: input.vmId, token: input.token, audience: `factorize://runs/${run.id}`,
+        integrationName: input.integrationName, expectedIssuer: input.expectedIssuer ?? expectedIssuer, expectedSubject: input.expectedSubject,
+      });
+    };
+  }
+
   private hasCapability<T extends object>(backend: ExecutionBackend, method: keyof T): backend is ExecutionBackend & T {
     return typeof (backend as unknown as Record<PropertyKey, unknown>)[method] === "function";
   }
@@ -150,13 +161,15 @@ export class RunScheduler {
         proxyIdentity: rows[0]!.proxy_identity,
         proxyBootEpoch: rows[0]!.boot_epoch,
         proxyGuest: createFlyCredentialProxyGuest({ app, machine: proxy[2]!, token: connection }),
+        vendorIdentityAudience: runId => `factorize://runs/${runId}`,
+        verifyVendorIdentity: this.vendorIdentityVerifier(run, `https://oidc.fly.io/${app}`),
       });
     }
     const kind = run.executionConfig.backendKind ?? (run.executionConfig.agentKind === "Amp" ? "amp" : "exe-vm");
     if (kind === "amp") { const connection = await this.connections(run).get<AmpConnection>(`amp:${id}`); if (!connection) throw new Error("Amp connection is unavailable"); return new AmpBackend(connection); }
     if (kind !== "exe-vm") throw new Error(`Unsupported execution backend: ${String(kind)}`);
     const connection = await this.connections(run).get<ExeRunConnection>(`exe:${id}`); if (!connection) throw new Error("exe.dev connection is unavailable");
-    return new ExeVmBackend({ ...connection, tags: Array.isArray(run.executionConfig.tags) ? run.executionConfig.tags : [], image: typeof run.executionConfig.image === "string" ? run.executionConfig.image : undefined, model: String(run.executionConfig.model ?? ""), effort: String(run.executionConfig.effort ?? "") });
+    return new ExeVmBackend({ ...connection, tags: Array.isArray(run.executionConfig.tags) ? run.executionConfig.tags : [], image: typeof run.executionConfig.image === "string" ? run.executionConfig.image : undefined, model: String(run.executionConfig.model ?? ""), effort: String(run.executionConfig.effort ?? "") }, this.vendorIdentityVerifier(run));
   }
 
   private async launch(run: PersistedRun) {
@@ -176,7 +189,7 @@ export class RunScheduler {
       const runToken = await issueRunCredential(this.env, run.tenantId, run.id, run.executionConfig.runScopes);
       const reservation = backend.reserve?.(run.id) ?? null;
       if (reservation) await this.runs.recordLaunchHandle(run, reservation);
-      const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: "", runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, code: { script: run.executionConfig.script, context } });
+      const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: "", runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, code: { script: run.executionConfig.script, context }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
       await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities);
       if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
       return;
@@ -189,7 +202,7 @@ export class RunScheduler {
     const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const reservation = backend.reserve?.(run.id) ?? null;
     if (reservation) await this.runs.recordLaunchHandle(run, reservation);
-    const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runProxyInstructions(run.id)}`, runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env } });
+    const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runProxyInstructions(run.id)}`, runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
     if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
   }
