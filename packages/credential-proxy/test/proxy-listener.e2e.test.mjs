@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { Readable } from "node:stream";
 import { createServer as createHttpsServer } from "node:https";
 import { once } from "node:events";
 import { connect as tlsConnect } from "node:tls";
@@ -129,6 +130,63 @@ test("authenticated tunnel listener streams over TLS, confines grants and cancel
   }
 });
 
+test("provider routes use only selected run credentials and choose Git smart HTTP auth while streaming", { timeout: 5_000 }, async () => {
+  const seen = [];
+  const forwarder = createBearerForwarder({
+    connectorFactory: () => async requestUrl => ({ socket: { destroy() {} }, url: new URL(requestUrl) }),
+    request: async ({ socket, url, headers, body }) => {
+      const chunks = [];
+      for await (const chunk of body ?? []) chunks.push(Buffer.from(chunk));
+      seen.push({ origin: url.origin, authorization: headers.authorization, path: url.pathname, search: url.search, body: Buffer.concat(chunks).toString() });
+      return { status: 200, headers: { "content-type": "text/plain" }, body: Readable.from(["first", "second"]) };
+    },
+  });
+  const runtime = createProxyRuntime({ listenerFactory: ({ connection }) => createAuthenticatedProxyListener({ connection, forwarder }) });
+  let listener;
+  try {
+    runtime.unlock("synthetic-unlock-key");
+    listener = await runtime.acceptAuthenticatedConnection({
+      authenticated: true, enrollmentConsumed: true, bootEpoch: runtime.bootEpoch,
+      connectionId: "provider-route-connection", runId: "provider-route-run", vmId: "provider-route-vm",
+      grants: [],
+      providerCredentials: { githubInstallations: [
+        { installationId: 42, available: true, accessToken: "github-selected-token" },
+        { installationId: 43, available: false },
+      ], linearConnection: { connectionId: "linear", available: true, accessToken: "linear-selected-token" } },
+    });
+    const base = `http://127.0.0.1:${listener.address.port}`;
+    const inventory = await (await fetch(`${base}/integrations`)).json();
+    assert.deepEqual(inventory.providers, {
+      githubInstallations: [{ installationId: 42, endpoint: "/providers/github/42/" }],
+      linear: { endpoint: "/providers/linear/" },
+    });
+    const git = await fetch(`${base}/providers/github/42/owner/repo.git/info/refs?service=git-upload-pack`, {
+      headers: { authorization: "Bearer guest-controlled", "git-protocol": "version=2" },
+    });
+    assert.equal(await git.text(), "firstsecond");
+    const githubApi = await fetch(`${base}/providers/github/42/user`, { headers: { authorization: "Bearer guest-controlled" } });
+    assert.equal(await githubApi.text(), "firstsecond");
+    const linear = await fetch(`${base}/providers/linear/graphql?operation=Query`, {
+      method: "POST", headers: { authorization: "Bearer guest-controlled" }, body: "{ viewer { id } }",
+    });
+    assert.equal(await linear.text(), "firstsecond");
+    assert.equal((await fetch(`${base}/providers/github/43/user`)).status, 403);
+    assert.deepEqual(seen.map(item => [item.origin, item.authorization, item.path, item.search]), [
+      ["https://github.com", "Basic eC1hY2Nlc3MtdG9rZW46Z2l0aHViLXNlbGVjdGVkLXRva2Vu", "/owner/repo.git/info/refs", "?service=git-upload-pack"],
+      ["https://api.github.com", "Bearer github-selected-token", "/user", ""],
+      ["https://api.linear.app", "Bearer linear-selected-token", "/graphql", "?operation=Query"],
+    ]);
+    assert.equal(seen[0].body, "");
+    listener.replaceProviderCredentials({ githubInstallations: [{ installationId: 42, available: false }], linearConnection: { connectionId: "linear", available: false } });
+    assert.equal((await fetch(`${base}/providers/github/42/user`)).status, 403);
+    assert.equal((await fetch(`${base}/providers/linear/graphql`)).status, 403);
+    assert.equal(seen.length, 3, "revoked credentials never reach an upstream request");
+  } finally {
+    if (listener) await runtime.disconnect("provider-route-connection");
+    await runtime.shutdown();
+  }
+});
+
 test("reflection exposes safe metadata for only the authenticated VM connection and tracks live grant changes", { timeout: 5_000 }, async () => {
   const runtime = createProxyRuntime();
   const connections = [];
@@ -182,7 +240,7 @@ test("reflection exposes safe metadata for only the authenticated VM connection 
 
     await runtime.lock();
     const locked = await reflect(first);
-    assert.deepEqual(locked, { state: "locked", integrations: [
+    assert.deepEqual(locked, { state: "locked", providers: { githubInstallations: [], linear: null }, integrations: [
       { id: "selected-2", source: "portable", name: "Metrics API", description: "current help", endpoint: "/integrations/selected-2/", example: 'curl "$FACTORIZE_PROXY_URL/integrations/selected-2/"', availability: "locked" },
     ] });
     assert.equal((await fetch(`http://127.0.0.1:${first.address.port}/integrations/selected-2/`)).status, 423);

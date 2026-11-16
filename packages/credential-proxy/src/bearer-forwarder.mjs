@@ -19,7 +19,7 @@ const HOP_BY_HOP = new Set([
   "content-length", "expect",
 ]);
 
-function safeHeaders(input, credential, maxBytes) {
+function safeHeaders(input, credential, maxBytes, authorization = "bearer") {
   const source = input instanceof Headers ? [...input.entries()] : Object.entries(input ?? {});
   const connectionTokens = new Set();
   for (const [name, value] of source) {
@@ -37,7 +37,9 @@ function safeHeaders(input, credential, maxBytes) {
     if (size > maxBytes) throw new RangeError("request headers exceed configured limit");
     headers[lower] = text;
   }
-  headers.authorization = `Bearer ${credential}`;
+  headers.authorization = authorization === "github-git-basic"
+    ? `Basic ${Buffer.from(`x-access-token:${credential}`).toString("base64")}`
+    : `Bearer ${credential}`;
   return headers;
 }
 
@@ -160,7 +162,7 @@ export function createBearerForwarder({ connectorFactory = createOriginConnector
         }
         const method = String(input.method ?? "GET").toUpperCase();
         if (!/^[A-Z!#$%&'*+.^_`|~-]+$/.test(method)) throw new TypeError("invalid HTTP method");
-        const headers = safeHeaders(input.headers, integration.credential, limits.headerBytes);
+        const headers = safeHeaders(input.headers, integration.credential, limits.headerBytes, integration.authorization);
         const result = await request({ socket, url, method, headers, body: input.body, limits, signal: controller.signal });
         if (result?.body && typeof result.body.once === "function") {
           result.body.once("end", release);

@@ -38,6 +38,39 @@ function requestTarget(origin, suffix, search) {
   return `${base.origin}${path}${search}`;
 }
 
+function githubCredential(credentials, installationId) {
+  if (!/^\d{1,20}$/.test(installationId)) return null;
+  const selected = credentials.githubInstallations.find(item => String(item.installationId) === installationId);
+  return selected?.available && typeof selected.accessToken === "string" && selected.accessToken
+    ? { origin: "https://api.github.com", credential: selected.accessToken, authorization: "bearer" }
+    : null;
+}
+
+function isGitSmartHttp(path, search) {
+  return (path.endsWith("/info/refs") && /(?:^|[?&])service=git-(?:upload|receive)-pack(?:&|$)/.test(search))
+    || /\.git\/git-(?:upload|receive)-pack$/.test(path);
+}
+
+function providerRoute(pathname, search, credentials) {
+  const github = /^\/providers\/github\/([^/]+)(\/.*)?$/.exec(pathname);
+  if (github) {
+    let installationId;
+    try { installationId = decodeURIComponent(github[1]); } catch { return { error: 400 }; }
+    const selected = githubCredential(credentials, installationId);
+    if (!selected) return { error: 403 };
+    const suffix = github[2] ?? "/";
+    const git = isGitSmartHttp(suffix, search);
+    return { ...selected, origin: git ? "https://github.com" : selected.origin,
+      path: suffix, authorization: git ? "github-git-basic" : "bearer" };
+  }
+  if (/^\/providers\/linear(?:\/|$)/.test(pathname)) {
+    const selected = credentials.linearConnection;
+    if (!selected?.available || typeof selected.accessToken !== "string" || !selected.accessToken) return { error: 403 };
+    return { origin: "https://api.linear.app", credential: selected.accessToken, authorization: "bearer", path: pathname.slice("/providers/linear".length) || "/" };
+  }
+  return null;
+}
+
 /**
  * Start one loopback HTTP endpoint for a single already-authenticated tunnel
  * connection. The connection's consumed grants are held in this closure and
@@ -82,34 +115,52 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
             availability: unlocked ? "available" : "locked",
           };
         });
+        const providers = unlocked ? {
+          githubInstallations: providerCredentials.githubInstallations.filter(item => item.available).map(item => ({ installationId: item.installationId, endpoint: `/providers/github/${item.installationId}/` })),
+          linear: providerCredentials.linearConnection?.available ? { endpoint: "/providers/linear/" } : null,
+        } : { githubInstallations: [], linear: null };
         response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-        response.end(JSON.stringify({ state: unlocked ? "unlocked" : "locked", integrations }));
+        response.end(JSON.stringify({ state: unlocked ? "unlocked" : "locked", integrations, providers }));
         return;
       }
       if (!unlocked) {
         response.writeHead(423, { "cache-control": "no-store" }).end();
         return;
       }
-      const match = /^\/integrations\/([^/]+)(\/.*)?$/.exec(parsed.pathname);
-      if (!match) {
-        response.writeHead(404).end();
-        return;
+      const provider = providerRoute(parsed.pathname, parsed.search, providerCredentials);
+      let integration;
+      let suffix;
+      if (provider) {
+        if (provider.error) { response.writeHead(provider.error).end(); return; }
+        integration = provider;
+        suffix = provider.path;
+      } else {
+        const match = /^\/integrations\/([^/]+)(\/.*)?$/.exec(parsed.pathname);
+        if (!match) {
+          response.writeHead(404).end();
+          return;
+        }
+        let integrationId;
+        try { integrationId = decodeURIComponent(match[1]); } catch {
+          response.writeHead(400).end();
+          return;
+        }
+        if (!integrationId || integrationId.includes("/") || integrationId.includes("\\")) {
+          response.writeHead(400).end();
+          return;
+        }
+        integration = grants.get(integrationId);
+        suffix = match[2] ?? "/";
       }
-      let integrationId;
-      try { integrationId = decodeURIComponent(match[1]); } catch {
-        response.writeHead(400).end();
-        return;
-      }
-      if (!integrationId || integrationId.includes("/") || integrationId.includes("\\")) {
-        response.writeHead(400).end();
-        return;
-      }
-      const integration = grants.get(integrationId);
       if (!integration) {
         response.writeHead(403).end();
         return;
       }
-      const target = requestTarget(integration.origin, match[2] ?? "/", parsed.search);
+      if (!unlocked) {
+        response.writeHead(404).end();
+        return;
+      }
+      const target = requestTarget(integration.origin, suffix, parsed.search);
       const result = await forwarder.forward(integration, {
         url: target,
         method: request.method,
