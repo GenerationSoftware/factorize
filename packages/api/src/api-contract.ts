@@ -135,7 +135,7 @@ const modelAccountMetadata = z.object({ id: z.uuid(), name: z.string(), descript
 const modelAccountCreate = z.object({
   id: z.uuid(), expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid(),
   name: z.string().trim().min(1).max(120), description: z.string().max(500).nullable(),
-  encryptedPayload: z.string().min(1).max(65_536),
+  initialState: z.literal("{}"),
 }).strict();
 const modelAccountDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
 const modelAccountList = z.object({ revision: z.number().int().nonnegative(), accounts: z.array(modelAccountMetadata) });
@@ -233,12 +233,12 @@ export const API_ROUTES: RouteContract[] = [
   }, service => service.listModelAccounts(), { ownerSession: true }),
   route("POST", "/api/v1/model-accounts", "integrations:write", {
     summary: "Create a model account",
-    description: "Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted initial account state; credentials are established directly with the credential proxy.",
+    description: "Requires an interactive owner browser session and the current collection revision. Creates metadata with an empty initial state; the credential proxy establishes credentials and Factorize encrypts cache updates with its server key.",
     responses: { "201": { description: "Created model account", content: { "application/json": { schema: jsonSchema(bearerIntegrationWriteResult, "output") } } } },
   }, (service, { body }) => service.createModelAccount(body), { body: modelAccountCreate, maxBodyBytes: 70_000, ownerSession: true }),
   route("DELETE", "/api/v1/model-accounts/{accountId}", "integrations:write", {
     summary: "Delete a model account",
-    description: "Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future snapshots and unlock reconciliation cannot restore the account.",
+    description: "Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future run snapshots reject the disconnected account.",
     responses: { "200": { description: "Deleted model account", content: { "application/json": { schema: jsonSchema(bearerIntegrationDeleteResult, "output") } } } },
   }, (service, { params, body }) => service.deleteModelAccount(params.accountId, body), { body: modelAccountDelete, maxBodyBytes: 4096, ownerSession: true, parameters: z.object({ accountId: z.uuid() }) }),
   route("POST", "/api/v1/credential-proxy/setup", "integrations:write", {

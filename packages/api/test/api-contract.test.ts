@@ -81,8 +81,8 @@ describe("versioned API contract", () => {
     expect(route?.ownerSession).toBe(true);
     expect(route?.documentation.responses["200"].content["application/json"].schema.properties.accounts.items.properties.encryptedPayload).toBeUndefined();
     expect(create?.scope).toBe("integrations:write"); expect(create?.ownerSession).toBe(true);
-    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, encryptedPayload: "cipher" }).success).toBe(true);
-    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, encryptedPayload: "cipher", unlockKey: "must-not-be-accepted" }).success).toBe(false);
+    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, initialState: "{}" }).success).toBe(true);
+    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, initialState: "{}", unlockKey: "must-not-be-accepted" }).success).toBe(false);
     expect(remove?.scope).toBe("integrations:write"); expect(remove?.ownerSession).toBe(true);
     expect(remove?.parameters.shape.accountId).toBeDefined();
     expect(openapi.paths["/api/v1/model-accounts"].post).toBeDefined();

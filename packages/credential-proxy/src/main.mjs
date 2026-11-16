@@ -2,8 +2,7 @@ import { readFile } from "node:fs/promises";
 import { createAuthenticatedProxyListener } from "./proxy-listener.mjs";
 import { createBearerForwarder } from "./bearer-forwarder.mjs";
 import { createTestOriginConnector } from "./destination-policy.mjs";
-import { readProxyUnlockVerification, reportProxyRuntimeStatus } from "./control-client.mjs";
-import { verifyProxyUnlockKey } from "./decrypted-grants.mjs";
+import { reportProxyRuntimeStatus } from "./control-client.mjs";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { createProxyRuntime } from "./runtime.mjs";
@@ -15,7 +14,6 @@ import { createProxyTlsAuthority } from "./tls-identity.mjs";
 import { createCodexAuthHelper } from "./codex-auth-helper.mjs";
 import { createModelAccountLifecycle } from "./model-account-lifecycle.mjs";
 import { createModelAccountPersistenceAdapter } from "./control-client.mjs";
-import { decryptModelAccountCache, encryptModelAccountCache } from "./model-account-crypto.mjs";
 import { startBrowserControl } from "./browser-control.mjs";
 import { createProxyRunCredentialStore } from "./run-credential-store.mjs";
 
@@ -56,13 +54,11 @@ async function activateRegistration(registration, origin, browserOrigin) {
   modelAccounts = persistence;
   modelAccountLifecycle = createModelAccountLifecycle({
     authHelper: createCodexAuthHelper(),
-    getUnlockKey: () => runtime.getUnlockKey(),
     getAccount: persistence.getAccount,
     getEncryptedCache: persistence.getEncryptedCache,
     persistEncrypted: persistence.persistEncrypted,
-    encryptCache: encryptModelAccountCache,
-    decryptCache: decryptModelAccountCache,
   });
+  await modelAccountLifecycle.reconcileAll(await persistence.listAccounts());
   if (!process.env.FACTORIZE_PROXY_BROWSER_CAPABILITY_PUBLIC_KEY) throw new Error("proxy browser capability verification key is unavailable");
   browserControl = await startBrowserControl({
     runtime,
@@ -76,11 +72,7 @@ async function activateRegistration(registration, origin, browserOrigin) {
       const resume = revocationMonitor?.suspend();
       try { return await work(); } finally { resume?.(); }
     },
-    prepareUnlock: async key => {
-      const verification = await readProxyUnlockVerification({ controlOrigin: origin, token: registration.controlCredential });
-      await verifyProxyUnlockKey(key, verification);
-      await modelAccountLifecycle.reconcileAll(await persistence.listAccounts());
-    },
+    prepareUnlock: async () => modelAccountLifecycle.reconcileAll(await persistence.listAccounts()),
     reportStatus: () => reportProxyRuntimeStatus({ controlOrigin: origin, token: registration.controlCredential, bootEpoch: runtime.bootEpoch, unlocked: runtime.state === "unlocked" }),
     applyChanges: async () => { await modelAccountLifecycle.reconcileAll(await persistence.listAccounts()); },
     appOrigin: process.env.FACTORIZE_APP_ORIGIN ?? "https://app.factorize.sh",
@@ -105,6 +97,7 @@ async function activateRegistration(registration, origin, browserOrigin) {
     bootEpoch: runtime.bootEpoch,
     runtime,
     onRevoked: runId => runCredentials.revoke(runId),
+    onModelAccountsChanged: accountIds => modelAccountLifecycle.revokeUnavailable(accountIds),
   });
   statusReporter = startProxyRuntimeStatusReporter({
     controlOrigin: origin,

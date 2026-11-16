@@ -62,50 +62,53 @@ test("proxy snapshot reader requests only the bound run revision and validates e
   await assert.rejects(readProxyIntegrationSnapshot({ controlOrigin: "https://factorize.example", token, binding: { runId, grantRevision: 7 }, fetchImpl: async () => Response.json({ ...snapshot, modelAccount: { ...snapshot.modelAccount, kind: "bearer" } }) }), /invalid proxy integration snapshot response/);
 });
 
-test("model account persistence adapter lists owner-bound account revisions over proxy authentication", async () => {
+test("model account persistence adapter uses server-managed cache without an unlock generation", async () => {
   const ownerId = "11111111-1111-4111-8111-111111111111";
   let request;
-  const keyGeneration = "22222222-2222-4222-8222-222222222222";
   const accountId = "33333333-3333-4333-8333-333333333333";
   const adapter = createModelAccountPersistenceAdapter({
     controlOrigin: "https://factorize.example", controlCredential: token, ownerId,
     fetchImpl: async (url, init) => {
       request = { url: String(url), init, body: JSON.parse(init.body) };
       if (request.body.operation === "save") return Response.json({ accountId, revision: 5, collectionRevision: 9, duplicate: false });
-      if (request.body.operation === "read") return Response.json({ ownerId, account: { id: accountId, kind: "model", origin: null, revision: 4, encryptedPayload: "ciphertext", keyGeneration } });
-      return Response.json({ ownerId, keyGeneration, accounts: [{ id: accountId, kind: "model", origin: null, revision: 4 }] });
+      if (request.body.operation === "read") return Response.json({ ownerId, account: { id: accountId, kind: "model", origin: null, revision: 4, encryptedPayload: 'factorize-managed-model-cache-v1:{"tokens":{}}' } });
+      return Response.json({ ownerId, accounts: [{ id: accountId, kind: "model", origin: null, revision: 4 }] });
     },
   });
-  assert.deepEqual(await adapter.listAccounts(), [{ id: accountId, kind: "model", origin: null, revision: 4, ownerId, keyGeneration }]);
+  assert.deepEqual(await adapter.listAccounts(), [{ id: accountId, kind: "model", origin: null, revision: 4, ownerId }]);
   assert.equal(request.url, "https://factorize.example/internal/credential-proxy/model-account-cache");
   assert.deepEqual(request.body, { operation: "list" });
   assert.equal(request.init.headers.Authorization, `Bearer ${token}`);
-  await adapter.persistEncrypted({ id: accountId, expectedRevision: 4, keyGeneration, encryptedPayload: "ciphertext", idempotencyKey: "44444444-4444-4444-8444-444444444444" });
-  assert.deepEqual(request.body, { operation: "save", accountId, expectedRevision: 4, keyGeneration, encryptedPayload: "ciphertext", idempotencyKey: "44444444-4444-4444-8444-444444444444" });
-  await assert.rejects(adapter.persistEncrypted({ id: accountId, expectedRevision: 4, encryptedPayload: "ciphertext", idempotencyKey: "44444444-4444-4444-8444-444444444444" }), /invalid encrypted model account update/);
+  assert.deepEqual(await adapter.getEncryptedCache(accountId), { accountId, ownerId, revision: 4, payload: '{"tokens":{}}' });
+  await adapter.persistEncrypted({ id: accountId, expectedRevision: 4, encryptedPayload: '{"tokens":{}}', idempotencyKey: "44444444-4444-4444-8444-444444444444" });
+  assert.deepEqual(request.body, { operation: "save", accountId, expectedRevision: 4, encryptedPayload: '{"tokens":{}}', idempotencyKey: "44444444-4444-4444-8444-444444444444" });
+  await assert.rejects(adapter.persistEncrypted({ id: accountId, expectedRevision: 4, encryptedPayload: "x".repeat(65_537), idempotencyKey: "44444444-4444-4444-8444-444444444444" }), /invalid model account update/);
   await assert.rejects(adapter.listAccounts && createModelAccountPersistenceAdapter({
     controlOrigin: "https://factorize.example", controlCredential: token, ownerId,
-    fetchImpl: async () => Response.json({ ownerId: "22222222-2222-4222-8222-222222222222", keyGeneration: "22222222-2222-4222-8222-222222222222", accounts: [] }),
+    fetchImpl: async () => Response.json({ ownerId: "22222222-2222-4222-8222-222222222222", accounts: [] }),
   }).listAccounts(), /invalid model account list response/);
 });
 
 test("proxy revocation monitor applies durable run revocations and tolerates an outage", async () => {
   const requests = [];
   const revoked = [];
+  const accountSnapshots = [];
   let failFirst = true;
   const fetchImpl = async (url, init) => {
     requests.push({ url: String(url), init, body: JSON.parse(init.body) });
     if (failFirst) { failFirst = false; throw new Error("offline fixture"); }
-    return Response.json({ revokedRunIds: [runId] });
+    return Response.json({ revokedRunIds: [runId], activeModelAccountIds: ["33333333-3333-4333-8333-333333333333"] });
   };
   const runtime = { revokeRun: async id => { revoked.push(id); } };
   const monitor = startProxyRunRevocationMonitor({
-    controlOrigin: "https://factorize.example", controlCredential: token, bootEpoch, runtime, intervalMs: 100, fetchImpl,
+    controlOrigin: "https://factorize.example", controlCredential: token, bootEpoch, runtime,
+    onModelAccountsChanged: ids => accountSnapshots.push(ids), intervalMs: 100, fetchImpl,
   });
   try {
     const deadline = Date.now() + 1_000;
     while (!revoked.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
     assert.deepEqual(revoked, [runId]);
+    assert.deepEqual(accountSnapshots, [["33333333-3333-4333-8333-333333333333"]]);
     assert.equal(requests.length, 2, "a failed poll leaves the proxy live and retries through the control plane");
     assert.ok(requests.every(request => request.url === "https://factorize.example/internal/credential-proxy/revocations"));
     assert.ok(requests.every(request => request.init.headers.Authorization === `Bearer ${token}`));
@@ -113,7 +116,7 @@ test("proxy revocation monitor applies durable run revocations and tolerates an 
   } finally {
     await monitor.close();
   }
-  await assert.rejects(readProxyRunRevocations({ controlOrigin: "https://factorize.example", token, bootEpoch, fetchImpl: async () => Response.json({ revokedRunIds: ["invalid"] }) }), /invalid proxy revocation response/);
+  await assert.rejects(readProxyRunRevocations({ controlOrigin: "https://factorize.example", token, bootEpoch, fetchImpl: async () => Response.json({ revokedRunIds: ["invalid"], activeModelAccountIds: [] }) }), /invalid proxy revocation response/);
 });
 
 test("boot registration rejects unsafe origins, invalid credentials and mismatched response bindings", async () => {
@@ -208,7 +211,7 @@ test("local lifecycle transition discards a stale lock snapshot and resumes dura
   let polls = 0, locks = 0;
   const monitor = startProxyRunRevocationMonitor({ controlOrigin: 'https://factorize.example', controlCredential: token, bootEpoch, intervalMs: 100,
     runtime: { state: 'unlocked', revokeRun: async () => {}, lock: async () => { locks++; } },
-    fetchImpl: async () => { polls++; if (polls === 1) await first; return Response.json({ revokedRunIds: [], lockProxy: true }); } });
+    fetchImpl: async () => { polls++; if (polls === 1) await first; return Response.json({ revokedRunIds: [], activeModelAccountIds: [], lockProxy: true }); } });
   try {
     const resume = monitor.suspend();
     completeFirst();

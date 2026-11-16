@@ -1883,7 +1883,7 @@ paths:
     post:
       summary: Create a model account
       description: |-
-        Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted initial account state; credentials are established directly with the credential proxy.
+        Requires an interactive owner browser session and the current collection revision. Creates metadata with an empty initial state; the credential proxy establishes credentials and Factorize encrypts cache updates with its server key.
 
         Requires the integrations:write scope.
 
@@ -1960,23 +1960,22 @@ paths:
                     - type: string
                       maxLength: 500
                     - type: "null"
-                encryptedPayload:
+                initialState:
                   type: string
-                  minLength: 1
-                  maxLength: 65536
+                  const: "{}"
               required:
                 - id
                 - expectedRevision
                 - idempotencyKey
                 - name
                 - description
-                - encryptedPayload
+                - initialState
               additionalProperties: false
   /api/v1/model-accounts/{accountId}:
     delete:
       summary: Delete a model account
       description: |-
-        Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future snapshots and unlock reconciliation cannot restore the account.
+        Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future run snapshots reject the disconnected account.
 
         Requires the integrations:write scope.
 

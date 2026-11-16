@@ -154,7 +154,6 @@ export async function startBrowserControl({
         return json(response, 400, { error: "invalid_request" }, appOrigin);
       }
       if (operation === "authorize") {
-        if (runtime.state !== "unlocked") return json(response, 423, { error: "proxy_locked" }, appOrigin);
         const login = await lifecycle.deviceLogin(accountId);
         const state = { state: "pending", challenge: login.challenge };
         authorizations.set(accountId, state);

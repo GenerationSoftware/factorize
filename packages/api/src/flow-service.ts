@@ -594,6 +594,9 @@ export class ApiService {
   async getUnlockKeyRotationSnapshot() {
     await this.authorizeOwnerSession("integrations:read");
     const repository = this.encryptedIntegrations();
+    if ((await repository.records("model")).some(record => record.encryptedPayload.startsWith("factorize-managed-model-cache-v1:"))) {
+      throw new ServiceError(409, "conflict", "Model account caches use Factorize-managed encryption and cannot be included in unlock-key rotation.");
+    }
     const [snapshot, verification] = await Promise.all([
       repository.rotationSnapshot(),
       databaseFor(this.env).pool.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [this.auth.tenantId]),
@@ -682,11 +685,12 @@ export class ApiService {
       throw error;
     }
   }
-  async createModelAccount(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; description: string | null; encryptedPayload: string }) {
+  async createModelAccount(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; description: string | null; initialState: string }) {
     await this.authorizeOwnerSession("integrations:write");
     const repository = this.encryptedIntegrations();
+    const managed = { ...input, initialState: undefined, managedModelPayload: input.initialState, kind: "model" as const, origin: null, operation: "upsert" as const };
     try {
-      const replay = await repository.replay({ ...input, kind: "model", origin: null, operation: "upsert" });
+      const replay = await repository.replay(managed);
       if (replay) return replay;
     } catch (error) {
       if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different model account change.");
@@ -694,7 +698,13 @@ export class ApiService {
       throw error;
     }
     if ((await repository.records()).some(record => record.id === input.id)) throw new ServiceError(409, "conflict", "An integration with this id already exists.");
-    return this.modelAccountWrite({ ...input, operation: "upsert" });
+    try { return await repository.write(managed); }
+    catch (error) {
+      if (error instanceof StaleIntegrationRevisionError) throw new ServiceError(409, "stale_revision", `The model account collection changed. Current revision is ${error.currentRevision}.`);
+      if (error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409, "conflict", "The idempotency key was already used for a different model account change.");
+      if (error instanceof IntegrationValidationError) throw new ServiceError(400, "invalid_request", error.message);
+      throw error;
+    }
   }
   async deleteModelAccount(id: string, input: { expectedRevision: number; idempotencyKey: string }) {
     await this.authorizeOwnerSession("integrations:write");

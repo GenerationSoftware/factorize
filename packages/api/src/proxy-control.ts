@@ -71,7 +71,8 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
       WHERE c.tenant_id=$1 AND r.state IN ('succeeded','failed','stopped') ORDER BY run_id`,
     [proxy.tenantId, proxy.proxyIdentity, proxy.bootEpoch]);
     const state = await databaseFor(env).pool.query<{ unlocked: boolean }>("SELECT unlocked FROM app.credential_proxy_states WHERE tenant_id=$1 AND proxy_identity=$2 AND boot_epoch=$3", [proxy.tenantId, proxy.proxyIdentity, proxy.bootEpoch]);
-    return json({ revokedRunIds: revoked.rows.map(row => row.run_id), lockProxy: !state.rows[0]?.unlocked });
+    const activeModelAccounts = await databaseFor(env).pool.query<{ id: string }>("SELECT id FROM app.integration_records WHERE tenant_id=$1 AND kind='model' AND deleted_at IS NULL", [proxy.tenantId]);
+    return json({ revokedRunIds: revoked.rows.map(row => row.run_id), activeModelAccountIds: activeModelAccounts.rows.map(row => row.id), lockProxy: !state.rows[0]?.unlocked });
   }
   if (url.pathname === "/internal/credential-proxy/model-account-cache") {
     if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "invalid_request" }, 400);
@@ -79,9 +80,7 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (input.operation === "list" && Object.keys(input).length === 1) {
       const accounts = await new EncryptedIntegrationRepository(databaseFor(env), proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).records("model");
-      const keyState = await databaseFor(env).pool.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [proxy.tenantId]);
-      if (!keyState.rows[0]) return json({ error: "model_account_unavailable" }, 404);
-      return json({ ownerId: await recordOwner(env, proxy.tenantId), keyGeneration: keyState.rows[0].generation_id,
+      return json({ ownerId: await recordOwner(env, proxy.tenantId),
         accounts: accounts.map(({ id, revision }) => ({ id, revision, kind: "model", origin: null })) });
     }
     if (input.operation === "read" && Object.keys(input).sort().join(",") === "accountId,operation"
@@ -89,19 +88,16 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
       const account = (await new EncryptedIntegrationRepository(databaseFor(env), proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).records("model"))
         .find(record => record.id === input.accountId);
       if (!account) return json({ error: "model_account_unavailable" }, 404);
-      const keyState = await databaseFor(env).pool.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [proxy.tenantId]);
-      if (!keyState.rows[0]) return json({ error: "model_account_unavailable" }, 404);
-      return json({ ownerId: await recordOwner(env, proxy.tenantId), account: { ...account, keyGeneration: keyState.rows[0].generation_id } });
+      return json({ ownerId: await recordOwner(env, proxy.tenantId), account });
     }
-    if (input.operation !== "save" || Object.keys(input).sort().join(",") !== "accountId,encryptedPayload,expectedRevision,idempotencyKey,keyGeneration,operation"
+    if (input.operation !== "save" || Object.keys(input).sort().join(",") !== "accountId,encryptedPayload,expectedRevision,idempotencyKey,operation"
         || typeof input.accountId !== "string" || !uuid.test(input.accountId)
-        || typeof input.keyGeneration !== "string" || !uuid.test(input.keyGeneration)
         || typeof input.idempotencyKey !== "string" || !uuid.test(input.idempotencyKey)
         || !Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0
-        || typeof input.encryptedPayload !== "string") return json({ error: "invalid_request" }, 400);
+        || typeof input.encryptedPayload !== "string" || input.encryptedPayload.length > 65_536) return json({ error: "invalid_request" }, 400);
     try {
       const saved = await new EncryptedIntegrationRepository(databaseFor(env), proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).saveModelCache({
-        id: input.accountId, expectedRevision: input.expectedRevision as number, keyGeneration: input.keyGeneration,
+        id: input.accountId, expectedRevision: input.expectedRevision as number,
         idempotencyKey: input.idempotencyKey, encryptedPayload: input.encryptedPayload,
       });
       return json({ ...saved, accountId: input.accountId });

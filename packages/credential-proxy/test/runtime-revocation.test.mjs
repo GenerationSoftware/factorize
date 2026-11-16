@@ -86,7 +86,7 @@ test("key-generation replacement locks proxy memory and closes every connection"
   await runtime.acceptAuthenticatedConnection(connection("run-old-key", "connection-old-key"));
   const monitor = startProxyRunRevocationMonitor({
     controlOrigin: "https://factorize.example", controlCredential: `fzc_${"A".repeat(43)}`, bootEpoch, runtime, intervalMs: 100,
-    fetchImpl: async () => Response.json({ revokedRunIds: [], lockProxy: true }),
+    fetchImpl: async () => Response.json({ revokedRunIds: [], activeModelAccountIds: [], lockProxy: true }),
   });
   try {
     const deadline = Date.now() + 1_000;
@@ -155,11 +155,11 @@ test("an established run stays available during a control outage and closes when
   try {
     await secondPoll;
     assert.equal(closed, false, "a failed control-plane poll does not impose a connection lease");
-    releaseRevocation(Response.json({ revokedRunIds: [revokedRunId] }));
+    releaseRevocation(Response.json({ revokedRunIds: [revokedRunId], activeModelAccountIds: [] }));
     await didClose;
     assert.equal(closed, true, "durable revocation closes the established connection when delivered");
   } finally {
-    releaseRevocation(Response.json({ revokedRunIds: [] }));
+    releaseRevocation(Response.json({ revokedRunIds: [], activeModelAccountIds: [] }));
     await monitor.close();
     await runtime.shutdown();
   }

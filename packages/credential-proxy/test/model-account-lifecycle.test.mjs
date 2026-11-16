@@ -7,7 +7,7 @@ import { createModelAccountLifecycle } from "../src/model-account-lifecycle.mjs"
 
 const accountId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const resetAccountId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-const account = { id: accountId, kind: "model", ownerId: "owner", keyGeneration: "generation", revision: 4 };
+const account = { id: accountId, kind: "model", ownerId: "owner", revision: 4 };
 
 async function fixture(t, overrides = {}) {
   const root = await mkdtemp(join(tmpdir(), "factorize-model-account-"));
@@ -27,13 +27,7 @@ async function fixture(t, overrides = {}) {
   const lifecycle = createModelAccountLifecycle({
     authHelper: helper,
     accountHomeRoot: root,
-    getUnlockKey: async () => "synthetic-unlock-key",
     getAccount: async () => overrides.getAccount ? overrides.getAccount() : account,
-    encryptCache: async (plain, key, binding) => {
-      assert.equal(key, "synthetic-unlock-key");
-      events.push({ type: "encrypt", binding, plaintext: new TextDecoder().decode(plain) });
-      return `encrypted.${Buffer.from(plain).toString("base64")}`;
-    },
     persistEncrypted: async request => {
       saves++;
       events.push({ type: "persist", request });
@@ -47,17 +41,14 @@ async function fixture(t, overrides = {}) {
   return { root, home, lifecycle, events, methods, calls, get saves() { return saves; } };
 }
 
-test("device authorization persists only encrypted, account-bound cache after success", async t => {
+test("device authorization persists the refreshed cache for server-side encryption", async t => {
   const f = await fixture(t);
   const login = await f.lifecycle.deviceLogin(accountId);
   assert.equal(login.state, "pending");
   assert.deepEqual(await login.completion, { state: "saved" });
-  const [encrypted, saved] = f.events.filter(event => event.type === "encrypt" || event.type === "persist");
-  assert.equal(encrypted.binding.ownerId, "owner");
-  assert.equal(encrypted.binding.recordType, "model");
-  assert.equal(encrypted.binding.revision, 5);
+  const [saved] = f.events.filter(event => event.type === "persist");
   assert.equal(saved.request.expectedRevision, 4);
-  assert.match(saved.request.encryptedPayload, /^encrypted\./);
+  assert.equal(JSON.parse(saved.request.encryptedPayload).tokens.access_token, "synthetic-access");
   assert.equal("unlockKey" in saved.request, false);
 });
 
@@ -100,7 +91,7 @@ test("refresh requests for one account serialize and use the latest revision", a
   assert.equal(f.saves, 2);
 });
 
-test("refresh re-encrypts against a newer account revision after a concurrent edit", async t => {
+test("refresh retries against a newer server cache revision after a concurrent edit", async t => {
   let revision = 4;
   const f = await fixture(t, {
     getAccount: () => ({ ...account, revision }),
@@ -118,39 +109,38 @@ test("refresh re-encrypts against a newer account revision after a concurrent ed
   const writes = f.events.filter(event => event.type === "persist").map(event => event.request);
   assert.deepEqual(writes.map(request => request.expectedRevision), [4, 5]);
   assert.notEqual(writes[0].idempotencyKey, writes[1].idempotencyKey);
-  const encryptions = f.events.filter(event => event.type === "encrypt");
-  assert.deepEqual(encryptions.map(event => event.binding.revision), [5, 6]);
+  assert.equal(JSON.parse(writes[0].encryptedPayload).tokens.refresh_token, "synthetic-refresh");
+  assert.equal(JSON.parse(writes[1].encryptedPayload).tokens.refresh_token, "synthetic-refresh");
 });
 
-test("refresh does not retry a stale cache write after the unlock-key generation rotates", async t => {
-  let generation = "generation";
+test("refresh retries a stale cache revision without an inner key generation", async t => {
+  let revision = 4;
   const f = await fixture(t, {
-    getAccount: () => ({ ...account, keyGeneration: generation }),
+    getAccount: () => ({ ...account, revision }),
     persistEncrypted: async () => {
-      generation = "rotated-generation";
+      if (f.saves > 1) return;
+      revision++;
       const error = new Error("stale model account revision");
       error.code = "stale_revision";
       throw error;
     },
   });
 
-  await assert.rejects(f.lifecycle.refresh(accountId), /changed before token persistence/);
-  assert.equal(f.saves, 1);
-  assert.deepEqual(f.events.filter(event => event.type === "encrypt").map(event => event.binding.keyGeneration), ["generation"]);
+  assert.deepEqual(await f.lifecycle.refresh(accountId), { state: "saved" });
+  assert.equal(f.saves, 2);
 });
 
-test("refresh does not retry a transient cache write after the key generation rotates during backoff", async t => {
-  let generation = "generation";
+test("refresh does not retry after model account disconnect during backoff", async t => {
+  let disconnected = false;
   const f = await fixture(t, {
     retryDelaysMs: [1],
-    getAccount: () => ({ ...account, keyGeneration: generation }),
-    options: { sleep: async () => { generation = "rotated-generation"; } },
+    getAccount: () => disconnected ? null : ({ ...account }),
+    options: { sleep: async () => { disconnected = true; } },
     persistEncrypted: async () => { throw new Error("temporary persistence failure"); },
   });
 
   await assert.rejects(f.lifecycle.refresh(accountId), /changed before token persistence/);
   assert.equal(f.saves, 1);
-  assert.deepEqual(f.events.filter(event => event.type === "encrypt").map(event => event.binding.keyGeneration), ["generation"]);
 });
 
 test("deletion invalidates a retry and removes the account cache", async t => {
@@ -268,22 +258,12 @@ test("deletion racing pending device login prevents a late authorization from re
   assert.equal(f.saves, 0);
 });
 
-test("unlock reconciliation restores the encrypted Codex cache before checking account status", async t => {
+test("reconciliation restores the server-managed Codex cache before checking account status", async t => {
   const persisted = new TextEncoder().encode(JSON.stringify({ tokens: { access_token: "restored-access", refresh_token: "restored-refresh" } }));
-  const encryptedPayload = `cache.${Buffer.from(persisted).toString("base64")}`;
   const f = await fixture(t, { options: {
     getEncryptedCache: async id => ({
-      accountId: id, ownerId: "owner", keyGeneration: "generation", revision: 8, encryptedPayload,
+      accountId: id, ownerId: "owner", revision: 8, payload: new TextDecoder().decode(persisted),
     }),
-    decryptCache: async (payload, key, binding) => {
-      assert.equal(payload, encryptedPayload);
-      assert.equal(key, "synthetic-unlock-key");
-      assert.deepEqual(binding, {
-        ownerId: "owner", recordId: accountId, recordType: "model", destination: "factorize",
-        revision: 8, keyGeneration: "generation",
-      });
-      return new Uint8Array(persisted);
-    },
   } });
 
   assert.deepEqual(await f.lifecycle.reconcile(accountId), { state: "saved" });
@@ -294,12 +274,11 @@ test("unlock reconciliation restores the encrypted Codex cache before checking a
   assert.equal(f.events.find(event => event.type === "persist").request.expectedRevision, 4);
 });
 
-test("unlock reconciliation removes stale cache when the account key generation changed", async t => {
+test("reconciliation removes legacy user-encrypted cache and requires reconnect", async t => {
   const f = await fixture(t, { options: {
     getEncryptedCache: async id => ({
-      accountId: id, ownerId: "owner", keyGeneration: "old-generation", revision: 8, encryptedPayload: "cache.payload",
+      accountId: id, ownerId: "owner", revision: 8,
     }),
-    decryptCache: async () => { throw new Error("must not decrypt stale cache"); },
   } });
 
   assert.deepEqual(await f.lifecycle.reconcile(accountId), { state: "reauthentication-required" });
@@ -307,7 +286,7 @@ test("unlock reconciliation removes stale cache when the account key generation 
   assert.equal(f.methods.includes("account-status"), false);
 });
 
-test("unlock snapshot reconciliation logs out and removes cached accounts deleted by reset", async t => {
+test("snapshot reconciliation logs out and removes cached accounts deleted by reset", async t => {
   const f = await fixture(t);
   const staleHome = join(f.root, resetAccountId);
   await mkdir(staleHome, { recursive: true });
@@ -322,7 +301,14 @@ test("unlock snapshot reconciliation logs out and removes cached accounts delete
   assert.equal(f.saves, 1);
 });
 
-test("unlock snapshot rejects duplicate account identities before touching local state", async t => {
+test("server disconnect revocation removes the local model-account cache and logs out", async t => {
+  const f = await fixture(t);
+  assert.deepEqual(await f.lifecycle.revokeUnavailable([]), [accountId]);
+  await assert.rejects(readFile(join(f.home, "auth.json")), { code: "ENOENT" });
+  assert.ok(f.methods.includes("logout"));
+});
+
+test("snapshot reconciliation rejects duplicate account identities before touching local state", async t => {
   const f = await fixture(t);
   await assert.rejects(f.lifecycle.reconcileAll([account, account]), /snapshot is invalid/);
   assert.deepEqual(JSON.parse(await readFile(join(f.home, "auth.json"), "utf8")), {

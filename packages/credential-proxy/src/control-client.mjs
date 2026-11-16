@@ -121,7 +121,7 @@ export function createModelAccountPersistenceAdapter({ controlOrigin, controlCre
     const account = result?.account;
     if (result?.ownerId !== ownerId || !account || account.id !== accountId || account.kind !== "model"
         || account.origin !== null || typeof account.encryptedPayload !== "string"
-        || !Number.isSafeInteger(account.revision) || !uuidPattern.test(account.keyGeneration ?? "")) {
+        || !Number.isSafeInteger(account.revision)) {
       throw new Error("invalid model account persistence response");
     }
     return { ...account, ownerId };
@@ -130,23 +130,24 @@ export function createModelAccountPersistenceAdapter({ controlOrigin, controlCre
     async listAccounts() {
       const result = await proxyControlRequest({ controlOrigin, token: controlCredential, path: "/internal/credential-proxy/model-account-cache", body: { operation: "list" }, fetchImpl });
       if (result?.ownerId !== ownerId || !Array.isArray(result.accounts)
-          || !uuidPattern.test(result.keyGeneration ?? "")
           || result.accounts.some(account => !account || !uuidPattern.test(account.id ?? "") || account.kind !== "model"
             || account.origin !== null || !Number.isSafeInteger(account.revision))) {
         throw new Error("invalid model account list response");
       }
-      return result.accounts.map(account => ({ ...account, ownerId, keyGeneration: result.keyGeneration }));
+      return result.accounts.map(account => ({ ...account, ownerId }));
     },
     getAccount: read,
     async getEncryptedCache(accountId) {
       const account = await read(accountId);
-      return { accountId, ownerId, keyGeneration: account.keyGeneration, revision: account.revision, encryptedPayload: account.encryptedPayload };
+      const prefix = "factorize-managed-model-cache-v1:";
+      if (!account.encryptedPayload.startsWith(prefix)) return null;
+      return { accountId, ownerId, revision: account.revision, payload: account.encryptedPayload.slice(prefix.length) };
     },
-    async persistEncrypted({ id, expectedRevision, keyGeneration, encryptedPayload, idempotencyKey }) {
+    async persistEncrypted({ id, expectedRevision, encryptedPayload, idempotencyKey }) {
       if (!uuidPattern.test(id ?? "") || !uuidPattern.test(idempotencyKey ?? "") || !Number.isSafeInteger(expectedRevision)
-          || !uuidPattern.test(keyGeneration ?? "") || typeof encryptedPayload !== "string" || encryptedPayload.length > 65_536) throw new TypeError("invalid encrypted model account update");
+          || typeof encryptedPayload !== "string" || encryptedPayload.length > 65_536) throw new TypeError("invalid model account update");
       const result = await proxyControlRequest({ controlOrigin, token: controlCredential, path: "/internal/credential-proxy/model-account-cache",
-        body: { operation: "save", accountId: id, expectedRevision, keyGeneration, encryptedPayload, idempotencyKey }, fetchImpl });
+        body: { operation: "save", accountId: id, expectedRevision, encryptedPayload, idempotencyKey }, fetchImpl });
       if (result?.accountId !== id || result.revision !== expectedRevision + 1 || typeof result.duplicate !== "boolean") {
         throw new Error("invalid model account persistence response");
       }
@@ -171,16 +172,18 @@ export async function readProxyControlState({ controlOrigin, token, bootEpoch, f
     body: { bootEpoch },
     fetchImpl,
   });
-  if (!Array.isArray(result?.revokedRunIds) || result.revokedRunIds.some(id => !uuidPattern.test(id))) {
+  if (!Array.isArray(result?.revokedRunIds) || result.revokedRunIds.some(id => !uuidPattern.test(id))
+      || !Array.isArray(result?.activeModelAccountIds) || result.activeModelAccountIds.some(id => !uuidPattern.test(id))
+      || new Set(result.activeModelAccountIds).size !== result.activeModelAccountIds.length) {
     throw new Error("invalid proxy revocation response");
   }
-  return { revokedRunIds: result.revokedRunIds, lockProxy: result.lockProxy === true };
+  return { revokedRunIds: result.revokedRunIds, activeModelAccountIds: result.activeModelAccountIds, lockProxy: result.lockProxy === true };
 }
 
 /** Poll durable control-plane state. A failed request leaves established
  * connections running and the next bounded poll retries when communication
  * recovers; it does not add an authorization lease or expiry. */
-export function startProxyRunRevocationMonitor({ controlOrigin, controlCredential, bootEpoch, runtime, onRevoked = () => {}, intervalMs = 5_000, fetchImpl = fetch } = {}) {
+export function startProxyRunRevocationMonitor({ controlOrigin, controlCredential, bootEpoch, runtime, onRevoked = () => {}, onModelAccountsChanged = () => {}, intervalMs = 5_000, fetchImpl = fetch } = {}) {
   if (!runtime || typeof runtime.revokeRun !== "function" || !Number.isInteger(intervalMs) || intervalMs < 100 || intervalMs > 60_000) {
     throw new TypeError("invalid proxy revocation monitor configuration");
   }
@@ -198,6 +201,7 @@ export function startProxyRunRevocationMonitor({ controlOrigin, controlCredentia
         const state = await readProxyControlState({ controlOrigin, token: controlCredential, bootEpoch, fetchImpl });
         if (stopped || suspensionDepth || revision !== transitionRevision) return;
         for (const runId of state.revokedRunIds) { await runtime.revokeRun(runId); await onRevoked(runId); }
+        await onModelAccountsChanged(state.activeModelAccountIds);
         if (!suspensionDepth && revision === transitionRevision && state.lockProxy && runtime.state !== "locked") await runtime.lock();
       } catch {
         // Keep existing connections alive during an outage and retry on schedule.

@@ -19,7 +19,7 @@ export interface paths {
         put?: never;
         /**
          * Create a model account
-         * @description Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted initial account state; credentials are established directly with the credential proxy.
+         * @description Requires an interactive owner browser session and the current collection revision. Creates metadata with an empty initial state; the credential proxy establishes credentials and Factorize encrypts cache updates with its server key.
          *
          *     Requires the integrations:write scope.
          *
@@ -44,7 +44,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a model account
-         * @description Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future snapshots and unlock reconciliation cannot restore the account.
+         * @description Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future run snapshots reject the disconnected account.
          *
          *     Requires the integrations:write scope.
          *
@@ -2937,7 +2937,8 @@ export interface operations {
                     idempotencyKey: string;
                     name: string;
                     description: string | null;
-                    encryptedPayload: string;
+                    /** @constant */
+                    initialState: "{}";
                 };
             };
         };

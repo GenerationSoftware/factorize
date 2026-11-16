@@ -12,16 +12,14 @@ function cachePath(root, accountId) {
 }
 
 /**
- * Keep Codex token refresh and encrypted persistence inside the proxy. The
- * persistence callback receives only user-encrypted auth-cache bytes; token
- * JSON and the unlock key never leave this process in plaintext.
+ * Keep Codex token refresh inside the proxy. Persistence sends the cache over
+ * the authenticated proxy control channel; the API encrypts it with the
+ * Factorize server key before writing it to storage.
  */
 export function createModelAccountLifecycle({
   authHelper,
   accountHomeRoot = "/var/lib/factorize/codex-accounts",
-  getUnlockKey,
   getAccount,
-  encryptCache,
   persistEncrypted,
   onUnsaved = () => {},
   retryDelaysMs = [100, 500, 2_000],
@@ -34,18 +32,15 @@ export function createModelAccountLifecycle({
   readDirectory = readdir,
   replaceFile = rename,
   getEncryptedCache,
-  decryptCache,
 } = {}) {
-  if (!authHelper || typeof authHelper.invoke !== "function" || typeof getUnlockKey !== "function"
-      || typeof getAccount !== "function" || typeof encryptCache !== "function" || typeof persistEncrypted !== "function"
+  if (!authHelper || typeof authHelper.invoke !== "function"
+      || typeof getAccount !== "function" || typeof persistEncrypted !== "function"
       || !Array.isArray(retryDelaysMs) || retryDelaysMs.length > 5
       || retryDelaysMs.some(ms => !Number.isSafeInteger(ms) || ms < 0 || ms > 30_000)
       || !Number.isSafeInteger(staleRevisionRetries) || staleRevisionRetries < 0 || staleRevisionRetries > 5) {
     throw new TypeError("model account lifecycle configuration is invalid");
   }
-  if ((getEncryptedCache === undefined) !== (decryptCache === undefined)
-      || (getEncryptedCache !== undefined && typeof getEncryptedCache !== "function")
-      || (decryptCache !== undefined && typeof decryptCache !== "function")) {
+  if (getEncryptedCache !== undefined && typeof getEncryptedCache !== "function") {
     throw new TypeError("model account cache restoration configuration is invalid");
   }
 
@@ -64,32 +59,20 @@ export function createModelAccountLifecycle({
   async function persist(id, generation) {
     let account = await getAccount(id);
     if (!account || account.id !== id || account.kind !== "model" || !Number.isSafeInteger(account.revision)
-        || typeof account.ownerId !== "string" || !account.ownerId || typeof account.keyGeneration !== "string" || !account.keyGeneration) {
+        || typeof account.ownerId !== "string" || !account.ownerId) {
       throw new Error("model account persistence binding is unavailable");
     }
-    const unlockKey = await getUnlockKey();
-    if (typeof unlockKey !== "string" || !unlockKey) throw new Error("proxy is locked");
     const plain = await readCache(cachePath(accountHomeRoot, id));
     if (!Buffer.isBuffer(plain) || plain.byteLength === 0 || plain.byteLength > 65_536) throw new Error("Codex token cache is missing or exceeds its limit");
+    const payload = plain.toString("utf8");
+    try { if (!JSON.parse(payload) || typeof JSON.parse(payload) !== "object") throw new Error(); }
+    catch { plain.fill(0); throw new Error("Codex token cache is invalid"); }
     let staleRetries = 0;
     let attempts = 0;
     try {
       for (;;) {
-        let encrypted;
-        try {
-          encrypted = await encryptCache(new Uint8Array(plain), unlockKey, {
-            ownerId: account.ownerId,
-            recordId: id,
-            recordType: "model",
-            destination: "factorize",
-            revision: account.revision + 1,
-            keyGeneration: account.keyGeneration,
-          });
-        } catch (error) {
-          throw error;
-        }
         if (currentGeneration(id) !== generation) throw new Error("model account changed before token persistence");
-        const request = { id, expectedRevision: account.revision, keyGeneration: account.keyGeneration, encryptedPayload: encrypted, idempotencyKey: randomUUID() };
+        const request = { id, expectedRevision: account.revision, encryptedPayload: payload, idempotencyKey: randomUUID() };
         let retryWithLatestRevision = false;
         for (let attempt = 0; ; attempt++) {
           if (currentGeneration(id) !== generation) throw new Error("model account changed before token persistence");
@@ -107,7 +90,7 @@ export function createModelAccountLifecycle({
               catch { throw new Error("model account changed before token persistence"); }
               if (!latest || latest.id !== id || latest.kind !== "model" || !Number.isSafeInteger(latest.revision)
                   || latest.revision <= account.revision || latest.ownerId !== account.ownerId
-                  || latest.keyGeneration !== account.keyGeneration) {
+                  ) {
                 throw new Error("model account changed before token persistence");
               }
               account = latest;
@@ -126,7 +109,7 @@ export function createModelAccountLifecycle({
             try { latest = await getAccount(id); }
             catch { throw new Error("model account changed before token persistence"); }
             if (!latest || latest.id !== id || latest.kind !== "model" || latest.ownerId !== account.ownerId
-                || latest.keyGeneration !== account.keyGeneration) {
+                ) {
               throw new Error("model account changed before token persistence");
             }
           }
@@ -185,33 +168,23 @@ export function createModelAccountLifecycle({
   }
 
   async function restore(id) {
-    if (!getEncryptedCache || !decryptCache) throw new Error("model account cache restoration is unavailable");
+    if (!getEncryptedCache) throw new Error("model account cache restoration is unavailable");
     const account = await getAccount(id);
     if (!account || account.id !== id || account.kind !== "model" || !Number.isSafeInteger(account.revision)
-        || typeof account.ownerId !== "string" || !account.ownerId || typeof account.keyGeneration !== "string" || !account.keyGeneration) {
+        || typeof account.ownerId !== "string" || !account.ownerId) {
       await removeCache(resolve(accountHomeRoot, id), { recursive: true, force: true });
       return { state: "reauthentication-required" };
     }
-    const encrypted = await getEncryptedCache(id);
-    if (!encrypted || encrypted.accountId !== id || encrypted.ownerId !== account.ownerId
-        || encrypted.keyGeneration !== account.keyGeneration || !Number.isSafeInteger(encrypted.revision)
-        || typeof encrypted.encryptedPayload !== "string") {
+    const saved = await getEncryptedCache(id);
+    if (!saved || saved.accountId !== id || saved.ownerId !== account.ownerId
+        || !Number.isSafeInteger(saved.revision) || typeof saved.payload !== "string") {
       await removeCache(resolve(accountHomeRoot, id), { recursive: true, force: true });
       return { state: "reauthentication-required" };
     }
-    const unlockKey = await getUnlockKey();
-    if (typeof unlockKey !== "string" || !unlockKey) throw new Error("proxy is locked");
     let plain;
     try {
-      plain = await decryptCache(encrypted.encryptedPayload, unlockKey, {
-        ownerId: account.ownerId,
-        recordId: id,
-        recordType: "model",
-        destination: "factorize",
-        revision: encrypted.revision,
-        keyGeneration: account.keyGeneration,
-      });
-      if (!(plain instanceof Uint8Array) || plain.byteLength === 0 || plain.byteLength > 65_536) {
+      plain = new TextEncoder().encode(saved.payload);
+      if (plain.byteLength === 0 || plain.byteLength > 65_536 || !JSON.parse(saved.payload) || typeof JSON.parse(saved.payload) !== "object") {
         throw new Error("restored Codex token cache is invalid");
       }
       const destination = cachePath(accountHomeRoot, id);
@@ -226,7 +199,7 @@ export function createModelAccountLifecycle({
     } finally {
       plain?.fill(0);
     }
-    return { state: "restored", revision: encrypted.revision };
+    return { state: "restored", revision: saved.revision };
   }
 
   async function reconcile(id) {
@@ -253,6 +226,24 @@ export function createModelAccountLifecycle({
     restore,
     reconcile,
     isUnsaved: id => unsaved.has(id),
+    /** Remove local auth homes as soon as a server-side disconnect is observed. */
+    revokeUnavailable: async accounts => {
+      if (!Array.isArray(accounts) || accounts.some(accountId => !UUID.test(accountId ?? "")) || new Set(accounts).size !== accounts.length) {
+        throw new TypeError("active model account snapshot is invalid");
+      }
+      const activeIds = new Set(accounts);
+      const entries = await readDirectory(accountHomeRoot, { withFileTypes: true }).catch(error => {
+        if (error?.code === "ENOENT") return [];
+        throw error;
+      });
+      const removed = [];
+      for (const entry of entries) {
+        if (!UUID.test(entry.name) || activeIds.has(entry.name)) continue;
+        await deleteAccount(entry.name);
+        removed.push(entry.name);
+      }
+      return removed;
+    },
     /** Reconcile a complete server snapshot after unlock. A reset removes every
      * prior model account from that snapshot, so stale local Codex homes must
      * be logged out and removed before any current account is admitted. */

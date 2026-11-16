@@ -85,26 +85,18 @@ describe.skipIf(!url)("encrypted integration persistence (PostgreSQL)", () => {
     expect(results.filter(result => result.status === "rejected" && result.reason instanceof StaleIntegrationRevisionError)).toHaveLength(1);
   });
 
-  it("rejects a model cache save encrypted under a replaced key generation even when its account revision is unchanged", async () => {
+  it("stores model refresh caches with server encryption and no unlock-key generation", async () => {
     const { tenantId, repository } = await freshRepository();
-    const generation = crypto.randomUUID();
-    const replacementGeneration = crypto.randomUUID();
-    await db.pool.query("INSERT INTO app.unlock_key_verifications(tenant_id,generation_id,encrypted_verification) VALUES ($1,$2,'verification')", [tenantId, generation]);
     const id = crypto.randomUUID();
-    const created = await repository.write({ id, idempotencyKey: crypto.randomUUID(), expectedRevision: 0, operation: "upsert", kind: "model", name: "Codex", origin: null, description: null, encryptedPayload: await userEncrypt("initial cache") });
-    const oldKeyCache = await userEncrypt("old generation cache");
-    const saved = await repository.saveModelCache({ id, expectedRevision: created.revision, keyGeneration: generation, idempotencyKey: crypto.randomUUID(), encryptedPayload: oldKeyCache });
+    const created = await repository.write({ id, idempotencyKey: crypto.randomUUID(), expectedRevision: 0, operation: "upsert", kind: "model", name: "Codex", origin: null, description: null, managedModelPayload: "{}" });
+    const payload = JSON.stringify({ tokens: { access_token: "synthetic-access", refresh_token: "synthetic-refresh" } });
+    const saved = await repository.saveModelCache({ id, expectedRevision: created.revision, idempotencyKey: crypto.randomUUID(), encryptedPayload: payload });
     expect(saved.revision).toBe(created.revision + 1);
-
-    await db.pool.query("UPDATE app.unlock_key_verifications SET generation_id=$2 WHERE tenant_id=$1", [tenantId, replacementGeneration]);
-    const staleKeyCache = await userEncrypt("late old generation refresh");
-    await expect(repository.saveModelCache({ id, expectedRevision: saved.revision, keyGeneration: generation, idempotencyKey: crypto.randomUUID(), encryptedPayload: staleKeyCache }))
-      .rejects.toMatchObject({ name: "StaleIntegrationRevisionError" });
-    expect((await repository.records("model"))[0]?.encryptedPayload).toBe(oldKeyCache);
-
-    const currentKeyCache = await userEncrypt("replacement generation cache");
-    await expect(repository.saveModelCache({ id, expectedRevision: saved.revision, keyGeneration: replacementGeneration, idempotencyKey: crypto.randomUUID(), encryptedPayload: currentKeyCache }))
-      .resolves.toMatchObject({ revision: saved.revision + 1, duplicate: false });
+    const stored = (await db.pool.query("SELECT encrypted_payload FROM app.integration_records WHERE tenant_id=$1 AND id=$2", [tenantId, id])).rows[0].encrypted_payload as string;
+    expect(stored).not.toContain("synthetic-access");
+    expect(await decrypt(stored, serverKey)).toBe(`factorize-managed-model-cache-v1:${payload}`);
+    await expect(repository.saveModelCache({ id, expectedRevision: saved.revision, idempotencyKey: crypto.randomUUID(), encryptedPayload: "not-json" }))
+      .rejects.toMatchObject({ name: "IntegrationValidationError" });
   });
 
   it("returns edits and deletion tombstones in revision order and deduplicates retries", async () => {

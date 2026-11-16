@@ -11,6 +11,8 @@ export type IntegrationWrite = IntegrationMetadata & {
   encryptedPayload?: string;
   /** Plaintext bearer value accepted only by the owner-session credential API. */
   managedSecret?: string;
+  /** Initial model cache accepted only by the owner-session model-account API. */
+  managedModelPayload?: string;
 };
 export type IntegrationChange = IntegrationMetadata & {
   revision: number;
@@ -22,6 +24,7 @@ export type GenerationRecord = IntegrationMetadata & { revision: number; encrypt
 export type GenerationChange = IntegrationMetadata & { revision: number; idempotencyKey: string; operation: "upsert" | "delete"; encryptedPayload: string | null };
 
 const MANAGED_BEARER_PREFIX = "factorize-managed-bearer-v1:";
+const MANAGED_MODEL_PREFIX = "factorize-managed-model-cache-v1:";
 
 export class StaleIntegrationRevisionError extends Error {
   constructor(readonly currentRevision: number, readonly resyncRequired = false) { super(resyncRequired ? "Integration change history expired; fetch the current collection before continuing" : "Integration collection revision is stale"); this.name = "StaleIntegrationRevisionError"; }
@@ -68,8 +71,10 @@ function validate(change: IntegrationWrite): void {
   if (change.kind === "bearer" && (!change.origin || change.origin.length > 2048)) throw new IntegrationValidationError("bearer integrations require an origin of at most 2048 characters");
   if (change.kind === "model" && change.origin !== null) throw new IntegrationValidationError("model accounts do not have an origin");
   if (change.operation === "upsert" && !(typeof change.managedSecret === "string" && change.managedSecret.length > 0 && change.managedSecret.length <= 32_768)
+      && !(typeof change.managedModelPayload === "string" && change.managedModelPayload.length > 0 && change.managedModelPayload.length <= 65_536 && (() => { try { const value = JSON.parse(change.managedModelPayload); return Boolean(value && typeof value === "object" && !Array.isArray(value)); } catch { return false; } })())
       && !(typeof change.encryptedPayload === "string" && isUserCiphertext(change.encryptedPayload))) throw new IntegrationValidationError("upserts require a credential value");
   if (change.kind !== "bearer" && change.managedSecret !== undefined) throw new IntegrationValidationError("managed secrets are only supported for bearer integrations");
+  if (change.kind !== "model" && change.managedModelPayload !== undefined) throw new IntegrationValidationError("managed model payloads are only supported for model accounts");
   if (change.operation === "delete" && change.encryptedPayload !== undefined) throw new IntegrationValidationError("deletions cannot contain ciphertext");
 }
 
@@ -89,7 +94,8 @@ export class EncryptedIntegrationRepository {
     const { rows } = await this.database.pool.query<StoredChange>("SELECT revision,operation,record_id,kind,name,origin,description,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId, input.idempotencyKey]);
     const row = rows[0];
     if (!row) return null;
-    const suppliedPayload = input.managedSecret === undefined ? input.encryptedPayload : `${MANAGED_BEARER_PREFIX}${input.managedSecret}`;
+    const suppliedPayload = input.managedSecret !== undefined ? `${MANAGED_BEARER_PREFIX}${input.managedSecret}`
+      : input.managedModelPayload !== undefined ? `${MANAGED_MODEL_PREFIX}${input.managedModelPayload}` : input.encryptedPayload;
     const sameCiphertext = row.encrypted_payload === null
       ? input.operation === "delete" && input.encryptedPayload === undefined
       : input.operation === "upsert" && typeof suppliedPayload === "string" && await decrypt(row.encrypted_payload, this.serverEncryptionKey) === suppliedPayload;
@@ -113,7 +119,8 @@ export class EncryptedIntegrationRepository {
 
   async write(input: IntegrationWrite): Promise<{ revision: number; duplicate: boolean }> {
     validate(input);
-    const suppliedPayload = input.managedSecret === undefined ? input.encryptedPayload : `${MANAGED_BEARER_PREFIX}${input.managedSecret}`;
+    const suppliedPayload = input.managedSecret !== undefined ? `${MANAGED_BEARER_PREFIX}${input.managedSecret}`
+      : input.managedModelPayload !== undefined ? `${MANAGED_MODEL_PREFIX}${input.managedModelPayload}` : input.encryptedPayload;
     const encryptedPayload = input.operation === "upsert" ? await encrypt(suppliedPayload!, this.serverEncryptionKey) : null;
     const metadata = [input.id, input.kind, input.name, input.origin, input.description, input.operation, encryptedPayload];
     return this.database.transaction(async client => {
@@ -190,22 +197,22 @@ export class EncryptedIntegrationRepository {
     };
   }
 
-  /**
-   * Replace only a model account's user-encrypted Codex cache. The account
-   * revision is independent of the collection revision, so unrelated bearer
-   * edits do not invalidate the cache's authenticated-encryption binding.
-   */
-  async saveModelCache(input: { id: string; expectedRevision: number; keyGeneration: string; encryptedPayload: string; idempotencyKey: string }): Promise<{ revision: number; collectionRevision: number; duplicate: boolean }> {
+  /** Store a model auth cache under Factorize-managed encryption. The proxy is
+   * trusted to handle the live token, while the database only receives the
+   * server-encrypted cache. */
+  async saveModelCache(input: { id: string; expectedRevision: number; encryptedPayload: string; idempotencyKey: string }): Promise<{ revision: number; collectionRevision: number; duplicate: boolean }> {
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuid.test(input.id) || !uuid.test(input.idempotencyKey) || !uuid.test(input.keyGeneration) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0
-        || !isUserCiphertext(input.encryptedPayload)) throw new IntegrationValidationError("model cache binding is invalid");
-    const encryptedPayload = await encrypt(input.encryptedPayload, this.serverEncryptionKey);
+    if (!uuid.test(input.id) || !uuid.test(input.idempotencyKey) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0
+        || typeof input.encryptedPayload !== "string" || input.encryptedPayload.length === 0 || input.encryptedPayload.length > 65_536) throw new IntegrationValidationError("model cache binding is invalid");
+    let parsed: unknown;
+    try { parsed = JSON.parse(input.encryptedPayload); } catch { throw new IntegrationValidationError("model cache is invalid"); }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new IntegrationValidationError("model cache is invalid");
+    const managedPayload = `${MANAGED_MODEL_PREFIX}${input.encryptedPayload}`;
+    const encryptedPayload = await encrypt(managedPayload, this.serverEncryptionKey);
     return this.database.transaction(async client => {
       await client.query("INSERT INTO app.integration_collections(tenant_id) VALUES ($1) ON CONFLICT DO NOTHING", [this.tenantId]);
       const collection = (await client.query<{ revision: string | number }>("SELECT revision FROM app.integration_collections WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0]!;
       const currentCollectionRevision = safeRevision(collection.revision);
-      const keyState = (await client.query<{ generation_id: string }>("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0];
-      if (!keyState || keyState.generation_id !== input.keyGeneration) throw new StaleIntegrationRevisionError(currentCollectionRevision);
       const current = (await client.query<{ kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string | null; deleted_at: Date | null }>(
         "SELECT kind,name,origin,description,revision,encrypted_payload,deleted_at FROM app.integration_records WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, input.id])).rows[0];
       if (!current || current.kind !== "model" || current.deleted_at || current.revision === null) throw new IntegrationValidationError("model account is unavailable");
@@ -214,7 +221,7 @@ export class EncryptedIntegrationRepository {
         "SELECT revision,record_id,operation,encrypted_payload FROM app.integration_changes WHERE tenant_id=$1 AND idempotency_key=$2", [this.tenantId,input.idempotencyKey])).rows[0];
       if (previousChange) {
         const same = previousChange.record_id === input.id && previousChange.operation === "upsert" && previousChange.encrypted_payload !== null
-          && await decrypt(previousChange.encrypted_payload, this.serverEncryptionKey) === input.encryptedPayload;
+          && await decrypt(previousChange.encrypted_payload, this.serverEncryptionKey) === managedPayload;
         if (!same) throw new IntegrationIdempotencyConflictError();
         return { revision: Math.max(0, input.expectedRevision + 1), collectionRevision: safeRevision(previousChange.revision), duplicate: true };
       }
