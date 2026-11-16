@@ -636,7 +636,7 @@ export class ApiService {
     if (input.preserveManagedModelCaches) {
       const current = await repository.rotationSnapshot();
       const managed = (value: string | null) => value?.startsWith("factorize-managed-model-cache-v1:") ?? false;
-      suppliedRecords = [...suppliedRecords, ...current.records.filter(record => record.kind === "model" && managed(record.encryptedPayload))];
+      suppliedRecords = [...suppliedRecords, ...current.records.filter(record => record.kind === "model" && managed(record.encryptedPayload)).map(record => ({ ...record, deletedAt: record.deletedAt?.toISOString() ?? null }))];
       suppliedChanges = [...suppliedChanges, ...current.changes.filter(change => change.kind === "model" && managed(change.encryptedPayload))];
     }
     const records = suppliedRecords.map(record => ({ ...record, deletedAt: record.deletedAt === null ? null : new Date(record.deletedAt) }));
