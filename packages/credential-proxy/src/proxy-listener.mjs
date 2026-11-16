@@ -52,6 +52,14 @@ function isGitSmartHttp(path, search) {
 }
 
 function providerRoute(pathname, search, credentials) {
+  const model = /^\/providers\/model\/v1(?:\/(.*))?$/.exec(pathname);
+  if (model) {
+    const selected = credentials.modelAccount;
+    if (!selected?.available || typeof selected.accessToken !== "string" || !selected.accessToken) return { error: 403 };
+    const accountId = typeof selected.accountId === "string" ? selected.accountId : null;
+    return { origin: "https://chatgpt.com", credential: selected.accessToken, authorization: "bearer",
+      path: `/backend-api/codex/${model[1] ?? ""}`, ...(accountId ? { extraHeaders: { "chatgpt-account-id": accountId } } : {}) };
+  }
   const github = /^\/providers\/github\/([^/]+)(\/.*)?$/.exec(pathname);
   if (github) {
     let installationId;
@@ -83,6 +91,7 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
   }
   let grants = grantTable(connection.grants);
   let providerCredentials = connection.providerCredentials ?? { githubInstallations: [], linearConnection: null };
+  let modelCredentials = connection.modelCredentials ?? { available: false };
   let unlocked = true;
   let lockedMetadata = [];
   const controllers = new Set();
@@ -118,7 +127,8 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
         const providers = unlocked ? {
           githubInstallations: providerCredentials.githubInstallations.filter(item => item.available).map(item => ({ installationId: item.installationId, endpoint: `/providers/github/${item.installationId}/` })),
           linear: providerCredentials.linearConnection?.available ? { endpoint: "/providers/linear/" } : null,
-        } : { githubInstallations: [], linear: null };
+          model: modelCredentials.available ? { endpoint: "/providers/model/v1/" } : null,
+        } : { githubInstallations: [], linear: null, model: null };
         response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
         response.end(JSON.stringify({ state: unlocked ? "unlocked" : "locked", integrations, providers }));
         return;
@@ -127,7 +137,7 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
         response.writeHead(423, { "cache-control": "no-store" }).end();
         return;
       }
-      const provider = providerRoute(parsed.pathname, parsed.search, providerCredentials);
+      const provider = providerRoute(parsed.pathname, parsed.search, { ...providerCredentials, modelAccount: modelCredentials });
       let integration;
       let suffix;
       if (provider) {
@@ -164,7 +174,7 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
       const result = await forwarder.forward(integration, {
         url: target,
         method: request.method,
-        headers: request.headers,
+        headers: { ...request.headers, ...(integration.extraHeaders ?? {}) },
         body: request,
       }, { signal: controller.signal });
       const headers = Object.create(null);
@@ -202,6 +212,7 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
       lockedMetadata = [...grants.values()].map(({ id, name, description }) => ({ id, name, description }));
       grants = new Map();
       providerCredentials = { githubInstallations: [], linearConnection: null };
+      modelCredentials = { available: false };
       for (const controller of controllers) controller.abort(new Error("proxy locked"));
     },
     getProviderCredentials() {
@@ -217,6 +228,10 @@ export async function createAuthenticatedProxyListener({ connection, forwarder =
       if (closed) return;
       providerCredentials = nextCredentials && typeof nextCredentials === "object"
         ? nextCredentials : { githubInstallations: [], linearConnection: null };
+    },
+    replaceModelCredentials(nextCredentials) {
+      if (closed) return;
+      modelCredentials = nextCredentials && typeof nextCredentials === "object" ? nextCredentials : { available: false };
     },
     close: () => {
       if (closed) return Promise.resolve();

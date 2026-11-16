@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { createProxyRuntime } from "./runtime.mjs";
 import { registerProxyBoot, startProxyRunRevocationMonitor, startProxyRuntimeStatusReporter } from "./control-client.mjs";
 import { startProxyBootstrapControl } from "./bootstrap-control.mjs";
-import { createProxyIntegrationGrantResolver, createProxyProviderCredentialResolver } from "./decrypted-grants.mjs";
+import { createProxyIntegrationGrantResolver, createProxyProviderCredentialResolver, createProxyModelCredentialResolver } from "./decrypted-grants.mjs";
 import { startAuthenticatedProxyTunnel } from "./tunnel-transport.mjs";
 import { createProxyTlsAuthority } from "./tls-identity.mjs";
 import { createCodexAuthHelper } from "./codex-auth-helper.mjs";
@@ -79,6 +79,7 @@ async function activateRegistration(registration, origin, browserOrigin) {
   });
   const resolveGrants = createProxyIntegrationGrantResolver({ runtime, controlOrigin: origin, controlCredential: registration.controlCredential });
   const resolveProviderCredentials = createProxyProviderCredentialResolver({ controlOrigin: origin, controlCredential: registration.controlCredential });
+  const resolveModelCredentials = createProxyModelCredentialResolver({ controlOrigin: origin, controlCredential: registration.controlCredential, getAccessCredential: modelAccountLifecycle.getAccessCredential });
   const started = await startAuthenticatedProxyTunnel({
     tls: tlsAuthority.tls,
     runtime,
@@ -86,6 +87,7 @@ async function activateRegistration(registration, origin, browserOrigin) {
     controlCredential: registration.controlCredential,
     resolveGrants,
     resolveProviderCredentials,
+    resolveModelCredentials,
     resolveRunCredential: (runId, vmIdentity) => runCredentials.resolve(runId, vmIdentity),
     host: process.env.FACTORIZE_PROXY_TUNNEL_HOST ?? "0.0.0.0",
     port: tunnelPort,

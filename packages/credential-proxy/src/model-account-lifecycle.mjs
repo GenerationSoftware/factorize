@@ -47,6 +47,7 @@ export function createModelAccountLifecycle({
   const generations = new Map();
   const queues = new Map();
   const unsaved = new Set();
+  const lastCredentialRefresh = new Map();
   const currentGeneration = id => generations.get(id) ?? 0;
 
   function serialize(id, operation) {
@@ -162,6 +163,7 @@ export function createModelAccountLifecycle({
       await authHelper.invoke({ method: "logout", accountId: id }).catch(() => {});
       await removeCache(resolve(accountHomeRoot, id), { recursive: true, force: true });
       unsaved.delete(id);
+      lastCredentialRefresh.delete(id);
       onUnsaved({ accountId: id, unsaved: false });
       return { state: "deleted" };
     });
@@ -202,11 +204,35 @@ export function createModelAccountLifecycle({
     return { state: "restored", revision: saved.revision };
   }
 
+  async function getAccessCredential(id) {
+    const account = await getAccount(id);
+    if (!account || account.id !== id || account.kind !== "model") return { available: false };
+    let plain;
+    try {
+      const refreshedAt = lastCredentialRefresh.get(id) ?? 0;
+      if (Date.now() - refreshedAt >= 60_000) {
+        lastCredentialRefresh.set(id, Date.now());
+        let refreshed;
+        try { refreshed = await refresh(id); } catch { return { available: false }; }
+        if (refreshed.state === "reauthentication-required" || refreshed.state === "deleted") return { available: false };
+      }
+      plain = await readCache(cachePath(accountHomeRoot, id));
+      if (!Buffer.isBuffer(plain) || plain.byteLength === 0 || plain.byteLength > 65_536) return { available: false };
+      const auth = JSON.parse(plain.toString("utf8"));
+      const accessToken = auth?.tokens?.access_token;
+      if (typeof accessToken !== "string" || !accessToken || accessToken.length > 16_384) return { available: false };
+      const accountId = auth?.tokens?.account_id ?? auth?.tokens?.chatgpt_account_id;
+      return { available: true, accessToken, ...(typeof accountId === "string" && accountId.length <= 512 ? { accountId } : {}) };
+    } catch { return { available: false }; }
+    finally { plain?.fill(0); }
+  }
+
   async function reconcile(id) {
     return serialize(id, async () => {
       if (!await getAccount(id)) {
         await removeCache(resolve(accountHomeRoot, id), { recursive: true, force: true });
         unsaved.delete(id);
+        lastCredentialRefresh.delete(id);
         return { state: "deleted" };
       }
       if (getEncryptedCache) {
@@ -224,6 +250,7 @@ export function createModelAccountLifecycle({
     refresh,
     deleteAccount,
     restore,
+    getAccessCredential,
     reconcile,
     isUnsaved: id => unsaved.has(id),
     /** Remove local auth homes as soon as a server-side disconnect is observed. */

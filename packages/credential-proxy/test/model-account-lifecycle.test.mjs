@@ -52,6 +52,21 @@ test("device authorization persists the refreshed cache for server-side encrypti
   assert.equal("unlockKey" in saved.request, false);
 });
 
+test("outbound model credential reads only the current account cache and observes refreshed tokens", async t => {
+  const f = await fixture(t);
+  assert.deepEqual(await f.lifecycle.getAccessCredential(accountId), { available: true, accessToken: "synthetic-access" });
+  await writeFile(join(f.home, "auth.json"), JSON.stringify({ tokens: { access_token: "synthetic-refreshed", account_id: "fixture-account" } }));
+  assert.deepEqual(await f.lifecycle.getAccessCredential(accountId), { available: true, accessToken: "synthetic-refreshed", accountId: "fixture-account" });
+  const deleted = createModelAccountLifecycle({ authHelper: { invoke: async () => ({ state: "idle" }) }, accountHomeRoot: f.root,
+    getAccount: async () => null, persistEncrypted: async () => {}, readCache: readFile });
+  assert.deepEqual(await deleted.getAccessCredential(accountId), { available: false });
+});
+
+test("outbound model credentials fail closed when refresh requires reconnect", async t => {
+  const f = await fixture(t, { refreshResult: { state: "reauthentication-required" } });
+  assert.deepEqual(await f.lifecycle.getAccessCredential(accountId), { available: false });
+});
+
 test("denied or expired device authorization does not persist token state", async t => {
   const f = await fixture(t, { completion: Promise.resolve({ state: "reauthentication-required" }) });
   const login = await f.lifecycle.deviceLogin(accountId);

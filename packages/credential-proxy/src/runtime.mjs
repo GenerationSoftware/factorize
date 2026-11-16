@@ -165,6 +165,10 @@ export function createProxyRuntime({ listenerFactory = createAuthenticatedProxyL
               const providers = await connection.refreshProviderCredentials();
               if (epoch === grantEpoch && state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId)) listener.replaceProviderCredentials(providers);
             }
+            if (typeof connection.refreshModelCredentials === "function" && typeof listener.replaceModelCredentials === "function") {
+              const model = await connection.refreshModelCredentials();
+              if (epoch === grantEpoch && state === "unlocked" && !shutdown && !revokedRuns.has(connection.runId)) listener.replaceModelCredentials(model);
+            }
           } catch {
             // A control-plane outage does not expire established grants. Retry
             // on the next interval; durable revocation has its own monitor.

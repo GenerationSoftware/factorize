@@ -148,6 +148,25 @@ export function createProxyProviderCredentialResolver({ controlOrigin, controlCr
   return async binding => (await readProxyIntegrationSnapshot({ controlOrigin, token: controlCredential, binding, fetchImpl })).providerCredentials;
 }
 
+/** Resolve the one model account selected by this still-active run. The token
+ * is read only from the proxy's private Codex auth home; encrypted account
+ * data and credentials never cross into the guest VM. */
+export function createProxyModelCredentialResolver({ controlOrigin, controlCredential, getAccessCredential, fetchImpl = fetch } = {}) {
+  if (typeof controlOrigin !== "string" || !/^fzc_[A-Za-z0-9_-]{43}$/.test(controlCredential ?? "")
+      || typeof getAccessCredential !== "function") throw new TypeError("model credential resolver requires the registered proxy identity");
+  return async binding => {
+    const snapshot = await readProxyIntegrationSnapshot({ controlOrigin, token: controlCredential, binding, fetchImpl });
+    const account = snapshot.modelAccount;
+    if (!account) return { available: false };
+    if (account.kind !== "model" || typeof account.id !== "string" || typeof account.encryptedPayload !== "string"
+        || !account.encryptedPayload.startsWith("factorize-managed-model-cache-v1:")) return { available: false };
+    const credential = await getAccessCredential(account.id);
+    return credential?.available === true && typeof credential.accessToken === "string" && credential.accessToken
+      ? { available: true, accountId: credential.accountId, accessToken: credential.accessToken }
+      : { available: false };
+  };
+}
+
 /** Verify the current user-encrypted generation before opening access. */
 export async function verifyProxyUnlockKey(key, record) {
   const envelope = JSON.parse(record.encryptedVerification);

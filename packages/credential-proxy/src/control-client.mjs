@@ -248,7 +248,7 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
  * using its private control credential. Provider credentials are returned
  * only to this process over the control channel and are never sent to the VM.
  */
-export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCredential, bootEpoch, resolveGrants, resolveProviderCredentials, resolveRunCredential, fetchImpl = fetch } = {}) {
+export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCredential, bootEpoch, resolveGrants, resolveProviderCredentials, resolveModelCredentials, resolveRunCredential, fetchImpl = fetch } = {}) {
   if (!/^fzc_[A-Za-z0-9_-]{43}$/.test(controlCredential ?? "")) throw new TypeError("invalid proxy control credential");
   if (!bootEpochPattern.test(bootEpoch ?? "")) throw new TypeError("invalid proxy boot epoch");
   if (typeof resolveGrants !== "function" || typeof resolveProviderCredentials !== "function" || typeof resolveRunCredential !== "function") throw new TypeError("proxy enrollment requires local credential resolvers");
@@ -272,6 +272,7 @@ export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCrede
     if (!Array.isArray(grants)) throw new Error("proxy grants are unavailable");
     const providerCredentials = await resolveProviderCredentials(binding);
     if (!providerCredentials || !Array.isArray(providerCredentials.githubInstallations)) throw new Error("provider credentials are unavailable");
+    const modelCredentials = resolveModelCredentials ? await resolveModelCredentials(binding) : { available: false };
     return {
       authenticated: true,
       enrollmentConsumed: true,
@@ -287,6 +288,8 @@ export function createProxyEnrollmentAuthenticator({ controlOrigin, controlCrede
       refreshGrants: () => resolveGrants(binding),
       providerCredentials,
       refreshProviderCredentials: () => resolveProviderCredentials(binding),
+      modelCredentials,
+      ...(resolveModelCredentials ? { refreshModelCredentials: () => resolveModelCredentials(binding) } : {}),
     };
   };
 }

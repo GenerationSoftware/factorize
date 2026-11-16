@@ -137,7 +137,7 @@ test("provider routes use only selected run credentials and choose Git smart HTT
     request: async ({ socket, url, headers, body }) => {
       const chunks = [];
       for await (const chunk of body ?? []) chunks.push(Buffer.from(chunk));
-      seen.push({ origin: url.origin, authorization: headers.authorization, path: url.pathname, search: url.search, body: Buffer.concat(chunks).toString() });
+      seen.push({ origin: url.origin, authorization: headers.authorization, path: url.pathname, search: url.search, accountId: headers["chatgpt-account-id"], body: Buffer.concat(chunks).toString() });
       return { status: 200, headers: { "content-type": "text/plain" }, body: Readable.from(["first", "second"]) };
     },
   });
@@ -153,12 +153,14 @@ test("provider routes use only selected run credentials and choose Git smart HTT
         { installationId: 42, available: true, accessToken: "github-selected-token" },
         { installationId: 43, available: false },
       ], linearConnection: { connectionId: "linear", available: true, accessToken: "linear-selected-token" } },
+      modelCredentials: { available: true, accessToken: "model-selected-token", accountId: "chatgpt-account-1" },
     });
     const base = `http://127.0.0.1:${listener.address.port}`;
     const inventory = await (await fetch(`${base}/integrations`)).json();
     assert.deepEqual(inventory.providers, {
       githubInstallations: [{ installationId: 42, endpoint: "/providers/github/42/" }],
       linear: { endpoint: "/providers/linear/" },
+      model: { endpoint: "/providers/model/v1/" },
     });
     const git = await fetch(`${base}/providers/github/42/owner/repo.git/info/refs?service=git-upload-pack`, {
       headers: { authorization: "Bearer guest-controlled", "git-protocol": "version=2" },
@@ -170,17 +172,31 @@ test("provider routes use only selected run credentials and choose Git smart HTT
       method: "POST", headers: { authorization: "Bearer guest-controlled" }, body: "{ viewer { id } }",
     });
     assert.equal(await linear.text(), "firstsecond");
+    const model = await fetch(`${base}/providers/model/v1/responses`, {
+      method: "POST", headers: { authorization: "Bearer guest-controlled", "content-type": "application/json" }, body: '{"model":"fixture"}',
+    });
+    const modelBody = await model.text();
+    assert.equal(model.status, 200, modelBody);
+    assert.equal(modelBody, "firstsecond");
     assert.equal((await fetch(`${base}/providers/github/43/user`)).status, 403);
-    assert.deepEqual(seen.map(item => [item.origin, item.authorization, item.path, item.search]), [
-      ["https://github.com", "Basic eC1hY2Nlc3MtdG9rZW46Z2l0aHViLXNlbGVjdGVkLXRva2Vu", "/owner/repo.git/info/refs", "?service=git-upload-pack"],
-      ["https://api.github.com", "Bearer github-selected-token", "/user", ""],
-      ["https://api.linear.app", "Bearer linear-selected-token", "/graphql", "?operation=Query"],
+    assert.deepEqual(seen.map(item => [item.origin, item.authorization, item.path, item.search, item.accountId]), [
+      ["https://github.com", "Basic eC1hY2Nlc3MtdG9rZW46Z2l0aHViLXNlbGVjdGVkLXRva2Vu", "/owner/repo.git/info/refs", "?service=git-upload-pack", undefined],
+      ["https://api.github.com", "Bearer github-selected-token", "/user", "", undefined],
+      ["https://api.linear.app", "Bearer linear-selected-token", "/graphql", "?operation=Query", undefined],
+      ["https://chatgpt.com", "Bearer model-selected-token", "/backend-api/codex/responses", "", "chatgpt-account-1"],
     ]);
     assert.equal(seen[0].body, "");
+    assert.equal(seen[3].body, '{"model":"fixture"}');
     listener.replaceProviderCredentials({ githubInstallations: [{ installationId: 42, available: false }], linearConnection: { connectionId: "linear", available: false } });
+    listener.replaceModelCredentials({ available: true, accessToken: "model-refreshed-token", accountId: "chatgpt-account-1" });
+    const refreshedModel = await fetch(`${base}/providers/model/v1/responses`, { method: "POST", body: '{"model":"fixture"}' });
+    assert.equal(await refreshedModel.text(), "firstsecond");
+    assert.equal(seen.at(-1).authorization, "Bearer model-refreshed-token");
+    listener.replaceModelCredentials({ available: false });
+    assert.equal((await fetch(`${base}/providers/model/v1/responses`, { method: "POST", body: '{}' })).status, 403);
     assert.equal((await fetch(`${base}/providers/github/42/user`)).status, 403);
     assert.equal((await fetch(`${base}/providers/linear/graphql`)).status, 403);
-    assert.equal(seen.length, 3, "revoked credentials never reach an upstream request");
+    assert.equal(seen.length, 5, "revoked credentials never reach an upstream request");
   } finally {
     if (listener) await runtime.disconnect("provider-route-connection");
     await runtime.shutdown();
@@ -240,7 +256,7 @@ test("reflection exposes safe metadata for only the authenticated VM connection 
 
     await runtime.lock();
     const locked = await reflect(first);
-    assert.deepEqual(locked, { state: "locked", providers: { githubInstallations: [], linear: null }, integrations: [
+    assert.deepEqual(locked, { state: "locked", providers: { githubInstallations: [], linear: null, model: null }, integrations: [
       { id: "selected-2", source: "portable", name: "Metrics API", description: "current help", endpoint: "/integrations/selected-2/", example: 'curl "$FACTORIZE_PROXY_URL/integrations/selected-2/"', availability: "locked" },
     ] });
     assert.equal((await fetch(`http://127.0.0.1:${first.address.port}/integrations/selected-2/`)).status, 423);

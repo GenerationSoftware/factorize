@@ -188,6 +188,20 @@ describe("dedicated proxy boot registration endpoint", () => {
     expect(env.query.mock.calls.map((call: any[]) => call[0])).toEqual(expect.arrayContaining([expect.stringContaining("grant_revision=$5"), expect.stringContaining("FROM app.integration_records")]));
   });
 
+  it("returns a null model selection when the active run's selected account was disconnected", async () => {
+    const env = envFor();
+    env.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("SELECT user_id FROM app.members")) return { rows: [{ user_id: "11111111-1111-4111-8111-111111111111" }], rowCount: 1 };
+      if (sql.includes("proxy_token_digest")) return { rows: [{ tenant_id: "11111111-1111-4111-8111-111111111111", proxy_identity: "proxy-fixture", boot_epoch: bootEpoch }], rowCount: 1 };
+      if (sql.includes("FROM app.runs r")) return { rows: [{ execution_config: { portableIntegrationIds: [], modelAccess: "portable", modelAccountId: "77777777-7777-4777-8777-777777777777", githubInstallationIds: [] }, grant_revision: 3 }], rowCount: 1 };
+      if (sql.includes("FROM app.integration_records")) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 0 };
+    });
+    const response = await proxyControlFetch(request({ authorization: `Bearer ${token}`, path: "/internal/credential-proxy/integration-snapshot", body: { runId, grantRevision: 3 } }), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ modelAccount: null, providerCredentials: { githubInstallations: [], linearConnection: null } });
+  });
+
   it("returns durable revoked runs only for the authenticated current proxy boot", async () => {
     const env = envFor();
     env.query.mockImplementation(async (sql: string) => sql.includes("proxy_token_digest")

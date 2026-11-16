@@ -140,7 +140,9 @@ export async function proxyControlFetch(request: Request, env: Parameters<typeof
       if (typeof modelAccountId !== "string") return json({ error: "integration_snapshot_unavailable" }, 403);
       modelAccount = (await new EncryptedIntegrationRepository(database, proxy.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).records("model"))
         .find(record => record.id === modelAccountId) ?? null;
-      if (!modelAccount) return json({ error: "integration_snapshot_unavailable" }, 403);
+      // A deleted selected account is a revocation signal for an already-open
+      // run tunnel. Preserve the active run snapshot with a null account so the
+      // proxy replaces its model credential with an unavailable state.
     } else if (modelAccess !== "native" || modelAccountId !== undefined) {
       return json({ error: "integration_snapshot_unavailable" }, 403);
     }

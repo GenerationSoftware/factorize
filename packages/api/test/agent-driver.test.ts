@@ -10,4 +10,14 @@ describe("agent drivers", () => {
   it("keeps transport details out of every driver", () => {
     for (const kind of ["codex", "claude", "pi"] as const) expect(JSON.stringify(agentDriver(kind).launch("run-1", {}))).not.toContain("ssh");
   });
+  it("passes only selected listener endpoints to provider clients", () => {
+    const launch = agentDriver("codex").launch("run-1", { providerEndpoints: { githubInstallationIds: [42, 43, 42], linear: true, model: true } });
+    expect(JSON.parse(launch.env.FACTORIZE_GITHUB_INSTALLATIONS!)).toEqual([
+      { installationId: 42, apiUrl: "http://127.0.0.1:18180/providers/github/42/", gitUrl: "http://127.0.0.1:18180/providers/github/42/" },
+      { installationId: 43, apiUrl: "http://127.0.0.1:18180/providers/github/43/", gitUrl: "http://127.0.0.1:18180/providers/github/43/" },
+    ]);
+    expect(launch.env.FACTORIZE_LINEAR_API_URL).toBe("http://127.0.0.1:18180/providers/linear/");
+    expect(launch.env.FACTORIZE_MODEL_API_URL).toBe("http://127.0.0.1:18180/providers/model/v1");
+    expect(JSON.stringify(launch.env)).not.toMatch(/token|secret|credential/i);
+  });
 });

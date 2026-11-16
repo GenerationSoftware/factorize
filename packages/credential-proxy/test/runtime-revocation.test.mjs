@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createProxyRuntime } from "../src/runtime.mjs";
 import { startProxyRunRevocationMonitor } from "../src/control-client.mjs";
+import { createBearerForwarder } from "../src/bearer-forwarder.mjs";
+import { createAuthenticatedProxyListener } from "../src/proxy-listener.mjs";
 
 const bootEpoch = "11111111-1111-4111-8111-111111111111";
 
@@ -230,6 +232,55 @@ test("provider credential refresh removes disconnected credentials from an estab
     assert.ok(updates.some(value => value.linearConnection?.accessToken === "current"));
     assert.deepEqual(updates.at(-1), { githubInstallations: [], linearConnection: { connectionId: "linear", available: false } });
   } finally {
+    await runtime.shutdown();
+  }
+});
+
+test("selected model refresh and disconnect affect actual outbound requests on an established run listener", { timeout: 5_000 }, async () => {
+  const observed = [];
+  const forwarder = createBearerForwarder({
+    connectorFactory: () => async requestUrl => ({ socket: { destroy() {} }, url: new URL(requestUrl) }),
+    request: async ({ url, headers }) => {
+      observed.push({ path: url.pathname, authorization: headers.authorization });
+      return { status: 200, headers: {}, body: (await import("node:stream")).Readable.from(["ok"]) };
+    },
+  });
+  let selected = { available: true, accessToken: "model-token-v1" };
+  const runtime = createProxyRuntime({ bootEpoch, grantRefreshIntervalMs: 100,
+    listenerFactory: ({ connection: value }) => createAuthenticatedProxyListener({ connection: value, forwarder }) });
+  runtime.unlock("synthetic-unlock-key");
+  let listener;
+  try {
+    listener = await runtime.acceptAuthenticatedConnection({
+      ...connection("run-model-refresh", "connection-model-refresh"), vmId: "vm-model-refresh", grants: [],
+      providerCredentials: { githubInstallations: [], linearConnection: null }, modelCredentials: selected,
+      refreshGrants: async () => [], refreshProviderCredentials: async () => ({ githubInstallations: [], linearConnection: null }),
+      refreshModelCredentials: async () => selected,
+    });
+    const endpoint = `http://127.0.0.1:${listener.address.port}/providers/model/v1/responses`;
+    const request = async () => fetch(endpoint, { method: "POST", body: "{}" });
+    assert.equal((await request()).status, 200);
+    selected = { available: true, accessToken: "model-token-v2" };
+    const refreshedBy = Date.now() + 1_500;
+    while (Date.now() < refreshedBy && !observed.some(value => value.authorization === "Bearer model-token-v2")) {
+      const response = await request();
+      await response.arrayBuffer();
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.ok(observed.some(value => value.authorization === "Bearer model-token-v2"), "refreshed selected token reached the outbound model request");
+    selected = { available: false };
+    const revokedBy = Date.now() + 1_500;
+    while (Date.now() < revokedBy) {
+      const response = await request();
+      if (response.status === 403) break;
+      await response.arrayBuffer();
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.equal((await request()).status, 403, "disconnected model account is denied before outbound forwarding");
+    assert.ok(observed.every(value => value.path === "/backend-api/codex/responses"));
+    assert.ok(observed.some(value => value.authorization === "Bearer model-token-v1"));
+  } finally {
+    if (listener) await runtime.disconnect(listener.connectionId);
     await runtime.shutdown();
   }
 });

@@ -197,14 +197,18 @@ export class RunScheduler {
       return;
     }
     if (run.executionConfig.agentKind === "Amp") throw new Error("Amp execution is unavailable for new runs because it cannot deliver the required structured result file. Choose an exe.dev agent integration.");
-    const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, { model: run.executionConfig.model, effort: run.executionConfig.effort, ...(driver.kind === "codex" ? { codexModel: { baseUrl: this.env.CODEX_MODEL_BASE_URL ?? "https://llm.int.exe.xyz/v1" } } : {}) });
+    const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, {
+      model: run.executionConfig.model, effort: run.executionConfig.effort,
+      providerEndpoints: { githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId) },
+      ...(driver.kind === "codex" ? { codexModel: { baseUrl: run.executionConfig.modelAccess === "portable" && run.executionConfig.modelAccountId ? "http://127.0.0.1:18180/providers/model/v1" : this.env.CODEX_MODEL_BASE_URL ?? "https://llm.int.exe.xyz/v1" } } : {}),
+    });
     const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
     validateTraceSources(sources);
     const runToken = await issueRunCredential(this.env, run.tenantId, run.id, run.executionConfig.runScopes);
     const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const reservation = backend.reserve?.(run.id) ?? null;
     if (reservation) await this.runs.recordLaunchHandle(run, reservation);
-    const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runProxyInstructions(run.id)}`, runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
+    const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runProxyInstructions(run.id, { githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId) })}`, runProxy: { targetOrigin: this.env.APP_ORIGIN, credential: runToken }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
     if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
   }

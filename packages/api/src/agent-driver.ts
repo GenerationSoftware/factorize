@@ -4,7 +4,7 @@ import type { TraceSources } from "./trace-source";
 import { JOB_RESULT_PATH } from "./job-result";
 export type AgentKind = "codex" | "claude" | "pi";
 
-export interface AgentConfiguration { model?: string; effort?: string; codexModel?: { baseUrl: string; providerName?: string }; }
+export interface AgentConfiguration { model?: string; effort?: string; codexModel?: { baseUrl: string; providerName?: string }; providerEndpoints?: { githubInstallationIds?: number[]; linear?: boolean; model?: boolean }; }
 export interface ArtifactLocator {
   /** Paths are interpreted inside the guest; the compute backend only transports files. */
   roots: string[];
@@ -73,9 +73,20 @@ class PiDriver implements AgentDriver {
 }
 
 const drivers: Record<AgentKind, AgentDriver> = { codex: new CodexDriver(), claude: new ClaudeDriver(), pi: new PiDriver() };
+function providerEndpointEnv(config: AgentConfiguration): Record<string, string> {
+  const proxy = "http://127.0.0.1:18180";
+  const installations = [...new Set(config.providerEndpoints?.githubInstallationIds ?? [])]
+    .filter(id => Number.isSafeInteger(id) && id > 0)
+    .map(installationId => ({ installationId, apiUrl: `${proxy}/providers/github/${installationId}/`, gitUrl: `${proxy}/providers/github/${installationId}/` }));
+  return {
+    ...(installations.length ? { FACTORIZE_GITHUB_INSTALLATIONS: JSON.stringify(installations) } : {}),
+    ...(config.providerEndpoints?.linear ? { FACTORIZE_LINEAR_API_URL: `${proxy}/providers/linear/` } : {}),
+    ...(config.providerEndpoints?.model ? { FACTORIZE_MODEL_API_URL: `${proxy}/providers/model/v1` } : {}),
+  };
+}
 export function agentDriver(kind: AgentKind): AgentDriver {
   const driver = drivers[kind];
-  return { kind, launch(runId, config) { const spec = driver.launch(runId, config); return { ...spec, env: { ...spec.env, FACTORIZE_RESULT_PATH: JOB_RESULT_PATH }, traceSources: driverTraceSources(kind, spec) }; } };
+  return { kind, launch(runId, config) { const spec = driver.launch(runId, config); return { ...spec, env: { ...spec.env, ...providerEndpointEnv(config), FACTORIZE_RESULT_PATH: JOB_RESULT_PATH }, traceSources: driverTraceSources(kind, spec) }; } };
 }
 
 /** Compatibility for drivers and historical runs that only declare native sessions. */
