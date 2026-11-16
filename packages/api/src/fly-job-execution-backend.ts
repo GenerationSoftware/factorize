@@ -7,7 +7,7 @@ type SharedOptions = ConstructorParameters<typeof MachineJobExecutionBackend>[0]
 
 /** Preserves persisted Fly handles while sharing the complete guest lifecycle. */
 export class FlyJobExecutionBackend extends MachineJobExecutionBackend {
-  constructor(options: Omit<SharedOptions, "kind" | "machineConfig" | "vmIdentity" | "proxyAddress"> & { region: string; size: string }) {
+  constructor(options: Omit<SharedOptions, "kind" | "machineConfig" | "vmIdentity" | "proxyAddress"> & { region: string; size: string; organizationName?: string }) {
     super({
       ...options,
       kind: "fly",
@@ -18,6 +18,7 @@ export class FlyJobExecutionBackend extends MachineJobExecutionBackend {
       vmIdentity: machine => `fly:${options.app}:${machine.id}`,
       proxyAddress: { host: `${options.app}.internal`, port: 9090 },
       vendorIdentityAudience: options.vendorIdentityAudience ?? (runId => `factorize://runs/${runId}`),
+      ...(options.organizationName ? { vendorIdentitySubject: machine => machine.name ? `${options.organizationName}:${options.app}:${machine.name}` : "" } : {}),
     });
   }
 }

@@ -26,7 +26,7 @@ describe.skipIf(!url)("durable vendor run identity bindings (PostgreSQL)", () =>
     await db.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,$5,'test')", [tenantId, runId, jobId, invocationId, state]);
     const identity: VendorIdentity = {
       provider: "fly.io", runId, vmId: `fm-${crypto.randomUUID()}`, issuer: "https://oidc.fly.io/factorize-test",
-      subject: `test:factorize-test:${crypto.randomUUID()}`, audience: `factorize://runs/${runId}`, issuedAt: 1_800_000_000,
+      subject: `factorize-org:factorize-test:${crypto.randomUUID()}`, audience: `factorize://runs/${runId}`, issuedAt: 1_800_000_000,
       expiresAt: 1_800_000_600, keyId: "fixture-key", ...identityOverrides,
     };
     return { tenantId, runId, identity, repository: new VendorRunIdentityRepository(db), now: new Date(identity.issuedAt * 1000) };
@@ -64,13 +64,13 @@ describe.skipIf(!url)("durable vendor run identity bindings (PostgreSQL)", () =>
 
   it("verifies a signed Fly token before persisting and renewing its active VM binding", async () => {
     const f = await fixture();
-    const issuer = f.identity.issuer, audience = `factorize://runs/${f.runId}`, subject = f.identity.subject;
+    const issuer = f.identity.issuer, audience = `factorize://runs/${f.runId}`, subject = `factorize-org:factorize-test:factorize-run`;
     const pair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
     const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
     const base64url = (value: Uint8Array) => Buffer.from(value).toString("base64url");
-    const sign = async (issuedAt: number, machineId = f.identity.vmId) => {
+    const sign = async (issuedAt: number, machineId = f.identity.vmId, tokenSubject = subject) => {
       const header = base64url(new TextEncoder().encode(JSON.stringify({ alg: "RS256", kid: "fixture-key" })));
-      const payload = base64url(new TextEncoder().encode(JSON.stringify({ iss: issuer, sub: subject, aud: audience, iat: issuedAt, exp: issuedAt + 600, machine_id: machineId })));
+      const payload = base64url(new TextEncoder().encode(JSON.stringify({ iss: issuer, sub: tokenSubject, aud: audience, iat: issuedAt, exp: issuedAt + 600, machine_id: machineId })));
       const input = `${header}.${payload}`;
       const signature = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(input)));
       return `${input}.${base64url(signature)}`;
@@ -82,15 +82,17 @@ describe.skipIf(!url)("durable vendor run identity bindings (PostgreSQL)", () =>
     vi.stubGlobal("fetch", fetcher);
     try {
       const first = await sign(now - 5);
-      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: first, audience, expectedIssuer: issuer, now: new Date(now * 1000) }))
+      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: first, audience, expectedIssuer: issuer, expectedSubject: subject, now: new Date(now * 1000) }))
         .resolves.toMatchObject({ provider: "fly.io", vmId: f.identity.vmId, issuer, subject, audience });
       const renewed = await sign(now + 30);
-      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: renewed, audience, expectedIssuer: issuer, now: new Date((now + 30) * 1000) }))
+      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: renewed, audience, expectedIssuer: issuer, expectedSubject: subject, now: new Date((now + 30) * 1000) }))
         .resolves.toMatchObject({ expiresAt: new Date((now + 630) * 1000) });
-      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: await sign(now + 60, "another-machine"), audience, expectedIssuer: issuer, now: new Date((now + 60) * 1000) }))
+      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: await sign(now + 60, "another-machine"), audience, expectedIssuer: issuer, expectedSubject: subject, now: new Date((now + 60) * 1000) }))
         .rejects.toThrow("VM mismatch");
+      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: await sign(now + 60, f.identity.vmId, "another-org:factorize-test:machine-name"), audience, expectedIssuer: issuer, expectedSubject: subject, now: new Date((now + 60) * 1000) }))
+        .rejects.toThrow("subject mismatch");
       await f.repository.revoke({ tenantId: f.tenantId, runId: f.runId, provider: "fly.io", now: new Date((now + 60) * 1000) });
-      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: await sign(now + 90), audience, expectedIssuer: issuer, now: new Date((now + 90) * 1000) }))
+      await expect(verifyAndPersistVendorRunIdentity({ database: db, tenantId: f.tenantId, runId: f.runId, provider: "fly.io", vmId: f.identity.vmId, token: await sign(now + 90), audience, expectedIssuer: issuer, expectedSubject: subject, now: new Date((now + 90) * 1000) }))
         .rejects.toThrow("binding is revoked");
     } finally { vi.unstubAllGlobals(); }
   }, 30_000);

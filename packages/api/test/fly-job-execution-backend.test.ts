@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FlyJobExecutionBackend } from "../src/fly-job-execution-backend";
 import { agentDriver } from "../src/agent-driver";
 
-const machine = { id: "machine-1", state: "created" };
+const machine = { id: "machine-1", name: "machine-name", state: "created" };
 function fixture() {
   const machines = {
     findMachineByOperationId: vi.fn(async () => machine),
@@ -55,11 +55,11 @@ describe("Fly job execution backend", () => {
     f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: token, stderr: "" });
     const verify = vi.fn(async () => undefined);
     const runId = "11111111-1111-4111-8111-111111111111";
-    const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
+    const backend = new FlyJobExecutionBackend({ app: "factorize-test", organizationName: "factorize-org", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
     const receipt = await backend.launch({ runId, prompt: "work" });
     expect(receipt.observation.state).toBe("running");
     expect(f.guest.run.mock.calls[0]?.[0]).toContain("http://localhost/v1/tokens/oidc");
-    expect(verify).toHaveBeenCalledWith({ provider: "fly.io", vmId: "machine-1", token });
+    expect(verify).toHaveBeenCalledWith({ provider: "fly.io", vmId: "machine-1", token, expectedSubject: "factorize-org:factorize-test:machine-name" });
     expect(verify.mock.invocationCallOrder[0]).toBeLessThan(f.guest.run.mock.invocationCallOrder.at(-1)!);
   });
 

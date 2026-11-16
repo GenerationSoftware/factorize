@@ -141,11 +141,13 @@ export class RunScheduler {
     if (supplied) return supplied;
     const id = String(run.executionConfig.connectionId ?? "");
     if (run.backendKind === "fly" || run.executionConfig.executionProvider === "fly") {
-      const [connection, configuration] = await Promise.all([
+      const [connection, connectionDetails, configuration] = await Promise.all([
         new FlyConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).token(),
+        new FlyConnectionRepository(this.database, run.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).get(),
         new FlyExecutionConfigurationRepository(this.database, run.tenantId).get(id),
       ]);
       if (!connection) throw new Error("Fly connection is unavailable");
+      if (!connectionDetails) throw new Error("Fly connection is unavailable");
       if (!configuration) throw new Error("Fly execution configuration is unavailable");
       const { rows } = await this.database.pool.query<{ proxy_identity: string; boot_epoch: string }>(
         "SELECT proxy_identity, boot_epoch FROM app.credential_proxy_states WHERE tenant_id=$1 AND disabled_at IS NULL AND revoked_at IS NULL",
@@ -156,7 +158,7 @@ export class RunScheduler {
       const app = proxy[1]!;
       const machines = createFlyMachinesClient({ token: connection });
       return new FlyJobExecutionBackend({
-        app, image: configuration.image, region: configuration.region, size: configuration.size,
+        app, organizationName: connectionDetails.organizationName, image: configuration.image, region: configuration.region, size: configuration.size,
         machines, guest: machine => flyJobGuest({ app, machine: machine.id, token: connection }),
         proxyIdentity: rows[0]!.proxy_identity,
         proxyBootEpoch: rows[0]!.boot_epoch,
