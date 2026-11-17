@@ -1,12 +1,15 @@
 import type { ExecutionBackend, ExecutionObservation, LaunchReceipt, LaunchRequest, RunHandle } from "./execution";
 export type JobMachine = { id: string; name?: string; state?: string; config?: { metadata?: Record<string, string> } };
 export type JobMachineConfig = Record<string, unknown> & { metadata?: Record<string, string> };
-import { createHash } from "node:crypto";
 import { safeDiagnosticText } from "./harness-diagnostics";
-import type { ArtifactCollectionRequest, ArtifactCollector, ExecutionTerminator, HarnessLogReader, JobFileCollectionRequest, JobFileCollector, JobResultReader } from "./execution";
+import type { TraceChunkCollectionRequest, ArtifactCollectionRequest, ArtifactCollector, ExecutionTerminator, HarnessLogReader, JobFileCollectionRequest, JobFileCollector, JobResultReader } from "./execution";
 import { sourceCommand } from "./trace-source";
 import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
 import { FACTORIZE_FLY_TUNNEL_HELPER } from "./fly-job-tunnel-helper";
+import { traceChunkCommand } from "./guest-artifact-commands";
+import { runArtifactTarget } from "./run-artifact-target";
+import { shellAtom } from "./exe";
+import { RUN_IDENTITY_GUEST_HELPER } from "./run-identity-guest-helper";
 import { acquireFlyMachineOidcToken } from "./vendor-run-token-sources";
 
 const SUPPORTED_CODEX_CLI_VERSION = "codex-cli 0.167.1";
@@ -41,6 +44,7 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
   constructor(
     private readonly options: {
       kind: "fly" | "docker";
+      prepare?: () => Promise<void>;
       machineConfig: (request: LaunchRequest) => JobMachineConfig;
       vmIdentity: (machine: JobMachine) => string;
       proxyAddress: { host: string; port: number; serverName?: string };
@@ -84,9 +88,11 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
     const handle = request.reservation ?? this.reserve(request.runId);
     this.handleParts(handle);
     const config = this.options.machineConfig(request);
+    if (request.runIdentity && (this.kind !== "fly" || !(request.verifyVendorIdentity ?? this.options.verifyVendorIdentity))) throw new Error("Vendor identity is required for run access");
+    await this.options.prepare?.();
     const machine = await this.options.machines.createMachine(this.options.app, config, operationId);
     if (!machine.id) throw new Error("Fly returned a Machine without an id");
-    const actualHandle = { backendKind: this.kind, id: `${this.options.app}/${machine.id}`, operationId };
+    const actualHandle = { backendKind: this.kind, id: `${this.options.app}/${machine.id}`, operationId, ...(request.runIdentity ? {identityProxyOrigin: request.runIdentity.backendOrigin} : {}) };
     try {
       if (request.runProxy) {
         if (!this.options.proxyIdentity || !this.options.proxyBootEpoch || !this.options.proxyGuest?.issueVmCertificate) throw new Error("Fly credential proxy delivery is unavailable");
@@ -107,7 +113,7 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
         if (this.options.vendorIdentitySubject && !expectedSubject) throw new Error("Fly vendor identity subject is unavailable");
         await verifyVendorIdentity({ provider: "fly.io", vmId: machine.id, token, ...(this.options.vendorIdentityIssuer ? { expectedIssuer: this.options.vendorIdentityIssuer } : {}), ...(expectedSubject ? { expectedSubject } : {}) });
       }
-      const tunnelPrerequisites = request.runProxy ? " && command -v node >/dev/null && command -v openssl >/dev/null" : "";
+      const tunnelPrerequisites = request.runProxy ? " && command -v node >/dev/null && command -v openssl >/dev/null" : request.runIdentity ? " && command -v node >/dev/null && command -v curl >/dev/null" : "";
       const installed = await guest.run(["/bin/sh", "-c", `command -v python3 >/dev/null && command -v runuser >/dev/null${tunnelPrerequisites} && id exedev >/dev/null && mkdir -p /usr/local/bin && install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job && cat > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job`], FACTORIZE_JOB_LAUNCHER);
       if (!installed.ok) throw new Error(request.runProxy
         ? "Fly guest is missing python3, runuser, Node.js, OpenSSL, or the exedev user, or could not install the shared Factorize job launcher"
@@ -143,8 +149,18 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
         const startTunnel = await guest.run(["/bin/sh", "-c", `chown exedev:exedev ${directory}/config.json ${directory}/tunnel.mjs && chmod 0600 ${directory}/config.json ${directory}/tunnel.mjs && (nohup /usr/sbin/runuser -u exedev -- /usr/bin/env PATH=/usr/local/bin:/usr/bin:/bin node ${directory}/tunnel.mjs >/tmp/factorize-proxy-tunnel.log 2>&1 </dev/null & echo $! > /tmp/factorize-proxy-tunnel.pid) && sleep 1 && kill -0 "$(cat /tmp/factorize-proxy-tunnel.pid)"`]);
         if (!startTunnel.ok) throw new Error("Fly guest could not start its credential proxy tunnel");
       }
+      if (request.runIdentity) {
+        if (!guest.upload) throw new Error("Fly guest cannot install the vendor identity helper");
+        const directory = "/run/factorize-identity";
+        const prepared = await guest.run(["/usr/bin/install", "-d", "-m", "0700", directory]);
+        if (!prepared.ok) throw new Error("Fly guest could not prepare run identity access");
+        await guest.upload(`${directory}/proxy.mjs`, new TextEncoder().encode(RUN_IDENTITY_GUEST_HELPER));
+        await guest.upload(`${directory}/config.json`, new TextEncoder().encode(JSON.stringify({runId: request.runId, backendOrigin: request.runIdentity.backendOrigin, provider: "fly.io", localPort: 18180})));
+        const started = await guest.run(["/bin/sh", "-c", "nohup node /run/factorize-identity/proxy.mjs >/tmp/factorize-identity-proxy.log 2>&1 </dev/null & echo $! > /run/factorize-identity/pid; n=0; until curl --fail --silent http://127.0.0.1:18180/_factorize/ready >/dev/null; do n=$((n+1)); test $n -lt 50 || exit 1; sleep 0.1; done"]);
+        if (!started.ok) throw new Error("Fly guest vendor identity helper did not become ready");
+      }
       const payload = JSON.stringify({ version: 1, runId: request.runId, ...(request.code ? { code: request.code } : { prompt: request.prompt, harness: request.harness }), ...(request.traceSources ? { traceSources: request.traceSources } : {}) });
-      const launchCommand = request.runProxy
+      const launchCommand = request.runProxy || request.runIdentity
         ? ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/bin/env", "FACTORIZE_PROXY_URL=http://127.0.0.1:18180", "/usr/local/bin/factorize-job", "launch"]
         : ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"];
       const started = await guest.run(launchCommand, `${payload}\n`);
@@ -248,25 +264,23 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
   }
 
   async collectJobFile(handle: RunHandle, request: JobFileCollectionRequest) {
-    if (request.path.split("/").some(part => !part || part === "." || part === "..") || /[\\\r\n\0]/.test(request.path)) throw new TypeError("Unsafe Fly job output path");
-    const bytes = await this.download(handle, `/home/exedev/.factorize-job/${request.path}`);
-    if (bytes.byteLength > 10 * 1024 * 1024) throw new Error("Fly job output file exceeds the 10 MiB limit");
-    return this.upload(request.uploadUrl, bytes, "application/octet-stream");
+    const file = `/home/exedev/.factorize-job/${request.path}`;
+    const command = `set -eu; file=${shellAtom(file)}; test -f "$file"; test ! -L "$file"; real=$(realpath -- "$file"); case "$real" in /home/exedev/.factorize-job/*) ;; *) exit 41;; esac; size=$(wc -c < "$file" | tr -d ' '); test "$size" -le 10485760; sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H 'Content-Type: application/octet-stream' -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(runArtifactTarget(handle, request.uploadUrl))}`;
+    const result = await (await this.guestFor(handle)).run(["/bin/sh", "-c", command]);
+    return {ok: result.ok, detail: result.ok ? undefined : "Fly job file upload failed"};
   }
 
   async collectArtifact(handle: RunHandle, request: ArtifactCollectionRequest) {
-    const guest = await this.guestFor(handle);
     const discover = request.source ? sourceCommand(request.source) : request.discoverCommand;
     if (!discover) throw new Error("Fly artifact source is unavailable");
-    const found = await guest.run(["/bin/sh", "-c", discover]);
-    if (!found.ok || !found.stdout.trim().startsWith("/")) throw new Error("Fly artifact source could not be resolved");
-    return this.upload(request.uploadUrl, await this.download(handle, found.stdout.trim()), request.contentType);
+    const command = `set -eu; file=$(${discover}); test -n "$file"; test -f "$file"; snapshot=$(mktemp); trap 'rm -f "$snapshot"' EXIT; cp "$file" "$snapshot"; size=$(wc -c < "$snapshot" | tr -d ' '); sha=$(sha256sum "$snapshot" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H ${shellAtom(`Content-Type: ${request.contentType}`)} -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$snapshot" ${shellAtom(runArtifactTarget(handle, request.uploadUrl))}`;
+    const result = await (await this.guestFor(handle)).run(["/bin/sh", "-c", command]);
+    return {ok: result.ok, detail: result.ok ? undefined : "Fly artifact upload failed"};
   }
 
-  private async upload(uploadUrl: string, bytes: Uint8Array, contentType: string) {
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
-    const response = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": contentType, "Content-Length": String(bytes.byteLength), "X-Artifact-SHA256": sha256 }, body: Buffer.from(bytes) });
-    return { ok: response.ok, detail: response.ok ? undefined : `Fly artifact upload failed (${response.status})` };
+  async collectTraceChunk(handle: RunHandle, request: TraceChunkCollectionRequest) {
+    const result = await (await this.guestFor(handle)).run(["/bin/sh", "-c", traceChunkCommand(request, runArtifactTarget(handle, request.uploadUrl))]);
+    return {ok: result.ok, detail: result.ok ? undefined : "Fly trace chunk upload failed"};
   }
 
   async stop(handle: RunHandle): Promise<ExecutionObservation> {

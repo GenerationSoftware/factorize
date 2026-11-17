@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { loadingFixture } from "./helpers/loading-fixture";
 import { VendorRunIdentityRepository } from "../src/postgres/vendor-run-identity-repository";
 import { FlyConnectionRepository } from "../src/postgres/fly-connection-repository";
+import { issueArtifactUploadGrant } from "../src/artifact-upload";
 import { snapshotRunAuthorization } from "../src/run-authorizations";
 import { authenticateVendorRunRequest } from "../src/vendor-run-auth";
 import { exeWifIntegrationNameFor, vmNameFor } from "../src/exe-vm-backend";
@@ -244,6 +245,30 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     await records.write({id, kind: "model", name: "selected-model", origin: null, description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedModelPayload: JSON.stringify({tokens: {access_token: renewed, refresh_token: "new-refresh", account_id: "selected-account"}})});
     expect((await call()).status).toBe(403);
     expect(requests).toBe(3);
+  });
+
+  it("requires vendor identity as well as a matching artifact grant, including finalization", async () => {
+    const grant = await issueArtifactUploadGrant({tenantId: f.tenantId, runId: f.runId, path: "native/session.jsonl", contentType: "application/x-ndjson", provider: "claude", format: "jsonl", expiresAt: Date.now()+60_000}, f.env.SESSION_SIGNING_SECRET);
+    const path = `/internal/run-artifacts/${encodeURIComponent(grant)}`;
+    const put = (value = request(jwt, f.runId, path)) => worker.fetch(new Request(value, {method: "PUT", body: "artifact"}), f.env, {waitUntil() {}} as any);
+    expect((await put(new Request(f.env.APP_ORIGIN+path))).status).toBe(401);
+    expect((await put()).status).toBe(503); // Authentication passed; this fixture deliberately has no R2 storage.
+    const foreign = await issueArtifactUploadGrant({tenantId: f.otherTenant, runId: f.runId, path: "native/session.jsonl", contentType: "application/x-ndjson", provider: "claude", format: "jsonl", expiresAt: Date.now()+60_000}, f.env.SESSION_SIGNING_SECRET);
+    expect((await put(request(jwt, f.runId, `/internal/run-artifacts/${encodeURIComponent(foreign)}`))).status).toBe(401);
+    await f.db.pool.query("UPDATE app.job_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    expect((await worker.fetch(request(), f.env, {waitUntil() {}} as any)).status).toBe(401);
+    expect((await put()).status).toBe(503); // Only the signed, run-bound finalization protocol remains eligible.
+    await f.db.pool.query("UPDATE app.job_runs SET state='stopped' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    expect((await put()).status).toBe(401);
+  });
+
+  it("rejects old run bearer and credential-proxy control authentication paths", async () => {
+    const obsolete = `fzt_run_${Buffer.from(f.runId).toString("base64url")}_${"A".repeat(43)}`;
+    const response = await worker.fetch(new Request(f.env.APP_ORIGIN+"/api/v1/runtime-context", {headers: {Authorization: `Bearer ${obsolete}`}}), f.env, {waitUntil() {}} as any);
+    expect(response.status).toBe(401);
+    const control = await worker.fetch(new Request(f.env.APP_ORIGIN+"/internal/credential-proxy/enroll", {method: "POST", headers: {Authorization: "Bearer old-proxy-control-secret"}, body: "{}"}), f.env, {waitUntil() {}} as any);
+    expect(control.status).toBe(404);
   });
 
   it("rechecks current run lifecycle, revocation, handle and execution connection", async () => {

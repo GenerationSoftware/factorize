@@ -62,7 +62,7 @@ export class RunRepository {
       const changed = await client.query(`UPDATE app.job_runs SET state='blocked',launch_lease_expires_at=NULL,next_poll_at=NULL,updated_at=now()
         WHERE tenant_id=$1 AND id=$2 AND state='starting' RETURNING id`, [run.tenantId, run.id]);
       if (!changed.rowCount) return;
-      await client.query(`UPDATE app.runs SET state='blocked',failure_code='proxy_launch_blocked',failure_reason=$3,updated_at=now()
+      await client.query(`UPDATE app.runs SET state='blocked',failure_code='credential_repair_required',failure_reason=$3,updated_at=now()
         WHERE tenant_id=$1 AND id=$2 AND execution_handle IS NULL`, [run.tenantId, run.id, safeReason]);
       await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'launch_blocked',$4)", [run.tenantId, crypto.randomUUID(), run.id, safeReason]);
     });
@@ -73,7 +73,7 @@ export class RunRepository {
     return this.database.transaction(async client => {
       const changed = await client.query(`UPDATE app.job_runs r SET state='reserved',launch_lease_expires_at=NULL,next_poll_at=NULL,updated_at=now()
         FROM app.runs x WHERE r.tenant_id=$1 AND r.id=$2 AND r.tenant_id=x.tenant_id AND r.id=x.id
-          AND r.state='blocked' AND x.execution_handle IS NULL AND x.failure_code='proxy_launch_blocked' RETURNING r.id`, [tenantId, runId]);
+          AND r.state='blocked' AND x.execution_handle IS NULL AND x.failure_code='credential_repair_required' RETURNING r.id`, [tenantId, runId]);
       if (!changed.rowCount) return false;
       await client.query("UPDATE app.runs SET state='reserved',failure_source=NULL,failure_code=NULL,failure_reason=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2", [tenantId, runId]);
       await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) VALUES ($1,$2,$3,'launch_retry_requested','Owner requested a manual retry')", [tenantId, crypto.randomUUID(), runId]);

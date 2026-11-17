@@ -1,4 +1,3 @@
-import { isIP } from "node:net";
 import type { Env } from "./types";
 import { databaseFor } from "./postgres/database";
 import { EncryptedIntegrationRepository } from "./postgres/encrypted-integration-repository";
@@ -6,17 +5,9 @@ import { resolveRunProviderCredentials } from "./provider-credentials";
 import { authenticateVendorRunRequest, RUN_IDENTITY_HEADER } from "./vendor-run-auth";
 import { forwardRunOutbound, type OutboundCredential } from "./run-outbound-forwarder";
 import { resolveManagedModelCredential } from "./managed-model-credentials";
-import { isPublicAddress } from "./public-address";
+import { isPublicHttpsOrigin } from "./public-address";
 
 const unavailable = () => new Response("Run credential unavailable", {status: 403, headers: {"Cache-Control": "no-store"}});
-
-function publicOrigin(value: string, backendOrigin: string): boolean {
-  try {
-    const url = new URL(value), host = url.hostname.replace(/^\[|\]$/g, "");
-    return url.protocol === "https:" && url.origin === value && !url.username && !url.password && value !== backendOrigin
-      && (isIP(host) ? isPublicAddress(host) : host.includes(".") && !/(?:^|\.)(?:localhost|internal|local|test|invalid|example)$/.test(host));
-  } catch { return false; }
-}
 
 /** Raw outbound protocol boundary. The guest supplies a path, never an origin,
  * upstream token, tenant, or credential outside its immutable run selection. */
@@ -45,7 +36,7 @@ export async function runOutboundProxyFetch(request: Request, env: Env): Promise
     if (bearer) {
       if (!Array.isArray(config.portableIntegrationIds) || !config.portableIntegrationIds.includes(bearer[1]) || await revoked("bearer", bearer[1]!)) return unavailable();
       const credential = await new EncryptedIntegrationRepository(database, auth.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(bearer[1]!, "bearer");
-      if (!credential?.origin || !publicOrigin(credential.origin, env.APP_ORIGIN)) return unavailable();
+      if (!credential?.origin || !isPublicHttpsOrigin(credential.origin, env.APP_ORIGIN)) return unavailable();
       selected = {origin: credential.origin, path: `${bearer[2] ?? "/"}${url.search}`, credential: credential.payload};
     } else if (github) {
       const installationId = Number(github[1]);

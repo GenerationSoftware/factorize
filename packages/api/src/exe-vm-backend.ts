@@ -5,6 +5,10 @@ import { base64 } from "./crypto";
 import { shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
 
 import { HARNESS_LOG_LIMIT, safeDiagnosticText } from "./harness-diagnostics";
+import { traceChunkCommand } from "./guest-artifact-commands";
+import { runArtifactTarget } from "./run-artifact-target";
+import { assertExeVmIsolation } from "./exe-vm-isolation";
+import { RUN_IDENTITY_GUEST_HELPER } from "./run-identity-guest-helper";
 import { ExeRunProxy } from "./exe-run-proxy";
 import { runProxyName } from "./run-credentials";
 import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
@@ -216,6 +220,12 @@ export class ExeVmBackend implements ExecutionBackend {
       handle.vendorIdentityIntegrationName ??= exeWifIntegrationNameFor(request.runId);
     }
     const vm = this.vm(handle);
+    if (request.runIdentity) {
+      if (!(request.verifyVendorIdentity ?? this.vendorIdentityVerifier)) throw new Error("Vendor identity verification is required for run access");
+      handle.identityProxyOrigin = request.runIdentity.backendOrigin;
+      delete handle.runProxyName;
+      await assertExeVmIsolation({execute: command => this.api(command), vm, backendOrigin: request.runIdentity.backendOrigin, tags: this.connection.tags ?? []});
+    }
     let proxy: ExeRunProxy | undefined, plan: Awaited<ReturnType<ExeRunProxy["prepare"]>> | undefined;
     if (request.runProxy) {
       try {
@@ -264,15 +274,24 @@ export class ExeVmBackend implements ExecutionBackend {
     const code = request.code, output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
     const launchPayload = JSON.stringify({ version: 1, runId: request.runId, ...(code ? { code } : { prompt: request.prompt, harness: request.harness }), ...(request.traceSources ? { traceSources: request.traceSources } : {}) });
     const launchPayloadPath = "/home/exedev/.factorize-job/launch.json";
+    const identitySetup = request.runIdentity ? [
+      "command -v node >/dev/null && command -v curl >/dev/null",
+      "sudo install -d -m 0700 /run/factorize-identity",
+      `printf '%s' ${shellAtom(base64(RUN_IDENTITY_GUEST_HELPER))} | sudo sh -c 'base64 -d > /run/factorize-identity/proxy.mjs'`,
+      `printf '%s' ${shellAtom(base64(JSON.stringify({runId: request.runId, backendOrigin: request.runIdentity.backendOrigin, provider: "exe.dev", integrationName: exeWifIntegrationNameFor(request.runId), localPort: 18180})))} | sudo sh -c 'base64 -d > /run/factorize-identity/config.json'`,
+      `if [ "$(sudo systemctl show ${shellAtom(`factorize-identity-${request.runId}`)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --unit=${shellAtom(`factorize-identity-${request.runId}`)} --property=Type=exec --property=Restart=on-failure node /run/factorize-identity/proxy.mjs; else sudo systemctl start ${shellAtom(`factorize-identity-${request.runId}`)}; fi`,
+      "n=0; until curl --fail --silent http://127.0.0.1:18180/_factorize/ready >/dev/null; do n=$((n+1)); test $n -lt 50 || exit 1; sleep 0.1; done",
+    ] : [];
     const work = [
       "set -eu",
       "mkdir -p /home/exedev/workspace",
       "cd /home/exedev/workspace",
+      ...identitySetup,
       ...(request.traceSources?.primary.kind === "execution_stream" ? [`mkdir -p -- ${shellAtom(request.traceSources.primary.path.slice(0, request.traceSources.primary.path.lastIndexOf("/")) || "/")}`, `touch -- ${shellAtom(request.traceSources.primary.path)}`] : []),
       "sudo install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job",
       `printf '%s' ${shellAtom(base64(FACTORIZE_JOB_LAUNCHER))} | sudo sh -c ${shellAtom("base64 -d > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job")}`,
       `printf '%s' ${shellAtom(base64(launchPayload))} | base64 -d > ${shellAtom(launchPayloadPath)} && sudo chown exedev:exedev ${shellAtom(launchPayloadPath)}`,
-      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=null --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr /bin/sh -c ${shellAtom(`exec /usr/local/bin/factorize-job launch --foreground < ${launchPayloadPath}`)}; fi`,
+      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=null --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr /bin/sh -c ${shellAtom(`exec ${request.runIdentity ? "/usr/bin/env FACTORIZE_PROXY_URL=http://127.0.0.1:18180 " : ""}/usr/local/bin/factorize-job launch --foreground < ${launchPayloadPath}`)}; fi`,
       "echo started",
     ].join("; ");
     if (request.traceSources?.primary.formatVersion === "codex-exec-jsonl") {
@@ -293,6 +312,7 @@ export class ExeVmBackend implements ExecutionBackend {
     const vm = this.vm(handle);
     if (handle.operationId && handle.vendorIdentityIntegrationName && this.vendorIdentityVerifier) {
       try {
+        if (handle.identityProxyOrigin) await assertExeVmIsolation({execute: command => this.api(command), vm, backendOrigin: handle.identityProxyOrigin, tags: this.connection.tags ?? []});
         const integration = await this.ensureExeWif(vm, handle.operationId, false);
         if (integration.integrationName !== handle.vendorIdentityIntegrationName) throw new Error("WIF integration changed");
         const token = await this.exeWifToken(vm, handle.vendorIdentityIntegrationName);
@@ -378,20 +398,19 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async collectJobFile(handle: RunHandle, request: JobFileCollectionRequest) {
     const file = `/home/exedev/.factorize-job/${request.path}`;
-    const remote = `set -eu; file=${shellAtom(file)}; test -f "$file"; test ! -L "$file"; real=$(realpath -- "$file"); case "$real" in /home/exedev/.factorize-job/*) ;; *) exit 41;; esac; size=$(wc -c < "$file" | tr -d ' '); test "$size" -le 10485760; sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H 'Content-Type: application/octet-stream' -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(request.uploadUrl)}`;
+    const remote = `set -eu; file=${shellAtom(file)}; test -f "$file"; test ! -L "$file"; real=$(realpath -- "$file"); case "$real" in /home/exedev/.factorize-job/*) ;; *) exit 41;; esac; size=$(wc -c < "$file" | tr -d ' '); test "$size" -le 10485760; sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H 'Content-Type: application/octet-stream' -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(runArtifactTarget(handle, request.uploadUrl))}`;
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
     return { ok: result.ok, detail: result.ok ? undefined : `Job file upload failed (${result.status})`, command: result };
   }
 
   async collectArtifact(handle: RunHandle, request: ArtifactCollectionRequest) {
-    const remote = `set -eu; file=$(${request.source ? sourceCommand(request.source) : request.discoverCommand}); test -n "$file"; test -f "$file"; snapshot=$(mktemp); trap 'rm -f "$snapshot"' EXIT; cp "$file" "$snapshot"; size=$(wc -c < "$snapshot" | tr -d ' '); sha=$(sha256sum "$snapshot" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H ${shellAtom(`Content-Type: ${request.contentType}`)} -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$snapshot" ${shellAtom(request.uploadUrl)}`;
+    const remote = `set -eu; file=$(${request.source ? sourceCommand(request.source) : request.discoverCommand}); test -n "$file"; test -f "$file"; snapshot=$(mktemp); trap 'rm -f "$snapshot"' EXIT; cp "$file" "$snapshot"; size=$(wc -c < "$snapshot" | tr -d ' '); sha=$(sha256sum "$snapshot" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H ${shellAtom(`Content-Type: ${request.contentType}`)} -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$snapshot" ${shellAtom(runArtifactTarget(handle, request.uploadUrl))}`;
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
     return { ok: result.ok, detail: result.ok ? undefined : `Artifact upload failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
   }
 
   async collectTraceChunk(handle: RunHandle, request: TraceChunkCollectionRequest) {
-    const expectedGeneration = request.generation ?? "", zeroHash = "0".repeat(64);
-    const remote = `set -eu; file=$(${request.source ? sourceCommand(request.source) : request.discoverCommand}); test -n "$file"; test -f "$file"; exec 3<"$file"; file=/proc/$$/fd/3; identity=$(stat -Lc '%d:%i:%W' "$file"); generation="$identity"; case ${shellAtom(expectedGeneration)} in "$identity":*) generation=${shellAtom(expectedGeneration)};; esac; start=${request.offset}; previous=${shellAtom(request.previousHash)}; if [ -n ${shellAtom(expectedGeneration)} ] && [ "$generation" != ${shellAtom(expectedGeneration)} ]; then start=0; previous=${shellAtom(zeroHash)}; fi; total=$(wc -c < "$file" | tr -d ' '); if [ "$total" -lt "$start" ]; then generation="$identity:$(date +%s%N)"; start=0; previous=${shellAtom(zeroHash)}; fi; if [ "$total" -le "$start" ]; then printf 'no-change'; exit 0; fi; count=$((total-start)); if [ "$count" -gt 4194304 ]; then count=4194304; fi; chunk=$(mktemp); trap 'rm -f "$chunk"' EXIT; dd if="$file" of="$chunk" iflag=skip_bytes,count_bytes skip="$start" count="$count" status=none; size=$(wc -c < "$chunk" | tr -d ' '); sha=$(sha256sum "$chunk" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H "Content-Length: $size" -H "X-Trace-Generation: $generation" -H ${shellAtom(`X-Trace-Expected-Generation: ${expectedGeneration}`)} -H "X-Trace-Start: $start" -H "X-Trace-SHA256: $sha" -H "X-Trace-Previous-Hash: $previous" --data-binary @"$chunk" ${shellAtom(request.uploadUrl)}`;
+    const remote = traceChunkCommand(request, runArtifactTarget(handle, request.uploadUrl));
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
     return { ok: result.ok, detail: result.ok ? undefined : `Live trace upload failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
   }

@@ -2197,7 +2197,7 @@ export interface paths {
         put?: never;
         /**
          * Manually retry a blocked launch
-         * @description Retries only a pre-launch proxy-gated run after its prerequisites have been resolved. The run remains blocked until an interactive owner explicitly retries it; unlock or status changes do not automatically launch it.
+         * @description Retries a blocked launch with its original immutable credential and API scope snapshot. Job edits affect future runs; revoked/deleted selections require job repair and a new run. An interactive owner must request this retry.
          *
          *     Requires the runs:cancel scope.
          *

@@ -113,9 +113,13 @@ export class RunQueryRepository {
   async stop(runId: string) {
     return this.database.transaction(async client => {
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", [this.tenantId]);
-      const result = await client.query<any>("UPDATE app.job_runs SET state=CASE WHEN state='reserved' THEN 'stopped' ELSE 'stopping' END,next_poll_at=CASE WHEN state='reserved' THEN NULL ELSE now() END,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('reserved','starting','running','blocked','stopping') RETURNING id,state", [this.tenantId, runId]);
+      const result = await client.query<any>(`UPDATE app.job_runs jr SET state=CASE WHEN jr.state IN ('queued','reserved') OR (jr.state='blocked' AND EXISTS (SELECT 1 FROM app.runs x WHERE x.tenant_id=jr.tenant_id AND x.id=jr.id AND x.execution_handle IS NULL)) THEN 'stopped' ELSE 'stopping' END,next_poll_at=now(),updated_at=now() WHERE jr.tenant_id=$1 AND jr.id=$2 AND jr.state IN ('queued','reserved','starting','running','blocked','stopping') RETURNING id,state`, [this.tenantId, runId]);
       const row = result.rows[0];
-      if (row?.state === "stopped") await client.query("UPDATE app.runs SET state='stopped',claim_released=true,vm_cleanup_complete=true,updated_at=now() WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId]);
+      if (row?.state === "stopped") {
+        await client.query("UPDATE app.job_runs SET next_poll_at=NULL WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId]);
+        await client.query("UPDATE app.runs SET state='stopped',claim_released=true,vm_cleanup_complete=true,updated_at=now() WHERE tenant_id=$1 AND id=$2", [this.tenantId, runId]);
+        await client.query("DELETE FROM app.active_claims WHERE tenant_id=$1 AND run_id=$2", [this.tenantId, runId]);
+      }
       if (row?.state === "stopping") {
         await client.query("UPDATE app.runs SET state='stopping',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked','stopping')", [this.tenantId, runId]);
         await client.query("INSERT INTO app.run_activity(tenant_id,id,run_id,action,detail) SELECT $1,$2,$3,'stop_requested','Stop request accepted' WHERE NOT EXISTS (SELECT 1 FROM app.run_activity WHERE tenant_id=$1 AND run_id=$3 AND action='stop_requested')", [this.tenantId, crypto.randomUUID(), runId]);

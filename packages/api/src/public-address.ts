@@ -59,3 +59,12 @@ export function isPublicAddress(address: string) {
   if ((value >> 125n) !== 1n) return false; // 2000::/3
   return !NON_PUBLIC_V6.some(([network, prefix]) => inV6Range(value, network, prefix));
 }
+
+
+export function isPublicHttpsOrigin(value: string, backendOrigin = ""): boolean {
+  try {
+    const url = new URL(value), host = url.hostname.replace(/^\[|\]$/g, "");
+    return url.protocol === "https:" && url.origin === value && !url.username && !url.password && value !== backendOrigin
+      && (isIP(host) ? isPublicAddress(host) : host.includes(".") && !/(?:^|\.)(?:localhost|internal|local|test|invalid|example)$/.test(host));
+  } catch { return false; }
+}

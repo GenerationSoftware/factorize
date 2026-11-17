@@ -52,6 +52,7 @@ export function createRunIdentityProxy(config, {getToken = () => vendorToken(con
       const url = new URL(incoming.url, "http://127.0.0.1");
       let path;
       if (url.pathname === "/api/v1" || url.pathname.startsWith("/api/v1/") || url.pathname === "/mcp") path = url.pathname;
+      else if (/^\/internal\/run-(?:artifacts|trace-chunks)\/[^/]+$/.test(url.pathname)) path = url.pathname;
       else if (url.pathname === "/integrations") path = "/api/v1/runtime-integrations";
       else if (url.pathname.startsWith("/integrations/") || url.pathname.startsWith("/providers/")) path = "/internal/run-proxy/" + config.runId + url.pathname;
       else { outgoing.writeHead(404).end(); return; }
@@ -62,6 +63,7 @@ export function createRunIdentityProxy(config, {getToken = () => vendorToken(con
       for (const [name, value] of Object.entries(incoming.headers)) {
         if (value !== undefined && !blocked.has(name) && !connectionTokens.has(name) && !name.startsWith("x-forwarded-") && name !== "forwarded") headers.set(name, Array.isArray(value) ? value.join(", ") : value);
       }
+      if (/^\/internal\/run-(?:artifacts|trace-chunks)\//.test(path) && typeof incoming.headers["content-length"] === "string" && /^[0-9]+$/.test(incoming.headers["content-length"])) headers.set("Content-Length", incoming.headers["content-length"]);
       headers.set("Authorization", "Bearer " + token);
       headers.set("X-Factorize-Run-Id", config.runId);
       const method = incoming.method ?? "GET";

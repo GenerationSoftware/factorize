@@ -17,7 +17,7 @@ function fixture() {
       ok: true, exitCode: 0,
       stdout: command.at(-1) === "--version" ? "codex-cli 0.167.1\n" : "started\n", stderr: "",
     })),
-    upload: vi.fn(async () => undefined),
+    upload: vi.fn(async (_path: string, _bytes: Uint8Array) => undefined),
     download: vi.fn(async (path: string) => new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "saved log")),
   };
   const proxyGuest = {
@@ -79,6 +79,29 @@ describe("Fly job execution backend", () => {
     await expect(backend.inspect({ backendKind: "fly", id: "factorize-test/machine-1", operationId: "11111111-1111-4111-8111-111111111111" })).resolves.toMatchObject({
       state: "failed", failure: { code: "vendor_identity_renewal_failed" },
     });
+  });
+
+  it("installs only public vendor identity configuration and never provisions a credential-proxy peer", async () => {
+    const f = fixture(), verify = vi.fn(async () => undefined), prepare = vi.fn(async () => undefined);
+    const token = "header.claims.signature";
+    f.guest.run.mockResolvedValueOnce({ok: true, exitCode: 0, stdout: token, stderr: ""});
+    const backend = new FlyJobExecutionBackend({app: "factorize-test", organizationSlug: "factorize-org", image: "image", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify, prepare});
+    const runId = "11111111-1111-4111-8111-111111111111";
+    const result = await backend.launch({runId, prompt: "work", runIdentity: {backendOrigin: "https://factorize.example.com"}});
+    expect(result.observation.state).toBe("running");
+    expect(prepare.mock.invocationCallOrder[0]).toBeLessThan(f.machines.createMachine.mock.invocationCallOrder[0]!);
+    expect(f.proxyGuest.run).not.toHaveBeenCalled();
+    expect(f.guest.upload.mock.calls.map(([name]) => name)).toContain("/run/factorize-identity/proxy.mjs");
+    const config = f.guest.upload.mock.calls.find(([name]) => name === "/run/factorize-identity/config.json")!;
+    expect(JSON.parse(new TextDecoder().decode(config[1]))).toEqual({runId, backendOrigin: "https://factorize.example.com", provider: "fly.io", localPort: 18180});
+    expect(f.guest.upload.mock.calls.map(([, bytes]) => new TextDecoder().decode(bytes)).join("\n")).not.toContain(token);
+    expect(f.guest.run.mock.calls.at(-1)![0]).toContain("FACTORIZE_PROXY_URL=http://127.0.0.1:18180");
+  });
+
+  it("refuses run access before provisioning when no vendor verifier is configured", async () => {
+    const f = fixture();
+    await expect(f.backend.launch({runId: "11111111-1111-4111-8111-111111111111", prompt: "work", runIdentity: {backendOrigin: "https://factorize.example.com"}})).rejects.toThrow("Vendor identity");
+    expect(f.machines.createMachine).not.toHaveBeenCalled();
   });
 
   it("reports a nonzero Fly guest process exit as a failed run", async () => {

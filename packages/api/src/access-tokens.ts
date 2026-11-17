@@ -37,7 +37,10 @@ export function issueAccessToken(tenantId: string): string {
 export function accessTokenTenant(token: string): string | null {
   const match = token.match(/^fzt_([A-Za-z0-9_-]+)_[A-Za-z0-9_-]{43}$/);
   if (!match) return null;
-  try { return decode(match[1]); } catch { return null; }
+  try {
+    const tenantId = decode(match[1]);
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantId) ? tenantId : null;
+  } catch { return null; }
 }
 
 export async function authenticateAccessToken(request: Request, env: Env): Promise<OAuthProps | null> {

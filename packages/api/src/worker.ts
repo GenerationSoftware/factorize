@@ -10,13 +10,11 @@ import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegis
 import type { Env, OAuthProps } from "./types";
 import { ACCESS_SCOPES, authenticateAccessToken } from "./access-tokens";
 import { authenticateVendorRunRequest, RUN_IDENTITY_HEADER } from "./vendor-run-auth";
-import { authenticateRunCredential } from "./run-credentials";
-import { artifactUpload } from "./artifact-upload";
+import { artifactUpload, readArtifactUploadGrant } from "./artifact-upload";
 import { traceChunkUpload } from "./trace-chunk-upload";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { runOutboundProxyFetch } from "./run-outbound-proxy";
-import { proxyControlFetch } from "./proxy-control";
 
 const scopes = [...ACCESS_SCOPES];
 // Keep accepting grants issued by the pre-resource-scope protocol. New
@@ -89,16 +87,20 @@ function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)
 export { AlarmCoordinator } from "./alarm-coordinator";
 const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext) {
   if (new URL(request.url).pathname.startsWith("/internal/run-proxy/")) return runOutboundProxyFetch(request, env);
-  if (new URL(request.url).pathname.startsWith("/internal/credential-proxy/")) return proxyControlFetch(request, env);
   const staticResponse = !["/authorize", "/device"].includes(new URL(request.url).pathname) ? await staticApp(request, env) : null;
   if (staticResponse) return staticResponse;
   const oauth = provider(env);
   const url = new URL(request.url);
   const apiEnv = { ...env, OAUTH_PROVIDER: env.OAUTH_PROVIDER ?? getOAuthApi(providerOptions(env), env) };
-  const traceChunkMatch = url.pathname.match(/^\/internal\/run-trace-chunks\/([^/]+)$/);
-  if (traceChunkMatch) return traceChunkUpload(request, env, decodeURIComponent(traceChunkMatch[1]!));
-  const artifactMatch = url.pathname.match(/^\/internal\/run-artifacts\/([^/]+)$/);
-  if (artifactMatch) return artifactUpload(request, env, decodeURIComponent(artifactMatch[1]!));
+  const upload = url.pathname.match(/^\/internal\/run-(artifacts|trace-chunks)\/([^/]+)$/);
+  if (upload) {
+    let token: string;
+    try { token = decodeURIComponent(upload[2]!); } catch { return new Response("Invalid upload grant", {status: 401}); }
+    const [auth, grant] = await Promise.all([authenticateVendorRunRequest(request, env, {artifactFinalization: true}), readArtifactUploadGrant(token, env.SESSION_SIGNING_SECRET)]);
+    if (!auth || !grant || auth.tenantId !== grant.tenantId || auth.runId !== grant.runId) return new Response("Vendor-verified run identity and a matching upload grant are required", {status: 401});
+    return upload[1] === "artifacts" ? artifactUpload(request, env, token) : traceChunkUpload(request, env, token);
+  }
+  if (url.pathname.startsWith("/internal/")) return new Response("Not found", {status: 404});
   if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1")) && request.headers.has(RUN_IDENTITY_HEADER)) {
     const auth = await authenticateVendorRunRequest(request, env);
     if (!auth) return Response.json({ error: { code: "invalid_token", message: "The vendor identity is invalid or the run is no longer authorized." } }, { status: 401, headers: { "WWW-Authenticate": 'Bearer error="invalid_token"' } });
@@ -113,11 +115,6 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     return protectedApiFetch(request, apiEnv, { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes, authMethod: "session" }, ctx);
   }
   if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1")) && request.headers.get("Authorization")?.startsWith("Bearer fzt_")) {
-    if (request.headers.get("Authorization")?.startsWith("Bearer fzt_run_")) {
-      const auth = await authenticateRunCredential(request, env);
-      if (!auth) return Response.json({ error: { code: "invalid_token", message: "The run credential is invalid, expired, revoked, or no longer active." } }, { status: 401, headers: { "WWW-Authenticate": "Bearer error=\"invalid_token\"" } });
-      return protectedApiFetch(request, apiEnv, auth, ctx);
-    }
     const auth = await authenticateAccessToken(request, env);
     if (!auth) return Response.json({ error: { code: "invalid_token", message: "The access token is invalid, expired, or revoked." } }, { status: 401, headers: { "WWW-Authenticate": "Bearer error=\"invalid_token\"" } });
     return protectedApiFetch(request, apiEnv, auth, ctx);

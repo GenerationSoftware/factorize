@@ -1148,7 +1148,7 @@ export const API_ROUTES: RouteContract[] = [
   ),
   route("POST", "/api/v1/runs/{runId}/retry-launch", "runs:cancel", {
     summary: "Manually retry a blocked launch",
-    description: "Retries only a pre-launch proxy-gated run after its prerequisites have been resolved. The run remains blocked until an interactive owner explicitly retries it; unlock or status changes do not automatically launch it.",
+    description: "Retries a blocked launch with its original immutable credential and API scope snapshot. Job edits affect future runs; revoked/deleted selections require job repair and a new run. An interactive owner must request this retry.",
     responses: {
       "200": { description: "Manual retry queued", content: { "application/json": { schema: { type: "object", required: ["runId", "retryRequested"], properties: { runId: { type: "string", format: "uuid" }, retryRequested: { type: "boolean", const: true } }, additionalProperties: false } } } },
       "403": { description: "Interactive owner session required" },

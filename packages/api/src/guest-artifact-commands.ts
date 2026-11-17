@@ -1,0 +1,8 @@
+import { shellAtom } from "./exe";
+import { sourceCommand } from "./trace-source";
+import type { TraceChunkCollectionRequest } from "./execution";
+
+export function traceChunkCommand(request: TraceChunkCollectionRequest, uploadTarget: string): string {
+    const expectedGeneration = request.generation ?? "", zeroHash = "0".repeat(64);
+    return `set -eu; file=$(${request.source ? sourceCommand(request.source) : request.discoverCommand}); test -n "$file"; test -f "$file"; exec 3<"$file"; file=/proc/$$/fd/3; identity=$(stat -Lc '%d:%i:%W' "$file"); generation="$identity"; case ${shellAtom(expectedGeneration)} in "$identity":*) generation=${shellAtom(expectedGeneration)};; esac; start=${request.offset}; previous=${shellAtom(request.previousHash)}; if [ -n ${shellAtom(expectedGeneration)} ] && [ "$generation" != ${shellAtom(expectedGeneration)} ]; then start=0; previous=${shellAtom(zeroHash)}; fi; total=$(wc -c < "$file" | tr -d ' '); if [ "$total" -lt "$start" ]; then generation="$identity:$(date +%s%N)"; start=0; previous=${shellAtom(zeroHash)}; fi; if [ "$total" -le "$start" ]; then printf 'no-change'; exit 0; fi; count=$((total-start)); if [ "$count" -gt 4194304 ]; then count=4194304; fi; chunk=$(mktemp); trap 'rm -f "$chunk"' EXIT; dd if="$file" of="$chunk" iflag=skip_bytes,count_bytes skip="$start" count="$count" status=none; size=$(wc -c < "$chunk" | tr -d ' '); sha=$(sha256sum "$chunk" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H "Content-Length: $size" -H "X-Trace-Generation: $generation" -H ${shellAtom(`X-Trace-Expected-Generation: ${expectedGeneration}`)} -H "X-Trace-Start: $start" -H "X-Trace-SHA256: $sha" -H "X-Trace-Previous-Hash: $previous" --data-binary @"$chunk" ${shellAtom(uploadTarget)}`;
+}

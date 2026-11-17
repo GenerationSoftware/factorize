@@ -106,3 +106,23 @@ Runtime foundations now include token-free immutable run authorization
 snapshots (independent of legacy bearer rows) and a Worker-compatible Fly guest
 transport using the documented Machines HTTP exec API with argv/stdin.
 Focused transport, Fly backend and vendor-request boundary suites pass 29 tests.
+
+Runtime adoption now uses vendor identity helpers for exe.dev and Fly launches,
+with no standalone proxy prerequisite or newly issued run bearer. Fly run
+Machines use a tenant run app (no proxy Machine), HTTP guest exec, top-level
+region and `skip_launch`. The backend records the verified Machine handle
+before guest requests begin. Native exe.dev shared Factorize integrations are
+rejected at launch and rechecked during identity renewal.
+
+Artifact/trace HTTP ingress now requires both vendor identity and a matching
+signed upload grant. Stopping runs can finish only that separately authorized
+finalization protocol; normal API and outbound access stop immediately. Terminal
+runs cannot upload. Guest uploads go through the identity helper, including
+streamed Fly artifact/trace collection.
+
+Focused runtime, protocol, API boundary and repairability suites pass 83 tests.
+The previous full-suite run at `f1aaa50` failed five obsolete launch-unit mocks
+that expected the old proxy gate/token schema; those tests are now replaced by
+vendor launch assertions. Final complete validation is pending old architecture
+removal and E2E adaptation. Old implementation files/API/UI still require removal;
+the old Worker run-bearer and proxy-control HTTP admission paths are disabled.
