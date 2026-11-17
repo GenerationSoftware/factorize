@@ -148,8 +148,13 @@ describe("ExeVmBackend", () => {
     const directory = await mkdtemp(join(tmpdir(), "factorize-systemd-"));
     try {
       const unit = join(directory, "launch.service");
-      await writeFile(unit, `[Service]\nType=exec\n${properties.join("\n")}\nExecStart=/bin/true\n`);
-      const verified = spawnSync("systemd-analyze", ["verify", unit], { encoding: "utf8", timeout: 10_000 });
+      // Validate only this fixture: host units can contain unrelated deprecated
+      // settings, and default dependencies would pull those units into verify.
+      await writeFile(unit, `[Unit]\nDefaultDependencies=no\n[Service]\nType=exec\n${properties.join("\n")}\nExecStart=/bin/true\n`);
+      const verified = spawnSync("systemd-analyze", ["verify", unit], {
+        encoding: "utf8", timeout: 10_000,
+        env: { ...process.env, SYSTEMD_UNIT_PATH: directory },
+      });
       expect(verified.error).toBeUndefined();
       expect(verified.status).toBe(0);
       // Invalid StandardInput values are warnings in unit files but fatal to
