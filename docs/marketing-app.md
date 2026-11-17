@@ -1,13 +1,13 @@
 # Marketing site and app
 
-Factorize is deployed as a Cloudflare Pages site and an app Worker:
+Factorize is deployed as an independently maintained Cloudflare Pages site and an app Worker:
 
-- `packages/marketing` owns the public landing page at `https://factorize.sh`. It is a static Cloudflare Pages project named `factorize-marketing`; its production branch is `main` and its output directory is `packages/marketing/public`. It contains no authenticated APIs or tenant data. Login and Create a Job links cross to `https://app.factorize.sh`.
+- [GenerationSoftware/Factorize.sh](https://github.com/GenerationSoftware/Factorize.sh) owns the public landing page at `https://factorize.sh`. It is a static Cloudflare Pages project named `factorize-sh`; its production branch is `main` and its output directory is `public`. It contains no authenticated APIs or tenant data. Login and Create a Job links cross to `https://app.factorize.sh`.
 - `packages/api` owns the authenticated dashboard, OAuth callbacks, API/MCP endpoints, provider webhooks, and job deep links at `https://app.factorize.sh`. Its `/` route is the signed-out login entry point and redirects signed-in users to `/jobs`.
 
-The Pages project is connected to `GenerationSoftware/factorize` for pull request previews, but Cloudflare's automatic production deployments are disabled. Production deploys from `main` run through `.github/workflows/deploy.yml`, where failures are visible in GitHub Actions. For a manual deployment, authenticate Wrangler and run `npm run deploy:marketing`; this uploads `packages/marketing/public` to the `factorize-marketing` project.
+The Pages project is connected to `GenerationSoftware/Factorize.sh`. Cloudflare automatically builds (`npm run build`) and deploys pushes to `main` and creates branch previews. This repository's GitHub Actions workflow deploys only the app; it must not upload marketing assets. The former `factorize-marketing` Pages project is retained for rollback with automatic deployments disabled.
 
-Run the app Worker locally with `npm run dev`. To preview the marketing package's Worker fallback locally, use `npm run dev:marketing`.
+Run the app Worker locally with `npm run dev`. To work on the marketing site, clone its repository and run `npm ci` and `npm run dev` there.
 
 The Pages custom domain is `factorize.sh`. Cloudflare manages HTTPS and redirects HTTP to HTTPS. The apex DNS record is proxied to Pages; the existing proxied `app.factorize.sh` record is retained unchanged.
 

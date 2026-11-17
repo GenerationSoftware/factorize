@@ -38,7 +38,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
   deploy:
     if: github.event_name != 'workflow_dispatch' || !inputs.validate_conditions_only
-    name: Deploy app and marketing site
+    name: Deploy app
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
@@ -94,11 +94,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           POSTMARK_SERVER_TOKEN: ${{ secrets.POSTMARK_SERVER_TOKEN }}
-      - name: Deploy marketing site
-        run: npm run deploy:marketing
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy app Worker
         run: npm run deploy:prepared --workspace=factorize
         env:

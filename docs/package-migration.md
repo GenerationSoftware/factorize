@@ -110,7 +110,7 @@ prefix and never reads API secrets. Regenerate the development certificate after
 
 - `npm run generate`: OpenAPI then generated client; drift is checked in CI.
 - `npm run build:app`: static production output. `build:css` is a compatibility alias.
-- `npm run build`: frontend and marketing production builds.
+- `npm run build`: frontend production build.
 - `npm run check`: hosting/infrastructure/deployment gates, package boundaries, generated
   client, TypeScript, compiled browser suites, API tests, actual local Cloudflare routing,
   real OAuth/device/REST/MCP protocol round trips when AUTH_TEST_DATABASE_URL is set,
@@ -119,8 +119,9 @@ prefix and never reads API secrets. Regenerate the development certificate after
 - `npm run test:static-slice --workspace=factorize`: compiled React through actual Worker
   routing/dispatcher/repositories and disposable PostgreSQL. Build app first; set
   AUTH_TEST_DATABASE_URL to a disposable local admin database.
-- `npm run validate --workspace=factorize-docs` and `npm run build:marketing` preserve docs/
-  marketing checks. Tail relay remains independently deployable.
+- `npm run validate --workspace=factorize-docs` preserves documentation checks.
+  Marketing builds and deploys independently in `GenerationSoftware/Factorize.sh`.
+  Tail relay remains independently deployable.
 
 The protocol runtime test uses an isolated local KV directory and disposable PostgreSQL,
 actual dynamic client registration, signed owner sessions, PKCE consent, device approval,
