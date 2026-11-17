@@ -3674,6 +3674,24 @@ paths:
                     type: string
                   signature:
                     type: string
+                  integrationLabels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scope:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type:
+                            - string
+                            - "null"
+                      required:
+                        - scope
+                        - name
+                        - description
+                      additionalProperties: false
                 required:
                   - userCode
                   - clientName
@@ -3814,6 +3832,24 @@ paths:
                     type: string
                   expiresAt:
                     type: string
+                  integrationLabels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scope:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type:
+                            - string
+                            - "null"
+                      required:
+                        - scope
+                        - name
+                        - description
+                      additionalProperties: false
                 required:
                   - clientName
                   - scopes
@@ -6291,6 +6327,60 @@ paths:
       x-owner-session-required: true
       parameters:
         - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+  /api/v1/access/authorizations/{grantId}:
+    delete:
+      summary: Revoke one isolated OAuth connection
+      description: |-
+        Other connections, including copies of the same client, retain their approvals.
+
+        Requires the jobs:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Authorization revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - revoked
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: delete_api_v1_access_authorizations_grantId
+      tags:
+        - access
+      security:
+        - cookieAuth: []
+      x-required-scope: jobs:write
+      x-owner-session-required: true
+      parameters:
+        - name: grantId
           in: path
           required: true
           schema:
@@ -10581,6 +10671,552 @@ paths:
           runIdentityHeader: []
       x-required-scope: []
       x-owner-session-required: false
+  /api/v1/agent/reflection:
+    get:
+      summary: Discover agent identity and granted or requestable integration APIs
+      description: |-
+        OAuth authorization or verified active run required. Availability reports connection state, without probing credential health. OAuth integration scopes are integration:{stable UUID}:{revocation epoch}; initial login need not request any integration scopes.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Agent reflection
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  identity:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      kind:
+                        type: string
+                        enum:
+                          - oauth
+                          - run
+                    required:
+                      - id
+                      - kind
+                    additionalProperties: false
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                  integrations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        name:
+                          type: string
+                        description:
+                          type:
+                            - string
+                            - "null"
+                        kind:
+                          type: string
+                          enum:
+                            - bearer
+                            - github
+                            - linear
+                            - model
+                        policy:
+                          type: string
+                          enum:
+                            - baseline
+                            - requestable
+                            - disabled
+                        available:
+                          type: boolean
+                        revision:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        requiredScope:
+                          type: string
+                        access:
+                          type: string
+                          enum:
+                            - granted
+                            - requestable
+                            - unavailable
+                        instructions:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - description
+                        - kind
+                        - policy
+                        - available
+                        - revision
+                        - requiredScope
+                        - access
+                        - instructions
+                      additionalProperties: false
+                required:
+                  - identity
+                  - scopes
+                  - integrations
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_agent_reflection
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+  /api/v1/agent/requests:
+    post:
+      summary: Make an authorized credential-injected API request
+      description: |-
+        Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Upstream response or retained response handle
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  headers:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: string
+                  size:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  encoding:
+                    type: string
+                    enum:
+                      - utf8
+                      - base64
+                  body:
+                    type: string
+                  handle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  expiresAt:
+                    type: string
+                required:
+                  - status
+                  - headers
+                  - size
+                  - encoding
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_agent_requests
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                integration:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                method:
+                  type: string
+                  enum:
+                    - GET
+                    - HEAD
+                    - POST
+                    - PUT
+                    - PATCH
+                    - DELETE
+                    - OPTIONS
+                path:
+                  type: string
+                  minLength: 1
+                  maxLength: 8192
+                headers:
+                  default: {}
+                  type: object
+                  propertyNames:
+                    type: string
+                    pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
+                  additionalProperties:
+                    type: string
+                    maxLength: 8192
+                body:
+                  type: string
+                  maxLength: 44739244
+                encoding:
+                  default: utf8
+                  type: string
+                  enum:
+                    - utf8
+                    - base64
+              required:
+                - integration
+                - method
+                - path
+              additionalProperties: false
+  /api/v1/agent/responses/read:
+    post:
+      summary: Read up to 64 KiB of an identity-bound retained response
+      description: |-
+        Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Response chunk
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  offset:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  nextOffset:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  size:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  encoding:
+                    type: string
+                    const: base64
+                  body:
+                    type: string
+                  done:
+                    type: boolean
+                required:
+                  - handle
+                  - offset
+                  - nextOffset
+                  - size
+                  - encoding
+                  - body
+                  - done
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_agent_responses_read
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                handle:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                offset:
+                  default: 0
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+              required:
+                - handle
+              additionalProperties: false
+  /api/v1/integration-api-policies:
+    get:
+      summary: List tenant MCP API access policies
+      responses:
+        "200":
+          description: Policies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  integrations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        name:
+                          type: string
+                        description:
+                          type:
+                            - string
+                            - "null"
+                        kind:
+                          type: string
+                          enum:
+                            - bearer
+                            - github
+                            - linear
+                            - model
+                        policy:
+                          type: string
+                          enum:
+                            - baseline
+                            - requestable
+                            - disabled
+                        available:
+                          type: boolean
+                        revision:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        requiredScope:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - description
+                        - kind
+                        - policy
+                        - available
+                        - revision
+                        - requiredScope
+                      additionalProperties: false
+                required:
+                  - integrations
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_integration_api_policies
+      tags:
+        - integration-api-policies
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+  /api/v1/integration-api-policies/{integrationId}:
+    put:
+      summary: Set baseline, requestable or disabled MCP access
+      description: |-
+        Baseline changes apply immediately. Disabling invalidates approvals permanently; re-enabling requires fresh consent. Run selections remain independent.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Updated policies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  integrations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        name:
+                          type: string
+                        description:
+                          type:
+                            - string
+                            - "null"
+                        kind:
+                          type: string
+                          enum:
+                            - bearer
+                            - github
+                            - linear
+                            - model
+                        policy:
+                          type: string
+                          enum:
+                            - baseline
+                            - requestable
+                            - disabled
+                        available:
+                          type: boolean
+                        revision:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        requiredScope:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - description
+                        - kind
+                        - policy
+                        - available
+                        - revision
+                        - requiredScope
+                      additionalProperties: false
+                required:
+                  - integrations
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: put_api_v1_integration_api_policies_integrationId
+      tags:
+        - integration-api-policies
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: integrationId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                policy:
+                  type: string
+                  enum:
+                    - baseline
+                    - requestable
+                    - disabled
+                expectedRevision:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - policy
+                - expectedRevision
+              additionalProperties: false
   /api/v1/runtime-context:
     get:
       summary: Inspect the current runtime identity and scopes

@@ -1048,6 +1048,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/access/authorizations/{grantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one isolated OAuth connection
+         * @description Other connections, including copies of the same client, retain their approvals.
+         *
+         *     Requires the jobs:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_access_authorizations_grantId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/access/authorized-clients/{clientId}": {
         parameters: {
             query?: never;
@@ -1647,6 +1671,118 @@ export interface paths {
          */
         get: operations["get_api_v1_runtime_launch"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/reflection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover agent identity and granted or requestable integration APIs
+         * @description OAuth authorization or verified active run required. Availability reports connection state, without probing credential health. OAuth integration scopes are integration:{stable UUID}:{revocation epoch}; initial login need not request any integration scopes.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_agent_reflection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make an authorized credential-injected API request
+         * @description Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_agent_requests"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/responses/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read up to 64 KiB of an identity-bound retained response
+         * @description Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_agent_responses_read"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integration-api-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List tenant MCP API access policies
+         * @description Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_integration_api_policies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integration-api-policies/{integrationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set baseline, requestable or disabled MCP access
+         * @description Baseline changes apply immediately. Disabling invalidates approvals permanently; re-enabling requires fresh consent. Run selections remain independent.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_integration_api_policies_integrationId"];
         post?: never;
         delete?: never;
         options?: never;
@@ -3869,6 +4005,11 @@ export interface operations {
                         scopes: string[];
                         expiresAt: string;
                         signature: string;
+                        integrationLabels?: {
+                            scope: string;
+                            name: string;
+                            description: string | null;
+                        }[];
                     };
                 };
             };
@@ -3951,6 +4092,11 @@ export interface operations {
                         request: string;
                         signature: string;
                         expiresAt: string;
+                        integrationLabels?: {
+                            scope: string;
+                            name: string;
+                            description: string | null;
+                        }[];
                     };
                 };
             };
@@ -5212,6 +5358,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_access_authorizations_grantId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorization revoked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revoked: number;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -7069,6 +7247,262 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_agent_reflection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent reflection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        identity: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            kind: "oauth" | "run";
+                        };
+                        scopes: string[];
+                        integrations: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            description: string | null;
+                            /** @enum {string} */
+                            kind: "bearer" | "github" | "linear" | "model";
+                            /** @enum {string} */
+                            policy: "baseline" | "requestable" | "disabled";
+                            available: boolean;
+                            revision: number;
+                            requiredScope: string;
+                            /** @enum {string} */
+                            access: "granted" | "requestable" | "unavailable";
+                            instructions: string;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_agent_requests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    integration: string;
+                    /** @enum {string} */
+                    method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                    path: string;
+                    /** @default {} */
+                    headers?: {
+                        [key: string]: string;
+                    };
+                    body?: string;
+                    /**
+                     * @default utf8
+                     * @enum {string}
+                     */
+                    encoding?: "utf8" | "base64";
+                };
+            };
+        };
+        responses: {
+            /** @description Upstream response or retained response handle */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: number;
+                        headers: {
+                            [key: string]: string;
+                        };
+                        size: number;
+                        /** @enum {string} */
+                        encoding: "utf8" | "base64";
+                        body?: string;
+                        /** Format: uuid */
+                        handle?: string;
+                        expiresAt?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_agent_responses_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    handle: string;
+                    /** @default 0 */
+                    offset?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Response chunk */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        handle: string;
+                        offset: number;
+                        nextOffset: number;
+                        size: number;
+                        /** @constant */
+                        encoding: "base64";
+                        body: string;
+                        done: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_integration_api_policies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        integrations: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            description: string | null;
+                            /** @enum {string} */
+                            kind: "bearer" | "github" | "linear" | "model";
+                            /** @enum {string} */
+                            policy: "baseline" | "requestable" | "disabled";
+                            available: boolean;
+                            revision: number;
+                            requiredScope: string;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_integration_api_policies_integrationId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    policy: "baseline" | "requestable" | "disabled";
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        integrations: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            description: string | null;
+                            /** @enum {string} */
+                            kind: "bearer" | "github" | "linear" | "model";
+                            /** @enum {string} */
+                            policy: "baseline" | "requestable" | "disabled";
+                            available: boolean;
+                            revision: number;
+                            requiredScope: string;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];

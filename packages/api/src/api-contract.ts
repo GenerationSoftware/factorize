@@ -1,3 +1,4 @@
+import { apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestApiResponse, readApiResponseInput, apiResponseChunk } from "./agent-api-contracts";
 import { queryOf } from "./query-params";
 import { launchPayloadResponse } from "./launch-payload";
 import { searchResponse } from "./search-contracts";
@@ -48,7 +49,7 @@ export interface RouteContract {
   documentation: Record<string, any>;
   execute: (
     service: ApiService,
-    input: { params: Record<string, string>; body: any; query: any; url: URL },
+    input: { params: Record<string, string>; body: any; query: any; url: URL; signal?: AbortSignal },
   ) => Promise<unknown>;
 }
 
@@ -152,7 +153,7 @@ function route(
   documentation: RouteContract["documentation"],
   execute: RouteContract["execute"],
   options: Partial<
-    Pick<RouteContract, "body" | "maxBodyBytes" | "query" | "ownerSession" | "vendorIdentityOnly" | "parameters" | "authOperation">
+    Pick<RouteContract, "body" | "maxBodyBytes" | "query" | "ownerSession" | "vendorIdentityOnly" | "parameters" | "authOperation" | "scope">
   > = {},
 ): RouteContract {
   const keys = [...path.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]);
@@ -271,7 +272,7 @@ export const API_ROUTES: RouteContract[] = [
   authRoute("POST", "/api/v1/auth/password", "password", "Change password and invalidate sessions", authSuccess, authInputs.change),
   authRoute("POST", "/api/v1/auth/logout", "logout", "Revoke current session and clear browser cookie", authSuccess),
 
-  route("POST", "/api/v1/oauth/device/preview", "flows:read", { summary: "Inspect a device authorization code", responses: { "200": { description: "Pending device request", content: { "application/json": { schema: jsonSchema(z.object({ userCode: z.string(), clientName: z.string(), scopes: z.array(z.string()), expiresAt: z.string(), signature: z.string() }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32) }).strict(), authOperation: "device-preview", ownerSession: true }),
+  route("POST", "/api/v1/oauth/device/preview", "flows:read", { summary: "Inspect a device authorization code", responses: { "200": { description: "Pending device request", content: { "application/json": { schema: jsonSchema(z.object({ userCode: z.string(), clientName: z.string(), scopes: z.array(z.string()), expiresAt: z.string(), signature: z.string(), integrationLabels: z.array(z.object({scope:z.string(),name:z.string(),description:z.string().nullable()})).optional() }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32) }).strict(), authOperation: "device-preview", ownerSession: true }),
   route("POST", "/api/v1/oauth/device/decision", "flows:write", { summary: "Approve or deny a device authorization code", responses: { "200": { description: "Device decision", content: { "application/json": { schema: jsonSchema(z.object({ status: z.enum(["approved", "denied"]) }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32), signature: z.string().min(1).max(256), decision: z.enum(["allow", "deny"]) }).strict(), authOperation: "device-decision", ownerSession: true }),
   route("POST", "/api/v1/oauth/consent/preview", "flows:read", { summary: "Inspect an OAuth consent request", responses: { "200": { description: "Owner-bound expiring consent", content: { "application/json": { schema: jsonSchema(consentPreviewResponse, "output") } } } } }, async () => undefined, { body: consentPreviewInput, authOperation: "consent-preview", ownerSession: true }),
   route("POST", "/api/v1/oauth/consent/decision", "flows:write", { summary: "Decide an OAuth consent request", responses: { "200": { description: "Validated protocol destination", content: { "application/json": { schema: jsonSchema(consentDecisionResponse, "output") } } } } }, async () => undefined, { body: consentDecisionInput, authOperation: "consent-decision", ownerSession: true }),
@@ -616,6 +617,7 @@ export const API_ROUTES: RouteContract[] = [
     (service, { params }) => service.revokeAccessToken(params.tokenId),
     { ownerSession: true },
   ),
+  route("DELETE", "/api/v1/access/authorizations/{grantId}", "jobs:write", {summary:"Revoke one isolated OAuth connection", description:"Other connections, including copies of the same client, retain their approvals.",responses:{"200":{description:"Authorization revoked",content:{"application/json":{schema:jsonSchema(z.object({revoked:z.number().int()}),"output")}}}}}, (service,{params})=>service.revokeOAuthAuthorization(params.grantId), {ownerSession:true}),
   route(
     "DELETE",
     "/api/v1/access/authorized-clients/{clientId}",
@@ -853,6 +855,11 @@ export const API_ROUTES: RouteContract[] = [
     description: "Requires the vendor-verified identity of an active run. Returns only that run's encrypted-at-rest scheduler snapshot, including the rendered prompt and harness or code context. No application scope is required. Sessions, API keys, OAuth clients, other runs and terminal runs cannot retrieve it. Responses are never cached.",
     responses: { "200": { description: "Launch payload for the calling run", content: { "application/json": { schema: jsonSchema(launchPayloadResponse, "output") } } } } },
   service => service.getRuntimeLaunchPayload(), { vendorIdentityOnly: true }),
+  route("GET", "/api/v1/agent/reflection", "", { summary: "Discover agent identity and granted or requestable integration APIs", description: "OAuth authorization or verified active run required. Availability reports connection state, without probing credential health. OAuth integration scopes are integration:{stable UUID}:{revocation epoch}; initial login need not request any integration scopes.", responses: { "200": { description: "Agent reflection", content: { "application/json": { schema: jsonSchema(apiReflection, "output") } } } } }, service => service.getApiReflection(), {scope: []}),
+  route("POST", "/api/v1/agent/requests", "", { summary: "Make an authorized credential-injected API request", description: "Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.", responses: { "200": { description: "Upstream response or retained response handle", content: { "application/json": { schema: jsonSchema(requestApiResponse, "output") } } } } }, (service,{body,signal}) => service.requestApi(body,signal), {body: requestApiInput, maxBodyBytes: 45_000_000, scope: []}),
+  route("POST", "/api/v1/agent/responses/read", "", { summary: "Read up to 64 KiB of an identity-bound retained response", description: "Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.", responses: { "200": { description: "Response chunk", content: { "application/json": { schema: jsonSchema(apiResponseChunk, "output") } } } } }, (service,{body}) => service.readApiResponse(body), {body: readApiResponseInput, scope: []}),
+  route("GET", "/api/v1/integration-api-policies", "integrations:read", { summary: "List tenant MCP API access policies", responses: { "200": { description: "Policies", content: { "application/json": { schema: jsonSchema(apiPolicyList, "output") } } } } }, service => service.listApiPolicies(), {ownerSession: true}),
+  route("PUT", "/api/v1/integration-api-policies/{integrationId}", "integrations:write", { summary: "Set baseline, requestable or disabled MCP access", description: "Baseline changes apply immediately. Disabling invalidates approvals permanently; re-enabling requires fresh consent. Run selections remain independent.", responses: { "200": { description: "Updated policies", content: { "application/json": { schema: jsonSchema(apiPolicyList, "output") } } } } }, (service,{params,body}) => service.updateApiPolicy(params.integrationId,body), {ownerSession: true, body: apiPolicyInput}),
   route("GET", "/api/v1/runtime-context", "runs:read", {
     summary: "Inspect the current runtime identity and scopes",
     description: "Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.",
