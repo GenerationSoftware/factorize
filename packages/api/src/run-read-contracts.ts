@@ -3,6 +3,16 @@ export const runtimeContextResponse = z.object({
   kind: z.literal("factorize-runtime-context-v1"),
   authMethod: z.string(), runId: z.string().nullable(), jobId: z.string().nullable(), scopes: z.array(z.string()),
 });
+const runIntegration = z.object({ id: z.string(), name: z.string(), description: z.string().nullable(), path: z.string(), available: z.boolean() });
+export const runtimeIntegrationsResponse = z.object({
+  kind: z.literal("factorize-run-integrations-v1"),
+  integrations: z.array(runIntegration),
+  providers: z.object({
+    githubInstallations: z.array(z.object({installationId: z.number().int(), path: z.string(), available: z.boolean()})),
+    linear: z.object({path: z.string(), available: z.boolean()}).nullable(),
+    model: z.object({path: z.string(), available: z.boolean()}).nullable(),
+  }),
+});
 export const executionState = z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped"]);
 export const agentErrorResponse = z.object({ reason: z.string(), reported_at: z.string(), reporter: z.object({ user_id: z.string(), kind: z.enum(["api_key", "oauth", "session", "run_token"]), id: z.string() }) });
 export const runFailureResponse = z.object({ source: z.enum(["run", "system"]), code: z.string(), reason: z.string() });

@@ -3,7 +3,7 @@ import { searchResponse } from "./search-contracts";
 import { integrationStatus, exeConnection, accessToken, createdAccessToken, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
-import { runPageResponse, fullRunResponse, runtimeContextResponse } from "./run-read-contracts";
+import { runPageResponse, fullRunResponse, runtimeContextResponse, runtimeIntegrationsResponse } from "./run-read-contracts";
 import { triggerContextCatalog } from "./trigger-context";
 import type { Env, OAuthProps } from "./types";
 import { canonicalizeVmImage, renameRunSchema, reportRunErrorSchema, vmImageVerificationInput, type JobInput, type ManualInvocationInput } from "./flow-schemas";
@@ -201,6 +201,35 @@ export class ApiService {
     } finally { this.authorizationDuration += performance.now() - started; }
   }
   private async authorizeOwnerSession(scope: Scope): Promise<void> { await this.authorize(scope); if (this.auth.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required."); }
+
+  async getRuntimeIntegrations() {
+    await this.authorizeIdentity();
+    if (this.auth.authMethod !== "vendor_identity" || !this.auth.runId) throw new ServiceError(403, "forbidden", "A vendor-verified run identity is required.");
+    const db = databaseFor(this.env), tenantId = this.auth.tenantId, runId = this.auth.runId;
+    const active = (await db.pool.query<{execution_config: Record<string, any>}>(`SELECT r.execution_config FROM app.runs r JOIN app.job_runs j ON j.tenant_id=r.tenant_id AND j.id=r.id
+      WHERE r.tenant_id=$1 AND r.id=$2 AND r.state IN ('starting','running','blocked') AND j.state IN ('starting','running','blocked')`, [tenantId, runId])).rows[0];
+    if (!active) throw new ServiceError(403, "forbidden", "The run is no longer active.");
+    const config = active.execution_config;
+    const ids = Array.isArray(config.portableIntegrationIds) ? config.portableIntegrationIds : [];
+    const githubIds = Array.isArray(config.githubInstallationIds) ? config.githubInstallationIds : [];
+    const [records, installations, revoked, linear, model] = await Promise.all([
+      db.pool.query<{id: string; name: string; description: string | null}>("SELECT id,name,description FROM app.integration_records WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND kind='bearer' AND deleted_at IS NULL", [tenantId, ids]),
+      db.pool.query<{installation_id: number; state: string}>("SELECT installation_id,state FROM app.github_installations WHERE tenant_id=$1 AND installation_id=ANY($2::bigint[])", [tenantId, githubIds]),
+      db.pool.query<{kind: string; credential_id: string}>("SELECT kind,credential_id FROM app.run_credential_revocations WHERE tenant_id=$1 AND run_id=$2", [tenantId, runId]),
+      config.linearConnectionId === "linear" ? db.pool.query("SELECT 1 FROM app.connections WHERE tenant_id=$1 AND kind='linear'", [tenantId]) : null,
+      config.modelAccess === "portable" && typeof config.modelAccountId === "string" ? db.pool.query("SELECT 1 FROM app.integration_records WHERE tenant_id=$1 AND id=$2 AND kind='model' AND deleted_at IS NULL", [tenantId, config.modelAccountId]) : null,
+    ]);
+    const denied = new Set(revoked.rows.map(row => `${row.kind}:${row.credential_id}`));
+    return publicValue(runtimeIntegrationsResponse, {
+      kind: "factorize-run-integrations-v1",
+      integrations: ids.map((id: string) => { const record = records.rows.find(row => row.id === id); return {id, name: record?.name ?? "Unavailable integration", description: record?.description ?? null, path: `/integrations/${id}/`, available: Boolean(record) && !denied.has(`bearer:${id}`)}; }),
+      providers: {
+        githubInstallations: githubIds.map((installationId: number) => ({installationId, path: `/providers/github/${installationId}/`, available: installations.rows.some(row => Number(row.installation_id) === installationId && row.state === "active") && !denied.has(`github:${installationId}`)})),
+        linear: config.linearConnectionId === "linear" ? {path: "/providers/linear/", available: Boolean(linear?.rowCount) && !denied.has("linear:linear")} : null,
+        model: config.modelAccess === "portable" && typeof config.modelAccountId === "string" ? {path: "/providers/model/v1", available: Boolean(model?.rowCount) && !denied.has(`model:${config.modelAccountId}`)} : null,
+      },
+    });
+  }
 
   async getRuntimeContext() {
     await this.authorizeIdentity();

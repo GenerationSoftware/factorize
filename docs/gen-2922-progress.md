@@ -95,3 +95,9 @@ cross-tenant denial, API/Git/Linear forwarding, model streaming and concurrent
 refresh, cache restoration, failed refresh denial, cancellation/disconnection,
 and permanent revocation after reconnect. This remains fixture evidence;
 end-to-end guest adoption and final validation of this follow-up are pending.
+
+The complete root suite at `01d63cd` passed on the isolated validation VM.
+The guest identity helper and selected-integration discovery API are now
+implemented and pass 23 focused helper/API-contract/PostgreSQL boundary tests;
+launch adoption remains pending. Discovery omits credential origins and tokens
+and reports persistent revocations as unavailable, even after reconnection.

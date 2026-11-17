@@ -137,6 +137,12 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     }));
     const call = (credentialId = id) => worker.fetch(request(jwt, f.runId, `/internal/run-proxy/${f.runId}/integrations/${credentialId}/resource?limit=1`), f.env, {waitUntil() {}} as any);
     expect(await (await call()).text()).toBe("selected response");
+    const reflected = await worker.fetch(request(jwt, f.runId, "/api/v1/runtime-integrations"), f.env, {waitUntil() {}} as any);
+    expect(reflected.status).toBe(200);
+    const metadata = await reflected.json() as any;
+    expect(metadata.integrations).toEqual([{id, name: "selected", description: null, path: `/integrations/${id}/`, available: true}]);
+    expect(JSON.stringify(metadata)).not.toMatch(/selected-secret|other-tenant-secret|selected\.example\.com|other\.example\.com/);
+
     expect((await call(otherId)).status).toBe(403);
     // Even a corrupt/foreign selection cannot escape the authenticated tenant.
     await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config || $3::jsonb WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, JSON.stringify({portableIntegrationIds: [id, otherId]})]);
@@ -145,6 +151,9 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     expect((await call()).status).toBe(403);
     await records.write({id, kind: "bearer", name: "selected", origin: "https://selected.example.com", description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedSecret: "selected-secret"});
     expect((await call()).status).toBe(403); // Reusing the ID cannot revive a disconnected grant.
+    const disconnected = await worker.fetch(request(jwt, f.runId, "/api/v1/runtime-integrations"), f.env, {waitUntil() {}} as any);
+    expect((await disconnected.json() as any).integrations[0].available).toBe(false);
+
     await f.db.pool.query("UPDATE app.job_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     expect((await call()).status).toBe(403);
     expect(outbound).toHaveLength(1);

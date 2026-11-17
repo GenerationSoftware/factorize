@@ -1726,6 +1726,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runtime-integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover this run's selected integration endpoints
+         * @description Requires vendor-verified run identity. Returns only snapshotted selections and current availability, without origins or credentials. Selection authorization is independent of the run's Factorize API scopes.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_runtime_integrations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs/{jobId}/invocation-permissions": {
         parameters: {
             query?: never;
@@ -7225,6 +7247,59 @@ export interface operations {
                         runId: string | null;
                         jobId: string | null;
                         scopes: string[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_runtime_integrations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Selected run integrations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        kind: "factorize-run-integrations-v1";
+                        integrations: {
+                            id: string;
+                            name: string;
+                            description: string | null;
+                            path: string;
+                            available: boolean;
+                        }[];
+                        providers: {
+                            githubInstallations: {
+                                installationId: number;
+                                path: string;
+                                available: boolean;
+                            }[];
+                            linear: {
+                                path: string;
+                                available: boolean;
+                            } | null;
+                            model: {
+                                path: string;
+                                available: boolean;
+                            } | null;
+                        };
                     };
                 };
             };

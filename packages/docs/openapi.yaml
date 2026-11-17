@@ -10901,6 +10901,131 @@ paths:
         - cookieAuth: []
       x-required-scope: []
       x-owner-session-required: false
+  /api/v1/runtime-integrations:
+    get:
+      summary: Discover this run's selected integration endpoints
+      description: |-
+        Requires vendor-verified run identity. Returns only snapshotted selections and current availability, without origins or credentials. Selection authorization is independent of the run's Factorize API scopes.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Selected run integrations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    const: factorize-run-integrations-v1
+                  integrations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type:
+                            - string
+                            - "null"
+                        path:
+                          type: string
+                        available:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - description
+                        - path
+                        - available
+                      additionalProperties: false
+                  providers:
+                    type: object
+                    properties:
+                      githubInstallations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            installationId:
+                              type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                            path:
+                              type: string
+                            available:
+                              type: boolean
+                          required:
+                            - installationId
+                            - path
+                            - available
+                          additionalProperties: false
+                      linear:
+                        anyOf:
+                          - type: object
+                            properties:
+                              path:
+                                type: string
+                              available:
+                                type: boolean
+                            required:
+                              - path
+                              - available
+                            additionalProperties: false
+                          - type: "null"
+                      model:
+                        anyOf:
+                          - type: object
+                            properties:
+                              path:
+                                type: string
+                              available:
+                                type: boolean
+                            required:
+                              - path
+                              - available
+                            additionalProperties: false
+                          - type: "null"
+                    required:
+                      - githubInstallations
+                      - linear
+                      - model
+                    additionalProperties: false
+                required:
+                  - kind
+                  - integrations
+                  - providers
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_runtime_integrations
+      tags:
+        - runtime-integrations
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
   /api/v1/jobs/{jobId}/invocation-permissions:
     get:
       summary: List a source job's manual invocation destinations
