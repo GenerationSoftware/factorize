@@ -86,3 +86,37 @@ This request path is implemented alongside the old launch/runtime path while
 GEN-2922 remains in progress. Guest setup still needs to adopt it, and old run
 bearer authentication must be removed during the breaking cutover. It is not
 completion or release evidence for that cutover.
+
+## Backend outbound protocol
+
+`/internal/run-proxy/<run UUID>/integrations/<selected credential UUID>/...`
+and `/internal/run-proxy/<run UUID>/providers/{github/<installation ID>,linear,model/v1}/...`
+are raw outbound protocol routes authenticated by the same fresh vendor JWT and
+run header. They do not expose a credential-delivery JSON API. The Worker looks
+up only that run's selected credential and current tenant-owned connection.
+Custom bearer origins remain fixed to a public HTTPS origin; redirects are
+rejected. The deployment retains Cloudflare's documented
+[`global_fetch_strictly_public`](https://developers.cloudflare.com/workers/configuration/compatibility-flags/#global-fetch-strictly-public)
+flag, so outbound fetches cannot use private zone-origin routing. Request and
+response body limits and a total deadline bound streaming forwarding.
+
+GitHub uses the existing selected App installation: REST/GraphQL uses Bearer;
+Git smart HTTP uses Basic `x-access-token` and preserves `Git-Protocol` and pack
+bodies. Explicit `/raw/` and `/archive/` suffixes route to the corresponding fixed
+GitHub content hosts. The implementation follows the protocol distinctions in
+[Clawflare's GitHub handler](https://github.com/asselstine/clawflare/blob/main/packages/github/src/index.ts).
+Linear uses the existing selected connection and its existing token refresh.
+
+Selected model accounts are resolved from managed encrypted storage. ChatGPT
+refresh follows [Codex's published OAuth refresh implementation](https://github.com/openai/codex/blob/main/codex-rs/login/src/auth/manager.rs),
+restricted to its trusted authority/client. Refresh is serialized and persisted
+under database locks across backend instances; failed refresh cannot use an
+expired token. API key model accounts use OpenAI's API origin. Upstream tokens,
+refresh tokens and model caches never cross the guest boundary.
+
+Disconnect/suspension records a durable revocation for existing selected runs.
+Reconnecting a provider slot or reusing a deleted credential UUID cannot restore
+an old grant. Execution-connection disconnection also revokes its VM identity
+bindings. Newly created runs can use explicitly selected reconnected credentials.
+These guarantees currently apply to the new backend request path; the legacy
+runtime and its bypasses still need removal before release.

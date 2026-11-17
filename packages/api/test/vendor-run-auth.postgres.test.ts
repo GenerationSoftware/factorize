@@ -5,6 +5,9 @@ import { FlyConnectionRepository } from "../src/postgres/fly-connection-reposito
 import { issueRunCredential } from "../src/run-credentials";
 import { authenticateVendorRunRequest } from "../src/vendor-run-auth";
 import { exeWifIntegrationNameFor, vmNameFor } from "../src/exe-vm-backend";
+import { EncryptedIntegrationRepository } from "../src/postgres/encrypted-integration-repository";
+import { GitHubRepository } from "../src/postgres/github-repository";
+import { ConnectionRepository } from "../src/postgres/connection-repository";
 import worker from "../src/worker";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
@@ -117,6 +120,121 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     }
   });
 
+  it("forwards only the run's selected managed bearer and stops after disconnect or cancellation", async () => {
+    const records = new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    const id = crypto.randomUUID(), otherId = crypto.randomUUID();
+    await records.write({id, kind: "bearer", name: "selected", origin: "https://selected.example.com", description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedSecret: "selected-secret"});
+    await new EncryptedIntegrationRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY).write({id: otherId, kind: "bearer", name: "other", origin: "https://other.example.com", description: null, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), operation: "upsert", managedSecret: "other-tenant-secret"});
+    await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config || $3::jsonb WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, JSON.stringify({portableIntegrationIds: [id]})]);
+    const vendorFetch = globalThis.fetch;
+    const outbound: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith(issuer)) return vendorFetch(input, init);
+      expect(String(input)).toBe("https://selected.example.com/resource?limit=1");
+      expect((init!.headers as Headers).get("Authorization")).toBe("Bearer selected-secret");
+      expect((init!.headers as Headers).has("X-Factorize-Run-Id")).toBe(false);
+      outbound.push(String(input)); return new Response("selected response");
+    }));
+    const call = (credentialId = id) => worker.fetch(request(jwt, f.runId, `/internal/run-proxy/${f.runId}/integrations/${credentialId}/resource?limit=1`), f.env, {waitUntil() {}} as any);
+    expect(await (await call()).text()).toBe("selected response");
+    expect((await call(otherId)).status).toBe(403);
+    // Even a corrupt/foreign selection cannot escape the authenticated tenant.
+    await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config || $3::jsonb WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, JSON.stringify({portableIntegrationIds: [id, otherId]})]);
+    expect((await call(otherId)).status).toBe(403);
+    await records.write({id, kind: "bearer", name: "selected", origin: "https://selected.example.com", description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "delete"});
+    expect((await call()).status).toBe(403);
+    await records.write({id, kind: "bearer", name: "selected", origin: "https://selected.example.com", description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedSecret: "selected-secret"});
+    expect((await call()).status).toBe(403); // Reusing the ID cannot revive a disconnected grant.
+    await f.db.pool.query("UPDATE app.job_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    expect((await call()).status).toBe(403);
+    expect(outbound).toHaveLength(1);
+  });
+
+  it("reuses selected GitHub and Linear connections for API and Git protocol requests", async () => {
+    const installationId = 424242;
+    const github = new GitHubRepository(f.db, f.tenantId);
+    await github.save({installationId, accountLogin: "selected-org", accountType: "Organization", state: "active"});
+    const connections = new ConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    await connections.put("linear", {accessToken: "selected-linear", refreshToken: "linear-refresh", accessTokenExpiresAt: new Date(Date.now()+3_600_000).toISOString()});
+    f.env.GITHUB_APP_ID = "fixture-app";
+    const der = Buffer.from(await crypto.subtle.exportKey("pkcs8", privateKey)).toString("base64");
+    f.env.GITHUB_APP_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----\n${der}\n-----END PRIVATE KEY-----`;
+    await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config || $3::jsonb WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, JSON.stringify({githubInstallationIds: [installationId], linearConnectionId: "linear"})]);
+    const vendorFetch = globalThis.fetch;
+    const sent: Array<{url: string; auth: string | null; body: string; protocol: string | null}> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const address = String(input);
+      if (address.startsWith(issuer)) return vendorFetch(input, init);
+      if (address === `https://api.github.com/app/installations/${installationId}/access_tokens`) return Response.json({token: "selected-installation-token"});
+      const headers = init!.headers as Headers;
+      sent.push({url: address, auth: headers.get("Authorization"), body: await new Response(init!.body).text(), protocol: headers.get("Git-Protocol")});
+      return new Response("protocol response");
+    }));
+    const call = (path: string, method = "GET", body?: string) => worker.fetch(new Request(request(jwt, f.runId, `/internal/run-proxy/${f.runId}${path}`), {method, body, headers: {Authorization: `Bearer ${jwt}`, "X-Factorize-Run-Id": f.runId, "Git-Protocol": "version=2"}}), f.env, {waitUntil() {}} as any);
+    expect((await call(`/providers/github/${installationId}/graphql`, "POST", "graphql")).status).toBe(200);
+    expect((await call(`/providers/github/${installationId}/owner/repo.git/info/refs?service=git-upload-pack`)).status).toBe(200);
+    expect((await call(`/providers/github/${installationId}/owner/repo.git/git-upload-pack`, "POST", "fetch-pack")).status).toBe(200);
+    expect((await call(`/providers/github/${installationId}/owner/repo.git/git-receive-pack`, "POST", "push-pack")).status).toBe(200);
+    expect((await call("/providers/linear/graphql", "POST", "linear-query")).status).toBe(200);
+    expect((await call(`/providers/github/${installationId}/raw/owner/repo/main/file`)).status).toBe(200);
+    expect((await call(`/providers/github/${installationId}/archive/owner/repo/zip/refs/heads/main`)).status).toBe(200);
+    expect(sent.map(value => value.auth)).toEqual(["Bearer selected-installation-token", ...Array(3).fill(`Basic ${btoa("x-access-token:selected-installation-token")}`), "Bearer selected-linear", "Bearer selected-installation-token", "Bearer selected-installation-token"]);
+    expect(sent[5]?.url).toBe("https://raw.githubusercontent.com/owner/repo/main/file");
+    expect(sent[6]?.url).toBe("https://codeload.github.com/owner/repo/zip/refs/heads/main");
+    expect(sent[2]).toMatchObject({url: "https://github.com/owner/repo.git/git-upload-pack", body: "fetch-pack", protocol: "version=2"});
+    expect(sent[3]?.body).toBe("push-pack");
+    expect((await call("/providers/github/99999/graphql", "POST", "unselected")).status).toBe(403);
+    await github.delete(installationId);
+    await connections.delete("linear");
+    expect((await call(`/providers/github/${installationId}/graphql`, "POST", "disconnected")).status).toBe(403);
+    expect((await call("/providers/linear/graphql", "POST", "disconnected")).status).toBe(403);
+    await github.save({installationId, accountLogin: "selected-org", accountType: "Organization", state: "active"});
+    await connections.put("linear", {accessToken: "reconnected-linear", refreshToken: "new-refresh", accessTokenExpiresAt: new Date(Date.now()+3_600_000).toISOString()});
+    expect((await call(`/providers/github/${installationId}/graphql`, "POST", "reconnected")).status).toBe(403);
+    expect((await call("/providers/linear/graphql", "POST", "reconnected")).status).toBe(403);
+    expect(sent).toHaveLength(7);
+  });
+
+  it("refreshes the selected model server-side, streams it, restores after restart, and revokes on disconnect", async () => {
+    const records = new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    const id = crypto.randomUUID();
+    const access = (exp: number) => `${encode({alg: "none"})}.${encode({exp})}.upstream-fixture`;
+    const old = access(Math.floor(Date.now()/1000)-5), renewed = access(Math.floor(Date.now()/1000)+3600);
+    await records.write({id, kind: "model", name: "selected-model", origin: null, description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedModelPayload: JSON.stringify({tokens: {access_token: old, refresh_token: "old-refresh", account_id: "selected-account"}})});
+    await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config || $3::jsonb WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, JSON.stringify({modelAccess: "portable", modelAccountId: id})]);
+    const vendorFetch = globalThis.fetch;
+    let refreshes = 0, requests = 0, failRefresh = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith(issuer)) return vendorFetch(input, init);
+      if (String(input) === "https://auth.openai.com/oauth/token") {
+        refreshes++;
+        expect(JSON.parse(String(init!.body))).toMatchObject({grant_type: "refresh_token", refresh_token: "old-refresh"});
+        if (failRefresh) return Response.json({error: "invalid_grant"}, {status: 400});
+        return Response.json({access_token: renewed, refresh_token: "rotated-refresh"});
+      }
+      expect(String(input)).toBe("https://chatgpt.com/backend-api/codex/responses");
+      expect((init!.headers as Headers).get("Authorization")).toBe(`Bearer ${renewed}`);
+      expect((init!.headers as Headers).get("chatgpt-account-id")).toBe("selected-account");
+      requests++;
+      return new Response("data: model-stream\n\n", {headers: {"Content-Type": "text/event-stream"}});
+    }));
+    const call = () => worker.fetch(new Request(request(jwt, f.runId, `/internal/run-proxy/${f.runId}/providers/model/v1/responses`), {method: "POST", body: "model-input"}), f.env, {waitUntil() {}} as any);
+    const concurrent = await Promise.all([call(), call()]);
+    for (const response of concurrent) expect(await response.text()).toBe("data: model-stream\n\n");
+    const restored = await new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(id, "model");
+    expect(JSON.parse(restored!.payload).tokens.refresh_token).toBe("rotated-refresh");
+    expect((await call()).status).toBe(200);
+    expect(refreshes).toBe(1);
+    failRefresh = true;
+    await records.write({id, kind: "model", name: "selected-model", origin: null, description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedModelPayload: JSON.stringify({tokens: {access_token: old, refresh_token: "old-refresh", account_id: "selected-account"}})});
+    expect((await call()).status).toBe(502); // Failed refresh never uses the expired credential.
+    await records.write({id, kind: "model", name: "selected-model", origin: null, description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "delete"});
+    expect((await call()).status).toBe(403);
+    await records.write({id, kind: "model", name: "selected-model", origin: null, description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedModelPayload: JSON.stringify({tokens: {access_token: renewed, refresh_token: "new-refresh", account_id: "selected-account"}})});
+    expect((await call()).status).toBe(403);
+    expect(requests).toBe(3);
+  });
+
   it("rechecks current run lifecycle, revocation, handle and execution connection", async () => {
     for (const state of ["queued", "reserved", "stopping", "stopped", "succeeded", "failed"]) {
       await f.db.pool.query("UPDATE app.job_runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
@@ -129,7 +247,10 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     await f.db.pool.query("UPDATE app.runs SET execution_handle=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, {id: "run-app/other-machine"}]);
     expect(await authenticateVendorRunRequest(request(), f.env)).toBeNull();
     await f.db.pool.query("UPDATE app.runs SET execution_handle=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, {id: `run-app/${machineId}`}]);
-    await new FlyConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).remove();
+    const fly = new FlyConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    await fly.remove();
+    expect(await authenticateVendorRunRequest(request(), f.env)).toBeNull();
+    await fly.save({organizationSlug: "connected-org", organizationName: "Reconnected"}, "new-fixture-token");
     expect(await authenticateVendorRunRequest(request(), f.env)).toBeNull();
   });
 });

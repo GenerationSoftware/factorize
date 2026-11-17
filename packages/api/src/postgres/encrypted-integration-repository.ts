@@ -162,6 +162,45 @@ export class EncryptedIntegrationRepository {
     });
   }
 
+  /** Resolve exactly one selected live credential. Legacy user ciphertext is
+   * deliberately unavailable to the managed backend and requires re-entry. */
+  async managedCredential(id: string, kind: EncryptedIntegrationKind): Promise<(IntegrationMetadata & { revision: number; payload: string }) | null> {
+    const row = (await this.database.pool.query<{ id: string; kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string }>(
+      "SELECT id,kind,name,origin,description,revision,encrypted_payload FROM app.integration_records WHERE tenant_id=$1 AND id=$2 AND kind=$3 AND deleted_at IS NULL", [this.tenantId, id, kind])).rows[0];
+    if (!row) return null;
+    const plain = await decrypt(row.encrypted_payload, this.serverEncryptionKey);
+    const prefix = kind === "bearer" ? MANAGED_BEARER_PREFIX : MANAGED_MODEL_PREFIX;
+    if (!plain.startsWith(prefix)) return null;
+    return { id: row.id, kind: row.kind, name: row.name, origin: row.origin, description: row.description,
+      revision: safeRevision(row.revision), payload: plain.slice(prefix.length) };
+  }
+
+  /** Serialize refresh across backend instances. Lock order matches writes:
+   * collection first, then the selected credential. A disconnect/reconnect
+   * cannot be overwritten by a delayed refresh. */
+  async refreshManagedModel(id: string, refresh: (payload: string) => Promise<string>): Promise<string | null> {
+    return this.database.transaction(async client => {
+      const collection = (await client.query<{ revision: string | number }>("SELECT revision FROM app.integration_collections WHERE tenant_id=$1 FOR UPDATE", [this.tenantId])).rows[0];
+      if (!collection) return null;
+      const row = (await client.query<{ revision: string | number; encrypted_payload: string; name: string; description: string | null }>(
+        "SELECT revision,encrypted_payload,name,description FROM app.integration_records WHERE tenant_id=$1 AND id=$2 AND kind='model' AND deleted_at IS NULL FOR UPDATE", [this.tenantId, id])).rows[0];
+      if (!row) return null;
+      const plain = await decrypt(row.encrypted_payload, this.serverEncryptionKey);
+      if (!plain.startsWith(MANAGED_MODEL_PREFIX)) return null;
+      const payload = plain.slice(MANAGED_MODEL_PREFIX.length);
+      const updated = await refresh(payload);
+      if (updated === payload) return payload;
+      if (updated.length > 65_536) throw new IntegrationValidationError("Model cache exceeds its limit");
+      const encrypted = await encrypt(`${MANAGED_MODEL_PREFIX}${updated}`, this.serverEncryptionKey);
+      const revision = safeRevision(collection.revision) + 1;
+      await client.query("UPDATE app.integration_collections SET revision=$2,updated_at=now() WHERE tenant_id=$1", [this.tenantId, revision]);
+      await client.query("UPDATE app.integration_records SET revision=revision+1,encrypted_payload=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2", [this.tenantId, id, encrypted]);
+      await client.query(`INSERT INTO app.integration_changes(tenant_id,revision,id,idempotency_key,operation,record_id,kind,name,origin,description,encrypted_payload)
+        VALUES($1,$2,$3,$4,'upsert',$5,'model',$6,NULL,$7,$8)`, [this.tenantId, revision, crypto.randomUUID(), crypto.randomUUID(), id, row.name, row.description, encrypted]);
+      return updated;
+    });
+  }
+
   async records(kind?: EncryptedIntegrationKind): Promise<Array<IntegrationMetadata & { revision: number; encryptedPayload: string }>> {
     const { rows } = await this.database.pool.query<{ id: string; kind: EncryptedIntegrationKind; name: string; origin: string | null; description: string | null; revision: string | number; encrypted_payload: string }>(
       `SELECT id,kind,name,origin,description,revision,encrypted_payload FROM app.integration_records WHERE tenant_id=$1 AND deleted_at IS NULL${kind ? " AND kind=$2" : ""} ORDER BY revision,id`, kind ? [this.tenantId, kind] : [this.tenantId]);

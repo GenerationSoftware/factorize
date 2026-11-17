@@ -19,7 +19,11 @@ complete or release the breaking change until every remaining gate passes.
   permissions, invalid tokens and fresh exe.dev attachment checks.
 - [ ] Adopt vendor authentication in guest/runtime setup and outbound forwarding.
   Current run bearer credentials and standalone proxy admission still exist.
-- [ ] Move outbound forwarding and model authentication/refresh into the backend.
+- [x] Backend streaming outbound protocol for selected managed bearers, existing
+  GitHub API/Git/raw/archive and Linear connections, and managed model accounts.
+  Model refresh is serialized/persisted server-side; disconnection persists
+  per-run revocation and reconnect cannot restore the old selection.
+- [ ] Adopt the backend protocol in guest/runtime setup and retire old forwarding.
 - [ ] Replace runtime provisioning, guest discovery/client setup and scheduler gates.
 - [ ] Remove standalone proxy/pairing/unlock API, UI, configuration and dependencies.
 - [ ] Implement and test the documented breaking migration and job repair behavior.
@@ -82,5 +86,12 @@ evidence that non-login Factorize job processes inherit OCI environment on
 exe.dev; that separate runner-image gate remains unchanged.
 
 The request-admission fixture suite adds five PostgreSQL/Worker tests and
-passed in the isolated validation VM. Complete validation of that follow-up
-commit is pending.
+passed in the isolated validation VM. The complete root suite at `bcfe788` also passed on the same isolated VM.
+
+
+Backend outbound fixtures currently pass 21 tests across the PostgreSQL/Worker
+boundary and streaming primitive suites. They cover selected/unselected and
+cross-tenant denial, API/Git/Linear forwarding, model streaming and concurrent
+refresh, cache restoration, failed refresh denial, cancellation/disconnection,
+and permanent revocation after reconnect. This remains fixture evidence;
+end-to-end guest adoption and final validation of this follow-up are pending.
