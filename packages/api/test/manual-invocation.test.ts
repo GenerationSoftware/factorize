@@ -31,7 +31,7 @@ describe("manual invocation API and shared service", () => {
       const response = await protectedApiFetch(new Request("https://example.com" + (transport === "REST" ? "/api/v1/jobs/job-1/invocations" : "/mcp"), {
         method: "POST", headers: { Origin: env.APP_ORIGIN, Host: "example.com", "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
         body: JSON.stringify(transport === "REST" ? body : { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "invoke_job", arguments: { jobId: "job-1", ...body } } }),
-      }), env, sourceAuth ? { scopes: ["runs:invoke"], authMethod: "run_token", runId: sourceAuth.runId, runJobId: sourceAuth.runJobId } as any : { scopes: ["runs:write"], authMethod: "session" } as any, {} as any);
+      }), env, sourceAuth ? { scopes: ["runs:invoke"], authMethod: "vendor_identity", runId: sourceAuth.runId, runJobId: sourceAuth.runJobId } as any : { scopes: ["runs:write"], authMethod: "session" } as any, {} as any);
       if (transport === "REST") return response;
       expect(response.status).toBe(200);
       const text = await response.text();

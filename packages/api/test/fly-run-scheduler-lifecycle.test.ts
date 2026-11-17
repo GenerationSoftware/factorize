@@ -78,6 +78,7 @@ function localFlyFixture(options: { ambiguousCreate?: boolean; failFirstInspect?
   };
   const guest = {
     run: vi.fn(async (command: readonly string[]) => {
+      if (command.at(-1)?.includes("curl --fail") && command.at(-1)?.includes("report.json")) events.push("upload-job-file");
       if (command.at(-1) === "status") return { ok: true, exitCode: 0, stdout: JSON.stringify({ state: "exited", exitCode: 0 }), stderr: "" };
       if (command.at(-1)?.startsWith("find ")) return { ok: true, exitCode: 0, stdout: (options.jobFiles ?? []).map(path => `${path}\t4`).join("\n"), stderr: "" };
       return { ok: true, exitCode: 0, stdout: "", stderr: "" };
@@ -204,17 +205,14 @@ describe("Fly scheduler lifecycle", () => {
   it("collects and uploads Fly job files before destroying the Machine", async () => {
     const fly = localFlyFixture({ jobFiles: ["report.json"] });
     const f = schedulerForLocalFly(fly.backend);
-    vi.stubGlobal("fetch", vi.fn(async () => {
-      fly.events.push("upload-job-file");
-      return new Response(null, { status: 200 });
-    }));
+    f.run.executionHandle.identityProxyOrigin="https://app.example.test";
 
     await f.scheduler.poll(f.run);
 
-    expect(fly.events.indexOf("download-job-file")).toBeGreaterThanOrEqual(0);
-    expect(fly.events.indexOf("download-job-file")).toBeLessThan(fly.events.indexOf("destroy"));
+    expect(fly.events.indexOf("upload-job-file")).toBeGreaterThanOrEqual(0);
     expect(fly.events.indexOf("upload-job-file")).toBeLessThan(fly.events.indexOf("destroy"));
-    expect(fly.guest.download).toHaveBeenCalledWith("/home/exedev/.factorize-job/report.json");
+    expect(fly.guest.run.mock.calls.some(([command])=>command.at(-1)?.includes("http://127.0.0.1:18180/internal/run-artifacts/"))).toBe(true);
+    expect(fly.guest.download).not.toHaveBeenCalledWith("/home/exedev/.factorize-job/report.json");
     expect(f.events.at(-1)).toBe("terminal");
   });
 });

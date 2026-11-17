@@ -56,22 +56,14 @@ describe("versioned API contract", () => {
     expect(operation?.parameters.shape.projectId).toBeDefined();
     expect(openapi.paths["/api/v1/projects/{projectId}/graph"].get["x-required-scope"]).toBe("projects:read");
   });
-  it("publishes owner-session unlock verification operations and strict ciphertext-only input", () => {
-    const get = API_ROUTES.find(route => route.method === "GET" && route.path === "/api/v1/unlock-key/verification");
-    const post = API_ROUTES.find(route => route.method === "POST" && route.path === "/api/v1/unlock-key/verification");
-    expect(get?.scope).toBe("integrations:read"); expect(get?.ownerSession).toBe(true);
-    expect(post?.scope).toBe("integrations:write"); expect(post?.ownerSession).toBe(true);
-    expect(post?.body?.safeParse({ generationId: "00000000-0000-4000-8000-000000000001", encryptedVerification: "ciphertext", key: "plain" }).success).toBe(false);
-    expect(openapi.paths["/api/v1/unlock-key/verification"].post.requestBody).toBeDefined();
-  });
-  it("publishes model-account proxy capabilities as owner-only API operations", () => {
-    const route = API_ROUTES.find(item => item.method === "POST" && item.path === "/api/v1/model-accounts/{accountId}/browser-capability");
-    expect(route?.scope).toBe("integrations:write");
-    expect(route?.ownerSession).toBe(true);
-    expect(route?.parameters.shape.accountId).toBeDefined();
-    expect(route?.body?.safeParse({ action: "authorize" }).success).toBe(true);
-    expect(route?.body?.safeParse({ action: "authorize", accountId: "attacker" }).success).toBe(false);
-    expect(openapi.paths["/api/v1/model-accounts/{accountId}/browser-capability"].post.requestBody).toBeDefined();
+  it("retires unlock and browser-capability operations and publishes owner-only model authorization", () => {
+    expect(API_ROUTES.some(route=>route.path.includes("unlock-key")||route.path.includes("browser-capability")||route.path.includes("credential-proxy"))).toBe(false);
+    for(const action of ["authorize","status","cancel"]){
+      const route=API_ROUTES.find(item=>item.method==="POST"&&item.path===`/api/v1/model-accounts/{accountId}/authorization/${action}`);
+      expect(route?.scope).toBe("integrations:write");expect(route?.ownerSession).toBe(true);
+      expect(route?.body?.safeParse({}).success).toBe(true);
+      expect(route?.body?.safeParse({token:"guest-supplied"}).success).toBe(false);
+    }
   });
   it("lists only safe model account metadata for the owner browser", () => {
     const route = API_ROUTES.find(item => item.method === "GET" && item.path === "/api/v1/model-accounts");

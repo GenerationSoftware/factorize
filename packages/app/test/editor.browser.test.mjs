@@ -398,7 +398,7 @@ test("missing selected credentials stay visible until the owner explicitly remov
   await page.getByRole("spinbutton",{name:/Concurrency/}).fill("3");
   await page.getByRole("status").filter({hasText:"Job settings saved."}).waitFor();
   assert.deepEqual(writes.at(-1).portableIntegrationIds,[missing]);
-  await unavailable.uncheck();
+  await unavailable.click();
   await page.waitForFunction(()=>!document.body.textContent.includes("Unavailable bearer integration:"));
   const deadline=Date.now()+5000;while(writes.at(-1)?.portableIntegrationIds?.length!==0&&Date.now()<deadline)await new Promise(r=>setTimeout(r,50));
   assert.deepEqual(writes.at(-1).portableIntegrationIds,[]);

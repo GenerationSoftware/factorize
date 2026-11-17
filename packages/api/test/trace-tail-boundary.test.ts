@@ -20,8 +20,8 @@ it("tails the declared stream before exit, resumes by offset, and detects trunca
       return new Response(result.stdout + result.stderr, { headers: { "X-Exe-Exit": String(result.status) } });
     }));
     const source: TraceSource = { kind: "execution_stream", path, mediaType: "application/x-ndjson", provider: "codex" };
-    const backend = new ExeVmBackend({ apiToken: "test", tags: [] }), handle = { backendKind: "exe-vm", id: "factorize-test" };
-    const request = { source, uploadUrl: "https://app.example/chunk", generation: null as string | null, offset: 0, previousHash: "0".repeat(64) };
+    const backend = new ExeVmBackend({ apiToken: "test", tags: [] }), handle = { backendKind: "exe-vm", id: "factorize-test", identityProxyOrigin: "https://app.example" };
+    const request = { source, uploadUrl: "https://app.example/internal/run-trace-chunks/fixture", generation: null as string | null, offset: 0, previousHash: "0".repeat(64) };
     expect((await backend.collectTraceChunk(handle, request)).ok).toBe(true);
     expect(readFileSync(captured, "utf8")).toBe('{"version":1}\n');
     request.generation = readFileSync(headers, "utf8").match(/X-Trace-Generation: ([^\n]+)/)![1];

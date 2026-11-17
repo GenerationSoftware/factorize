@@ -19,8 +19,9 @@ export function modelCredentialConfigured(payload: string): boolean {
   try {const auth=JSON.parse(payload); return value(auth.OPENAI_API_KEY) || value(auth.tokens?.access_token);}
   catch {return false;}
 }
-async function post(path: string, body: unknown, form=false): Promise<Response> {
-  return fetch(`${CODEX_AUTH_ORIGIN}${path}`, {method: "POST", headers: {"Content-Type": form ? "application/x-www-form-urlencoded" : "application/json", Accept: "application/json"}, body: form ? String(body) : JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(10_000)});
+type AuthEndpoint = "https://auth.openai.com/api/accounts/deviceauth/usercode" | "https://auth.openai.com/api/accounts/deviceauth/token" | "https://auth.openai.com/oauth/token";
+async function post(endpoint: AuthEndpoint, body: unknown, form=false): Promise<Response> {
+  return fetch(endpoint, {method: "POST", headers: {"Content-Type": form ? "application/x-www-form-urlencoded" : "application/json", Accept: "application/json"}, body: form ? String(body) : JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(10_000)});
 }
 const challenge = (pending: Pending): State => ({state: "pending", verificationUrl: "https://auth.openai.com/codex/device", userCode: pending.userCode, pollAfterSeconds: pending.interval});
 
@@ -40,7 +41,7 @@ export async function modelDeviceAuthorization(env: Env, owner: OAuthProps, acco
       if (live) pending=JSON.parse(await decrypt(row.encrypted_payload,env.CREDENTIAL_ENCRYPTION_KEY));
       if (action==="authorize") {
         if (pending) {result=challenge(pending); return payload;}
-        const response=await post("/api/accounts/deviceauth/usercode", {client_id:CODEX_CLIENT_ID});
+        const response=await post("https://auth.openai.com/api/accounts/deviceauth/usercode", {client_id:CODEX_CLIENT_ID});
         if (!response.ok) {await response.body?.cancel(); throw new ModelAuthorizationUnavailable();}
         const data=await response.json() as Record<string,unknown>;
         const userCode=data.user_code ?? data.usercode, interval=Math.max(1,Math.min(30,Number(data.interval) || 5));
@@ -54,7 +55,7 @@ export async function modelDeviceAuthorization(env: Env, owner: OAuthProps, acco
       }
       if (!pending) {if(row) await clear(); result={state:row ? "expired" : modelCredentialConfigured(payload) ? "authorized" : "idle"}; return payload;}
       if (row!.next_poll_at.getTime()>Date.now()) {result=challenge(pending); return payload;}
-      const response=await post("/api/accounts/deviceauth/token", {device_auth_id:pending.deviceAuthId,user_code:pending.userCode});
+      const response=await post("https://auth.openai.com/api/accounts/deviceauth/token", {device_auth_id:pending.deviceAuthId,user_code:pending.userCode});
       if (response.status===403 || response.status===404) {
         await response.body?.cancel();
         await client.query("UPDATE app.model_device_authorizations SET next_poll_at=now()+($3::int*interval '1 second') WHERE tenant_id=$1 AND account_id=$2",[owner.tenantId,accountId,pending.interval]);
@@ -69,7 +70,7 @@ export async function modelDeviceAuthorization(env: Env, owner: OAuthProps, acco
       // this token exchange or overwrite an existing credential on ambiguity.
       let tokens: Record<string,unknown>;
       try {
-        const exchanged=await post("/oauth/token",new URLSearchParams({grant_type:"authorization_code",client_id:CODEX_CLIENT_ID,code:code.authorization_code,code_verifier:code.code_verifier,redirect_uri:`${CODEX_AUTH_ORIGIN}/deviceauth/callback`}),true);
+        const exchanged=await post("https://auth.openai.com/oauth/token",new URLSearchParams({grant_type:"authorization_code",client_id:CODEX_CLIENT_ID,code:code.authorization_code,code_verifier:code.code_verifier,redirect_uri:`${CODEX_AUTH_ORIGIN}/deviceauth/callback`}),true);
         if (!exchanged.ok) {await exchanged.body?.cancel(); throw new Error();}
         tokens=await exchanged.json() as Record<string,unknown>;
         if (!value(tokens.access_token) || !value(tokens.refresh_token) || !value(tokens.id_token)) throw new Error();
