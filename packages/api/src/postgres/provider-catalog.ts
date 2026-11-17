@@ -23,8 +23,14 @@ export class ProviderCatalog {
     let result = await request(connection.accessToken);
     if (isLinearAuthenticationError(result.response.status, result.payload.errors)) {
       const tokens = await refreshLinearToken(connection.refreshToken, this.env.LINEAR_CLIENT_ID, this.env.LINEAR_CLIENT_SECRET);
-      await this.connections.put("linear", { ...connection, accessToken: tokens.access_token, refreshToken: tokens.refresh_token ?? connection.refreshToken });
-      result = await request(tokens.access_token);
+      const updated = await this.connections.rotateLinearTokens(connection.refreshToken, {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? connection.refreshToken,
+        accessTokenExpiresAt: new Date(Date.now() + (Number.isFinite(tokens.expires_in) ? tokens.expires_in! * 1000 : 50 * 60_000)).toISOString(),
+      });
+      const accessToken = updated?.accessToken;
+      if (!accessToken) throw new Error("Your Linear connection expired. Reconnect Linear to continue.");
+      result = await request(accessToken);
     }
     if (!result.response.ok || result.payload.errors?.length) throw new Error(result.payload.errors?.[0]?.message ?? `Linear request failed (${result.response.status})`);
     return result.payload.data;

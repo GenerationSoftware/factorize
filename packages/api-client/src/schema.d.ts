@@ -19,7 +19,7 @@ export interface paths {
         put?: never;
         /**
          * Create a model account
-         * @description Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted initial account state; credentials are established directly with the credential proxy.
+         * @description Requires an interactive owner browser session and the current collection revision. Accepts an API key or Codex credential object into Factorize-managed encrypted storage, or an empty initial state for backend device authorization. Credentials are never returned.
          *
          *     Requires the integrations:write scope.
          *
@@ -40,11 +40,19 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /**
+         * Replace a model account credential
+         * @description Owner session required. Replaces the managed credential without changing the selected account ID; active runs use the replacement on their next request.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_model_accounts_accountId"];
         post?: never;
         /**
          * Delete a model account
-         * @description Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future snapshots and unlock reconciliation cannot restore the account.
+         * @description Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future run snapshots reject the disconnected account.
          *
          *     Requires the integrations:write scope.
          *
@@ -56,7 +64,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/credential-proxy/setup": {
+    "/api/v1/model-accounts/{accountId}/authorization/authorize": {
         parameters: {
             query?: never;
             header?: never;
@@ -66,21 +74,21 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Provision and register the owner's credential proxy
-         * @description Interactive owner session required. Calls the configured execution host; bootstrap credentials cross only the private guest transport. Reuse operationId for retries.
+         * authorize backend ChatGPT device authorization
+         * @description Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
          *
          *     Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
-        post: operations["post_api_v1_credential_proxy_setup"];
+        post: operations["post_api_v1_model_accounts_accountId_authorization_authorize"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/credential-proxy/browser-capability": {
+    "/api/v1/model-accounts/{accountId}/authorization/status": {
         parameters: {
             query?: never;
             header?: never;
@@ -90,21 +98,21 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Authorize a direct browser-to-proxy lifecycle operation
-         * @description Owner session only. One-use capability bound to action, owner, application origin and proxy boot, valid for 60 seconds. Unlock keys go directly to the proxy and are never accepted by this API.
+         * status backend ChatGPT device authorization
+         * @description Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
          *
          *     Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
-        post: operations["post_api_v1_credential_proxy_browser_capability"];
+        post: operations["post_api_v1_model_accounts_accountId_authorization_status"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/model-accounts/{accountId}/browser-capability": {
+    "/api/v1/model-accounts/{accountId}/authorization/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -114,94 +122,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Issue a short-lived browser capability for a paired model account
-         * @description Requires an interactive owner browser session. Returns a single-use, 60-second capability scoped to the account, action, proxy boot and exact application origin. The browser sends it directly to the paired proxy; Factorize never receives model-account tokens.
+         * cancel backend ChatGPT device authorization
+         * @description Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
          *
          *     Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
-        post: operations["post_api_v1_model_accounts_accountId_browser_capability"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/unlock-key/verification": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get the current encrypted unlock-key verification record
-         * @description Requires an interactive owner browser session. Returns user-encrypted verification ciphertext and its key generation; the unlock key is never accepted or returned.
-         *
-         *     Requires the integrations:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_unlock_key_verification"];
-        put?: never;
-        /**
-         * Create the encrypted unlock-key verification record
-         * @description Requires an interactive owner browser session. Stores only browser-encrypted verification ciphertext and permits one setup per account.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_unlock_key_verification"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/unlock-key/rotation-snapshot": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get encrypted state for owner key rotation
-         * @description Owner browser session only. Returns encrypted records, tombstones, and pending change history for local re-encryption; plaintext credentials and unlock keys are never returned.
-         *
-         *     Requires the integrations:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_unlock_key_rotation_snapshot"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/unlock-key/rotation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Atomically replace the unlock-key generation
-         * @description Owner browser session only. Commits a revision-checked encrypted generation and verification record, revokes grants, consumes enrollments, and locks the proxy. Fly connection and execution configuration are preserved.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_unlock_key_rotation"];
+        post: operations["post_api_v1_model_accounts_accountId_authorization_cancel"];
         delete?: never;
         options?: never;
         head?: never;
@@ -216,8 +144,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List encrypted bearer integrations
-         * @description Requires an interactive owner browser session. Returns safe metadata and user-encrypted ciphertext; credentials are never decrypted or revealed.
+         * List bearer integration metadata
+         * @description Requires an interactive owner browser session. Returns secret-safe metadata only; stored bearer credentials are never returned.
          *
          *     Requires the integrations:read scope.
          *
@@ -226,8 +154,8 @@ export interface paths {
         get: operations["get_api_v1_integrations_bearer"];
         put?: never;
         /**
-         * Create an encrypted bearer integration
-         * @description Requires an interactive owner browser session. Accepts only user-encrypted ciphertext, never an unlock key or plaintext credential.
+         * Create a bearer integration
+         * @description Requires an interactive owner browser session. Accepts the secret over the authenticated connection and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
          *
          *     Requires the integrations:write scope.
          *
@@ -249,8 +177,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Update an encrypted bearer integration
-         * @description Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted ciphertext.
+         * Update a bearer integration
+         * @description Requires an interactive owner browser session and the current collection revision. Accepts a replacement secret and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
          *
          *     Requires the integrations:write scope.
          *
@@ -571,7 +499,7 @@ export interface paths {
          * Get template autocomplete metadata
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_trigger_contexts"];
         put?: never;
@@ -593,7 +521,7 @@ export interface paths {
          * List exe connections
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_exe_connections"];
         put?: never;
@@ -615,7 +543,7 @@ export interface paths {
          * List GitHub installations
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_github_installations"];
         put?: never;
@@ -637,7 +565,7 @@ export interface paths {
          * List available trigger kinds
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_job_trigger_availability"];
         put?: never;
@@ -661,7 +589,7 @@ export interface paths {
          * Preview schedule
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_schedules_preview"];
         delete?: never;
@@ -681,7 +609,7 @@ export interface paths {
          * List Tail integrations
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_integrations_cloudflare_tail"];
         put?: never;
@@ -689,7 +617,7 @@ export interface paths {
          * Create a Tail integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_integrations_cloudflare_tail"];
         delete?: never;
@@ -709,7 +637,7 @@ export interface paths {
          * List installed integrations
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_integrations"];
         put?: never;
@@ -862,7 +790,7 @@ export interface paths {
          * Create an exe.dev integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_integrations_exe"];
         post?: never;
@@ -885,7 +813,7 @@ export interface paths {
          * Test exe.dev credentials
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_integrations_exe_test"];
         delete?: never;
@@ -906,7 +834,7 @@ export interface paths {
          * Create an Amp integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_integrations_amp"];
         post?: never;
@@ -929,7 +857,7 @@ export interface paths {
          * Test Amp credentials
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_integrations_amp_test"];
         delete?: never;
@@ -949,7 +877,7 @@ export interface paths {
          * List Linear projects
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_linear_projects"];
         put?: never;
@@ -971,7 +899,7 @@ export interface paths {
          * List Linear trigger options
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_linear_options"];
         put?: never;
@@ -993,7 +921,7 @@ export interface paths {
          * List ClickUp lists
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_clickup_lists"];
         put?: never;
@@ -1015,7 +943,7 @@ export interface paths {
          * List ClickUp trigger options
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_clickup_options"];
         put?: never;
@@ -1037,7 +965,7 @@ export interface paths {
          * List GitHub installations for provider setup
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_github_installations"];
         put?: never;
@@ -1156,7 +1084,7 @@ export interface paths {
          * Remove an exe.dev integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_integrations_exe_connectionId"];
         options?: never;
@@ -1178,7 +1106,7 @@ export interface paths {
          * Remove an Amp integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_integrations_amp_connectionId"];
         options?: never;
@@ -1198,7 +1126,7 @@ export interface paths {
          * Update a Tail integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_integrations_cloudflare_tail_integrationId"];
         post?: never;
@@ -1206,7 +1134,7 @@ export interface paths {
          * Remove a Tail integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_integrations_cloudflare_tail_integrationId"];
         options?: never;
@@ -1227,7 +1155,7 @@ export interface paths {
          * Test a Tail integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_integrations_cloudflare_tail_integrationId_test"];
         delete?: never;
@@ -1247,7 +1175,7 @@ export interface paths {
          * List installation repositories
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_github_installations_installationId_repositories"];
         put?: never;
@@ -1269,7 +1197,7 @@ export interface paths {
          * List GitHub issue trigger options
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_github_installations_installationId_repositories_repositoryId_issue_options"];
         put?: never;
@@ -1294,7 +1222,7 @@ export interface paths {
          * Disconnect a GitHub installation
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_providers_github_installations_installationId"];
         options?: never;
@@ -1315,7 +1243,7 @@ export interface paths {
          * Probe exe.dev permissions and a disposable VM's agent/model integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_integrations_exe_connectionId_diagnostics"];
         delete?: never;
@@ -1337,7 +1265,7 @@ export interface paths {
          *
          *     Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_job_summaries"];
         put?: never;
@@ -1359,7 +1287,7 @@ export interface paths {
          * Search bounded lifecycle job options
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_job_selector"];
         put?: never;
@@ -1381,7 +1309,7 @@ export interface paths {
          * List projects
          * @description Requires the projects:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_projects"];
         put?: never;
@@ -1389,7 +1317,7 @@ export interface paths {
          * Create project
          * @description Requires the projects:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_projects"];
         delete?: never;
@@ -1409,14 +1337,14 @@ export interface paths {
          * Get project
          * @description Requires the projects:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_projects_projectId"];
         /**
          * Update project
          * @description Requires the projects:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_projects_projectId"];
         post?: never;
@@ -1424,7 +1352,7 @@ export interface paths {
          * Delete empty project
          * @description Requires the projects:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_projects_projectId"];
         options?: never;
@@ -1445,7 +1373,7 @@ export interface paths {
          *
          *     Requires the projects:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_projects_projectId_graph"];
         put?: never;
@@ -1467,7 +1395,7 @@ export interface paths {
          * Search global skills
          * @description Requires the skills:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_skills"];
         put?: never;
@@ -1475,7 +1403,7 @@ export interface paths {
          * Create a global skill
          * @description Requires the skills:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_skills"];
         delete?: never;
@@ -1497,7 +1425,7 @@ export interface paths {
          * Preview a composed job prompt
          * @description Requires the skills:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_skills_preview"];
         delete?: never;
@@ -1517,14 +1445,14 @@ export interface paths {
          * Get a global skill
          * @description Requires the skills:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_skills_skillId"];
         /**
          * Update a global skill
          * @description Requires the skills:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_skills_skillId"];
         post?: never;
@@ -1532,7 +1460,7 @@ export interface paths {
          * Delete an unused global skill
          * @description Requires the skills:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_skills_skillId"];
         options?: never;
@@ -1551,7 +1479,7 @@ export interface paths {
          * List jobs using a skill
          * @description Requires the skills:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_skills_skillId_jobs"];
         put?: never;
@@ -1575,7 +1503,7 @@ export interface paths {
          * Move a job to a project
          * @description Requires the projects:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_jobs_jobId_project"];
         delete?: never;
@@ -1599,7 +1527,7 @@ export interface paths {
          *
          *     Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_vm_image_verifications"];
         delete?: never;
@@ -1619,7 +1547,7 @@ export interface paths {
          * Get VM image verification progress
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_vm_image_verifications_verificationId"];
         put?: never;
@@ -1641,7 +1569,7 @@ export interface paths {
          * List jobs
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_jobs"];
         put?: never;
@@ -1649,7 +1577,7 @@ export interface paths {
          * Create job
          * @description Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_jobs"];
         delete?: never;
@@ -1673,7 +1601,7 @@ export interface paths {
          *
          *     Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_job_conditions_test"];
         delete?: never;
@@ -1695,7 +1623,7 @@ export interface paths {
          * Invoke job
          * @description Requires the runs:invoke scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_jobs_jobId_invocations"];
         delete?: never;
@@ -1715,9 +1643,31 @@ export interface paths {
          * Inspect the current runtime identity and scopes
          * @description Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runtime_context"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runtime-integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover this run's selected integration endpoints
+         * @description Requires vendor-verified run identity. Returns only snapshotted selections and current availability, without origins or credentials. Selection authorization is independent of the run's Factorize API scopes.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_runtime_integrations"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1737,7 +1687,7 @@ export interface paths {
          * List a source job's manual invocation destinations
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_jobs_jobId_invocation_permissions"];
         /**
@@ -1746,7 +1696,7 @@ export interface paths {
          *
          *     Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_jobs_jobId_invocation_permissions"];
         post?: never;
@@ -1767,7 +1717,7 @@ export interface paths {
          * List webhook activity
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_jobs_jobId_events"];
         put?: never;
@@ -1791,7 +1741,7 @@ export interface paths {
          * Enable job
          * @description Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_jobs_jobId_enable"];
         delete?: never;
@@ -1813,7 +1763,7 @@ export interface paths {
          * Disable job
          * @description Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_jobs_jobId_disable"];
         delete?: never;
@@ -1833,7 +1783,7 @@ export interface paths {
          * Get job
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_jobs_jobId"];
         /**
@@ -1842,7 +1792,7 @@ export interface paths {
          *
          *     Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_jobs_jobId"];
         post?: never;
@@ -1850,7 +1800,7 @@ export interface paths {
          * Delete job
          * @description Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_jobs_jobId"];
         options?: never;
@@ -1871,7 +1821,7 @@ export interface paths {
          *
          *     Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs"];
         put?: never;
@@ -1895,7 +1845,7 @@ export interface paths {
          *
          *     Requires the jobs:read and runs:read scopes.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_search"];
         put?: never;
@@ -1917,7 +1867,7 @@ export interface paths {
          * Search webhook deliveries
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_webhooks_deliveries"];
         put?: never;
@@ -1939,7 +1889,7 @@ export interface paths {
          * Get webhook delivery detail and processing timeline
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_webhooks_deliveries_deliveryId"];
         put?: never;
@@ -1963,7 +1913,7 @@ export interface paths {
          *
          *     Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId_status"];
         put?: never;
@@ -1985,7 +1935,7 @@ export interface paths {
          * Download a retained run artifact
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId_artifacts_artifactId"];
         put?: never;
@@ -2009,7 +1959,7 @@ export interface paths {
          *
          *     Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId_trace_pages"];
         put?: never;
@@ -2031,7 +1981,7 @@ export interface paths {
          * Get run
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId"];
         put?: never;
@@ -2045,7 +1995,7 @@ export interface paths {
          *
          *     Requires the runs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         patch: operations["patch_api_v1_runs_runId"];
         trace?: never;
@@ -2065,7 +2015,7 @@ export interface paths {
          *
          *     Requires the runs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_runs_runId_report_error"];
         delete?: never;
@@ -2085,7 +2035,7 @@ export interface paths {
          * Get paginated run trace events
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId_trace"];
         put?: never;
@@ -2131,7 +2081,7 @@ export interface paths {
          * Get credential-safe run lifecycle diagnostics
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId_diagnostics"];
         put?: never;
@@ -2155,7 +2105,7 @@ export interface paths {
          * Stop run
          * @description Requires the runs:cancel scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_runs_runId_stop"];
         delete?: never;
@@ -2175,7 +2125,7 @@ export interface paths {
         put?: never;
         /**
          * Manually retry a blocked launch
-         * @description Retries only a pre-launch proxy-gated run after its prerequisites have been resolved. The run remains blocked until an interactive owner explicitly retries it; unlock or status changes do not automatically launch it.
+         * @description Retries a blocked launch with its original immutable credential and API scope snapshot. Job edits affect future runs; revoked/deleted selections require job repair and a new run. An interactive owner must request this retry.
          *
          *     Requires the runs:cancel scope.
          *
@@ -2201,7 +2151,7 @@ export interface paths {
          * Kill run and immediately release its concurrency slot
          * @description Requires the runs:cancel scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_runs_runId_kill"];
         delete?: never;
@@ -2761,6 +2711,8 @@ export interface components {
             modelAccess?: "native" | "portable";
             /** Format: uuid */
             modelAccountId?: string;
+            githubInstallationIds?: number[];
+            linearConnectionId?: "linear" | null;
         };
         ManualInvocation: {
             /** @default  */
@@ -2906,6 +2858,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             revision: number;
+                            credentialConfigured: boolean;
                         }[];
                     };
                 };
@@ -2937,13 +2890,58 @@ export interface operations {
                     idempotencyKey: string;
                     name: string;
                     description: string | null;
-                    encryptedPayload: string;
+                    initialState: string;
                 };
             };
         };
         responses: {
             /** @description Created model account */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_model_accounts_accountId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                    /** Format: uuid */
+                    idempotencyKey: string;
+                    name: string;
+                    description: string | null;
+                    initialState: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Model account updated */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3011,87 +3009,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_credential_proxy_setup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: uuid */
-                    operationId: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Registered proxy identity */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        proxyIdentity: string;
-                        /** Format: uuid */
-                        bootEpoch: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_credential_proxy_browser_capability: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @enum {string} */
-                    action: "unlock" | "lock" | "apply" | "status";
-                };
-            };
-        };
-        responses: {
-            /** @description Proxy endpoint and one-use capability */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uri */
-                        endpoint: string;
-                        capability: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_model_accounts_accountId_browser_capability: {
+    post_api_v1_model_accounts_accountId_authorization_authorize: {
         parameters: {
             query?: never;
             header?: never;
@@ -3102,23 +3020,23 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** @enum {string} */
-                    action: "authorize" | "status" | "cancel";
-                };
+                "application/json": Record<string, never>;
             };
         };
         responses: {
-            /** @description Paired proxy endpoint and one-use capability */
+            /** @description Device authorization state */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** Format: uri */
-                        endpoint: string;
-                        capability: string;
+                        /** @enum {string} */
+                        state: "pending" | "authorized" | "idle" | "canceled" | "expired" | "failed" | "reauthentication-required";
+                        /** @constant */
+                        verificationUrl?: "https://auth.openai.com/codex/device";
+                        userCode?: string;
+                        pollAfterSeconds?: number;
                     };
                 };
             };
@@ -3133,67 +3051,34 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_unlock_key_verification: {
+    post_api_v1_model_accounts_accountId_authorization_status: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Encrypted verification record or empty setup state */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        ownerId: string;
-                        verification: {
-                            /** Format: uuid */
-                            generationId: string;
-                            encryptedVerification: string;
-                        } | null;
-                    };
-                };
+            path: {
+                accountId: string;
             };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_unlock_key_verification: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** Format: uuid */
-                    generationId: string;
-                    encryptedVerification: string;
-                };
+                "application/json": Record<string, never>;
             };
         };
         responses: {
-            /** @description Created verification record */
+            /** @description Device authorization state */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** Format: uuid */
-                        generationId: string;
+                        /** @enum {string} */
+                        state: "pending" | "authorized" | "idle" | "canceled" | "expired" | "failed" | "reauthentication-required";
+                        /** @constant */
+                        verificationUrl?: "https://auth.openai.com/codex/device";
+                        userCode?: string;
+                        pollAfterSeconds?: number;
                     };
                 };
             };
@@ -3208,126 +3093,34 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_unlock_key_rotation_snapshot: {
+    post_api_v1_model_accounts_accountId_authorization_cancel: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Encrypted rekey snapshot */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        ownerId: string;
-                        /** Format: uuid */
-                        generationId: string;
-                        revision: number;
-                        records: {
-                            /** Format: uuid */
-                            id: string;
-                            /** @enum {string} */
-                            kind: "bearer" | "model";
-                            name: string;
-                            origin: string | null;
-                            description: string | null;
-                            revision: number;
-                            encryptedPayload: string | null;
-                            deletedAt: string | null;
-                        }[];
-                        changes: {
-                            /** Format: uuid */
-                            id: string;
-                            /** @enum {string} */
-                            kind: "bearer" | "model";
-                            name: string;
-                            origin: string | null;
-                            description: string | null;
-                            revision: number;
-                            /** Format: uuid */
-                            idempotencyKey: string;
-                            /** @enum {string} */
-                            operation: "upsert" | "delete";
-                            encryptedPayload: string | null;
-                            recordRevision?: number | null;
-                        }[];
-                    };
-                };
+            path: {
+                accountId: string;
             };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_unlock_key_rotation: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** Format: uuid */
-                    expectedGenerationId: string;
-                    /** Format: uuid */
-                    generationId: string;
-                    expectedRevision: number;
-                    encryptedVerification: string;
-                    records: {
-                        /** Format: uuid */
-                        id: string;
-                        /** @enum {string} */
-                        kind: "bearer" | "model";
-                        name: string;
-                        origin: string | null;
-                        description: string | null;
-                        revision: number;
-                        encryptedPayload: string | null;
-                        deletedAt: string | null;
-                    }[];
-                    changes: {
-                        /** Format: uuid */
-                        id: string;
-                        /** @enum {string} */
-                        kind: "bearer" | "model";
-                        name: string;
-                        origin: string | null;
-                        description: string | null;
-                        revision: number;
-                        /** Format: uuid */
-                        idempotencyKey: string;
-                        /** @enum {string} */
-                        operation: "upsert" | "delete";
-                        encryptedPayload: string | null;
-                        recordRevision?: number | null;
-                    }[];
-                };
+                "application/json": Record<string, never>;
             };
         };
         responses: {
-            /** @description Key generation replaced */
+            /** @description Device authorization state */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** Format: uuid */
-                        generationId: string;
-                        revision: number;
-                        duplicate: boolean;
+                        /** @enum {string} */
+                        state: "pending" | "authorized" | "idle" | "canceled" | "expired" | "failed" | "reauthentication-required";
+                        /** @constant */
+                        verificationUrl?: "https://auth.openai.com/codex/device";
+                        userCode?: string;
+                        pollAfterSeconds?: number;
                     };
                 };
             };
@@ -3351,7 +3144,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Encrypted bearer integration records */
+            /** @description Bearer integration metadata */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3360,13 +3153,14 @@ export interface operations {
                     "application/json": {
                         revision: number;
                         integrations: {
+                            /** @constant */
+                            kind?: "bearer";
                             /** Format: uuid */
                             id: string;
                             name: string;
                             origin: string;
                             description: string | null;
                             revision: number;
-                            encryptedPayload: string;
                         }[];
                     };
                 };
@@ -3400,7 +3194,7 @@ export interface operations {
                     /** Format: uri */
                     origin: string;
                     description: string | null;
-                    encryptedPayload: string;
+                    token: string;
                 };
             };
         };
@@ -3447,7 +3241,7 @@ export interface operations {
                     /** Format: uri */
                     origin: string;
                     description: string | null;
-                    encryptedPayload: string;
+                    token: string;
                 };
             };
         };
@@ -6451,6 +6245,8 @@ export interface operations {
                         modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6748,6 +6544,8 @@ export interface operations {
                         modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6957,6 +6755,8 @@ export interface operations {
                         modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7229,6 +7029,59 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_runtime_integrations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Selected run integrations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        kind: "factorize-run-integrations-v1";
+                        integrations: {
+                            id: string;
+                            name: string;
+                            description: string | null;
+                            path: string;
+                            available: boolean;
+                        }[];
+                        providers: {
+                            githubInstallations: {
+                                installationId: number;
+                                path: string;
+                                available: boolean;
+                            }[];
+                            linear: {
+                                path: string;
+                                available: boolean;
+                            } | null;
+                            model: {
+                                path: string;
+                                available: boolean;
+                            } | null;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_jobs_jobId_invocation_permissions: {
         parameters: {
             query?: never;
@@ -7448,6 +7301,8 @@ export interface operations {
                         modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7738,6 +7593,8 @@ export interface operations {
                     modelAccess?: "native" | "portable";
                     /** Format: uuid */
                     modelAccountId?: string;
+                    githubInstallationIds?: number[];
+                    linearConnectionId?: "linear" | null;
                     /** Format: date-time */
                     expectedUpdatedAt?: string;
                 };
@@ -7785,6 +7642,8 @@ export interface operations {
                         modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;

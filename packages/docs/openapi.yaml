@@ -19,6 +19,16 @@ components:
       type: apiKey
       in: cookie
       name: factorize_session
+    vendorRunIdentity:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Fresh vendor-signed exe.dev WIF or Fly Machine OIDC token matching the provisioned active run. Must be combined with X-Factorize-Run-Id; a vendor token alone grants no access.
+    runIdentityHeader:
+      type: apiKey
+      in: header
+      name: X-Factorize-Run-Id
+      description: Provisioned run UUID. Used only to locate the immutable vendor/VM binding; this header is not a credential. Scopes and tenant come from the server-side run snapshot.
   schemas:
     Error:
       type: object
@@ -1689,6 +1699,18 @@ components:
           type: string
           format: uuid
           pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+        githubInstallationIds:
+          maxItems: 100
+          type: array
+          items:
+            type: integer
+            exclusiveMinimum: 0
+            maximum: 9007199254740991
+        linearConnectionId:
+          anyOf:
+            - type: string
+              const: linear
+            - type: "null"
       required:
         - name
         - slug
@@ -1846,11 +1868,14 @@ paths:
                           type: integer
                           minimum: 0
                           maximum: 9007199254740991
+                        credentialConfigured:
+                          type: boolean
                       required:
                         - id
                         - name
                         - description
                         - revision
+                        - credentialConfigured
                       additionalProperties: false
                 required:
                   - revision
@@ -1876,14 +1901,13 @@ paths:
       tags:
         - model-accounts
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
     post:
       summary: Create a model account
       description: |-
-        Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted initial account state; credentials are established directly with the credential proxy.
+        Requires an interactive owner browser session and the current collection revision. Accepts an API key or Codex credential object into Factorize-managed encrypted storage, or an empty initial state for backend device authorization. Credentials are never returned.
 
         Requires the integrations:write scope.
 
@@ -1928,7 +1952,6 @@ paths:
       tags:
         - model-accounts
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -1960,23 +1983,119 @@ paths:
                     - type: string
                       maxLength: 500
                     - type: "null"
-                encryptedPayload:
+                initialState:
                   type: string
                   minLength: 1
                   maxLength: 65536
+                  writeOnly: true
               required:
                 - id
                 - expectedRevision
                 - idempotencyKey
                 - name
                 - description
-                - encryptedPayload
+                - initialState
               additionalProperties: false
   /api/v1/model-accounts/{accountId}:
+    put:
+      summary: Replace a model account credential
+      description: |-
+        Owner session required. Replaces the managed credential without changing the selected account ID; active runs use the replacement on their next request.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Model account updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  duplicate:
+                    type: boolean
+                required:
+                  - revision
+                  - duplicate
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: put_api_v1_model_accounts_accountId
+      tags:
+        - model-accounts
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                idempotencyKey:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                description:
+                  anyOf:
+                    - type: string
+                      maxLength: 500
+                    - type: "null"
+                initialState:
+                  type: string
+                  minLength: 1
+                  maxLength: 65536
+                  writeOnly: true
+              required:
+                - expectedRevision
+                - idempotencyKey
+                - name
+                - description
+                - initialState
+              additionalProperties: false
     delete:
       summary: Delete a model account
       description: |-
-        Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future snapshots and unlock reconciliation cannot restore the account.
+        Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future run snapshots reject the disconnected account.
 
         Requires the integrations:write scope.
 
@@ -2030,7 +2149,6 @@ paths:
       tags:
         - model-accounts
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -2061,32 +2179,44 @@ paths:
                 - expectedRevision
                 - idempotencyKey
               additionalProperties: false
-  /api/v1/credential-proxy/setup:
+  /api/v1/model-accounts/{accountId}/authorization/authorize:
     post:
-      summary: Provision and register the owner's credential proxy
+      summary: authorize backend ChatGPT device authorization
       description: |-
-        Interactive owner session required. Calls the configured execution host; bootstrap credentials cross only the private guest transport. Reuse operationId for retries.
+        Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
 
         Requires the integrations:write scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       responses:
         "200":
-          description: Registered proxy identity
+          description: Device authorization state
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  proxyIdentity:
+                  state:
                     type: string
-                  bootEpoch:
+                    enum:
+                      - pending
+                      - authorized
+                      - idle
+                      - canceled
+                      - expired
+                      - failed
+                      - reauthentication-required
+                  verificationUrl:
                     type: string
-                    format: uuid
-                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                    const: https://auth.openai.com/codex/device
+                  userCode:
+                    type: string
+                  pollAfterSeconds:
+                    type: integer
+                    minimum: 1
+                    maximum: 30
                 required:
-                  - proxyIdentity
-                  - bootEpoch
+                  - state
                 additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -2106,146 +2236,10 @@ paths:
           $ref: "#/components/responses/Error500"
         "503":
           $ref: "#/components/responses/Error503"
-      operationId: post_api_v1_credential_proxy_setup
-      tags:
-        - credential-proxy
-      security:
-        - bearerAuth: []
-        - cookieAuth: []
-      x-required-scope: integrations:write
-      x-owner-session-required: true
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                operationId:
-                  type: string
-                  format: uuid
-                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-              required:
-                - operationId
-              additionalProperties: false
-  /api/v1/credential-proxy/browser-capability:
-    post:
-      summary: Authorize a direct browser-to-proxy lifecycle operation
-      description: |-
-        Owner session only. One-use capability bound to action, owner, application origin and proxy boot, valid for 60 seconds. Unlock keys go directly to the proxy and are never accepted by this API.
-
-        Requires the integrations:write scope.
-
-        An interactive owner session is required; bearer tokens cannot call this operation.
-      responses:
-        "200":
-          description: Proxy endpoint and one-use capability
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  endpoint:
-                    type: string
-                    format: uri
-                  capability:
-                    type: string
-                required:
-                  - endpoint
-                  - capability
-                additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "415":
-          $ref: "#/components/responses/Error415"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      operationId: post_api_v1_credential_proxy_browser_capability
-      tags:
-        - credential-proxy
-      security:
-        - bearerAuth: []
-        - cookieAuth: []
-      x-required-scope: integrations:write
-      x-owner-session-required: true
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                action:
-                  type: string
-                  enum:
-                    - unlock
-                    - lock
-                    - apply
-                    - status
-              required:
-                - action
-              additionalProperties: false
-  /api/v1/model-accounts/{accountId}/browser-capability:
-    post:
-      summary: Issue a short-lived browser capability for a paired model account
-      description: |-
-        Requires an interactive owner browser session. Returns a single-use, 60-second capability scoped to the account, action, proxy boot and exact application origin. The browser sends it directly to the paired proxy; Factorize never receives model-account tokens.
-
-        Requires the integrations:write scope.
-
-        An interactive owner session is required; bearer tokens cannot call this operation.
-      responses:
-        "200":
-          description: Paired proxy endpoint and one-use capability
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  endpoint:
-                    type: string
-                    format: uri
-                  capability:
-                    type: string
-                required:
-                  - endpoint
-                  - capability
-                additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "415":
-          $ref: "#/components/responses/Error415"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      operationId: post_api_v1_model_accounts_accountId_browser_capability
+      operationId: post_api_v1_model_accounts_accountId_authorization_authorize
       tags:
         - model-accounts
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -2263,100 +2257,46 @@ paths:
           application/json:
             schema:
               type: object
-              properties:
-                action:
-                  type: string
-                  enum:
-                    - authorize
-                    - status
-                    - cancel
-              required:
-                - action
+              properties: {}
               additionalProperties: false
-  /api/v1/unlock-key/verification:
-    get:
-      summary: Get the current encrypted unlock-key verification record
-      description: |-
-        Requires an interactive owner browser session. Returns user-encrypted verification ciphertext and its key generation; the unlock key is never accepted or returned.
-
-        Requires the integrations:read scope.
-
-        An interactive owner session is required; bearer tokens cannot call this operation.
-      responses:
-        "200":
-          description: Encrypted verification record or empty setup state
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ownerId:
-                    type: string
-                  verification:
-                    anyOf:
-                      - type: object
-                        properties:
-                          generationId:
-                            type: string
-                            format: uuid
-                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                          encryptedVerification:
-                            type: string
-                        required:
-                          - generationId
-                          - encryptedVerification
-                        additionalProperties: false
-                      - type: "null"
-                required:
-                  - ownerId
-                  - verification
-                additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      operationId: get_api_v1_unlock_key_verification
-      tags:
-        - unlock-key
-      security:
-        - bearerAuth: []
-        - cookieAuth: []
-      x-required-scope: integrations:read
-      x-owner-session-required: true
+  /api/v1/model-accounts/{accountId}/authorization/status:
     post:
-      summary: Create the encrypted unlock-key verification record
+      summary: status backend ChatGPT device authorization
       description: |-
-        Requires an interactive owner browser session. Stores only browser-encrypted verification ciphertext and permits one setup per account.
+        Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
 
         Requires the integrations:write scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       responses:
         "200":
-          description: Created verification record
+          description: Device authorization state
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  generationId:
+                  state:
                     type: string
-                    format: uuid
-                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                    enum:
+                      - pending
+                      - authorized
+                      - idle
+                      - canceled
+                      - expired
+                      - failed
+                      - reauthentication-required
+                  verificationUrl:
+                    type: string
+                    const: https://auth.openai.com/codex/device
+                  userCode:
+                    type: string
+                  pollAfterSeconds:
+                    type: integer
+                    minimum: 1
+                    maximum: 30
                 required:
-                  - generationId
+                  - state
                 additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -2376,238 +2316,67 @@ paths:
           $ref: "#/components/responses/Error500"
         "503":
           $ref: "#/components/responses/Error503"
-      operationId: post_api_v1_unlock_key_verification
+      operationId: post_api_v1_model_accounts_accountId_authorization_status
       tags:
-        - unlock-key
+        - model-accounts
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              properties:
-                generationId:
-                  type: string
-                  format: uuid
-                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                encryptedVerification:
-                  type: string
-                  minLength: 1
-                  maxLength: 4096
-              required:
-                - generationId
-                - encryptedVerification
+              properties: {}
               additionalProperties: false
-  /api/v1/unlock-key/rotation-snapshot:
-    get:
-      summary: Get encrypted state for owner key rotation
-      description: |-
-        Owner browser session only. Returns encrypted records, tombstones, and pending change history for local re-encryption; plaintext credentials and unlock keys are never returned.
-
-        Requires the integrations:read scope.
-
-        An interactive owner session is required; bearer tokens cannot call this operation.
-      responses:
-        "200":
-          description: Encrypted rekey snapshot
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ownerId:
-                    type: string
-                  generationId:
-                    type: string
-                    format: uuid
-                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                  revision:
-                    type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  records:
-                    maxItems: 5000
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                        kind:
-                          type: string
-                          enum:
-                            - bearer
-                            - model
-                        name:
-                          type: string
-                          minLength: 1
-                          maxLength: 120
-                        origin:
-                          type:
-                            - string
-                            - "null"
-                        description:
-                          anyOf:
-                            - type: string
-                              maxLength: 500
-                            - type: "null"
-                        revision:
-                          type: integer
-                          minimum: 0
-                          maximum: 9007199254740991
-                        encryptedPayload:
-                          anyOf:
-                            - type: string
-                              maxLength: 65536
-                            - type: "null"
-                        deletedAt:
-                          anyOf:
-                            - type: string
-                              format: date-time
-                              pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
-                            - type: "null"
-                      required:
-                        - id
-                        - kind
-                        - name
-                        - origin
-                        - description
-                        - revision
-                        - encryptedPayload
-                        - deletedAt
-                      additionalProperties: false
-                  changes:
-                    maxItems: 10000
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                        kind:
-                          type: string
-                          enum:
-                            - bearer
-                            - model
-                        name:
-                          type: string
-                          minLength: 1
-                          maxLength: 120
-                        origin:
-                          type:
-                            - string
-                            - "null"
-                        description:
-                          anyOf:
-                            - type: string
-                              maxLength: 500
-                            - type: "null"
-                        revision:
-                          type: integer
-                          exclusiveMinimum: 0
-                          maximum: 9007199254740991
-                        idempotencyKey:
-                          type: string
-                          format: uuid
-                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                        operation:
-                          type: string
-                          enum:
-                            - upsert
-                            - delete
-                        encryptedPayload:
-                          anyOf:
-                            - type: string
-                              maxLength: 65536
-                            - type: "null"
-                        recordRevision:
-                          anyOf:
-                            - type: integer
-                              exclusiveMinimum: 0
-                              maximum: 9007199254740991
-                            - type: "null"
-                      required:
-                        - id
-                        - kind
-                        - name
-                        - origin
-                        - description
-                        - revision
-                        - idempotencyKey
-                        - operation
-                        - encryptedPayload
-                      additionalProperties: false
-                required:
-                  - ownerId
-                  - generationId
-                  - revision
-                  - records
-                  - changes
-                additionalProperties: false
-        "400":
-          $ref: "#/components/responses/Error400"
-        "401":
-          $ref: "#/components/responses/Error401"
-        "403":
-          $ref: "#/components/responses/Error403"
-        "404":
-          $ref: "#/components/responses/Error404"
-        "409":
-          $ref: "#/components/responses/Error409"
-        "429":
-          $ref: "#/components/responses/Error429"
-        "500":
-          $ref: "#/components/responses/Error500"
-        "503":
-          $ref: "#/components/responses/Error503"
-      operationId: get_api_v1_unlock_key_rotation_snapshot
-      tags:
-        - unlock-key
-      security:
-        - bearerAuth: []
-        - cookieAuth: []
-      x-required-scope: integrations:read
-      x-owner-session-required: true
-  /api/v1/unlock-key/rotation:
+  /api/v1/model-accounts/{accountId}/authorization/cancel:
     post:
-      summary: Atomically replace the unlock-key generation
+      summary: cancel backend ChatGPT device authorization
       description: |-
-        Owner browser session only. Commits a revision-checked encrypted generation and verification record, revokes grants, consumes enrollments, and locks the proxy. Fly connection and execution configuration are preserved.
+        Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
 
         Requires the integrations:write scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       responses:
         "200":
-          description: Key generation replaced
+          description: Device authorization state
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  generationId:
+                  state:
                     type: string
-                    format: uuid
-                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                  revision:
+                    enum:
+                      - pending
+                      - authorized
+                      - idle
+                      - canceled
+                      - expired
+                      - failed
+                      - reauthentication-required
+                  verificationUrl:
+                    type: string
+                    const: https://auth.openai.com/codex/device
+                  userCode:
+                    type: string
+                  pollAfterSeconds:
                     type: integer
-                    minimum: 0
-                    maximum: 9007199254740991
-                  duplicate:
-                    type: boolean
+                    minimum: 1
+                    maximum: 30
                 required:
-                  - generationId
-                  - revision
-                  - duplicate
+                  - state
                 additionalProperties: false
         "400":
           $ref: "#/components/responses/Error400"
@@ -2627,173 +2396,41 @@ paths:
           $ref: "#/components/responses/Error500"
         "503":
           $ref: "#/components/responses/Error503"
-      operationId: post_api_v1_unlock_key_rotation
+      operationId: post_api_v1_model_accounts_accountId_authorization_cancel
       tags:
-        - unlock-key
+        - model-accounts
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              properties:
-                expectedGenerationId:
-                  type: string
-                  format: uuid
-                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                generationId:
-                  type: string
-                  format: uuid
-                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                expectedRevision:
-                  type: integer
-                  minimum: 0
-                  maximum: 9007199254740991
-                encryptedVerification:
-                  type: string
-                  minLength: 1
-                  maxLength: 4096
-                records:
-                  maxItems: 5000
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                      kind:
-                        type: string
-                        enum:
-                          - bearer
-                          - model
-                      name:
-                        type: string
-                        minLength: 1
-                        maxLength: 120
-                      origin:
-                        type:
-                          - string
-                          - "null"
-                      description:
-                        anyOf:
-                          - type: string
-                            maxLength: 500
-                          - type: "null"
-                      revision:
-                        type: integer
-                        minimum: 0
-                        maximum: 9007199254740991
-                      encryptedPayload:
-                        anyOf:
-                          - type: string
-                            maxLength: 65536
-                          - type: "null"
-                      deletedAt:
-                        anyOf:
-                          - type: string
-                            format: date-time
-                            pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
-                          - type: "null"
-                    required:
-                      - id
-                      - kind
-                      - name
-                      - origin
-                      - description
-                      - revision
-                      - encryptedPayload
-                      - deletedAt
-                    additionalProperties: false
-                changes:
-                  maxItems: 10000
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                      kind:
-                        type: string
-                        enum:
-                          - bearer
-                          - model
-                      name:
-                        type: string
-                        minLength: 1
-                        maxLength: 120
-                      origin:
-                        type:
-                          - string
-                          - "null"
-                      description:
-                        anyOf:
-                          - type: string
-                            maxLength: 500
-                          - type: "null"
-                      revision:
-                        type: integer
-                        exclusiveMinimum: 0
-                        maximum: 9007199254740991
-                      idempotencyKey:
-                        type: string
-                        format: uuid
-                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-                      operation:
-                        type: string
-                        enum:
-                          - upsert
-                          - delete
-                      encryptedPayload:
-                        anyOf:
-                          - type: string
-                            maxLength: 65536
-                          - type: "null"
-                      recordRevision:
-                        anyOf:
-                          - type: integer
-                            exclusiveMinimum: 0
-                            maximum: 9007199254740991
-                          - type: "null"
-                    required:
-                      - id
-                      - kind
-                      - name
-                      - origin
-                      - description
-                      - revision
-                      - idempotencyKey
-                      - operation
-                      - encryptedPayload
-                    additionalProperties: false
-              required:
-                - expectedGenerationId
-                - generationId
-                - expectedRevision
-                - encryptedVerification
-                - records
-                - changes
+              properties: {}
               additionalProperties: false
   /api/v1/integrations/bearer:
     get:
-      summary: List encrypted bearer integrations
+      summary: List bearer integration metadata
       description: |-
-        Requires an interactive owner browser session. Returns safe metadata and user-encrypted ciphertext; credentials are never decrypted or revealed.
+        Requires an interactive owner browser session. Returns secret-safe metadata only; stored bearer credentials are never returned.
 
         Requires the integrations:read scope.
 
         An interactive owner session is required; bearer tokens cannot call this operation.
       responses:
         "200":
-          description: Encrypted bearer integration records
+          description: Bearer integration metadata
           content:
             application/json:
               schema:
@@ -2808,6 +2445,9 @@ paths:
                     items:
                       type: object
                       properties:
+                        kind:
+                          type: string
+                          const: bearer
                         id:
                           type: string
                           format: uuid
@@ -2824,15 +2464,12 @@ paths:
                           type: integer
                           minimum: 0
                           maximum: 9007199254740991
-                        encryptedPayload:
-                          type: string
                       required:
                         - id
                         - name
                         - origin
                         - description
                         - revision
-                        - encryptedPayload
                       additionalProperties: false
                 required:
                   - revision
@@ -2858,14 +2495,13 @@ paths:
       tags:
         - integrations
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
     post:
-      summary: Create an encrypted bearer integration
+      summary: Create a bearer integration
       description: |-
-        Requires an interactive owner browser session. Accepts only user-encrypted ciphertext, never an unlock key or plaintext credential.
+        Requires an interactive owner browser session. Accepts the secret over the authenticated connection and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
 
         Requires the integrations:write scope.
 
@@ -2910,7 +2546,6 @@ paths:
       tags:
         - integrations
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -2946,10 +2581,12 @@ paths:
                     - type: string
                       maxLength: 500
                     - type: "null"
-                encryptedPayload:
+                token:
                   type: string
                   minLength: 1
-                  maxLength: 65536
+                  maxLength: 32768
+                  pattern: ^[^\r\n]+$
+                  writeOnly: true
               required:
                 - id
                 - expectedRevision
@@ -2957,13 +2594,13 @@ paths:
                 - name
                 - origin
                 - description
-                - encryptedPayload
+                - token
               additionalProperties: false
   /api/v1/integrations/bearer/{integrationId}:
     put:
-      summary: Update an encrypted bearer integration
+      summary: Update a bearer integration
       description: |-
-        Requires an interactive owner browser session and the current collection revision. Accepts only user-encrypted ciphertext.
+        Requires an interactive owner browser session and the current collection revision. Accepts a replacement secret and encrypts it with Factorize-managed storage before persistence. The secret is never returned.
 
         Requires the integrations:write scope.
 
@@ -3008,7 +2645,6 @@ paths:
       tags:
         - integrations
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -3047,17 +2683,19 @@ paths:
                     - type: string
                       maxLength: 500
                     - type: "null"
-                encryptedPayload:
+                token:
                   type: string
                   minLength: 1
-                  maxLength: 65536
+                  maxLength: 32768
+                  pattern: ^[^\r\n]+$
+                  writeOnly: true
               required:
                 - expectedRevision
                 - idempotencyKey
                 - name
                 - origin
                 - description
-                - encryptedPayload
+                - token
               additionalProperties: false
     delete:
       summary: Delete an encrypted bearer integration
@@ -3116,7 +2754,6 @@ paths:
       tags:
         - integrations
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -4351,12 +3988,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_trigger_contexts
       tags:
         - trigger-contexts
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -4425,12 +4064,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_exe_connections
       tags:
         - exe-connections
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -4488,12 +4129,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_github_installations
       tags:
         - github-installations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -4553,12 +4196,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_job_trigger_availability
       tags:
         - job-trigger-availability
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -4599,12 +4244,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_schedules_preview
       tags:
         - schedules
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -4682,12 +4329,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_integrations_cloudflare_tail
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -4740,12 +4389,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_integrations_cloudflare_tail
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -4973,12 +4624,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_integrations
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -5035,7 +4688,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
@@ -5091,7 +4743,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5157,7 +4808,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5218,7 +4868,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5313,7 +4962,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
@@ -5386,7 +5034,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5484,7 +5131,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
@@ -5563,7 +5209,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5646,7 +5291,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5702,12 +5346,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: put_api_v1_integrations_exe
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -5809,12 +5455,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_integrations_exe_test
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -5884,12 +5532,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: put_api_v1_integrations_amp
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -5950,12 +5600,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_integrations_amp_test
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -6019,12 +5671,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_linear_projects
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -6102,12 +5756,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_linear_options
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -6151,12 +5807,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_clickup_lists
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -6234,12 +5892,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_clickup_options
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -6304,12 +5964,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_github_installations
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -6379,7 +6041,6 @@ paths:
       tags:
         - access
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: true
@@ -6460,7 +6121,6 @@ paths:
       tags:
         - access-tokens
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: true
@@ -6543,7 +6203,6 @@ paths:
       tags:
         - access-tokens
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: true
@@ -6627,7 +6286,6 @@ paths:
       tags:
         - access-tokens
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: true
@@ -6672,7 +6330,6 @@ paths:
       tags:
         - access
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: true
@@ -6712,12 +6369,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_integrations_exe_connectionId
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -6757,12 +6416,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_integrations_amp_connectionId
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -6823,12 +6484,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: put_api_v1_integrations_cloudflare_tail_integrationId
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -6892,12 +6555,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_integrations_cloudflare_tail_integrationId
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -6943,12 +6608,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_integrations_cloudflare_tail_integrationId_test
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -7013,12 +6680,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_github_installations_installationId_repositories
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -7103,12 +6772,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_github_installations_installationId_repositories_repositoryId_issue_options
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -7154,12 +6825,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_providers_github_installations_installationId
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -7199,12 +6872,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_integrations_exe_connectionId_diagnostics
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -7223,7 +6898,7 @@ paths:
 
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Summary page
@@ -7335,6 +7010,8 @@ paths:
         - job-summaries
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -7453,12 +7130,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_job_selector
       tags:
         - job-selector
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -7573,12 +7252,14 @@ paths:
       description: |-
         Requires the projects:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_projects
       tags:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:read
       x-owner-session-required: false
@@ -7654,12 +7335,14 @@ paths:
       description: |-
         Requires the projects:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_projects
       tags:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:write
       x-owner-session-required: false
@@ -7733,12 +7416,14 @@ paths:
       description: |-
         Requires the projects:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_projects_projectId
       tags:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:read
       x-owner-session-required: false
@@ -7803,12 +7488,14 @@ paths:
       description: |-
         Requires the projects:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: put_api_v1_projects_projectId
       tags:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:write
       x-owner-session-required: false
@@ -7864,12 +7551,14 @@ paths:
       description: |-
         Requires the projects:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_projects_projectId
       tags:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:write
       x-owner-session-required: false
@@ -7888,7 +7577,7 @@ paths:
 
         Requires the projects:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Complete project graph
@@ -7992,6 +7681,8 @@ paths:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:read
       x-owner-session-required: false
@@ -8073,12 +7764,14 @@ paths:
       description: |-
         Requires the skills:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_skills
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:read
       x-owner-session-required: false
@@ -8164,12 +7857,14 @@ paths:
       description: |-
         Requires the skills:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_skills
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:write
       x-owner-session-required: false
@@ -8221,12 +7916,14 @@ paths:
       description: |-
         Requires the skills:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_skills_preview
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:read
       x-owner-session-required: false
@@ -8315,12 +8012,14 @@ paths:
       description: |-
         Requires the skills:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_skills_skillId
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:read
       x-owner-session-required: false
@@ -8391,12 +8090,14 @@ paths:
       description: |-
         Requires the skills:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: put_api_v1_skills_skillId
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:write
       x-owner-session-required: false
@@ -8455,12 +8156,14 @@ paths:
       description: |-
         Requires the skills:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_skills_skillId
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:write
       x-owner-session-required: false
@@ -8542,12 +8245,14 @@ paths:
       description: |-
         Requires the skills:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_skills_skillId_jobs
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:read
       x-owner-session-required: false
@@ -8664,6 +8369,17 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  githubInstallationIds:
+                    type: array
+                    items:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                  linearConnectionId:
+                    anyOf:
+                      - type: string
+                        const: linear
+                      - type: "null"
                   executionConfigId:
                     type: string
                   agentKind:
@@ -9145,12 +8861,14 @@ paths:
       description: |-
         Requires the projects:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_jobs_jobId_project
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:write
       x-owner-session-required: false
@@ -9186,7 +8904,7 @@ paths:
 
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Verification operation
@@ -9256,6 +8974,8 @@ paths:
         - vm-image-verifications
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -9366,12 +9086,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_vm_image_verifications_verificationId
       tags:
         - vm-image-verifications
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -9490,6 +9212,17 @@ paths:
                       type: string
                       format: uuid
                       pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    githubInstallationIds:
+                      type: array
+                      items:
+                        type: integer
+                        exclusiveMinimum: 0
+                        maximum: 9007199254740991
+                    linearConnectionId:
+                      anyOf:
+                        - type: string
+                          const: linear
+                        - type: "null"
                     executionConfigId:
                       type: string
                     agentKind:
@@ -9969,12 +9702,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_jobs
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -10083,6 +9818,17 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  githubInstallationIds:
+                    type: array
+                    items:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                  linearConnectionId:
+                    anyOf:
+                      - type: string
+                        const: linear
+                      - type: "null"
                   executionConfigId:
                     type: string
                   agentKind:
@@ -10564,12 +10310,14 @@ paths:
       description: |-
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_jobs
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -10587,7 +10335,7 @@ paths:
 
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Decision
@@ -10638,6 +10386,8 @@ paths:
         - job-conditions
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -10693,12 +10443,14 @@ paths:
       description: |-
         Requires the runs:invoke scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_jobs_jobId_invocations
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:invoke
       x-owner-session-required: false
@@ -10721,7 +10473,7 @@ paths:
       description: |-
         Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Verified runtime identity
@@ -10775,6 +10527,133 @@ paths:
         - runtime-context
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+  /api/v1/runtime-integrations:
+    get:
+      summary: Discover this run's selected integration endpoints
+      description: |-
+        Requires vendor-verified run identity. Returns only snapshotted selections and current availability, without origins or credentials. Selection authorization is independent of the run's Factorize API scopes.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Selected run integrations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    const: factorize-run-integrations-v1
+                  integrations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type:
+                            - string
+                            - "null"
+                        path:
+                          type: string
+                        available:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - description
+                        - path
+                        - available
+                      additionalProperties: false
+                  providers:
+                    type: object
+                    properties:
+                      githubInstallations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            installationId:
+                              type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                            path:
+                              type: string
+                            available:
+                              type: boolean
+                          required:
+                            - installationId
+                            - path
+                            - available
+                          additionalProperties: false
+                      linear:
+                        anyOf:
+                          - type: object
+                            properties:
+                              path:
+                                type: string
+                              available:
+                                type: boolean
+                            required:
+                              - path
+                              - available
+                            additionalProperties: false
+                          - type: "null"
+                      model:
+                        anyOf:
+                          - type: object
+                            properties:
+                              path:
+                                type: string
+                              available:
+                                type: boolean
+                            required:
+                              - path
+                              - available
+                            additionalProperties: false
+                          - type: "null"
+                    required:
+                      - githubInstallations
+                      - linear
+                      - model
+                    additionalProperties: false
+                required:
+                  - kind
+                  - integrations
+                  - providers
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_runtime_integrations
+      tags:
+        - runtime-integrations
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: []
       x-owner-session-required: false
@@ -10822,12 +10701,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_jobs_jobId_invocation_permissions
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -10845,7 +10726,7 @@ paths:
 
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Saved manual invocation permissions
@@ -10891,6 +10772,8 @@ paths:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -10949,12 +10832,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_jobs_jobId_events
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -11002,12 +10887,14 @@ paths:
       description: |-
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_jobs_jobId_enable
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -11047,12 +10934,14 @@ paths:
       description: |-
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_jobs_jobId_disable
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -11169,6 +11058,17 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  githubInstallationIds:
+                    type: array
+                    items:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                  linearConnectionId:
+                    anyOf:
+                      - type: string
+                        const: linear
+                      - type: "null"
                   executionConfigId:
                     type: string
                   agentKind:
@@ -11648,12 +11548,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_jobs_jobId
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -11671,7 +11573,7 @@ paths:
 
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Updated
@@ -11775,6 +11677,17 @@ paths:
                     type: string
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                  githubInstallationIds:
+                    type: array
+                    items:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                  linearConnectionId:
+                    anyOf:
+                      - type: string
+                        const: linear
+                      - type: "null"
                   executionConfigId:
                     type: string
                   agentKind:
@@ -12259,6 +12172,8 @@ paths:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -12663,6 +12578,18 @@ paths:
                   type: string
                   format: uuid
                   pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                githubInstallationIds:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                linearConnectionId:
+                  anyOf:
+                    - type: string
+                      const: linear
+                    - type: "null"
                 expectedUpdatedAt:
                   type: string
                   format: date-time
@@ -12700,12 +12627,14 @@ paths:
       description: |-
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_jobs_jobId
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -12724,7 +12653,7 @@ paths:
 
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Paginated runs
@@ -12753,6 +12682,8 @@ paths:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -12870,7 +12801,7 @@ paths:
 
         Requires the jobs:read and runs:read scopes.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Search results
@@ -12975,6 +12906,8 @@ paths:
         - search
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read+runs:read
       x-owner-session-required: false
@@ -13014,12 +12947,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_webhooks_deliveries
       tags:
         - webhooks
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13101,12 +13036,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_webhooks_deliveries_deliveryId
       tags:
         - webhooks
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13125,7 +13062,7 @@ paths:
 
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Status
@@ -13285,6 +13222,8 @@ paths:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13326,12 +13265,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_runs_runId_artifacts_artifactId
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13358,7 +13299,7 @@ paths:
 
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Revision-bound page
@@ -13460,6 +13401,8 @@ paths:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13535,12 +13478,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_runs_runId
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13558,7 +13503,7 @@ paths:
 
         Requires the runs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Saved run display name
@@ -13597,6 +13542,8 @@ paths:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:write
       x-owner-session-required: false
@@ -13633,7 +13580,7 @@ paths:
 
         Requires the runs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Report saved or identical retry acknowledged
@@ -13681,6 +13628,8 @@ paths:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:write
       x-owner-session-required: false
@@ -13747,12 +13696,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_runs_runId_trace
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13824,7 +13775,6 @@ paths:
       tags:
         - runs
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: runs:cancel
       x-owner-session-required: true
@@ -13871,12 +13821,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_runs_runId_diagnostics
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13916,12 +13868,14 @@ paths:
       description: |-
         Requires the runs:cancel scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_runs_runId_stop
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:cancel
       x-owner-session-required: false
@@ -13936,7 +13890,7 @@ paths:
     post:
       summary: Manually retry a blocked launch
       description: |-
-        Retries only a pre-launch proxy-gated run after its prerequisites have been resolved. The run remains blocked until an interactive owner explicitly retries it; unlock or status changes do not automatically launch it.
+        Retries a blocked launch with its original immutable credential and API scope snapshot. Job edits affect future runs; revoked/deleted selections require job repair and a new run. An interactive owner must request this retry.
 
         Requires the runs:cancel scope.
 
@@ -13981,7 +13935,6 @@ paths:
       tags:
         - runs
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: runs:cancel
       x-owner-session-required: true
@@ -14022,12 +13975,14 @@ paths:
       description: |-
         Requires the runs:cancel scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_runs_runId_kill
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:cancel
       x-owner-session-required: false

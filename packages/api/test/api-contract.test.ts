@@ -56,22 +56,14 @@ describe("versioned API contract", () => {
     expect(operation?.parameters.shape.projectId).toBeDefined();
     expect(openapi.paths["/api/v1/projects/{projectId}/graph"].get["x-required-scope"]).toBe("projects:read");
   });
-  it("publishes owner-session unlock verification operations and strict ciphertext-only input", () => {
-    const get = API_ROUTES.find(route => route.method === "GET" && route.path === "/api/v1/unlock-key/verification");
-    const post = API_ROUTES.find(route => route.method === "POST" && route.path === "/api/v1/unlock-key/verification");
-    expect(get?.scope).toBe("integrations:read"); expect(get?.ownerSession).toBe(true);
-    expect(post?.scope).toBe("integrations:write"); expect(post?.ownerSession).toBe(true);
-    expect(post?.body?.safeParse({ generationId: "00000000-0000-4000-8000-000000000001", encryptedVerification: "ciphertext", key: "plain" }).success).toBe(false);
-    expect(openapi.paths["/api/v1/unlock-key/verification"].post.requestBody).toBeDefined();
-  });
-  it("publishes model-account proxy capabilities as owner-only API operations", () => {
-    const route = API_ROUTES.find(item => item.method === "POST" && item.path === "/api/v1/model-accounts/{accountId}/browser-capability");
-    expect(route?.scope).toBe("integrations:write");
-    expect(route?.ownerSession).toBe(true);
-    expect(route?.parameters.shape.accountId).toBeDefined();
-    expect(route?.body?.safeParse({ action: "authorize" }).success).toBe(true);
-    expect(route?.body?.safeParse({ action: "authorize", accountId: "attacker" }).success).toBe(false);
-    expect(openapi.paths["/api/v1/model-accounts/{accountId}/browser-capability"].post.requestBody).toBeDefined();
+  it("retires unlock and browser-capability operations and publishes owner-only model authorization", () => {
+    expect(API_ROUTES.some(route=>route.path.includes("unlock-key")||route.path.includes("browser-capability")||route.path.includes("credential-proxy"))).toBe(false);
+    for(const action of ["authorize","status","cancel"]){
+      const route=API_ROUTES.find(item=>item.method==="POST"&&item.path===`/api/v1/model-accounts/{accountId}/authorization/${action}`);
+      expect(route?.scope).toBe("integrations:write");expect(route?.ownerSession).toBe(true);
+      expect(route?.body?.safeParse({}).success).toBe(true);
+      expect(route?.body?.safeParse({token:"guest-supplied"}).success).toBe(false);
+    }
   });
   it("lists only safe model account metadata for the owner browser", () => {
     const route = API_ROUTES.find(item => item.method === "GET" && item.path === "/api/v1/model-accounts");
@@ -81,13 +73,24 @@ describe("versioned API contract", () => {
     expect(route?.ownerSession).toBe(true);
     expect(route?.documentation.responses["200"].content["application/json"].schema.properties.accounts.items.properties.encryptedPayload).toBeUndefined();
     expect(create?.scope).toBe("integrations:write"); expect(create?.ownerSession).toBe(true);
-    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, encryptedPayload: "cipher" }).success).toBe(true);
-    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, encryptedPayload: "cipher", unlockKey: "must-not-be-accepted" }).success).toBe(false);
+    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, initialState: "{}" }).success).toBe(true);
+    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, initialState: "{}", unlockKey: "must-not-be-accepted" }).success).toBe(false);
     expect(remove?.scope).toBe("integrations:write"); expect(remove?.ownerSession).toBe(true);
     expect(remove?.parameters.shape.accountId).toBeDefined();
     expect(openapi.paths["/api/v1/model-accounts"].post).toBeDefined();
     expect(openapi.paths["/api/v1/model-accounts/{accountId}"].delete).toBeDefined();
     expect(openapi.paths["/api/v1/model-accounts"].get).toBeDefined();
+  });
+  it("accepts bearer secrets only at the owner session boundary and publishes metadata only", () => {
+    const list = API_ROUTES.find(item => item.method === "GET" && item.path === "/api/v1/integrations/bearer");
+    const create = API_ROUTES.find(item => item.method === "POST" && item.path === "/api/v1/integrations/bearer");
+    const input = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Build service", origin: "https://api.example.test", description: null, token: "server-managed-secret" };
+    expect(list?.ownerSession).toBe(true);
+    expect(create?.ownerSession).toBe(true);
+    expect(create?.body?.safeParse(input).success).toBe(true);
+    expect(create?.body?.safeParse({ ...input, unlockKey: "must-not-be-accepted" }).success).toBe(false);
+    expect(create?.body?.safeParse({ ...input, encryptedPayload: "legacy-user-ciphertext" }).success).toBe(false);
+    expect(list?.documentation.responses["200"].content["application/json"].schema.properties.integrations.items.properties.encryptedPayload).toBeUndefined();
   });
   it("accepts code jobs without agent prompts or models and rejects missing scripts", () => {
     const code = { name: "Export", slug: "export", executionType: "code", script: "#!/bin/sh\nprintf '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"", executionConfigId: "exe", triggers: [] };

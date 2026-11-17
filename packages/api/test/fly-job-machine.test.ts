@@ -13,6 +13,7 @@ describe("Fly job Machine configuration", () => {
   it("records run ownership, uses the selected size, and disables provider restarts", () => {
     expect(flyJobMachineConfig("factorize-user", input)).toEqual({
       image: input.image,
+      init: {exec: ["/bin/sh", "-c", "exec sleep infinity"]},
       region: "iad",
       guest: { cpu_kind: "shared", cpus: 2, memory_mb: 2048 },
       metadata: {

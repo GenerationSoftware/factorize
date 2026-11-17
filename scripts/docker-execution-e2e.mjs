@@ -27,15 +27,13 @@ try {
   run('openssl', ['x509', '-req', '-in', join(tls,'server.csr'), '-CA', join(tls,'ca.crt'), '-CAkey', join(tls,'ca.key'), '-CAcreateserial', '-out', join(tls,'server.crt'), '-days', '1', '-extfile', join(tls,'server.ext')]);
   // Only synthetic fixture TLS files are shared with the proxy/fake service, never the job.
   await chmod(tls, 0o755); await chmod(join(tls,'server.key'), 0o644);
-  console.log('Preparing cached local job and deployable proxy images (no registry publication).');
+  console.log('Preparing the isolated job image (no registry publication).');
   run('docker', ['build', '-f', 'packages/api/test/fixtures/Dockerfile.code-job', '-t', 'factorize-test-code-local', '.']);
-  run('docker', ['build', '-f', 'packages/credential-proxy/Dockerfile', '-t', 'factorize-test-proxy-local', '.']);
   const jobImage = run('docker', ['image', 'inspect', '--format', '{{.Id}}', 'factorize-test-code-local']);
-  const proxyImage = run('docker', ['image', 'inspect', '--format', '{{.Id}}', 'factorize-test-proxy-local']);
   const result = await runProcess('npm', ['exec', '--workspace=factorize', '--', 'vitest', 'run', '--config', 'scripts/docker-code-job.config.ts'], {
     timeoutMs: 150_000, signal: cancellation.signal,
     env: { ...process.env, NODE_EXTRA_CA_CERTS: join(tls, 'ca.crt'), FACTORIZE_E2E_TLS_DIR: tls,
-      FACTORIZE_E2E_HOST_IP: hostIp, FACTORIZE_E2E_JOB_IMAGE: jobImage, FACTORIZE_E2E_PROXY_IMAGE: proxyImage,
+      FACTORIZE_E2E_HOST_IP: hostIp, FACTORIZE_E2E_JOB_IMAGE: jobImage,
       FACTORIZE_E2E_NAMESPACE: namespace, FACTORIZE_E2E_DATABASE: databaseName },
     onOutput: (stream, chunk) => (stream === 'stderr' ? process.stderr : process.stdout).write(chunk),
   });

@@ -54,7 +54,8 @@ Current MCP does not return execution output; inspect browser traces or REST tra
 - [Optional self-hosting](https://docs.factorize.sh/self-hosting/deployment): Deploy your own Factorize instance.
 - [Operator configuration](https://docs.factorize.sh/self-hosting/configuration): Email, OAuth applications, webhooks, and Worker secrets.
 - [Operations and advanced trace recovery](https://docs.factorize.sh/self-hosting/operations): Operator checks, retained artifacts, and rollout evidence.
-- [Credential proxy security and operator runbook](https://docs.factorize.sh/self-hosting/credential-proxy-security): Security boundaries, recovery decisions, and independent shutdown for the user credential proxy.
+- [Credential proxy cutover and recovery](https://docs.factorize.sh/self-hosting/credential-cutover): Operator and user procedure for retiring the separate credential proxy and reconnecting credentials for the per-run backend proxy.
+- [Credential proxy architecture migration](https://docs.factorize.sh/self-hosting/credential-proxy-security): Status of the retired standalone proxy and link to the current migration procedure.
 
 ## Machine-readable REST reference
 

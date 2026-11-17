@@ -30,6 +30,10 @@ export async function checkContent() {
   for (const phrase of ["list_execution_configs", "create_job", "invoke_job", "get_run", "idempotencyKey", "browser", "output"]) if (!guides.get("quickstart").includes(phrase)) throw new Error(`Incomplete first-job guide: ${phrase}`);
   if (/Worker secrets|POSTMARK_SERVER_TOKEN|LINEAR_CLIENT_SECRET|Cloudflare account/.test(main)) throw new Error("Operator prerequisite in main onboarding");
   for (const body of guides.values()) if (/username\/password|username, email|Job create object|mirrors REST/.test(body)) throw new Error("Stale auth or capability claim");
+  const cutover = guides.get("self-hosting/credential-cutover");
+  for (const phrase of ["verify that each is terminal", "verify deletion of only the", "prepare-credential-cutover.mjs", "re-enter unreadable custom bearer", "must not select every tenant credential automatically", "do not substitute another credential silently"]) {
+    if (!cutover.includes(phrase)) throw new Error(`Incomplete credential cutover and repair procedure: ${phrase}`);
+  }
   const reference = guides.get("mcp/tools");
   checkInventory(await readFile(resolve(root, "../api/src/protected-api.ts"), "utf8"), reference);
   for (const term of ["expectedUpdatedAt", "replaces configuration", "duplicate", "manual:", "edited", "Current", "not full REST parity"]) if (!reference.includes(term)) throw new Error(`Missing contract detail: ${term}`);

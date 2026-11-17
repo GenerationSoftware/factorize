@@ -7,7 +7,6 @@ import { ExeImageVerificationError, ExeVmBackend, isOwnedVmName, tagsFromInvento
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
 import { effortOptions, selectableExeTags, type ExeRunConnection } from "../src/exe";
 import { agentDriver } from "../src/agent-driver";
-import { runProxyName } from "../src/run-credentials";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -25,7 +24,7 @@ function launchPayload(command: string): any {
 describe("ExeVmBackend", () => {
   it("reserves its legacy VM and proxy handle for scheduler recovery", () => {
     const runId = "00000000-0000-4000-8000-000000000001";
-    expect(new ExeVmBackend(connection).reserve(runId)).toEqual({ backendKind: "exe-vm", id: vmNameFor(runId), runProxyName: runProxyName(runId) });
+    expect(new ExeVmBackend(connection).reserve(runId)).toEqual({ backendKind: "exe-vm", id: vmNameFor(runId), operationId: runId, vendorIdentityIntegrationName: "fzrun-00000000000040008000000000000001" });
   });
   it("defines the supported effort choices by agent", () => {
     expect(effortOptions.codex).toEqual(["minimal", "low", "medium", "high", "xhigh"]);
@@ -108,6 +107,32 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).not.toContain("nohup");
     expect(requests[1]).toContain("; echo started");
     expect(requests[1]).toContain("systemctl show");
+  });
+
+  it("acquires a per-VM exe.dev WIF identity and verifies it before starting the job", async () => {
+    const requests: string[] = [], token = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2V4ZS5kZXYvaXNzdWVyL3Rlc3QifQ.c2ln";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const command = String(init.body); requests.push(command);
+      if (command.startsWith("new ")) return new Response("created", { headers: { "X-Exe-Exit": "0" } });
+      if (command.startsWith("integrations add wif")) return new Response("Added integration", { headers: { "X-Exe-Exit": "0" } });
+      if (command === "integrations list --json") return new Response(JSON.stringify([{ name: "fzrun-00000000000040008000000000000001", type: "wif", config: { issuer_id: "test", subject: "sub-test", audience: "factorize://runs/00000000-0000-4000-8000-000000000001" }, attachments: ["vm:factorize-00000000-0000-4000-8000-000000000001"] }]), { headers: { "X-Exe-Exit": "0" } });
+      if (command.includes("/token")) return new Response(token, { headers: { "X-Exe-Exit": "0" } });
+      return new Response("started", { headers: { "X-Exe-Exit": "0" } });
+    }));
+    const verify = vi.fn(async () => undefined);
+    const runId = "00000000-0000-4000-8000-000000000001";
+    const launched = await new ExeVmBackend(connection).launch({ runId, prompt: "work", harness: agentDriver("codex").launch(runId, {}), verifyVendorIdentity: verify, runIdentity: {backendOrigin: "https://factorize.example.com"} });
+    expect(launched.observation.state).toBe("running");
+    expect(requests[0]).toBe("integrations list --json");
+    const wif = requests.find(value => value.startsWith("integrations add wif"))!;
+    expect(wif).toContain("--attach='vm:factorize-00000000-0000-4000-8000-000000000001'");
+    expect(requests.some(value => value.startsWith("integrations add http-proxy"))).toBe(false);
+    const work = requests.find(value => value.includes("sudo systemd-run"))!;
+    expect(work).toContain("/run/factorize-identity/proxy.mjs");
+    expect(work).toContain("FACTORIZE_PROXY_URL=http://127.0.0.1:18180");
+    expect(launched.handle).not.toHaveProperty("runProxyName");
+    expect(verify).toHaveBeenCalledWith({ provider: "exe.dev", vmId: "factorize-00000000-0000-4000-8000-000000000001", token, integrationName: "fzrun-00000000000040008000000000000001", expectedIssuer: "https://exe.dev/issuer/test", expectedSubject: "sub-test" });
+    expect(requests.indexOf(requests.find(value => value.includes("sudo systemd-run"))!)).toBeGreaterThan(requests.indexOf(requests.find(value => value.includes("/token"))!));
   });
 
   it("generates standard I/O settings accepted by systemd", async () => {
@@ -271,8 +296,8 @@ describe("ExeVmBackend", () => {
       return new Response("uploaded", { headers: { "X-Exe-Exit": "0" } });
     }));
     const result = await new ExeVmBackend(connection).collectArtifact(
-      { backendKind: "exe-vm", id: "factorize-run-1" },
-      { discoverCommand: "find sessions -name '*.jsonl' | head -1", contentType: "application/x-ndjson", uploadUrl: "https://app.example/upload" },
+      { backendKind: "exe-vm", id: "factorize-run-1", identityProxyOrigin: "https://app.example" },
+      { discoverCommand: "find sessions -name '*.jsonl' | head -1", contentType: "application/x-ndjson", uploadUrl: "https://app.example/internal/run-artifacts/signed-grant" },
     );
     expect(result.ok).toBe(true);
     expect(request).toContain("snapshot=$(mktemp)");
@@ -284,8 +309,8 @@ describe("ExeVmBackend", () => {
     let request = "";
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => { request = String(init.body); return new Response("uploaded", { headers: { "X-Exe-Exit": "0" } }); }));
     const result = await new ExeVmBackend(connection).collectTraceChunk(
-      { backendKind: "exe-vm", id: "factorize-run-1" },
-      { discoverCommand: "find sessions -name '*.jsonl' | head -1", generation: "1:2:3", offset: 1234, previousHash: "a".repeat(64), uploadUrl: "https://app.example/chunk" },
+      { backendKind: "exe-vm", id: "factorize-run-1", identityProxyOrigin: "https://app.example" },
+      { discoverCommand: "find sessions -name '*.jsonl' | head -1", generation: "1:2:3", offset: 1234, previousHash: "a".repeat(64), uploadUrl: "https://app.example/internal/run-trace-chunks/signed-grant" },
     );
     expect(result.ok).toBe(true);
     expect(request).toContain("start=1234");

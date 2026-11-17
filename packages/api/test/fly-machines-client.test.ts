@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFlyMachinesClient, FlyClientError, type FlyMachine } from "../src/fly-machines-client.js";
 
 const token = "test-fly-secret-do-not-leak";
@@ -43,10 +43,14 @@ describe("bounded Fly Machines client", () => {
         const body = JSON.parse(raw);
         expect(body.config.metadata.factorize_operation_id).toBe("op-1");
         expect(body.config.restart).toEqual({ policy: "no" });
+        expect(body.skip_launch).toBe(false);
+        expect(body.region).toBe("ord");
+        expect(body.config).not.toHaveProperty("region");
         return json(res, 200, machine);
       }
       if (req.method === "GET" && req.url === "/v1/apps/app-a/machines/m-1") return json(res, 200, machine);
       if (req.method === "POST" && ["/v1/apps/app-a/machines/m-1/start", "/v1/apps/app-a/machines/m-1/stop"].includes(req.url)) {
+        machine.state=req.url.endsWith("/start") ? "started" : "stopped";
         res.writeHead(204); return res.end();
       }
       if (req.method === "POST" && req.url === "/v1/apps/app-a/machines/m-1") return json(res, 200, machine);
@@ -54,9 +58,10 @@ describe("bounded Fly Machines client", () => {
       json(res, 404, { error: "not found" });
     });
     const client = createFlyMachinesClient({ token, apiOrigin: origin, wait: async () => undefined });
-    const created = await client.createMachine("app-a", { image: "example/image", restart: { policy: "always" }, metadata: { keep: "yes" } }, "op-1");
+    const created = await client.createMachine("app-a", { image: "example/image", region: "ord", restart: { policy: "always" }, metadata: { keep: "yes" } }, "op-1");
     expect(created.id).toBe("m-1");
     expect((await client.inspectMachine("app-a", "m-1")).id).toBe("m-1");
+    machine.state = "stopped";
     await client.startMachine("app-a", "m-1");
     await client.stopMachine("app-a", "m-1");
     expect((await client.updateMachineConfig("app-a", "m-1", { image: "example/new" })).id).toBe("m-1");
@@ -64,9 +69,25 @@ describe("bounded Fly Machines client", () => {
     expect(calls.every((call) => call.auth === `Bearer ${token}`)).toBe(true);
     expect(calls.map(({ method, path }) => `${method} ${path}`)).toEqual([
       "GET /v1/apps/app-a/machines", "POST /v1/apps/app-a/machines", "GET /v1/apps/app-a/machines/m-1",
-      "POST /v1/apps/app-a/machines/m-1/start", "POST /v1/apps/app-a/machines/m-1/stop",
+      "GET /v1/apps/app-a/machines/m-1", "POST /v1/apps/app-a/machines/m-1/start", "GET /v1/apps/app-a/machines/m-1", "POST /v1/apps/app-a/machines/m-1/stop",
       "POST /v1/apps/app-a/machines/m-1", "DELETE /v1/apps/app-a/machines/m-1",
     ]);
+  });
+
+  it("observes base-image boot without posting start during created/starting or restarting a running Machine", async () => {
+    const states=["created","starting","started","started"],calls:string[]=[];
+    const client=createFlyMachinesClient({token,wait:async()=>{},fetch:async(_url,init)=>{calls.push(init?.method??"GET");return Response.json({id:"machine",state:states.shift()});}});
+    await client.startMachine("app","machine");await client.startMachine("app","machine");
+    expect(calls).toEqual(["GET","GET","GET","GET"]);
+  });
+  it("bounds boot preparation and never retries an ambiguous explicit start", async () => {
+    let now=0;const clock=vi.spyOn(Date,"now").mockImplementation(()=>now);
+    try {
+      const client=createFlyMachinesClient({token,wait:async()=>{now+=30_000;},fetch:async()=>Response.json({state:"created"})});
+      await expect(client.startMachine("app","machine")).rejects.toMatchObject({kind:"timeout"});
+      let starts=0;const ambiguous=createFlyMachinesClient({token,fetch:async(_url,init)=>{if(init?.method==="POST"){starts++;throw new Error("lost response");}return Response.json({state:"stopped"});}});
+      await expect(ambiguous.startMachine("app","machine")).rejects.toMatchObject({kind:"network"});expect(starts).toBe(1);
+    } finally {clock.mockRestore();}
   });
 
   it("returns typed auth errors without exposing credentials or provider bodies", async () => {

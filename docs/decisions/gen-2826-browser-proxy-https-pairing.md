@@ -1,3 +1,5 @@
+> Superseded by GEN-2922. The standalone proxy and browser pairing described below are retired; see the credential cutover runbook.
+
 # GEN-2826: Browser to credential proxy HTTPS and identity pairing
 
 ## Decision

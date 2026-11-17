@@ -123,12 +123,33 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
   const machinePath = (app: string, machine: string) => `${appPath(app)}/machines/${segment(machine, "machine id")}`;
 
   async function findByOperationId(app: string, operationId: string): Promise<FlyMachine | undefined> {
-    const machines = await request<FlyMachine[]>(`${appPath(app)}/machines`, { method: "GET" }, true);
+    let machines: FlyMachine[];
+    try { machines = await request<FlyMachine[]>(`${appPath(app)}/machines`, { method: "GET" }, true); }
+    catch (error) { if (error instanceof FlyClientError && error.status === 404) return undefined; throw error; }
     if (!Array.isArray(machines)) throw new FlyClientError("Fly returned an invalid Machine list", "invalid_response");
-    return machines.find((machine) => machine.config?.metadata?.[OPERATION_METADATA_KEY] === operationId);
+    const matches = machines.filter(machine => machine.config?.metadata?.[OPERATION_METADATA_KEY] === operationId);
+    if (matches.length > 1) throw new FlyClientError("Fly operation matches multiple Machines", "invalid_response");
+    return matches[0];
   }
 
   return {
+    /** Run apps contain execution Machines only, with a distinct private network.
+     * Never infer ownership from a globally unique app name alone. */
+    async ensureRunApp(app: string, organizationSlug: string): Promise<void> {
+      if (!/^[a-z0-9-]{1,63}$/.test(app) || !/^[a-z0-9-]{1,63}$/.test(organizationSlug)) throw new TypeError("Invalid Fly run app identity");
+      const read = () => request<{name?: string; organization?: {slug?: string}}>(appPath(app), {method: "GET"}, true);
+      let current;
+      try { current = await read(); }
+      catch (error) {
+        if (!(error instanceof FlyClientError) || error.status !== 404) throw error;
+        try { await request("/apps", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({app_name: app, org_slug: organizationSlug, network: app})}, false); }
+        catch (createError) {
+          if (!(createError instanceof FlyClientError) || !(["network", "timeout", "server"].includes(createError.kind) || createError.status === 409)) throw createError;
+        }
+        current = await read();
+      }
+      if (current.name !== app || current.organization?.slug !== organizationSlug) throw new FlyClientError("Fly run app organization does not match", "invalid_response");
+    },
     /** Resolve a previously persisted provisional run handle after a scheduler restart. */
     findMachineByOperationId(app: string, operationId: string): Promise<FlyMachine | undefined> {
       if (!operationId || operationId.length > 200) throw new TypeError("operationId must contain 1 to 200 characters");
@@ -138,9 +159,12 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
       if (!operationId || operationId.length > 200) throw new TypeError("operationId must contain 1 to 200 characters");
       const existing = await findByOperationId(app, operationId);
       if (existing) return existing;
+      const {region, ...machineConfig} = config;
       const body = {
+        ...(typeof region === "string" ? {region} : {}),
+        skip_launch: false,
         config: {
-          ...config,
+          ...machineConfig,
           // Job Machines are supervised by Factorize. A provider restart can
           // replay a script after an ambiguous guest exit, duplicating side
           // effects, so execution guests must stop with their process.
@@ -171,11 +195,26 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
         throw new FlyClientError("Fly Machine creation outcome is ambiguous; retry with the same operationId", "ambiguous_create", undefined, { cause });
       }
     },
-    inspectMachine(app: string, machine: string): Promise<FlyMachine> {
-      return request(machinePath(app, machine), { method: "GET" }, true);
+    async inspectMachine(app: string, machine: string): Promise<FlyMachine> {
+      try { return await request(machinePath(app, machine), { method: "GET" }, true); }
+      catch (error) { if (error instanceof FlyClientError && error.status === 404) return {id: machine, state: "destroyed"}; throw error; }
     },
-    startMachine(app: string, machine: string): Promise<void> {
-      return request(`${machinePath(app, machine)}/start`, { method: "POST" }, false);
+    async startMachine(app: string, machine: string): Promise<void> {
+      const path = machinePath(app, machine), deadline = Date.now() + 180_000;
+      let current = await request<FlyMachine>(path, {method: "GET"}, true);
+      // New Machines boot their base image during create. Do not race image
+      // preparation with POST /start: created is not a startable state.
+      if (["stopped", "suspended"].includes(current.state ?? "")) {
+        await request(`${path}/start`, {method: "POST"}, false);
+        current = await request<FlyMachine>(path, {method: "GET"}, true);
+      }
+      for (;;) {
+        if (current.state === "started") return;
+        if (!["created", "starting"].includes(current.state ?? "")) throw new FlyClientError("Fly Machine did not start", "invalid_response");
+        if (Date.now() >= deadline) throw new FlyClientError("Fly Machine preparation timed out", "timeout");
+        await wait(1_000);
+        current = await request<FlyMachine>(path, {method: "GET"}, true);
+      }
     },
     stopMachine(app: string, machine: string): Promise<void> {
       return request(`${machinePath(app, machine)}/stop`, { method: "POST" }, false);

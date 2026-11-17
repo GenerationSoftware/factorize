@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FlyJobExecutionBackend } from "../src/fly-job-execution-backend";
 import { agentDriver } from "../src/agent-driver";
 
-const machine = { id: "machine-1", state: "created" };
+const machine = { id: "machine-1", name: "machine-name", state: "created" };
 function fixture() {
   const machines = {
     findMachineByOperationId: vi.fn(async () => machine),
@@ -17,16 +17,11 @@ function fixture() {
       ok: true, exitCode: 0,
       stdout: command.at(-1) === "--version" ? "codex-cli 0.167.1\n" : "started\n", stderr: "",
     })),
-    upload: vi.fn(async () => undefined),
+    upload: vi.fn(async (_path: string, _bytes: Uint8Array) => undefined),
     download: vi.fn(async (path: string) => new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "saved log")),
   };
-  const proxyGuest = {
-    run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "Run credential delivered to proxy memory\n", stderr: "" })),
-    issueVmCertificate: vi.fn(async () => ({ certificate: "-----BEGIN CERTIFICATE-----\npublic\n-----END CERTIFICATE-----", trustBundle: "-----BEGIN CERTIFICATE-----\nroot\n-----END CERTIFICATE-----" })),
-  };
-  const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest,
-    proxyIdentity: "fly:factorize-test:proxy-1", proxyBootEpoch: "22222222-2222-4222-8222-222222222222", proxyGuest });
-  return { backend, machines, guest, proxyGuest };
+  const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest });
+  return { backend, machines, guest };
 }
 
 describe("Fly job execution backend", () => {
@@ -47,6 +42,60 @@ describe("Fly job execution backend", () => {
     expect(f.guest.run).toHaveBeenNthCalledWith(2, ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"], expect.stringContaining('"script":"echo ok"'));
     expect(receipt).toMatchObject({ handle: { backendKind: "fly", id: "factorize-test/machine-1" }, observation: { state: "running" } });
     expect(JSON.stringify(f.machines.createMachine.mock.calls)).not.toContain("echo ok");
+  });
+
+  it("verifies the Fly Machine OIDC token before installing or launching the job", async () => {
+    const f = fixture();
+    const token = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL29pZGMuZmx5LmlvL2ZhY3Rvcml6ZS10ZXN0In0.c2ln";
+    f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: token, stderr: "" });
+    const verify = vi.fn(async () => undefined);
+    const runId = "11111111-1111-4111-8111-111111111111";
+    const backend = new FlyJobExecutionBackend({ app: "factorize-test", organizationSlug: "factorize-org", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
+    const receipt = await backend.launch({ runId, prompt: "work" });
+    expect(receipt.observation.state).toBe("running");
+    expect(f.guest.run.mock.calls[0]?.[0]).toContain("http://localhost/v1/tokens/oidc");
+    expect(verify).toHaveBeenCalledWith({ provider: "fly.io", vmId: "machine-1", token, expectedIssuer: "https://oidc.fly.io/factorize-org", expectedSubject: "factorize-org:factorize-test:machine-name" });
+    expect(verify.mock.invocationCallOrder[0]).toBeLessThan(f.guest.run.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it("pins the organization slug issuer and subject again during renewal", async () => {
+    const f = fixture();
+    const token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.c2ln";
+    f.machines.inspectMachine.mockResolvedValue({ ...machine, state: "started" });
+    f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: token, stderr: "" });
+    f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: '{"state":"running"}', stderr: "" });
+    const verify = vi.fn(async () => undefined);
+    const backend = new FlyJobExecutionBackend({ app: "factorize-test", organizationSlug: "factorize-org", image: "image", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
+    await backend.inspect({ backendKind: "fly", id: "factorize-test/machine-1", operationId: "11111111-1111-4111-8111-111111111111" });
+    expect(verify).toHaveBeenCalledWith({ provider: "fly.io", vmId: machine.id, token,
+      expectedIssuer: "https://oidc.fly.io/factorize-org", expectedSubject: "factorize-org:factorize-test:machine-name" });
+    verify.mockRejectedValueOnce(new Error("issuer mismatch"));
+    f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: token, stderr: "" });
+    await expect(backend.inspect({ backendKind: "fly", id: "factorize-test/machine-1", operationId: "11111111-1111-4111-8111-111111111111" })).resolves.toMatchObject({
+      state: "failed", failure: { code: "vendor_identity_renewal_failed" },
+    });
+  });
+
+  it("installs only public vendor identity configuration and never provisions a credential-proxy peer", async () => {
+    const f = fixture(), verify = vi.fn(async () => undefined), prepare = vi.fn(async () => undefined);
+    const token = "header.claims.signature";
+    f.guest.run.mockResolvedValueOnce({ok: true, exitCode: 0, stdout: token, stderr: ""});
+    const backend = new FlyJobExecutionBackend({app: "factorize-test", organizationSlug: "factorize-org", image: "image", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify, prepare});
+    const runId = "11111111-1111-4111-8111-111111111111";
+    const result = await backend.launch({runId, prompt: "work", runIdentity: {backendOrigin: "https://factorize.example.com"}});
+    expect(result.observation.state).toBe("running");
+    expect(prepare.mock.invocationCallOrder[0]).toBeLessThan(f.machines.createMachine.mock.invocationCallOrder[0]!);
+    expect(f.guest.upload.mock.calls.map(([name]) => name)).toContain("/run/factorize-identity/proxy.mjs");
+    const config = f.guest.upload.mock.calls.find(([name]) => name === "/run/factorize-identity/config.json")!;
+    expect(JSON.parse(new TextDecoder().decode(config[1]))).toEqual({runId, backendOrigin: "https://factorize.example.com", provider: "fly.io", localPort: 18180});
+    expect(f.guest.upload.mock.calls.map(([, bytes]) => new TextDecoder().decode(bytes)).join("\n")).not.toContain(token);
+    expect(f.guest.run.mock.calls.at(-1)![0]).toContain("FACTORIZE_PROXY_URL=http://127.0.0.1:18180");
+  });
+
+  it("refuses run access before provisioning when no vendor verifier is configured", async () => {
+    const f = fixture();
+    await expect(f.backend.launch({runId: "11111111-1111-4111-8111-111111111111", prompt: "work", runIdentity: {backendOrigin: "https://factorize.example.com"}})).rejects.toThrow("Vendor identity");
+    expect(f.machines.createMachine).not.toHaveBeenCalled();
   });
 
   it("reports a nonzero Fly guest process exit as a failed run", async () => {
@@ -179,7 +228,7 @@ describe("Fly job execution backend", () => {
     expect(receipt.handle).toMatchObject({ backendKind: "fly", id: "factorize-test/machine-1" });
     expect(receipt.observation).toMatchObject({
       state: "failed",
-      detail: "Fly guest is missing python3, runuser, or the exedev user, or could not install the shared Factorize job launcher",
+      detail: "Fly guest is missing the shared launcher or vendor identity helper prerequisites",
       failure: { code: "launch_failed", reason: "Fly guest launch failed" },
     });
     expect(f.guest.run).toHaveBeenCalledOnce();
@@ -228,22 +277,10 @@ describe("Fly job execution backend", () => {
     expect(f.machines.destroyMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
   });
 
-  it("delivers the scoped run credential to proxy memory before starting the VM and omits it from guest payload", async () => {
-    const f = fixture();
-    const runId = "11111111-1111-4111-8111-111111111111";
-    const credential = `fzt_run_${Buffer.from(runId).toString("base64url")}_${"R".repeat(43)}`;
-    await f.backend.launch({ runId, prompt: "task", runProxy: { targetOrigin: "https://factorize.example", credential } });
-    expect(f.proxyGuest.run).toHaveBeenCalledOnce();
-    expect(f.proxyGuest.run).toHaveBeenCalledWith(["/usr/local/bin/factorize-proxy-authorize-run"], expect.stringContaining(`"credential":"${credential}"`));
-    expect(f.proxyGuest.run.mock.invocationCallOrder[0]).toBeLessThan(f.machines.startMachine.mock.invocationCallOrder[0]);
-    expect(f.proxyGuest.issueVmCertificate).toHaveBeenCalledWith(expect.objectContaining({
-      bootEpoch: "22222222-2222-4222-8222-222222222222", vmIdentity: "fly:factorize-test:machine-1",
-    }));
-    expect(f.guest.upload).toHaveBeenCalledWith("/home/exedev/.factorize-job/proxy/tunnel.mjs", expect.any(Uint8Array));
-    expect(f.guest.run.mock.calls.some(([command]) => command.includes("FACTORIZE_PROXY_URL=http://127.0.0.1:18180"))).toBe(true);
-    const payload = String(f.guest.run.mock.calls.at(-1)?.[1] ?? "");
-    expect(payload).not.toContain(credential);
-    expect(payload).toContain(runId);
+  it("deletes a never-started Machine without issuing an invalid stop", async () => {
+    const f=fixture();
+    expect(await f.backend.stop({backendKind:"fly",id:"factorize-test/machine-1"})).toEqual({state:"stopped"});
+    expect(f.machines.stopMachine).not.toHaveBeenCalled();expect(f.machines.destroyMachine).toHaveBeenCalledWith("factorize-test","machine-1");
   });
 
   it("destroys a stopped Machine after confirming provider state", async () => {

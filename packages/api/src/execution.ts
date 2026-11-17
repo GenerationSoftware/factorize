@@ -16,15 +16,17 @@ export interface LaunchRequest {
   /** Backend-owned provisional handle, persisted before provisioning when supported. */
   reservation?: RunHandle;
   prompt: string;
-  /** Control-plane only: provisioned into an exe.dev proxy, never the guest. */
-  runProxy?: { targetOrigin: string; credential: string };
+  /** Public backend configuration only; requests must use fresh vendor identity. */
+  runIdentity?: { backendOrigin: string };
   traceSources?: TraceSources;
   harness?: { executable: string; args: string[]; env: Record<string, string> };
   code?: { script: string; context: Record<string, unknown> };
+  /** Server-side only; the token is consumed before any job payload is launched. */
+  verifyVendorIdentity?: (input: { provider: "exe.dev" | "fly.io"; vmId: string; token: string; integrationName?: string; expectedIssuer?: string; expectedSubject?: string }) => Promise<void>;
 }
 
 /** Opaque to orchestration. Only the backend that created it may interpret id. */
-export interface RunHandle { backendKind: string; id: string; runProxyName?: string; /** Stable provider operation key retained across a scheduler restart. */ operationId?: string; }
+export interface RunHandle { identityProxyOrigin?: string; backendKind: string; id: string; /** Stable provider operation key retained across a scheduler restart. */ operationId?: string; vendorIdentityIntegrationName?: string; }
 
 export interface ExecutionObservation {
   systemd?: import("./harness-diagnostics").ExecutionDiagnostics["systemd"];

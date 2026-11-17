@@ -32,7 +32,7 @@ function fixture(options: { member?: boolean; activeToken?: boolean } = {}) {
   return { env, database, persisted };
 }
 
-function auth(authMethod: "session" | "access_token" | "oauth" | "run_token", scopes = ["jobs:write"], accessTokenId?: string) {
+function auth(authMethod: "session" | "access_token" | "oauth" | "vendor_identity", scopes = ["jobs:write"], accessTokenId?: string) {
   return { tenantId, userId: "owner", sessionVersion: 1, scopes, authMethod, accessTokenId } as any;
 }
 
@@ -86,7 +86,7 @@ describe("manual invocation permission management", () => {
     await expect(service.setInvocationPermissions(sourceId, [crossProjectId])).rejects.toMatchObject({ status: 400, code: "invalid_request" });
   });
 
-  it("rejects missing scopes, missing credentials, invalid or revoked owner credentials, and run tokens", async () => {
+  it("rejects missing scopes, missing credentials, invalid or revoked owner credentials, and verified run identities", async () => {
     for (const transport of ["REST", "MCP"] as const) {
       const noScope = await request(transport, auth("oauth", ["jobs:read"]));
       if (transport === "REST") {
@@ -116,7 +116,7 @@ describe("manual invocation permission management", () => {
     }
 
     const f = fixture();
-    await expect(new ApiService(f.env, auth("run_token", ["jobs:write"])).setInvocationPermissions(sourceId, [destinationId]))
+    await expect(new ApiService(f.env, auth("vendor_identity", ["jobs:write"])).setInvocationPermissions(sourceId, [destinationId]))
       .rejects.toBeInstanceOf(ServiceError);
     await expect(new ApiService(f.env, auth("session", ["jobs:write"])).setInvocationPermissions(foreignId, [destinationId]))
       .rejects.toMatchObject({ status: 404, code: "not_found" });

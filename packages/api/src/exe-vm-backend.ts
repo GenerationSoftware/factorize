@@ -5,8 +5,10 @@ import { base64 } from "./crypto";
 import { shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
 
 import { HARNESS_LOG_LIMIT, safeDiagnosticText } from "./harness-diagnostics";
-import { ExeRunProxy } from "./exe-run-proxy";
-import { runProxyName } from "./run-credentials";
+import { traceChunkCommand } from "./guest-artifact-commands";
+import { runArtifactTarget } from "./run-artifact-target";
+import { assertExeVmIsolation } from "./exe-vm-isolation";
+import { RUN_IDENTITY_GUEST_HELPER } from "./run-identity-guest-helper";
 import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
 
 const API = "https://exe.dev/exec";
@@ -16,6 +18,11 @@ export function vmNameFor(runId: string): string {
   const suffix = runId.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(-38) || "run";
   return `factorize-${suffix}`;
 }
+
+export function exeWifIntegrationNameFor(runId: string): string {
+  return `fzrun-${runId.replaceAll("-", "").toLowerCase().slice(0, 32)}`;
+}
+type ExeWifConfiguration = { integrationName: string; issuer: string; subject: string; audience: string };
 
 export function isOwnedVmName(vm: string): boolean {
   return /^factorize-[a-z0-9](?:[a-z0-9-]{0,47}[a-z0-9])?$/.test(vm);
@@ -53,9 +60,65 @@ export class ExeVmBackend implements ExecutionBackend {
   readonly kind = "exe-vm";
   readonly capabilities = capabilities;
 
-  constructor(private readonly connection: Pick<ExeConnection, "apiToken" | "tags"> & { image?: string } | ExeRunConnection) {}
+  constructor(
+    private readonly connection: Pick<ExeConnection, "apiToken" | "tags"> & { image?: string } | ExeRunConnection,
+    private readonly vendorIdentityVerifier?: (input: { provider: "exe.dev" | "fly.io"; vmId: string; token: string; integrationName?: string; expectedIssuer?: string; expectedSubject?: string }) => Promise<void>,
+  ) {}
 
-  reserve(runId: string): RunHandle { return { backendKind: this.kind, id: vmNameFor(runId), runProxyName: runProxyName(runId) }; }
+  reserve(runId: string): RunHandle { return { backendKind: this.kind, id: vmNameFor(runId), operationId: runId, vendorIdentityIntegrationName: exeWifIntegrationNameFor(runId) }; }
+
+  private async exeWifToken(vm: string, integrationName: string): Promise<string> {
+    const command = `curl --fail --silent --show-error https://${integrationName}.int.exe.xyz/token | python3 -c 'import json,sys;v=json.load(sys.stdin);t=v.get("token");sys.stdout.write(t if isinstance(t,str) else "")'`;
+    const result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(command)}`);
+    if (!result.ok || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(result.body.trim())) throw new Error("exe.dev WIF token request failed");
+    return result.body.trim();
+  }
+
+  private async ensureExeWif(vm: string, runId: string, create = true): Promise<ExeWifConfiguration> {
+    const name = exeWifIntegrationNameFor(runId), audience = `factorize://runs/${runId}`;
+    if (create) {
+      const created = await this.api(`integrations add wif --name=${shellAtom(name)} --audience=${shellAtom(audience)} --consumer=gcp --attach=${shellAtom(`vm:${vm}`)}`);
+      if (!created.ok) throw new Error(`exe.dev WIF integration setup failed (${created.status})`);
+    }
+    const listed = await this.api("integrations list --json");
+    if (!listed.ok) throw new Error("exe.dev WIF integration could not be verified");
+    try {
+      const parsed = JSON.parse(listed.body), integrations = Array.isArray(parsed) ? parsed : parsed.integrations;
+      const matches = Array.isArray(integrations) ? integrations.filter((item: any) => item?.name === name && item?.type === "wif") : [];
+      if (matches.length !== 1) throw new Error();
+      const config = matches[0].config;
+      if (typeof config?.issuer_id !== "string" || !/^[A-Za-z0-9-]+$/.test(config.issuer_id) || typeof config?.subject !== "string" || !config.subject || config.audience !== audience) throw new Error();
+      if (!Array.isArray(matches[0].attachments) || matches[0].attachments.length !== 1 || matches[0].attachments[0] !== `vm:${vm}`) throw new Error();
+      return { integrationName: name, issuer: `https://exe.dev/issuer/${config.issuer_id}`, subject: config.subject, audience };
+    } catch { throw new Error("exe.dev WIF integration metadata is invalid"); }
+  }
+
+  /** Read-only provider check used on every backend request admission. */
+  async verifyIdentityAttachment(vm: string, runId: string): Promise<ExeWifConfiguration> {
+    if (vm !== vmNameFor(runId)) throw new Error("exe.dev VM/run mismatch");
+    return this.ensureExeWif(vm, runId, false);
+  }
+
+  private async removeExeWif(vm: string, runId: string, name: string): Promise<void> {
+    if (name !== exeWifIntegrationNameFor(runId)) throw new Error("Refusing to remove an unrelated exe.dev WIF integration");
+    const listed = await this.api("integrations list --json");
+    if (!listed.ok) throw new Error("exe.dev WIF cleanup could not verify integration ownership");
+    let integrations: any[];
+    try {
+      const parsed = JSON.parse(listed.body);
+      integrations = Array.isArray(parsed) ? parsed : parsed.integrations;
+      if (!Array.isArray(integrations)) throw new Error();
+    } catch { throw new Error("exe.dev WIF cleanup inventory is invalid"); }
+    const matches = integrations.filter(item => item?.name === name);
+    if (!matches.length) return;
+    const audience = `factorize://runs/${runId}`;
+    if (matches.length !== 1 || matches[0]?.type !== "wif" || matches[0]?.config?.audience !== audience
+      || !Array.isArray(matches[0]?.attachments) || matches[0].attachments.length !== 1 || matches[0].attachments[0] !== `vm:${vm}`) {
+      throw new Error("exe.dev WIF ownership or attachment does not match");
+    }
+    const removed = await this.api(`integrations remove ${shellAtom(name)}`);
+    if (!removed.ok && removed.status !== 404) throw new Error("exe.dev WIF removal failed");
+  }
 
   private async api(command: string): Promise<BackendCommandResult> {
     const response = await fetch(API, { method: "POST", headers: { Authorization: `Bearer ${this.connection.apiToken}`, "Content-Type": "text/plain" }, body: command });
@@ -150,19 +213,15 @@ export class ExeVmBackend implements ExecutionBackend {
     if (!request.code && (!connection.agentKind || !request.harness)) throw new Error("The job is missing its agent harness launch plan");
     if (request.traceSources) validateTraceSources(request.traceSources);
     const handle: RunHandle = request.reservation ?? { backendKind: this.kind, id: vmNameFor(request.runId) };
+    if (request.verifyVendorIdentity ?? this.vendorIdentityVerifier) {
+      handle.operationId ??= request.runId;
+      handle.vendorIdentityIntegrationName ??= exeWifIntegrationNameFor(request.runId);
+    }
     const vm = this.vm(handle);
-    let proxy: ExeRunProxy | undefined, plan: Awaited<ReturnType<ExeRunProxy["prepare"]>> | undefined;
-    if (request.runProxy) {
-      try {
-        proxy = new ExeRunProxy(command => this.api(command));
-        plan = await proxy.prepare(request.runId);
-        if (plan.exists) handle.runProxyName = plan.name;
-        // Check before VM creation: even image boot processes must not inherit
-        // a shared Factorize credential while provisioning is in progress.
-        await proxy.assertIsolated(vm, request.runId, request.runProxy.targetOrigin, this.connection.tags);
-      } catch (error) {
-        return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail: error instanceof Error ? error.message : "Run proxy preflight failed" } };
-      }
+    if (request.runIdentity) {
+      if (!(request.verifyVendorIdentity ?? this.vendorIdentityVerifier)) throw new Error("Vendor identity verification is required for run access");
+      handle.identityProxyOrigin = request.runIdentity.backendOrigin;
+      await assertExeVmIsolation({execute: command => this.api(command), vm, backendOrigin: request.runIdentity.backendOrigin, tags: this.connection.tags ?? []});
     }
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const image = connection.image;
@@ -172,30 +231,39 @@ export class ExeVmBackend implements ExecutionBackend {
       throw new Error(`exe.dev VM creation failed (${created.status}): ${created.body.slice(0, 500)}`);
     }
 
-    if (request.runProxy && proxy && plan) {
+    const verifyVendorIdentity = request.verifyVendorIdentity ?? this.vendorIdentityVerifier;
+    if (verifyVendorIdentity) {
       try {
-        handle.runProxyName = plan.name;
-        await proxy.provision(plan, vm, request.runProxy.targetOrigin, request.runProxy.credential);
-        await proxy.verify(vm, request.runId, request.runProxy.targetOrigin, this.connection.tags);
+        const integration = await this.ensureExeWif(vm, request.runId);
+        handle.vendorIdentityIntegrationName = integration.integrationName;
+        const token = await this.exeWifToken(vm, integration.integrationName);
+        await verifyVendorIdentity({ provider: "exe.dev", vmId: vm, token, integrationName: integration.integrationName, expectedIssuer: integration.issuer, expectedSubject: integration.subject });
       } catch (error) {
-        // Retain the handle even on a partial provision, so polling can retry
-        // ownership-safe proxy/VM cleanup before releasing the active slot.
-        return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail: error instanceof Error ? error.message : "Run proxy provisioning failed" } };
+        return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail: error instanceof Error ? error.message : "exe.dev vendor identity provisioning failed", failure: { source: "system", code: "vendor_identity_failed", reason: "exe.dev vendor identity provisioning failed" } } };
       }
     }
 
     const code = request.code, output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
     const launchPayload = JSON.stringify({ version: 1, runId: request.runId, ...(code ? { code } : { prompt: request.prompt, harness: request.harness }), ...(request.traceSources ? { traceSources: request.traceSources } : {}) });
     const launchPayloadPath = "/home/exedev/.factorize-job/launch.json";
+    const identitySetup = request.runIdentity ? [
+      "command -v node >/dev/null && command -v curl >/dev/null",
+      "sudo install -d -m 0700 /run/factorize-identity",
+      `printf '%s' ${shellAtom(base64(RUN_IDENTITY_GUEST_HELPER))} | sudo sh -c 'base64 -d > /run/factorize-identity/proxy.mjs'`,
+      `printf '%s' ${shellAtom(base64(JSON.stringify({runId: request.runId, backendOrigin: request.runIdentity.backendOrigin, provider: "exe.dev", integrationName: exeWifIntegrationNameFor(request.runId), localPort: 18180})))} | sudo sh -c 'base64 -d > /run/factorize-identity/config.json'`,
+      `if [ "$(sudo systemctl show ${shellAtom(`factorize-identity-${request.runId}`)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --unit=${shellAtom(`factorize-identity-${request.runId}`)} --property=Type=exec --property=Restart=on-failure node /run/factorize-identity/proxy.mjs; else sudo systemctl start ${shellAtom(`factorize-identity-${request.runId}`)}; fi`,
+      "n=0; until curl --fail --silent http://127.0.0.1:18180/_factorize/ready >/dev/null; do n=$((n+1)); test $n -lt 50 || exit 1; sleep 0.1; done",
+    ] : [];
     const work = [
       "set -eu",
       "mkdir -p /home/exedev/workspace",
       "cd /home/exedev/workspace",
+      ...identitySetup,
       ...(request.traceSources?.primary.kind === "execution_stream" ? [`mkdir -p -- ${shellAtom(request.traceSources.primary.path.slice(0, request.traceSources.primary.path.lastIndexOf("/")) || "/")}`, `touch -- ${shellAtom(request.traceSources.primary.path)}`] : []),
       "sudo install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job",
       `printf '%s' ${shellAtom(base64(FACTORIZE_JOB_LAUNCHER))} | sudo sh -c ${shellAtom("base64 -d > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job")}`,
       `printf '%s' ${shellAtom(base64(launchPayload))} | base64 -d > ${shellAtom(launchPayloadPath)} && sudo chown exedev:exedev ${shellAtom(launchPayloadPath)}`,
-      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=null --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr /bin/sh -c ${shellAtom(`exec /usr/local/bin/factorize-job launch --foreground < ${launchPayloadPath}`)}; fi`,
+      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=null --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr /bin/sh -c ${shellAtom(`exec ${request.runIdentity ? "/usr/bin/env FACTORIZE_PROXY_URL=http://127.0.0.1:18180 " : ""}/usr/local/bin/factorize-job launch --foreground < ${launchPayloadPath}`)}; fi`,
       "echo started",
     ].join("; ");
     if (request.traceSources?.primary.formatVersion === "codex-exec-jsonl") {
@@ -214,6 +282,17 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async inspect(handle: RunHandle): Promise<ExecutionObservation> {
     const vm = this.vm(handle);
+    if (handle.operationId && handle.vendorIdentityIntegrationName && this.vendorIdentityVerifier) {
+      try {
+        if (handle.identityProxyOrigin) await assertExeVmIsolation({execute: command => this.api(command), vm, backendOrigin: handle.identityProxyOrigin, tags: this.connection.tags ?? []});
+        const integration = await this.ensureExeWif(vm, handle.operationId, false);
+        if (integration.integrationName !== handle.vendorIdentityIntegrationName) throw new Error("WIF integration changed");
+        const token = await this.exeWifToken(vm, handle.vendorIdentityIntegrationName);
+        await this.vendorIdentityVerifier({ provider: "exe.dev", vmId: vm, token, integrationName: integration.integrationName, expectedIssuer: integration.issuer, expectedSubject: integration.subject });
+      } catch {
+        return { state: "failed", detail: "exe.dev vendor identity renewal failed", failure: { source: "system", code: "vendor_identity_renewal_failed", reason: "exe.dev vendor identity renewal failed" } };
+      }
+    }
     const inspect = `sudo systemctl show ${shellAtom(vm)} --property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus`;
     let response: BackendCommandResult;
     try { response = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(inspect)}`); }
@@ -291,33 +370,34 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async collectJobFile(handle: RunHandle, request: JobFileCollectionRequest) {
     const file = `/home/exedev/.factorize-job/${request.path}`;
-    const remote = `set -eu; file=${shellAtom(file)}; test -f "$file"; test ! -L "$file"; real=$(realpath -- "$file"); case "$real" in /home/exedev/.factorize-job/*) ;; *) exit 41;; esac; size=$(wc -c < "$file" | tr -d ' '); test "$size" -le 10485760; sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H 'Content-Type: application/octet-stream' -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(request.uploadUrl)}`;
+    const remote = `set -eu; file=${shellAtom(file)}; test -f "$file"; test ! -L "$file"; real=$(realpath -- "$file"); case "$real" in /home/exedev/.factorize-job/*) ;; *) exit 41;; esac; size=$(wc -c < "$file" | tr -d ' '); test "$size" -le 10485760; sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H 'Content-Type: application/octet-stream' -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(runArtifactTarget(handle, request.uploadUrl))}`;
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
     return { ok: result.ok, detail: result.ok ? undefined : `Job file upload failed (${result.status})`, command: result };
   }
 
   async collectArtifact(handle: RunHandle, request: ArtifactCollectionRequest) {
-    const remote = `set -eu; file=$(${request.source ? sourceCommand(request.source) : request.discoverCommand}); test -n "$file"; test -f "$file"; snapshot=$(mktemp); trap 'rm -f "$snapshot"' EXIT; cp "$file" "$snapshot"; size=$(wc -c < "$snapshot" | tr -d ' '); sha=$(sha256sum "$snapshot" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H ${shellAtom(`Content-Type: ${request.contentType}`)} -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$snapshot" ${shellAtom(request.uploadUrl)}`;
+    const remote = `set -eu; file=$(${request.source ? sourceCommand(request.source) : request.discoverCommand}); test -n "$file"; test -f "$file"; snapshot=$(mktemp); trap 'rm -f "$snapshot"' EXIT; cp "$file" "$snapshot"; size=$(wc -c < "$snapshot" | tr -d ' '); sha=$(sha256sum "$snapshot" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H ${shellAtom(`Content-Type: ${request.contentType}`)} -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$snapshot" ${shellAtom(runArtifactTarget(handle, request.uploadUrl))}`;
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
     return { ok: result.ok, detail: result.ok ? undefined : `Artifact upload failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
   }
 
   async collectTraceChunk(handle: RunHandle, request: TraceChunkCollectionRequest) {
-    const expectedGeneration = request.generation ?? "", zeroHash = "0".repeat(64);
-    const remote = `set -eu; file=$(${request.source ? sourceCommand(request.source) : request.discoverCommand}); test -n "$file"; test -f "$file"; exec 3<"$file"; file=/proc/$$/fd/3; identity=$(stat -Lc '%d:%i:%W' "$file"); generation="$identity"; case ${shellAtom(expectedGeneration)} in "$identity":*) generation=${shellAtom(expectedGeneration)};; esac; start=${request.offset}; previous=${shellAtom(request.previousHash)}; if [ -n ${shellAtom(expectedGeneration)} ] && [ "$generation" != ${shellAtom(expectedGeneration)} ]; then start=0; previous=${shellAtom(zeroHash)}; fi; total=$(wc -c < "$file" | tr -d ' '); if [ "$total" -lt "$start" ]; then generation="$identity:$(date +%s%N)"; start=0; previous=${shellAtom(zeroHash)}; fi; if [ "$total" -le "$start" ]; then printf 'no-change'; exit 0; fi; count=$((total-start)); if [ "$count" -gt 4194304 ]; then count=4194304; fi; chunk=$(mktemp); trap 'rm -f "$chunk"' EXIT; dd if="$file" of="$chunk" iflag=skip_bytes,count_bytes skip="$start" count="$count" status=none; size=$(wc -c < "$chunk" | tr -d ' '); sha=$(sha256sum "$chunk" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H "Content-Length: $size" -H "X-Trace-Generation: $generation" -H ${shellAtom(`X-Trace-Expected-Generation: ${expectedGeneration}`)} -H "X-Trace-Start: $start" -H "X-Trace-SHA256: $sha" -H "X-Trace-Previous-Hash: $previous" --data-binary @"$chunk" ${shellAtom(request.uploadUrl)}`;
+    const remote = traceChunkCommand(request, runArtifactTarget(handle, request.uploadUrl));
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
     return { ok: result.ok, detail: result.ok ? undefined : `Live trace upload failed (${result.status}): ${result.body.slice(0, 300)}`, command: result };
   }
 
   async stop(handle: RunHandle): Promise<ExecutionObservation> {
     const vm = this.vm(handle);
-    let proxyError: string | undefined;
-    if (handle.runProxyName) {
-      try { await new ExeRunProxy(command => this.api(command)).remove(handle.runProxyName, vm.slice("factorize-".length)); }
-      catch { proxyError = "Run proxy cleanup failed; retry required"; }
+    let cleanupError: string | undefined;
+    if (handle.vendorIdentityIntegrationName) {
+      try {
+        if (!handle.operationId) throw new Error("WIF run identity is unavailable");
+        await this.removeExeWif(vm, handle.operationId, handle.vendorIdentityIntegrationName);
+      } catch { cleanupError ??= "exe.dev WIF integration cleanup failed; retry required"; }
     }
     const result = await this.deleteVm(vm);
-    return { state: result.ok && !proxyError ? "stopped" : "failed", detail: proxyError ?? (result.ok ? undefined : `VM deletion failed (${result.status}): ${result.body.slice(0, 300)}`), command: result };
+    return { state: result.ok && !cleanupError ? "stopped" : "failed", detail: cleanupError ?? (result.ok ? undefined : `VM deletion failed (${result.status}): ${result.body.slice(0, 300)}`), command: result };
   }
 
   private async deleteVm(vm: string): Promise<BackendCommandResult> {

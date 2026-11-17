@@ -3,32 +3,50 @@ title: Manual job invocation permissions
 description: Authorize jobs to start other jobs with run-scoped credentials and manage destination permissions.
 ---
 
-Manual invocation permissions are separate from lifecycle subscriptions. Configure the allowed destination jobs in a source job's editor. The public API can read them with `GET /api/v1/jobs/{jobId}/invocation-permissions` and replace them with a `PUT` containing `{"destinationJobIds":["..."]}`. The write requires `jobs:write` and accepts a browser owner session, scoped API key, or authorized OAuth client. Destinations must belong to the source job's project; a job can include itself to opt in to explicitly requested successor runs. A run token can invoke a configured destination only while the source and destination remain in the same project. Deleting either job removes its permission edges. Revocation takes effect on the next invocation request.
+Manual invocation permissions are separate from lifecycle subscriptions. Configure the allowed destination jobs in a source job's editor. The public API can read them with `GET /api/v1/jobs/{jobId}/invocation-permissions` and replace them with a `PUT` containing `{"destinationJobIds":["..."]}`. The write requires `jobs:write` and accepts a browser owner session, scoped API key, or authorized OAuth client. Destinations must belong to the source job's project; a job can include itself to opt in to explicitly requested successor runs. A verified run can invoke a configured destination only while the source and destination remain in the same project. Deleting either job removes its permission edges. Revocation takes effect on the next invocation request.
 
-Permissions are project-local. The editor searches only the source job's project, and the API rejects cross-project permission writes. Existing cross-project permission rows are hidden from reads and cannot authorize run-token invocation. Existing lifecycle, edited, idle, schedule, and webhook triggers remain independent and do not grant manual invocation.
+Permissions are project-local. The editor searches only the source job's project, and the API rejects cross-project permission writes. Existing cross-project permission rows are hidden from reads and cannot authorize run invocation. Existing lifecycle, edited, idle, schedule, and webhook triggers remain independent and do not grant manual invocation.
 
-For each execution VM, Factorize creates an exe.dev HTTP proxy named `fz-run-<run UUID>`. Its credential is installed by the Factorize control plane and held by exe.dev; it is never placed in the guest environment, prompt, or files. The integration is attached only to that VM for at most 24 hours. Discover its URL through `https://reflection.int.exe.xyz/integrations`, using the name supplied in the run instructions. No API URL configuration or client-supplied Authorization header is needed.
+Each execution VM runs a localhost helper at `http://127.0.0.1:18180` (also
+available as `FACTORIZE_PROXY_URL`). It requests fresh vendor-signed proof and
+forwards authorized requests to Factorize. exe.dev uses an exclusively attached
+per-run WIF integration; Fly uses its Machine OIDC Unix socket. Factorize binds
+that identity to the provisioned VM, tenant, owner session and active run. No
+Factorize-issued VM bearer or upstream credential enters guest configuration.
 
-The credential is bound to the source job and run, expires after 24 hours, and stops authorizing requests when that run is no longer active. Its scopes come from the job’s Run permissions setting (`runScopes` in the job REST/MCP contract). Existing jobs and omitted create fields default to tenant-scoped reads of projects, jobs, runs, safe integration metadata, and skills, plus invoking authorized destinations. You can select additional write/cancel scopes, remove default scopes, or choose no scopes. Write scopes do not imply read scopes, except the legacy `runs:write` expansion. Credentials remain outside the VM regardless of scope. Do not pass a source job or run ID: the service derives both from the credential. `GET /api/v1/runtime-context` (MCP `get_runtime_context`) returns the verified source run/job identity and effective scopes without exposing the credential. It requires an authenticated active identity, but no application-resource scope, so even a zero-scope run can verify its own identity.
+The job's Run permissions (`runScopes`) are snapshotted with its execution
+configuration. Default scopes allow tenant reads of projects, jobs, runs, safe
+integration metadata and skills, plus explicitly authorized invocation. Writes
+do not imply reads, except the legacy `runs:write` expansion. An explicit empty
+scope list grants no application-resource access. `GET /api/v1/runtime-context`
+(MCP `get_runtime_context`) returns verified source run/job identity and effective
+scopes, including for zero-scope runs. The service derives source identity from
+the vendor binding; the guest cannot choose a different source run.
 
 Use the normal manual invocation endpoint, which is also the `invoke_job` MCP tool:
 
 ```sh
-curl --fail-with-body -X POST 'https://PROXY_HOST_FROM_REFLECTION/api/v1/jobs/DESTINATION_JOB_ID/invocations' \
+curl --fail-with-body -X POST 'http://127.0.0.1:18180/api/v1/jobs/DESTINATION_JOB_ID/invocations' \
   -H 'Content-Type: application/json' \
   --data '{"prompt":"Run the authorized follow-up","data":{"key":"value"},"idempotencyKey":"source-run-step-1"}'
 ```
 
-Only explicitly configured destinations may be invoked with a run token. Factorize checks the permission, active source run, destination enabled state, enabled manual trigger, and queue capacity at invocation time. Reuse the same `idempotencyKey` when retrying an uncertain request. Destination run details expose `invocation.source_job_id` and `invocation.source_run_id`; human and external invocations leave these values null.
+Only explicitly configured destinations may be invoked by a verified run. Factorize checks the permission, active source run, destination enabled state, enabled manual trigger, and queue capacity at invocation time. Reuse the same `idempotencyKey` when retrying an uncertain request. Destination run details expose `invocation.source_job_id` and `invocation.source_run_id`; human and external invocations leave these values null.
 
-Before starting the agent, Factorize verifies the run proxy and checks the control-plane attachments of other HTTP proxies targeting the same Factorize origin. Any shared Factorize proxy attached to that VM blocks startup, regardless of its scopes. The dedicated run proxy provides the job’s configured API access. Keep shared Factorize integrations on operator-only VM attachments. A public API credential with `runs:invoke` still supports ordinary external clients; do not attach that credential to execution VMs. Configure any alternate Factorize hostnames with the same isolation; never attach a broader proxy through an alias.
+Shared Factorize HTTP integrations must remain on operator-only attachments.
+exe.dev launch and renewal reject broader shared proxies for the configured
+Factorize origin. Do not attach external API credentials to execution VMs.
 
-Proxy removal is part of VM cleanup and is retried after failure. The credential's active-run and expiry checks remain effective even if external cleanup is temporarily unavailable. Installing credentials in a proxy prevents exporting the secret from the VM; it does not prevent an agent from misusing its permitted operations while running. Keep destination permissions narrow.
+Backend checks remove normal API and outbound access as soon as cancellation
+starts, or the run becomes terminal. Provider cleanup retries cannot restore
+access. Disconnecting a selected credential permanently revokes its use by
+existing runs; rotation of a live credential is transparent. Keep destination
+permissions narrow because an agent can use all operations you authorize.
 
 ## Configuring privileged orchestration jobs
 
-In a job’s editor, select Run permissions and save its configuration. API/MCP clients can supply `runScopes` when creating or updating the job. Omitting `runScopes` on update preserves the existing setting; an explicit empty array grants no application API scopes. Both agent and code jobs use the same per-run proxy delivery.
+In a job’s editor, select Run permissions and save its configuration. API/MCP clients can supply `runScopes` when creating or updating the job. Omitting `runScopes` on update preserves the existing setting; an explicit empty array grants no application API scopes. Both agent and code jobs use the same vendor identity helper.
 
 For example, an orchestration job that reads and repairs job configuration needs `jobs:read` and `jobs:write`. A job granted `jobs:write` may also change its own or other jobs’ run scopes, using the normal tenant-local job update API. This is administrative authority over future job execution; grant it only when intended. Manual invocation still needs `runs:invoke` and an explicitly authorized destination.
 
-Scopes are snapshotted when the invocation is created and stored with its execution credential. Updating a job does not add or remove authority from existing queued or active runs; cancel existing runs when immediate revocation is required. Credential rotation during a launch retry preserves the original scope snapshot. Runtime context reports the effective scopes, including legacy scope expansion. Browser-only API-key management, authorized-client management, and trace replay retain their existing session requirements.
+Scopes are snapshotted when the invocation is created and stored in immutable token-free authorization metadata. Updating a job does not add or remove authority from existing queued or active runs; cancel existing runs when immediate revocation is required. Launch retry and credential rotation preserve the original scope snapshot. Runtime context reports the effective scopes, including legacy scope expansion. Browser-only API-key management, authorized-client management, and trace replay retain their existing session requirements.

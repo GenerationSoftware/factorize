@@ -334,7 +334,7 @@ for (const executionType of ["agent", "code"]) test(`Fly.io ${executionType} job
   await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/, route => { externalCalls.push(route.request().url()); return route.abort(); });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: "00000000-0000-4000-8000-000000000010", name: "Project" }] }));
   await page.route("**/api/v1/skills**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
-  await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: { accounts: [{ id: accountId, name: "Work ChatGPT", revision: 1 }] } }));
+  await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: { accounts: [{ id: accountId, name: "Work ChatGPT", revision: 1, credentialConfigured: true }] } }));
   await page.route("**/api/v1/fly/connection", route => route.fulfill({ json: { connection: { organizationSlug: "test-org", organizationName: "Test org" } } }));
   await page.route("**/api/v1/fly/execution-configurations", route => {
     if (route.request().method() === "POST") {
@@ -364,7 +364,7 @@ for (const executionType of ["agent", "code"]) test(`Fly.io ${executionType} job
   await page.getByRole("button", { name: "Save Fly VM settings", exact: true }).click();
   await page.waitForFunction(configId => document.querySelector('select option:checked[value="' + configId + '"]'), configId);
   if (executionType === "agent") {
-    await page.getByLabel("ChatGPT model account").selectOption(accountId);
+    await page.getByRole("combobox", {name:/^Model account/}).selectOption(accountId);
     await page.getByLabel("Prompt template", { exact: true }).fill("Run tests");
   } else await page.getByLabel("Script", { exact: true }).fill("echo test");
   await page.getByRole("button", { name: "Create job", exact: true }).click(); await page.waitForURL(`**/jobs/${id}`);
@@ -375,7 +375,31 @@ for (const executionType of ["agent", "code"]) test(`Fly.io ${executionType} job
   await page.goto(origin + `/jobs/${id}/settings/execution`);
   assert.equal(await page.getByLabel("Fly VM image").inputValue(), "ghcr.io/acme/runner:v2");
   assert.equal(await page.getByLabel("Fly VM size").inputValue(), "performance-2x"); assert.equal(await page.getByLabel("Fly region").inputValue(), "ord");
-  if (executionType === "agent") assert.equal(await page.getByLabel("ChatGPT model account").inputValue(), accountId);
+  if (executionType === "agent") assert.equal(await page.getByRole("combobox", {name:/^Model account/}).inputValue(), accountId);
   assert.equal(exeVerifications, 0); assert.deepEqual(externalCalls, []);
   await context.close();
+});
+
+test("missing selected credentials stay visible until the owner explicitly removes them", async t => {
+  const {context,page}=await setup(); t.after(()=>context.close());
+  const missing="00000000-0000-4000-8000-000000000099";
+  let current={...structuredClone(initial),portableIntegrationIds:[missing]},writes=[];
+  await page.route("**/api/v1/integrations/bearer",route=>route.fulfill({json:{revision:1,integrations:[]}}));
+  await page.route("**/api/v1/model-accounts",route=>route.fulfill({json:{revision:1,accounts:[]}}));
+  await page.route("**/api/v1/providers/github/installations",route=>route.fulfill({json:[]}));
+  await page.route(`**/api/v1/jobs/${id}`,route=>{
+    if(route.request().method()==="GET")return route.fulfill({json:current});
+    const body=route.request().postDataJSON();writes.push(body);current={...current,...body,updatedAt:new Date().toISOString()};return route.fulfill({json:current});
+  });
+  await page.goto(origin+`/jobs/${id}/settings/execution`);
+  const unavailable=page.getByRole("checkbox",{name:new RegExp("Unavailable bearer integration: "+missing)});
+  await unavailable.waitFor();assert.equal(await unavailable.isChecked(),true);
+  assert.equal(writes.length,0);
+  await page.getByRole("spinbutton",{name:/Concurrency/}).fill("3");
+  await page.getByRole("status").filter({hasText:"Job settings saved."}).waitFor();
+  assert.deepEqual(writes.at(-1).portableIntegrationIds,[missing]);
+  await unavailable.click();
+  await page.waitForFunction(()=>!document.body.textContent.includes("Unavailable bearer integration:"));
+  const deadline=Date.now()+5000;while(writes.at(-1)?.portableIntegrationIds?.length!==0&&Date.now()<deadline)await new Promise(r=>setTimeout(r,50));
+  assert.deepEqual(writes.at(-1).portableIntegrationIds,[]);
 });
