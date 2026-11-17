@@ -21,7 +21,7 @@ export function modelCredentialConfigured(payload: string): boolean {
 }
 type AuthEndpoint = "https://auth.openai.com/api/accounts/deviceauth/usercode" | "https://auth.openai.com/api/accounts/deviceauth/token" | "https://auth.openai.com/oauth/token";
 async function post(endpoint: AuthEndpoint, body: unknown, form=false): Promise<Response> {
-  return fetch(endpoint, {method: "POST", headers: {"Content-Type": form ? "application/x-www-form-urlencoded" : "application/json", Accept: "application/json"}, body: form ? String(body) : JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(10_000)});
+  return fetch(endpoint, {method: "POST", headers: {"Content-Type": form ? "application/x-www-form-urlencoded" : "application/json", Accept: "application/json"}, body: form ? String(body) : JSON.stringify(body), redirect: "manual", signal: AbortSignal.timeout(10_000)});
 }
 const challenge = (pending: Pending): State => ({state: "pending", verificationUrl: "https://auth.openai.com/codex/device", userCode: pending.userCode, pollAfterSeconds: pending.interval});
 

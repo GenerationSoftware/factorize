@@ -12,7 +12,7 @@ describe.skipIf(!url)("server managed model device authorization",{timeout:60_00
     const f=await fixture();try{
       const verifier="fixture-verifier",digest=Buffer.from(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(verifier))).toString("base64url");
       const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
-        expect(init?.redirect).toBe("error");
+        expect(init?.redirect).toBe("manual");
         if(String(input).endsWith("/usercode"))return Response.json({device_auth_id:"private-device-id",user_code:"PUBLIC-CODE",interval:1});
         if(String(input).endsWith("/deviceauth/token"))return Response.json({authorization_code:"private-code",code_verifier:verifier,code_challenge:digest});
         expect(String(input)).toBe("https://auth.openai.com/oauth/token");

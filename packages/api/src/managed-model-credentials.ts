@@ -41,7 +41,7 @@ export async function resolveManagedModelCredential(input: { database: Database;
       const response = await fetch(`${REFRESH_ORIGIN}/oauth/token`, {
         method: "POST", headers: {"Content-Type": "application/json", Accept: "application/json"},
         body: JSON.stringify({client_id: CLIENT_ID, grant_type: "refresh_token", refresh_token: tokens.refresh_token}),
-        redirect: "error", signal: AbortSignal.timeout(10_000),
+        redirect: "manual", signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) { await response.body?.cancel(); throw new Error("Model account requires reconnection"); }
       const refreshed = await response.json() as Record<string, unknown>;

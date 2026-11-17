@@ -25,7 +25,7 @@ export function createFlyHttpGuestTransport(options: Options): Required<JobGuest
       const response = await (options.fetcher ?? fetch)(`${origin}/v1/apps/${encodeURIComponent(options.app)}/machines/${encodeURIComponent(options.machine)}/exec`, {
         method: "POST", headers: {Authorization: `Bearer ${options.token}`, "Content-Type": "application/json", Accept: "application/json"},
         body: JSON.stringify({command, ...(stdin !== undefined ? {stdin} : {}), timeout: Math.max(1, Math.ceil(timeoutMs/1000))}),
-        redirect: "error", signal: AbortSignal.timeout(timeoutMs),
+        redirect: "manual", signal: AbortSignal.timeout(timeoutMs),
       });
       if (!response.ok || !response.body) { await response.body?.cancel(); throw failure(); }
       const reader = response.body.getReader();

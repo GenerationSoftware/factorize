@@ -63,7 +63,7 @@ describe("vendor run identity", () => {
     rotated.kid = "key-2";
     const fetches: string[] = [];
     const resolver = createJwksResolver({ jwksUri: "https://issuer.example/keys", now: () => now * 1000, fetcher: async (_url, init) => {
-      expect(init?.redirect).toBe("error");
+      expect(init?.redirect).toBe("manual");
       expect(init?.signal).toBeInstanceOf(AbortSignal);
       fetches.push(String(init?.headers ? "requested" : "missing-accept"));
       return Response.json({ keys: fetches.length === 1 ? [publicJwk] : [rotated] });
@@ -81,7 +81,7 @@ describe("vendor run identity", () => {
   it("loads issuer keys only from matching HTTPS metadata on the vendor origin", async () => {
     const calls: string[] = [];
     const trust = await discoverVendorIssuerTrust({ provider: "fly.io", issuer: flyBinding.issuer, fetcher: async (input, init) => {
-      expect(init?.redirect).toBe("error");
+      expect(init?.redirect).toBe("manual");
       expect(init?.signal).toBeInstanceOf(AbortSignal);
       calls.push(String(input));
       return Response.json({ issuer: flyBinding.issuer, jwks_uri: "https://oidc.fly.io/keys" });
