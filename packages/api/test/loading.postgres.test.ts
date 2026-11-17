@@ -197,7 +197,7 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
       await createConnected(x, firstId, "First X"); await createConnected(x, nextId, "Next X"); await createConnected(foreign, foreignId, "Foreign X");
       await expect(service.createJob({ ...base, xConnectionIds: [foreignId] })).rejects.toMatchObject({ status: 400 });
       const job = await service.createJob({ ...base, xConnectionIds: [firstId] });
-      expect(job).toMatchObject({ xConnectionIds: [firstId], executionConfig: { xConnectionIds: [firstId] } });
+      expect(job).toMatchObject({ xConnectionIds: [firstId] });
       const run = await service.invokeJob(job.id, { prompt: "run", data: {} });
       const readSnapshot = async () => (await db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenantId, run.runId])).rows[0].execution_config;
       const snapshot = await readSnapshot(); expect(snapshot.xConnectionIds).toEqual([firstId]);

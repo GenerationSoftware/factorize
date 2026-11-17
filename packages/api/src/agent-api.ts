@@ -133,8 +133,10 @@ export class AgentApiService {
     const required = xRequiredScope(path, request.method);
     if (!required) throw forbidden();
     const repository = new XConnectionRepository(this.database, this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    const connection = await repository.get(connectionId), credentials = await repository.clientCredentials(connectionId);
-    if (!connection || connection.status !== "connected" || !credentials?.accessToken || !credentials.expiresAt || Date.parse(credentials.expiresAt) <= Date.now()) throw forbidden();
+    const connection = await repository.get(connectionId);
+    if (!connection || connection.status !== "connected") throw forbidden();
+    const credentials = await repository.clientCredentials(connectionId);
+    if (!credentials?.accessToken || !credentials.expiresAt || Date.parse(credentials.expiresAt) <= Date.now()) throw forbidden();
     if (!connection.scopes.includes(required) || !connection.grantedScopes.includes(required)) throw new AgentApiError(403, "insufficient_scope", `This X connection does not grant ${required}.`);
     const currentIdentity = await this.identity();
     const current = await repository.get(connectionId);
