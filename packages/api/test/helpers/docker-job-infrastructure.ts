@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { JobMachines, JobGuest } from "./machine-job-execution-backend";
+import type { JobMachines, JobGuest } from "../../src/machine-job-execution-backend";
 
 /** Host-only test infrastructure. Never import this module into a Worker runner. */
 export function createDockerJobInfrastructure(options: { testMode: true; network: string; namespace: string; additionalNetworks?: string[]; mounts?: { source: string; target: string }[]; publishBrowserPort?: boolean; beforeDestroy?: (id: string) => Promise<void>; observeGuestInput?: (command: readonly string[], input?: string | Uint8Array) => void }) {
@@ -58,7 +58,7 @@ export function createDockerJobInfrastructure(options: { testMode: true; network
     }
     const data = JSON.parse(observed.stdout)[0];
     if (data.Config.Labels[label] !== options.namespace) throw new Error("Container belongs to another namespace");
-    return { id, config: { metadata: Object.fromEntries(Object.entries(data.Config.Labels).filter(([key]) => key.startsWith("factorize_"))) as Record<string, string> }, state: data.State.Running ? "started" : data.State.Status === "created" ? "created" : "stopped" };
+    return { id, name: data.Name.replace(/^\//, ""), config: { metadata: Object.fromEntries(Object.entries(data.Config.Labels).filter(([key]) => key.startsWith("factorize_"))) as Record<string, string> }, state: data.State.Running ? "started" : data.State.Status === "created" ? "created" : "stopped" };
   }
   const machines: JobMachines = {
     async findMachineByOperationId(_app, operationId) {

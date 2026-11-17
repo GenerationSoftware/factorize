@@ -1,9 +1,8 @@
 import type { Database } from "./postgres/database";
 import type { Env } from "./types";
-import { EncryptedIntegrationRepository } from "./postgres/encrypted-integration-repository";
+import { CredentialRepository } from "./postgres/credential-repository";
 
-const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
-const REFRESH_ORIGIN = "https://auth.openai.com";
+import {CODEX_CLIENT_ID as CLIENT_ID, CODEX_AUTH_ORIGIN as REFRESH_ORIGIN} from "./model-device-auth";
 type Cache = { OPENAI_API_KEY?: unknown; tokens?: { access_token?: unknown; refresh_token?: unknown; id_token?: unknown; account_id?: unknown; chatgpt_account_id?: unknown; oauth_provenance?: { issuer?: unknown; client_id?: unknown } }; last_refresh?: unknown };
 function cache(payload: string): Cache {
   const result = JSON.parse(payload);
@@ -27,7 +26,7 @@ function needsRefresh(auth: Cache): boolean {
 /** Codex's published OAuth refresh protocol, restricted to its trusted issuer.
  * No guest-supplied endpoint or client can receive the refresh credential. */
 export async function resolveManagedModelCredential(input: { database: Database; env: Env; tenantId: string; accountId: string }): Promise<{ origin: string; prefix: string; accessToken: string; accountId?: string } | null> {
-  const repository = new EncryptedIntegrationRepository(input.database, input.tenantId, input.env.CREDENTIAL_ENCRYPTION_KEY);
+  const repository = new CredentialRepository(input.database, input.tenantId, input.env.CREDENTIAL_ENCRYPTION_KEY);
   const current = await repository.managedCredential(input.accountId, "model");
   if (!current) return null;
   let payload: string | null = current.payload;

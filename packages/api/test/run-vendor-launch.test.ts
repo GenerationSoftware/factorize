@@ -42,7 +42,7 @@ describe("vendor-authenticated run launch", () => {
     await scheduler.launch({ id: runId, tenantId: "tenant", executionConfig: { agentKind, runScopes: ["jobs:read", "jobs:write"], ...(agentKind === "code" ? { executionType: "code", script: "echo test", inputContext: {} } : {}) }, encryptedPrompt: await encrypt("Complete the task", key) });
     const request = launch.mock.calls[0][0];
     expect(recordHandle.mock.invocationCallOrder[0]).toBeLessThan(launch.mock.invocationCallOrder[0]);
-    expect(request.runProxy).toBeUndefined();
+    expect(request).not.toHaveProperty("runProxy");
     expect(request.runIdentity).toEqual({backendOrigin: env.APP_ORIGIN});
     expect(typeof request.verifyVendorIdentity).toBe("function");
     expect(issuedScopes).toEqual(["jobs:read", "jobs:write"]);

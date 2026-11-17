@@ -16,8 +16,6 @@ export interface LaunchRequest {
   /** Backend-owned provisional handle, persisted before provisioning when supported. */
   reservation?: RunHandle;
   prompt: string;
-  /** Control-plane only: provisioned into an exe.dev proxy, never the guest. */
-  runProxy?: { targetOrigin: string; credential: string };
   /** Public backend configuration only; requests must use fresh vendor identity. */
   runIdentity?: { backendOrigin: string };
   traceSources?: TraceSources;
@@ -28,7 +26,7 @@ export interface LaunchRequest {
 }
 
 /** Opaque to orchestration. Only the backend that created it may interpret id. */
-export interface RunHandle { identityProxyOrigin?: string; backendKind: string; id: string; runProxyName?: string; /** Stable provider operation key retained across a scheduler restart. */ operationId?: string; vendorIdentityIntegrationName?: string; }
+export interface RunHandle { identityProxyOrigin?: string; backendKind: string; id: string; /** Stable provider operation key retained across a scheduler restart. */ operationId?: string; vendorIdentityIntegrationName?: string; }
 
 export interface ExecutionObservation {
   systemd?: import("./harness-diagnostics").ExecutionDiagnostics["systemd"];

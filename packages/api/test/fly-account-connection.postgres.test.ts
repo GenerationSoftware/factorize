@@ -60,7 +60,7 @@ describe.skipIf(!url)("Fly account connection (PostgreSQL/API)", () => {
   });
 
   it("denies agent credentials even when integrations:write is granted", async () => {
-    const agent = { ...fixture.auth, authMethod: "run_token", scopes: ["integrations:write"] } as OAuthProps;
+    const agent = { ...fixture.auth, authMethod: "vendor_identity", scopes: ["integrations:write"] } as OAuthProps;
     const response = await request("PUT", agent, { token: "secret", organizationSlug: "alpha" });
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ error: { code: "session_required" } });

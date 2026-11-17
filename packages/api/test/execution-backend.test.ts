@@ -7,7 +7,6 @@ import { ExeImageVerificationError, ExeVmBackend, isOwnedVmName, tagsFromInvento
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
 import { effortOptions, selectableExeTags, type ExeRunConnection } from "../src/exe";
 import { agentDriver } from "../src/agent-driver";
-import { runProxyName } from "../src/run-credentials";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -25,7 +24,7 @@ function launchPayload(command: string): any {
 describe("ExeVmBackend", () => {
   it("reserves its legacy VM and proxy handle for scheduler recovery", () => {
     const runId = "00000000-0000-4000-8000-000000000001";
-    expect(new ExeVmBackend(connection).reserve(runId)).toEqual({ backendKind: "exe-vm", id: vmNameFor(runId), runProxyName: runProxyName(runId), operationId: runId, vendorIdentityIntegrationName: "fzrun-00000000000040008000000000000001" });
+    expect(new ExeVmBackend(connection).reserve(runId)).toEqual({ backendKind: "exe-vm", id: vmNameFor(runId), operationId: runId, vendorIdentityIntegrationName: "fzrun-00000000000040008000000000000001" });
   });
   it("defines the supported effort choices by agent", () => {
     expect(effortOptions.codex).toEqual(["minimal", "low", "medium", "high", "xhigh"]);

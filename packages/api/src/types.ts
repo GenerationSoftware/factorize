@@ -5,8 +5,6 @@ export type RunState = "queued" | "reserved" | "starting" | "running" | "done" |
 export interface Env {
   /** Explicit local test environment; never configured on deployed Workers. */
   TEST_DOCKER_EXECUTION?: { enabled: true; image: string };
-  /** Infrastructure host boundary. Host process credentials stay outside Workers. */
-  CREDENTIAL_PROXY_HOST?: { setup(tenantId: string, operationId: string): Promise<{ proxyIdentity: string; bootEpoch: string }> };
   SCHEDULER?: DurableObjectNamespace;
   ASSETS: Fetcher;
   APP_ORIGIN: string;
@@ -19,9 +17,6 @@ export interface Env {
   CLICKUP_CLIENT_SECRET?: string;
   CREDENTIAL_ENCRYPTION_KEY: string;
   SESSION_SIGNING_SECRET: string;
-  /** PKCS#8 Ed25519 key used only for short-lived proxy browser capabilities. */
-  MODEL_ACCOUNT_CAPABILITY_PRIVATE_KEY?: string;
-  MODEL_ACCOUNT_CAPABILITY_PUBLIC_KEY?: string;
   GITHUB_APP_ID?: string;
   GITHUB_APP_SLUG?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
@@ -54,12 +49,11 @@ export type OAuthProps = {
   /** Set only by a verified, active execution credential. */
   runId?: string;
   runJobId?: string;
-  runCredentialDigest?: string;
   runIdentityProvider?: "exe.dev" | "fly.io";
   /** Stable identifier for the OAuth authorization grant; never a bearer token. */
   oauthGrantId?: string;
   oauthClientId?: string;
-  authMethod?: "session" | "oauth" | "access_token" | "run_token" | "vendor_identity";
+  authMethod?: "session" | "oauth" | "access_token" | "vendor_identity";
 };
 
 export interface WorkItem {

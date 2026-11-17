@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { protectedApiFetch } from "../src/protected-api";
-import { authenticateRunCredential, issueRunCredential, RUN_SCOPES } from "../src/run-credentials";
+import { DEFAULT_RUN_SCOPES as RUN_SCOPES } from "../src/run-scopes";
+import {snapshotRunAuthorization} from "../src/run-authorizations";
 import { normalizeScopes } from "../src/access-tokens";
 import type { OAuthProps } from "../src/types";
 
@@ -53,9 +54,8 @@ describe.skipIf(!url)("configurable run scopes with PostgreSQL", () => {
   it("allows an orchestration run to change job scopes without upgrading its own active credential", async () => {
     const { tenantId, runId, env, db } = fixture;
     await db.pool.query("UPDATE app.job_runs SET state='running' WHERE tenant_id=$1 AND id=$2", [tenantId, runId]);
-    const bearer = (token: string) => new Request(env.APP_ORIGIN, { headers: { Authorization: `Bearer ${token}` } });
-    const token = await issueRunCredential(env, tenantId, runId, ["jobs:write"]);
-    const auth = (await authenticateRunCredential(bearer(token), env))!;
+    await snapshotRunAuthorization(db,{tenantId,runId,scopes:["jobs:write"]});
+    const auth: OAuthProps = {...fixture.auth,authMethod:"vendor_identity",runId,runJobId:fixture.jobIds[0],runIdentityProvider:"fly.io",scopes:["jobs:write"]};
     expect(auth.scopes).toEqual(["jobs:write"]);
     const id = fixture.jobIds[0];
     const updated = await request(`/api/v1/jobs/${id}`, auth, { ...await updateBody(id), runScopes: ["jobs:write", "integrations:write"] });
@@ -63,10 +63,8 @@ describe.skipIf(!url)("configurable run scopes with PostgreSQL", () => {
     expect(await updated.json()).toMatchObject({ runScopes: ["jobs:write", "integrations:write"] });
     const foreignJob = await db.pool.query("SELECT run_scopes FROM app.jobs WHERE tenant_id=$1 AND id=$2", [fixture.otherTenant, id]);
     expect(foreignJob.rows[0].run_scopes).toEqual(RUN_SCOPES);
-    expect((await authenticateRunCredential(bearer(token), env))?.scopes).toEqual(["jobs:write"]);
-    const rotated = await issueRunCredential(env, tenantId, runId, ["jobs:write", "integrations:write"]);
-    expect(await authenticateRunCredential(bearer(token), env)).toBeNull();
-    expect((await authenticateRunCredential(bearer(rotated), env))?.scopes).toEqual(["jobs:write"]);
+    await snapshotRunAuthorization(db,{tenantId,runId,scopes:["jobs:write","integrations:write"]});
+    expect((await db.pool.query("SELECT scopes FROM app.run_authorizations WHERE tenant_id=$1 AND run_id=$2",[tenantId,runId])).rows[0].scopes).toEqual(["jobs:write"]);
     const foreign = crypto.randomUUID();
     expect((await request(`/api/v1/jobs/${foreign}`, auth, { ...await updateBody(id), runScopes: [] })).status).toBe(404);
   });
@@ -74,8 +72,7 @@ describe.skipIf(!url)("configurable run scopes with PostgreSQL", () => {
   it("attributes an explicitly granted run error report to the execution credential", async () => {
     const { tenantId, env, db } = fixture;
     const source = (await db.pool.query("SELECT id FROM app.job_runs WHERE tenant_id=$1 AND state='running' AND id<>$2 LIMIT 1", [tenantId, fixture.runId])).rows[0].id;
-    const token = await issueRunCredential(env, tenantId, source, ["runs:write"]);
-    const auth = (await authenticateRunCredential(new Request(env.APP_ORIGIN, { headers: { Authorization: `Bearer ${token}` } }), env))!;
+    const auth: OAuthProps = {...fixture.auth,authMethod:"vendor_identity",runId:source,runIdentityProvider:"fly.io",scopes:["runs:write"]};
     const result = await protectedApiFetch(new Request(env.APP_ORIGIN + `/api/v1/runs/${source}/report-error`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: "Orchestrator detected a problem" }),
     }), env, auth, {} as any);

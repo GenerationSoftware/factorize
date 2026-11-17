@@ -1,6 +1,6 @@
 import type { Env } from "./types";
 import { databaseFor } from "./postgres/database";
-import { EncryptedIntegrationRepository } from "./postgres/encrypted-integration-repository";
+import { CredentialRepository } from "./postgres/credential-repository";
 import { resolveRunProviderCredentials } from "./provider-credentials";
 import { authenticateVendorRunRequest, RUN_IDENTITY_HEADER } from "./vendor-run-auth";
 import { forwardRunOutbound, type OutboundCredential } from "./run-outbound-forwarder";
@@ -35,7 +35,7 @@ export async function runOutboundProxyFetch(request: Request, env: Env): Promise
     const model = /^\/providers\/model\/v1(\/.*)?$/.exec(path);
     if (bearer) {
       if (!Array.isArray(config.portableIntegrationIds) || !config.portableIntegrationIds.includes(bearer[1]) || await revoked("bearer", bearer[1]!)) return unavailable();
-      const credential = await new EncryptedIntegrationRepository(database, auth.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(bearer[1]!, "bearer");
+      const credential = await new CredentialRepository(database, auth.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(bearer[1]!, "bearer");
       if (!credential?.origin || !isPublicHttpsOrigin(credential.origin, env.APP_ORIGIN)) return unavailable();
       selected = {origin: credential.origin, path: `${bearer[2] ?? "/"}${url.search}`, credential: credential.payload};
     } else if (github) {

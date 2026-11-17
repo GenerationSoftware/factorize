@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import worker from "../src/worker";
 import { protectedApiFetch } from "../src/protected-api";
 import { IdentityRepository } from "../src/postgres/identity-repository";
-import { RunEnrollmentRepository } from "../src/postgres/run-enrollment-repository";
-import { EncryptedIntegrationRepository } from "../src/postgres/encrypted-integration-repository";
+import { CredentialRepository } from "../src/postgres/credential-repository";
 import { signSession } from "../src/session";
 import { loadingFixture } from "./helpers/loading-fixture";
 
@@ -11,124 +10,15 @@ vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 const databaseUrl = process.env.AUTH_TEST_DATABASE_URL;
 
-async function userEncrypt(plaintext: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await crypto.subtle.importKey("raw", Uint8Array.from(atob(btoa("u".repeat(32))), c => c.charCodeAt(0)), "AES-GCM", false, ["encrypt"]);
-  const body = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(plaintext));
-  const encode = (bytes: Uint8Array) => btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(""));
-  return `${encode(iv)}.${encode(new Uint8Array(body))}`;
-}
-
 describe.skipIf(!databaseUrl)("owner-only managed credential API (PostgreSQL)", { timeout: 60_000 }, () => {
-  it("keeps Docker test selection and proxy setup behind explicit environment and owner boundaries", async () => {
+  it("does not expose retired proxy or unlock operations", async () => {
     const f = await loadingFixture(databaseUrl!);
     try {
-      const request = (path: string, body: unknown, cookie = f.cookie) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1" + path, {
-        method: "POST", headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify(body),
-      }), f.env, { waitUntil() {} } as any);
-      const body = { name: "Docker", slug: "docker-test", executionType: "code", script: "echo test", executionConfigId: "docker", triggers: [] };
-      expect((await request("/jobs", body)).status).toBe(400);
-      f.env.TEST_DOCKER_EXECUTION = { enabled: true, image: "sha256:" + "a".repeat(64) };
-      expect((await request("/jobs", body)).status).toBe(201);
-      expect((await request("/jobs", { ...body, slug: "agent-test", executionType: "agent", promptTemplate: "test" })).status).toBe(400);
-      const setup = vi.fn(async () => ({ proxyIdentity: "fixture", bootEpoch: crypto.randomUUID() }));
-      f.env.CREDENTIAL_PROXY_HOST = { setup };
-      expect((await request("/credential-proxy/setup", { operationId: crypto.randomUUID() }, "invalid")).status).toBe(401);
-      expect(setup).not.toHaveBeenCalled();
-      const agent = await protectedApiFetch(new Request(f.env.APP_ORIGIN + "/api/v1/credential-proxy/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationId: crypto.randomUUID() }) }), f.env, { ...f.auth, scopes: ["integrations:write"], authMethod: "access_token" }, {} as any);
-      expect(agent.status).toBe(403); expect(setup).not.toHaveBeenCalled();
-      const operationId = crypto.randomUUID();
-      expect((await request("/credential-proxy/setup", { operationId })).status).toBe(200);
-      expect(setup).toHaveBeenCalledWith(f.tenantId, operationId);
-      expect((await request("/credential-proxy/browser-capability", { action: "unlock", key: "must-not-be-accepted" })).status).toBe(400);
-    } finally { await f.cleanup(); }
-  });
-  it("stores one ciphertext-only unlock verification per owner and never accepts a plaintext key", async () => {
-    const f = await loadingFixture(databaseUrl!);
-    try {
-      const request = (method = "GET", body?: unknown, cookie = f.cookie) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1/unlock-key/verification", {
-        method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      }), f.env, { waitUntil() {} } as any);
-      expect(await (await request()).json()).toEqual({ ownerId: f.userId, verification: null });
-      const generationId = crypto.randomUUID();
-      const encryptedVerification = JSON.stringify({ version: 1, algorithm: "A256GCM", nonce: "AAAAAAAAAAAAAAAA", ciphertext: "AAAAAAAAAAAAAAAAAAAAAA" });
-      const body = { generationId, encryptedVerification };
-      expect((await request("POST", body)).status).toBe(200);
-      expect(await (await request()).json()).toEqual({ ownerId: f.userId, verification: body });
-      const stored = await f.db.pool.query("SELECT generation_id,encrypted_verification FROM app.unlock_key_verifications WHERE tenant_id=$1", [f.tenantId]);
-      expect(stored.rows).toEqual([{ generation_id: generationId, encrypted_verification: encryptedVerification }]);
-      expect(JSON.stringify(stored.rows)).not.toContain("fzk1.");
-      expect((await request("POST", body)).status).toBe(409);
-      expect((await request("POST", { ...body, unlockKey: "fzk1.must-not-be-accepted" })).status).toBe(400);
-    } finally { await f.cleanup(); }
-  });
-  it("owner-only key replacement atomically resets encrypted records, changes verification, and locks the proxy", async () => {
-    const f = await loadingFixture(databaseUrl!);
-    try {
-      const request = (path: string, method = "GET", body?: unknown, cookie = f.cookie) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1" + path, {
-        method, headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      }), f.env, { waitUntil() {} } as any);
-      const oldGeneration = crypto.randomUUID(), newGeneration = crypto.randomUUID();
-      const verification = (generationId: string) => JSON.stringify({ version: 1, algorithm: "A256GCM", nonce: "AAAAAAAAAAAAAAAA", ciphertext: "AAAAAAAAAAAAAAAAAAAAAA" });
-      expect((await request("/unlock-key/verification", "POST", { generationId: oldGeneration, encryptedVerification: verification(oldGeneration) })).status).toBe(200);
-      const encrypted = await userEncrypt("synthetic bearer payload");
-      const integrationId = crypto.randomUUID();
-      await new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).write({ id: integrationId, kind: "bearer", name: "Synthetic", origin: "https://api.example.test", description: null, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), operation: "upsert", encryptedPayload: encrypted });
-      await f.db.pool.query("INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,'fly:connection-fixture','encrypted-fly-fixture')", [f.tenantId]);
-      await f.db.pool.query("UPDATE app.jobs SET execution_config=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.jobIds[0], { provider: "fly", connectionId: "fly:connection-fixture", region: "ord", vmSize: "shared-cpu-1x" }]);
-      const flyConnectionBefore = (await f.db.pool.query("SELECT kind,encrypted_value FROM app.connections WHERE tenant_id=$1 ORDER BY kind", [f.tenantId])).rows;
-      const executionConfigBefore = (await f.db.pool.query("SELECT id,execution_config FROM app.jobs WHERE tenant_id=$1 ORDER BY id", [f.tenantId])).rows;
-      await f.db.pool.query("INSERT INTO app.credential_proxy_states(tenant_id,proxy_identity,boot_epoch,unlocked) VALUES($1,'proxy-test',$2,true)", [f.tenantId, crypto.randomUUID()]);
-      const runId = crypto.randomUUID(), jobId = f.jobIds[0], invocationId = crypto.randomUUID();
-      const triggerId = (await f.db.pool.query("SELECT id FROM app.triggers WHERE tenant_id=$1 AND job_id=$2 AND kind='manual' LIMIT 1", [f.tenantId, jobId])).rows[0].id;
-      await f.db.pool.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context) VALUES ($1,$2,$3,'manual','rotation-test',$4,'{}')", [f.tenantId, invocationId, jobId, triggerId]);
-      await f.db.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,'running','test')", [f.tenantId, runId, jobId, invocationId]);
-      const enrollmentRepository = new RunEnrollmentRepository(f.db);
-      const binding = { tenantId: f.tenantId, runId, vmIdentity: "vm-rotation", proxyIdentity: "proxy-test", bootEpoch: (await f.db.pool.query("SELECT boot_epoch FROM app.credential_proxy_states WHERE tenant_id=$1", [f.tenantId])).rows[0].boot_epoch };
-      expect(await enrollmentRepository.authorizeRun(binding)).toBe(1);
-      const issued = await enrollmentRepository.issue(binding, new Date(Date.now() + 60_000));
-      expect(issued).not.toBeNull();
-
-      const snapshot = await request("/unlock-key/rotation-snapshot");
-      expect(snapshot.status).toBe(200);
-      expect(await snapshot.json()).toMatchObject({ ownerId: f.userId, generationId: oldGeneration, revision: 1, records: [{ id: integrationId, kind: "bearer", encryptedPayload: encrypted }] });
-      const replacement = await request("/unlock-key/rotation", "POST", {
-        expectedGenerationId: oldGeneration, generationId: newGeneration, expectedRevision: 1,
-        encryptedVerification: verification(newGeneration), records: [], changes: [],
-      });
-      expect(replacement.status).toBe(200);
-      expect(await replacement.json()).toEqual({ generationId: newGeneration, revision: 2, duplicate: false });
-      expect((await f.db.pool.query("SELECT generation_id FROM app.unlock_key_verifications WHERE tenant_id=$1", [f.tenantId])).rows[0].generation_id).toBe(newGeneration);
-      expect((await f.db.pool.query("SELECT id FROM app.integration_records WHERE tenant_id=$1", [f.tenantId])).rows).toEqual([]);
-      expect((await f.db.pool.query("SELECT unlocked FROM app.credential_proxy_states WHERE tenant_id=$1", [f.tenantId])).rows[0].unlocked).toBe(false);
-      expect((await f.db.pool.query("SELECT kind,encrypted_value FROM app.connections WHERE tenant_id=$1 ORDER BY kind", [f.tenantId])).rows).toEqual(flyConnectionBefore);
-      expect((await f.db.pool.query("SELECT id,execution_config FROM app.jobs WHERE tenant_id=$1 ORDER BY id", [f.tenantId])).rows).toEqual(executionConfigBefore);
-      expect((await f.db.pool.query("SELECT revoked_at FROM app.credential_run_grants WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, runId])).rows[0].revoked_at).toBeInstanceOf(Date);
-      expect((await f.db.pool.query("SELECT consumed_at FROM app.credential_run_enrollments WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, runId])).rows[0].consumed_at).toBeInstanceOf(Date);
-      expect(await enrollmentRepository.consume(issued!.token, binding)).toBeNull();
-      const rotatedCipher = await userEncrypt("rotated synthetic bearer payload"), rotatedId = crypto.randomUUID();
-      const integrationRepository = new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
-      await integrationRepository.write({ id: rotatedId, kind: "bearer", expectedRevision: 2, idempotencyKey: crypto.randomUUID(), name: "Rotated", origin: "https://api.example.test", description: null, operation: "upsert", encryptedPayload: encrypted });
-      const modelId = crypto.randomUUID();
-      await integrationRepository.write({ id: modelId, kind: "model", expectedRevision: 3, idempotencyKey: crypto.randomUUID(), name: "Managed model", origin: null, description: null, operation: "upsert", managedModelPayload: JSON.stringify({ accessToken: "server-managed-fixture" }) });
-      const rotationSnapshot = await (await request("/unlock-key/rotation-snapshot")).json() as any;
-      expect(rotationSnapshot.records.some((record: any) => record.id === modelId)).toBe(false);
-      expect(JSON.stringify(rotationSnapshot)).not.toContain("server-managed-fixture");
-      const finalGeneration = crypto.randomUUID();
-      const rotated = await request("/unlock-key/rotation", "POST", {
-        expectedGenerationId: newGeneration, generationId: finalGeneration, expectedRevision: 4,
-        encryptedVerification: verification(finalGeneration), preserveManagedModelCaches: true,
-        records: rotationSnapshot.records.map((record: any) => ({ ...record, encryptedPayload: record.id === rotatedId ? rotatedCipher : record.encryptedPayload })),
-        changes: rotationSnapshot.changes.map((change: any) => ({ ...change, encryptedPayload: change.id === rotatedId && change.operation === "upsert" ? rotatedCipher : change.encryptedPayload })),
-      });
-      expect(rotated.status).toBe(200);
-      expect(await rotated.json()).toEqual({ generationId: finalGeneration, revision: 5, duplicate: false });
-      expect(await integrationRepository.records("model")).toMatchObject([{ id: modelId, name: "Managed model", encryptedPayload: expect.stringContaining("factorize-managed-model-cache-v1:") }]);
-      expect((await request("/integrations/bearer")).status).toBe(200);
-      expect(JSON.stringify(await (await request("/integrations/bearer")).json())).not.toContain(rotatedCipher);
-      const agent = await request("/unlock-key/rotation-snapshot", "GET", undefined, "untrusted-cookie");
-      expect(agent.status).toBe(401);
-    } finally { await f.cleanup(); }
+      for (const path of ["/credential-proxy/setup", "/credential-proxy/browser-capability", "/unlock-key/verification", "/unlock-key/rotation"]) {
+        const response = await worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1" + path, {method:"POST", headers:{Cookie:f.cookie, Origin:f.env.APP_ORIGIN,"Content-Type":"application/json"},body:"{}"}),f.env,{waitUntil(){}} as any);
+        expect(response.status).toBe(404);
+      }
+    } finally {await f.cleanup();}
   });
   it("supports safe create, list, update, delete and rejects malformed and stale writes", async () => {
     const f = await loadingFixture(databaseUrl!);
@@ -190,7 +80,7 @@ describe.skipIf(!databaseUrl)("owner-only managed credential API (PostgreSQL)", 
 
       const listed = await request(path);
       expect(listed.status).toBe(200);
-      expect(await listed.json()).toEqual({ revision: 1, accounts: [{ id, name: "Work account", description: "Personal subscription", revision: 1 }] });
+      expect(await listed.json()).toEqual({ revision: 1, accounts: [{ id, name: "Work account", description: "Personal subscription", revision: 1, credentialConfigured: false }] });
 
       const stale = await request(path + `/${id}`, "DELETE", { expectedRevision: 0, idempotencyKey: crypto.randomUUID() });
       expect(stale.status).toBe(409);

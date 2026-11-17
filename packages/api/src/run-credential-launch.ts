@@ -1,6 +1,6 @@
 import type { Database } from "./postgres/database";
 import type { Env } from "./types";
-import { EncryptedIntegrationRepository } from "./postgres/encrypted-integration-repository";
+import { CredentialRepository } from "./postgres/credential-repository";
 import { GitHubRepository } from "./postgres/github-repository";
 import { isPublicHttpsOrigin } from "./public-address";
 import { resolveManagedModelCredential } from "./managed-model-credentials";
@@ -12,7 +12,7 @@ export class RunCredentialRepairRequired extends Error {
  * explicit repair. No unlock/proxy service is a launch prerequisite. */
 export async function requireRunCredentials(input: {database: Database; env: Env; tenantId: string; runId: string; config: Record<string, any>}): Promise<void> {
   const {database, env, tenantId, runId, config} = input;
-  const repository = new EncryptedIntegrationRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY);
+  const repository = new CredentialRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY);
   const revoked = (await database.pool.query("SELECT 1 FROM app.run_credential_revocations WHERE tenant_id=$1 AND run_id=$2 LIMIT 1", [tenantId, runId])).rowCount;
   if (revoked) throw new RunCredentialRepairRequired();
   const ids = config.portableIntegrationIds ?? [], githubIds = config.githubInstallationIds ?? [];

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { expect, it } from "vitest";
-import { createDockerJobInfrastructure } from "../src/docker-job-infrastructure";
+import { createDockerJobInfrastructure } from "./helpers/docker-job-infrastructure";
 
 it("recovers real containers by operation identity, isolates ownership and removes stopped containers", async () => {
   const namespace = process.env.FACTORIZE_E2E_NAMESPACE ? `${process.env.FACTORIZE_E2E_NAMESPACE}-infra` : `factorize-test-${randomUUID()}`;

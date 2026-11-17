@@ -24,6 +24,7 @@ import {
   vmImageVerificationResponse,
 } from "./flow-schemas";
 import { traceReplaySchema } from "./trace-replay-schemas";
+import {modelAuthorizationState} from "./model-device-auth";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
 import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput } from "./skills";
@@ -120,34 +121,27 @@ const accessTokenBody = z.object({
   expiryDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
 });
 const bearerIntegrationMetadata = z.object({
-  id: z.uuid(), name: z.string(), origin: z.string(), description: z.string().nullable(),
+  kind: z.literal("bearer").optional(), id: z.uuid(), name: z.string(), origin: z.string(), description: z.string().nullable(),
   revision: z.number().int().nonnegative(),
 });
 const bearerIntegrationCreate = z.object({
   id: z.uuid(), expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid(),
   name: z.string().trim().min(1).max(120), origin: z.string().url().max(2048),
-  description: z.string().max(500).nullable(), token: z.string().min(1).max(32_768),
+  description: z.string().max(500).nullable(), token: z.string().min(1).max(32_768).regex(/^[^\r\n]+$/).meta({writeOnly:true}),
 }).strict();
 const bearerIntegrationUpdate = bearerIntegrationCreate.omit({ id: true });
 const bearerIntegrationDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
 const bearerIntegrationList = z.object({ revision: z.number().int().nonnegative(), integrations: z.array(bearerIntegrationMetadata) });
-const modelAccountMetadata = z.object({ id: z.uuid(), name: z.string(), description: z.string().nullable(), revision: z.number().int().nonnegative() });
+const modelAccountMetadata = z.object({ id: z.uuid(), name: z.string(), description: z.string().nullable(), revision: z.number().int().nonnegative(), credentialConfigured: z.boolean() });
 const modelAccountCreate = z.object({
   id: z.uuid(), expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid(),
   name: z.string().trim().min(1).max(120), description: z.string().max(500).nullable(),
-  initialState: z.literal("{}"),
+  initialState: z.string().min(1).max(65_536).refine(value=>{try {const auth=JSON.parse(value); if(!auth || typeof auth!=="object" || Array.isArray(auth)) return false; if(Object.keys(auth).length===0) return true; return typeof auth.OPENAI_API_KEY==="string" && auth.OPENAI_API_KEY.length>0 || typeof auth.tokens?.access_token==="string" && auth.tokens.access_token.length>0;} catch {return false;}}, "Enter an API key, Codex credential object, or an empty account for device authorization").meta({writeOnly:true}),
 }).strict();
 const modelAccountDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
 const modelAccountList = z.object({ revision: z.number().int().nonnegative(), accounts: z.array(modelAccountMetadata) });
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
-const unlockKeyVerification = z.object({ ownerId: z.string(), verification: z.object({ generationId: z.uuid(), encryptedVerification: z.string() }).strict().nullable() }).strict();
-const unlockKeyVerificationInput = z.object({ generationId: z.uuid(), encryptedVerification: z.string().min(1).max(4096) }).strict();
-const rotationRecord = z.object({ id: z.uuid(), kind: z.enum(["bearer", "model"]), name: z.string().min(1).max(120), origin: z.string().nullable(), description: z.string().max(500).nullable(), revision: z.number().int().nonnegative(), encryptedPayload: z.string().max(65_536).nullable(), deletedAt: z.string().datetime({ offset: true }).nullable() }).strict();
-const rotationChange = z.object({ id: z.uuid(), kind: z.enum(["bearer", "model"]), name: z.string().min(1).max(120), origin: z.string().nullable(), description: z.string().max(500).nullable(), revision: z.number().int().positive(), idempotencyKey: z.uuid(), operation: z.enum(["upsert", "delete"]), encryptedPayload: z.string().max(65_536).nullable(), recordRevision: z.number().int().positive().nullable().optional() }).strict();
-const unlockKeyRotationSnapshot = z.object({ ownerId: z.string(), generationId: z.uuid(), revision: z.number().int().nonnegative(), records: z.array(rotationRecord).max(5000), changes: z.array(rotationChange).max(10000) }).strict();
-const unlockKeyGenerationReplacement = z.object({ expectedGenerationId: z.uuid(), generationId: z.uuid(), expectedRevision: z.number().int().nonnegative(), encryptedVerification: z.string().min(1).max(4096), preserveManagedModelCaches: z.boolean().optional(), records: z.array(rotationRecord).max(5000), changes: z.array(rotationChange).max(10000) }).strict();
-const modelAccountBrowserCapabilityInput = z.object({ action: z.enum(["authorize", "status", "cancel"]) }).strict();
 
 function route(
   method: string,
@@ -233,35 +227,16 @@ export const API_ROUTES: RouteContract[] = [
   }, service => service.listModelAccounts(), { ownerSession: true }),
   route("POST", "/api/v1/model-accounts", "integrations:write", {
     summary: "Create a model account",
-    description: "Requires an interactive owner browser session and the current collection revision. Creates metadata with an empty initial state; the credential proxy establishes credentials and Factorize encrypts cache updates with its server key.",
+    description: "Requires an interactive owner browser session and the current collection revision. Accepts an API key or Codex credential object into Factorize-managed encrypted storage, or an empty initial state for backend device authorization. Credentials are never returned.",
     responses: { "201": { description: "Created model account", content: { "application/json": { schema: jsonSchema(bearerIntegrationWriteResult, "output") } } } },
   }, (service, { body }) => service.createModelAccount(body), { body: modelAccountCreate, maxBodyBytes: 70_000, ownerSession: true }),
+  route("PUT", "/api/v1/model-accounts/{accountId}", "integrations:write", {summary:"Replace a model account credential",description:"Owner session required. Replaces the managed credential without changing the selected account ID; active runs use the replacement on their next request.",responses:{"200":{description:"Model account updated",content:{"application/json":{schema:jsonSchema(bearerIntegrationWriteResult,"output")}}}}},(service,{params,body})=>service.updateModelAccount(params.accountId,body),{body:modelAccountCreate.omit({id:true}),maxBodyBytes:70_000,ownerSession:true,parameters:z.object({accountId:z.uuid()})}),
+  ...(["authorize","status","cancel"] as const).map(action=>route("POST",`/api/v1/model-accounts/{accountId}/authorization/${action}`,"integrations:write",{summary:`${action} backend ChatGPT device authorization`,description:"Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.",responses:{"200":{description:"Device authorization state",content:{"application/json":{schema:jsonSchema(modelAuthorizationState,"output")}}}}},(service,{params})=>service.modelAuthorization(params.accountId,action),{body:z.object({}).strict(),ownerSession:true,maxBodyBytes:1024,parameters:z.object({accountId:z.uuid()})})),
   route("DELETE", "/api/v1/model-accounts/{accountId}", "integrations:write", {
     summary: "Delete a model account",
     description: "Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future run snapshots reject the disconnected account.",
     responses: { "200": { description: "Deleted model account", content: { "application/json": { schema: jsonSchema(bearerIntegrationDeleteResult, "output") } } } },
   }, (service, { params, body }) => service.deleteModelAccount(params.accountId, body), { body: modelAccountDelete, maxBodyBytes: 4096, ownerSession: true, parameters: z.object({ accountId: z.uuid() }) }),
-  route("POST", "/api/v1/credential-proxy/setup", "integrations:write", {
-    summary: "Provision and register the owner's credential proxy", description: "Interactive owner session required. Calls the configured execution host; bootstrap credentials cross only the private guest transport. Reuse operationId for retries.",
-    responses: { "200": { description: "Registered proxy identity", content: { "application/json": { schema: jsonSchema(z.object({ proxyIdentity: z.string(), bootEpoch: z.uuid() }), "output") } } } },
-  }, (service, { body }) => service.setupCredentialProxy(body.operationId), { body: z.object({ operationId: z.uuid() }).strict(), ownerSession: true, maxBodyBytes: 1024 }),
-  route("POST", "/api/v1/credential-proxy/browser-capability", "integrations:write", {
-    summary: "Authorize a direct browser-to-proxy lifecycle operation", description: "Owner session only. One-use capability bound to action, owner, application origin and proxy boot, valid for 60 seconds. Unlock keys go directly to the proxy and are never accepted by this API.",
-    responses: { "200": { description: "Proxy endpoint and one-use capability", content: { "application/json": { schema: jsonSchema(z.object({ endpoint: z.url(), capability: z.string() }), "output") } } } },
-  }, (service, { body }) => service.issueCredentialProxyCapability(body.action), { body: z.object({ action: z.enum(["unlock", "lock", "apply", "status"]) }).strict(), ownerSession: true, maxBodyBytes: 1024 }),
-  route("POST", "/api/v1/model-accounts/{accountId}/browser-capability", "integrations:write", {
-    summary: "Issue a short-lived browser capability for a paired model account",
-    description: "Requires an interactive owner browser session. Returns a single-use, 60-second capability scoped to the account, action, proxy boot and exact application origin. The browser sends it directly to the paired proxy; Factorize never receives model-account tokens.",
-    responses: { "200": { description: "Paired proxy endpoint and one-use capability", content: { "application/json": { schema: jsonSchema(z.object({ endpoint: z.url(), capability: z.string() }), "output") } } } },
-  }, (service, { params, body }) => service.issueModelAccountBrowserCapability(params.accountId, body.action), { body: modelAccountBrowserCapabilityInput, maxBodyBytes: 1024, ownerSession: true, parameters: z.object({ accountId: z.uuid() }) }),
-  route("GET", "/api/v1/unlock-key/verification", "integrations:read", { summary: "Get the current encrypted unlock-key verification record", description: "Requires an interactive owner browser session. Returns user-encrypted verification ciphertext and its key generation; the unlock key is never accepted or returned.", responses: { "200": { description: "Encrypted verification record or empty setup state", content: { "application/json": { schema: jsonSchema(unlockKeyVerification, "output") } } } } }, service => service.getUnlockKeyVerification(), { ownerSession: true }),
-  route("POST", "/api/v1/unlock-key/verification", "integrations:write", { summary: "Create the encrypted unlock-key verification record", description: "Requires an interactive owner browser session. Stores only browser-encrypted verification ciphertext and permits one setup per account.", responses: { "200": { description: "Created verification record", content: { "application/json": { schema: jsonSchema(z.object({ generationId: z.uuid() }), "output") } } } } }, (service, { body }) => service.createUnlockKeyVerification(body), { body: unlockKeyVerificationInput, maxBodyBytes: 8192, ownerSession: true }),
-  route("GET", "/api/v1/unlock-key/rotation-snapshot", "integrations:read", { summary: "Get encrypted state for owner key rotation", description: "Owner browser session only. Returns encrypted records, tombstones, and pending change history for local re-encryption; plaintext credentials and unlock keys are never returned.", responses: { "200": { description: "Encrypted rekey snapshot", content: { "application/json": { schema: jsonSchema(unlockKeyRotationSnapshot, "output") } } } } }, service => service.getUnlockKeyRotationSnapshot(), { ownerSession: true }),
-  route("POST", "/api/v1/unlock-key/rotation", "integrations:write", {
-    summary: "Atomically replace the unlock-key generation",
-    description: "Owner browser session only. Commits a revision-checked encrypted generation and verification record, revokes grants, consumes enrollments, and locks the proxy. Fly connection and execution configuration are preserved.",
-    responses: { "200": { description: "Key generation replaced", content: { "application/json": { schema: jsonSchema(z.object({ generationId: z.uuid(), revision: z.number().int().nonnegative(), duplicate: z.boolean() }), "output") } } } },
-  }, (service, { body }) => service.replaceUnlockKeyGeneration(body), { body: unlockKeyGenerationReplacement, maxBodyBytes: 12_000_000, ownerSession: true }),
   route("GET", "/api/v1/integrations/bearer", "flows:read", {
     summary: "List bearer integration metadata",
     description: "Requires an interactive owner browser session. Returns secret-safe metadata only; stored bearer credentials are never returned.",

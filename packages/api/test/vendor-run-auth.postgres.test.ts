@@ -6,7 +6,7 @@ import { issueArtifactUploadGrant } from "../src/artifact-upload";
 import { snapshotRunAuthorization } from "../src/run-authorizations";
 import { authenticateVendorRunRequest } from "../src/vendor-run-auth";
 import { exeWifIntegrationNameFor, vmNameFor } from "../src/exe-vm-backend";
-import { EncryptedIntegrationRepository } from "../src/postgres/encrypted-integration-repository";
+import { CredentialRepository } from "../src/postgres/credential-repository";
 import { GitHubRepository } from "../src/postgres/github-repository";
 import { ConnectionRepository } from "../src/postgres/connection-repository";
 import worker from "../src/worker";
@@ -124,10 +124,10 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
   });
 
   it("forwards only the run's selected managed bearer and stops after disconnect or cancellation", async () => {
-    const records = new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    const records = new CredentialRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
     const id = crypto.randomUUID(), otherId = crypto.randomUUID();
     await records.write({id, kind: "bearer", name: "selected", origin: "https://selected.example.com", description: null, expectedRevision: await records.revision(), idempotencyKey: crypto.randomUUID(), operation: "upsert", managedSecret: "selected-secret"});
-    await new EncryptedIntegrationRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY).write({id: otherId, kind: "bearer", name: "other", origin: "https://other.example.com", description: null, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), operation: "upsert", managedSecret: "other-tenant-secret"});
+    await new CredentialRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY).write({id: otherId, kind: "bearer", name: "other", origin: "https://other.example.com", description: null, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), operation: "upsert", managedSecret: "other-tenant-secret"});
     await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config || $3::jsonb WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, JSON.stringify({portableIntegrationIds: [id]})]);
     const vendorFetch = globalThis.fetch;
     const outbound: string[] = [];
@@ -208,7 +208,7 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
   });
 
   it("refreshes the selected model server-side, streams it, restores after restart, and revokes on disconnect", async () => {
-    const records = new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    const records = new CredentialRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
     const id = crypto.randomUUID();
     const access = (exp: number) => `${encode({alg: "none"})}.${encode({exp})}.upstream-fixture`;
     const old = access(Math.floor(Date.now()/1000)-5), renewed = access(Math.floor(Date.now()/1000)+3600);
@@ -233,7 +233,7 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     const call = () => worker.fetch(new Request(request(jwt, f.runId, `/internal/run-proxy/${f.runId}/providers/model/v1/responses`), {method: "POST", body: "model-input"}), f.env, {waitUntil() {}} as any);
     const concurrent = await Promise.all([call(), call()]);
     for (const response of concurrent) expect(await response.text()).toBe("data: model-stream\n\n");
-    const restored = await new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(id, "model");
+    const restored = await new CredentialRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).managedCredential(id, "model");
     expect(JSON.parse(restored!.payload).tokens.refresh_token).toBe("rotated-refresh");
     expect((await call()).status).toBe(200);
     expect(refreshes).toBe(1);

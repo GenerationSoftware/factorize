@@ -9,8 +9,6 @@ import { traceChunkCommand } from "./guest-artifact-commands";
 import { runArtifactTarget } from "./run-artifact-target";
 import { assertExeVmIsolation } from "./exe-vm-isolation";
 import { RUN_IDENTITY_GUEST_HELPER } from "./run-identity-guest-helper";
-import { ExeRunProxy } from "./exe-run-proxy";
-import { runProxyName } from "./run-credentials";
 import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
 
 const API = "https://exe.dev/exec";
@@ -67,7 +65,7 @@ export class ExeVmBackend implements ExecutionBackend {
     private readonly vendorIdentityVerifier?: (input: { provider: "exe.dev" | "fly.io"; vmId: string; token: string; integrationName?: string; expectedIssuer?: string; expectedSubject?: string }) => Promise<void>,
   ) {}
 
-  reserve(runId: string): RunHandle { return { backendKind: this.kind, id: vmNameFor(runId), runProxyName: runProxyName(runId), operationId: runId, vendorIdentityIntegrationName: exeWifIntegrationNameFor(runId) }; }
+  reserve(runId: string): RunHandle { return { backendKind: this.kind, id: vmNameFor(runId), operationId: runId, vendorIdentityIntegrationName: exeWifIntegrationNameFor(runId) }; }
 
   private async exeWifToken(vm: string, integrationName: string): Promise<string> {
     const command = `curl --fail --silent --show-error https://${integrationName}.int.exe.xyz/token | python3 -c 'import json,sys;v=json.load(sys.stdin);t=v.get("token");sys.stdout.write(t if isinstance(t,str) else "")'`;
@@ -223,21 +221,7 @@ export class ExeVmBackend implements ExecutionBackend {
     if (request.runIdentity) {
       if (!(request.verifyVendorIdentity ?? this.vendorIdentityVerifier)) throw new Error("Vendor identity verification is required for run access");
       handle.identityProxyOrigin = request.runIdentity.backendOrigin;
-      delete handle.runProxyName;
       await assertExeVmIsolation({execute: command => this.api(command), vm, backendOrigin: request.runIdentity.backendOrigin, tags: this.connection.tags ?? []});
-    }
-    let proxy: ExeRunProxy | undefined, plan: Awaited<ReturnType<ExeRunProxy["prepare"]>> | undefined;
-    if (request.runProxy) {
-      try {
-        proxy = new ExeRunProxy(command => this.api(command));
-        plan = await proxy.prepare(request.runId);
-        if (plan.exists) handle.runProxyName = plan.name;
-        // Check before VM creation: even image boot processes must not inherit
-        // a shared Factorize credential while provisioning is in progress.
-        await proxy.assertIsolated(vm, request.runId, request.runProxy.targetOrigin, this.connection.tags);
-      } catch (error) {
-        return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail: error instanceof Error ? error.message : "Run proxy preflight failed" } };
-      }
     }
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const image = connection.image;
@@ -245,18 +229,6 @@ export class ExeVmBackend implements ExecutionBackend {
     if (!created.ok) {
       await this.deleteVm(vm).catch(() => undefined);
       throw new Error(`exe.dev VM creation failed (${created.status}): ${created.body.slice(0, 500)}`);
-    }
-
-    if (request.runProxy && proxy && plan) {
-      try {
-        handle.runProxyName = plan.name;
-        await proxy.provision(plan, vm, request.runProxy.targetOrigin, request.runProxy.credential);
-        await proxy.verify(vm, request.runId, request.runProxy.targetOrigin, this.connection.tags);
-      } catch (error) {
-        // Retain the handle even on a partial provision, so polling can retry
-        // ownership-safe proxy/VM cleanup before releasing the active slot.
-        return { handle, destinationUrl: `https://${vm}.exe.xyz/`, capabilities, observation: { state: "failed", detail: error instanceof Error ? error.message : "Run proxy provisioning failed" } };
-      }
     }
 
     const verifyVendorIdentity = request.verifyVendorIdentity ?? this.vendorIdentityVerifier;
@@ -417,19 +389,15 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async stop(handle: RunHandle): Promise<ExecutionObservation> {
     const vm = this.vm(handle);
-    let proxyError: string | undefined;
-    if (handle.runProxyName) {
-      try { await new ExeRunProxy(command => this.api(command)).remove(handle.runProxyName, vm.slice("factorize-".length)); }
-      catch { proxyError = "Run proxy cleanup failed; retry required"; }
-    }
+    let cleanupError: string | undefined;
     if (handle.vendorIdentityIntegrationName) {
       try {
         if (!handle.operationId) throw new Error("WIF run identity is unavailable");
         await this.removeExeWif(vm, handle.operationId, handle.vendorIdentityIntegrationName);
-      } catch { proxyError ??= "exe.dev WIF integration cleanup failed; retry required"; }
+      } catch { cleanupError ??= "exe.dev WIF integration cleanup failed; retry required"; }
     }
     const result = await this.deleteVm(vm);
-    return { state: result.ok && !proxyError ? "stopped" : "failed", detail: proxyError ?? (result.ok ? undefined : `VM deletion failed (${result.status}): ${result.body.slice(0, 300)}`), command: result };
+    return { state: result.ok && !cleanupError ? "stopped" : "failed", detail: cleanupError ?? (result.ok ? undefined : `VM deletion failed (${result.status}): ${result.body.slice(0, 300)}`), command: result };
   }
 
   private async deleteVm(vm: string): Promise<BackendCommandResult> {

@@ -2,7 +2,7 @@ import {afterAll, beforeAll, describe, expect, it, vi} from "vitest";
 import {loadingFixture} from "./helpers/loading-fixture";
 import {RunScheduler} from "../src/postgres/run-scheduler";
 import {protectedApiFetch} from "../src/protected-api";
-import {EncryptedIntegrationRepository} from "../src/postgres/encrypted-integration-repository";
+import {CredentialRepository} from "../src/postgres/credential-repository";
 import {RunRepository} from "../src/postgres/run-repository";
 
 vi.mock("cloudflare:workers", () => ({WorkerEntrypoint: class {}, DurableObject: class {}}));
@@ -25,7 +25,7 @@ describe.skipIf(!url)("run credential repair and cancellation (PostgreSQL)", () 
     expect(launch).not.toHaveBeenCalled();
     const blocked = (await f.db.pool.query("SELECT state,failure_code,execution_config,execution_handle FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
     expect(blocked).toMatchObject({state: "blocked", failure_code: "credential_repair_required", execution_handle: null, execution_config: snapshot});
-    const records = new EncryptedIntegrationRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    const records = new CredentialRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
     await records.write({id: replacement, kind: "bearer", name: "Re-entered", origin: "https://selected.example.com", description: null, managedSecret: "replacement-secret", expectedRevision: 0, idempotencyKey: crypto.randomUUID(), operation: "upsert"});
     await f.db.pool.query("UPDATE app.jobs SET execution_config=$3,run_scopes='[]' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.jobIds[0], {...snapshot, portableIntegrationIds: [replacement]}]);
     expect(await new RunRepository(f.db).retryBlockedLaunch(f.tenantId, f.runId)).toBe(true);

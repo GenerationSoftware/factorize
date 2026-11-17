@@ -5,7 +5,7 @@ import { IdentityRepository } from "../src/postgres/identity-repository";
 import { PostgresJobRepository } from "../src/postgres/job-repository";
 import { JobSummaryRepository } from "../src/postgres/job-summary-repository";
 import { ConnectionRepository } from "../src/postgres/connection-repository";
-import { EncryptedIntegrationRepository } from "../src/postgres/encrypted-integration-repository";
+import { CredentialRepository } from "../src/postgres/credential-repository";
 import { FlyConnectionRepository } from "../src/postgres/fly-connection-repository";
 import { FlyExecutionConfigurationRepository } from "../src/postgres/fly-execution-configuration-repository";
 import { GitHubRepository } from "../src/postgres/github-repository";
@@ -120,8 +120,8 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
   it("persists explicit integration and model selections and snapshots them at invocation", async () => {
     const service = new ApiService(env, auth);
     const write = async (kind: "bearer" | "model", name: string, owner = tenantId) => {
-      const repository = new EncryptedIntegrationRepository(db, owner, env.CREDENTIAL_ENCRYPTION_KEY), id = crypto.randomUUID();
-      await repository.write({ id, idempotencyKey: crypto.randomUUID(), expectedRevision: await repository.revision(), operation: "upsert", kind, name, origin: kind === "bearer" ? "https://api.example.test" : null, description: null, encryptedPayload: await encrypt("fixture", env.CREDENTIAL_ENCRYPTION_KEY) });
+      const repository = new CredentialRepository(db, owner, env.CREDENTIAL_ENCRYPTION_KEY), id = crypto.randomUUID();
+      await repository.write({ id, idempotencyKey: crypto.randomUUID(), expectedRevision: await repository.revision(), operation: "upsert", kind, name, origin: kind === "bearer" ? "https://api.example.test" : null, description: null, ...(kind === "bearer" ? {managedSecret: "fixture"} : {managedModelPayload: JSON.stringify({OPENAI_API_KEY:"fixture-model-key"})}) });
       return id;
     };
     const bearerA = await write("bearer", "Tools A"), bearerB = await write("bearer", "Tools B");

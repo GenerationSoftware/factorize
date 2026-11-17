@@ -20,13 +20,8 @@ function fixture() {
     upload: vi.fn(async (_path: string, _bytes: Uint8Array) => undefined),
     download: vi.fn(async (path: string) => new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "saved log")),
   };
-  const proxyGuest = {
-    run: vi.fn(async () => ({ ok: true, exitCode: 0, stdout: "Run credential delivered to proxy memory\n", stderr: "" })),
-    issueVmCertificate: vi.fn(async () => ({ certificate: "-----BEGIN CERTIFICATE-----\npublic\n-----END CERTIFICATE-----", trustBundle: "-----BEGIN CERTIFICATE-----\nroot\n-----END CERTIFICATE-----" })),
-  };
-  const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest,
-    proxyIdentity: "fly:factorize-test:proxy-1", proxyBootEpoch: "22222222-2222-4222-8222-222222222222", proxyGuest });
-  return { backend, machines, guest, proxyGuest };
+  const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest });
+  return { backend, machines, guest };
 }
 
 describe("Fly job execution backend", () => {
@@ -90,7 +85,6 @@ describe("Fly job execution backend", () => {
     const result = await backend.launch({runId, prompt: "work", runIdentity: {backendOrigin: "https://factorize.example.com"}});
     expect(result.observation.state).toBe("running");
     expect(prepare.mock.invocationCallOrder[0]).toBeLessThan(f.machines.createMachine.mock.invocationCallOrder[0]!);
-    expect(f.proxyGuest.run).not.toHaveBeenCalled();
     expect(f.guest.upload.mock.calls.map(([name]) => name)).toContain("/run/factorize-identity/proxy.mjs");
     const config = f.guest.upload.mock.calls.find(([name]) => name === "/run/factorize-identity/config.json")!;
     expect(JSON.parse(new TextDecoder().decode(config[1]))).toEqual({runId, backendOrigin: "https://factorize.example.com", provider: "fly.io", localPort: 18180});
@@ -234,7 +228,7 @@ describe("Fly job execution backend", () => {
     expect(receipt.handle).toMatchObject({ backendKind: "fly", id: "factorize-test/machine-1" });
     expect(receipt.observation).toMatchObject({
       state: "failed",
-      detail: "Fly guest is missing python3, runuser, or the exedev user, or could not install the shared Factorize job launcher",
+      detail: "Fly guest is missing the shared launcher or vendor identity helper prerequisites",
       failure: { code: "launch_failed", reason: "Fly guest launch failed" },
     });
     expect(f.guest.run).toHaveBeenCalledOnce();
@@ -281,24 +275,6 @@ describe("Fly job execution backend", () => {
 
     expect(f.machines.stopMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
     expect(f.machines.destroyMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
-  });
-
-  it("delivers the scoped run credential to proxy memory before starting the VM and omits it from guest payload", async () => {
-    const f = fixture();
-    const runId = "11111111-1111-4111-8111-111111111111";
-    const credential = `fzt_run_${Buffer.from(runId).toString("base64url")}_${"R".repeat(43)}`;
-    await f.backend.launch({ runId, prompt: "task", runProxy: { targetOrigin: "https://factorize.example", credential } });
-    expect(f.proxyGuest.run).toHaveBeenCalledOnce();
-    expect(f.proxyGuest.run).toHaveBeenCalledWith(["/usr/local/bin/factorize-proxy-authorize-run"], expect.stringContaining(`"credential":"${credential}"`));
-    expect(f.proxyGuest.run.mock.invocationCallOrder[0]).toBeLessThan(f.machines.startMachine.mock.invocationCallOrder[0]);
-    expect(f.proxyGuest.issueVmCertificate).toHaveBeenCalledWith(expect.objectContaining({
-      bootEpoch: "22222222-2222-4222-8222-222222222222", vmIdentity: "fly:factorize-test:machine-1",
-    }));
-    expect(f.guest.upload).toHaveBeenCalledWith("/home/exedev/.factorize-job/proxy/tunnel.mjs", expect.any(Uint8Array));
-    expect(f.guest.run.mock.calls.some(([command]) => command.includes("FACTORIZE_PROXY_URL=http://127.0.0.1:18180"))).toBe(true);
-    const payload = String(f.guest.run.mock.calls.at(-1)?.[1] ?? "");
-    expect(payload).not.toContain(credential);
-    expect(payload).toContain(runId);
   });
 
   it("destroys a stopped Machine after confirming provider state", async () => {

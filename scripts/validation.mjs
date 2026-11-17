@@ -20,11 +20,11 @@ const lanes = {
     ["application unit checks", "npm", ["test", "--workspace=factorize-app"], 240_000],
   ],
   docker: [
-    ["Docker credential-proxy code-job E2E", "npm", ["run", "test:docker"], 300_000],
+    ["Docker vendor-identity code-job E2E", "npm", ["run", "test:docker"], 300_000],
   ],
   proxy: [
     ["portable proxy harness checks", process.execPath, ["--test", "scripts/validation-runner.test.mjs"], 30_000],
-    ["credential proxy checks", process.execPath, ["--test", "packages/credential-proxy/test/*.test.mjs"], 30_000],
+    ["backend proxy protocol checks", "npm", ["test", "--workspace=factorize", "--", "--run", "test/run-outbound-forwarder.test.ts", "test/run-identity-guest-helper.test.ts", "test/vendor-run-identity.test.ts"], 60_000],
   ],
 };
 

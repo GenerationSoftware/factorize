@@ -1,180 +1,131 @@
-import { expect, it, vi } from "vitest";
-import { execFileSync } from "node:child_process";
-import { generateKeyPairSync, randomUUID } from "node:crypto";
-import { readFile, readdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import {expect,it,vi} from "vitest";
+import {execFileSync} from "node:child_process";
+import {generateKeyPairSync,randomUUID} from "node:crypto";
+import {readFile,readdir,mkdtemp,rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import worker from "../src/worker";
-import { Database } from "../src/postgres/database";
-import { IdentityRepository } from "../src/postgres/identity-repository";
-import { signSession } from "../src/session";
-import { createDockerExecutionHost } from "../src/docker-execution-host";
-import { createLocalExecutionRunner } from "../src/local-execution-runner";
-import { createLocalArtifactStorage } from "../src/local-execution-storage";
-import { startLocalApiServer } from "../src/local-api-server";
-import { createDockerJobInfrastructure } from "../src/docker-job-infrastructure";
-import type { Env } from "../src/types";
+import {Database} from "../src/postgres/database";
+import {IdentityRepository} from "../src/postgres/identity-repository";
+import {FlyConnectionRepository} from "../src/postgres/fly-connection-repository";
+import {signSession} from "../src/session";
+import {FlyJobExecutionBackend} from "../src/fly-job-execution-backend";
+import {createLocalExecutionRunner} from "../src/local-execution-runner";
+import {createLocalArtifactStorage} from "../src/local-execution-storage";
+import {startLocalApiServer} from "../src/local-api-server";
+import {createDockerJobInfrastructure} from "./helpers/docker-job-infrastructure";
+import type {Env} from "../src/types";
+vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},DurableObject:class{}}));
+vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},AuthorizationError:class{},getOAuthApi:()=>({})}));
+const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8",timeout:30_000,maxBuffer:1024*1024}).trim();
+const wait=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 
-// Node has no Cloudflare platform classes. No application/backend/scheduler method is mocked.
-vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
-vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class {}, getOAuthApi: () => ({}) }));
-
-const docker = (...args: string[]) => {
-  try { return execFileSync("docker", args, { timeout: 30_000, maxBuffer: 1024 * 1024, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(); }
-  catch { throw new Error(`Docker fixture ${args[0]} failed; command arguments and output withheld`); }
-};
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-async function until<T>(read: () => Promise<T>, ready: (value: T) => boolean, label: string, ms = 15_000) {
-  const end = Date.now() + ms;
-  while (Date.now() < end) { const value = await read(); if (ready(value)) return value; await wait(100); }
-  throw new Error(`Deadline exceeded: ${label}`);
-}
-
-it("runs saved code through the real API, encrypted grant, mTLS proxy and scheduler cleanup", async () => {
-  if (!process.env.AUTH_TEST_DATABASE_URL || !process.env.FACTORIZE_E2E_TLS_DIR) throw new Error("Run npm run test:docker after npm run bootstrap:test");
-  const tlsDirectory = process.env.FACTORIZE_E2E_TLS_DIR;
-  const namespace = process.env.FACTORIZE_E2E_NAMESPACE ?? `fz-${randomUUID()}`;
-  const jobNetwork = `${namespace}-jobs`, upstreamNetwork = `${namespace}-api`;
-  const databaseName = process.env.FACTORIZE_E2E_DATABASE ?? `docker_e2e_${randomUUID().replaceAll("-", "")}`;
-  if (!/^docker_e2e_[a-f0-9]{32}$/.test(databaseName)) throw new Error("Invalid isolated E2E database name");
-  const admin = new Database({ connectionString: process.env.AUTH_TEST_DATABASE_URL });
-  const address = new URL(process.env.AUTH_TEST_DATABASE_URL); address.pathname = `/${databaseName}`;
-  const db = new Database({ connectionString: address.href });
-  const storageDirectory = await mkdtemp(join(tmpdir(), "factorize-artifacts-"));
-  const ownerId = randomUUID(), userId = randomUUID(), marker = randomUUID();
-  const upstreamSecret = `synthetic-${randomUUID()}`;
-  const jobImage = process.env.FACTORIZE_E2E_JOB_IMAGE!, proxyImage = process.env.FACTORIZE_E2E_PROXY_IMAGE!;
-  const keypair = generateKeyPairSync("ed25519");
-  let api: Awaited<ReturnType<typeof startLocalApiServer>> | undefined;
-  let runner: ReturnType<typeof createLocalExecutionRunner> | undefined;
-  let fakeId: string | undefined;
-  let createdDatabase = false;
-  try {
-    await admin.pool.query(`CREATE DATABASE ${databaseName}`); createdDatabase = true;
-    const migrations = new URL("../migrations/", import.meta.url);
-    for (const file of (await readdir(migrations)).filter(file => file.endsWith(".sql")).sort()) await db.pool.query(await readFile(new URL(file, migrations), "utf8"));
-    await new IdentityRepository(db, ownerId).upsertOwner(userId, "docker-owner@example.test");
-    docker("network", "create", jobNetwork);
-    docker("network", "create", "--internal", upstreamNetwork);
-    fakeId = docker("run", "-d", "--network", upstreamNetwork, "--name", `${namespace}-fake`,
-      "--label", `sh.factorize.test.namespace=${namespace}`,
-      "--mount", `type=bind,source=${tlsDirectory},target=/fixture-tls,readonly`,
-      "--mount", `type=bind,source=${resolve("test/fixtures/docker-fake-api.mjs")},target=/fake-api.mjs,readonly`,
-      "-e", `EXPECTED_BEARER=${upstreamSecret}`, "-e", `MARKER=${marker}`, jobImage, "node", "/fake-api.mjs");
-    const fakeInfo = JSON.parse(docker("inspect", fakeId))[0];
-    const fakeAddress = fakeInfo.NetworkSettings.Networks[upstreamNetwork].IPAddress;
-    const readReceipts = () => JSON.parse(docker("exec", "-e", "NODE_EXTRA_CA_CERTS=/fixture-tls/ca.crt", fakeId!, "node", "-e", "fetch('https://localhost:8443/receipt',{signal:AbortSignal.timeout(3000)}).then(r=>r.text()).then(console.log)"));
-    const upstreamOrigin = "https://fake-api.local:8443";
-    await until(async () => { try { return readReceipts(); } catch { return null; } }, v => v !== null, "fake API readiness");
-    const env = { DATABASE: db, APP_ORIGIN: "", CREDENTIAL_ENCRYPTION_KEY: btoa("a".repeat(32)), SESSION_SIGNING_SECRET: `session-${randomUUID()}`,
-      MODEL_ACCOUNT_CAPABILITY_PRIVATE_KEY: keypair.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
-      MODEL_ACCOUNT_CAPABILITY_PUBLIC_KEY: keypair.publicKey.export({ type: "spki", format: "pem" }).toString(),
-      TEST_DOCKER_EXECUTION: { enabled: true, image: jobImage }, RUN_ARTIFACTS: createLocalArtifactStorage(storageDirectory),
-    } as unknown as Env;
-    api = await startLocalApiServer({ key: await readFile(join(tlsDirectory, "server.key")), cert: await readFile(join(tlsDirectory, "server.crt")),
-      fetch: request => worker.fetch(request, env, { waitUntil() {} } as any) });
-    env.APP_ORIGIN = `https://${process.env.FACTORIZE_E2E_HOST_IP ?? "172.17.0.1"}:${api.port}`;
-    const jobInputs: string[] = [];
-    let destructionEvidence: { marker: string; storedLog: boolean } | undefined;
-    const host = createDockerExecutionHost({ observeJobDestruction: async id => {
-      const result = await db.pool.query(`SELECT r.job_result, EXISTS(SELECT 1 FROM app.run_artifacts a WHERE a.tenant_id=r.tenant_id AND a.run_id=r.id AND a.kind='terminal_log' AND a.state='stored') AS stored_log
-        FROM app.runs r WHERE tenant_id=$1 AND execution_handle->>'id'=$2`, [ownerId, `${namespace}-jobs/${id}`]);
-      destructionEvidence = { marker: result.rows[0]?.job_result?.outputs?.marker, storedLog: result.rows[0]?.stored_log };
-    }, observeJobInput: (_command, input) => { if (input) jobInputs.push(typeof input === "string" ? input : new TextDecoder().decode(input)); }, testMode: true, database: db, env, namespace, jobNetwork, upstreamNetwork, jobImage, proxyImage, tlsDirectory, upstreamOrigin, upstreamAddress: fakeAddress });
-    env.CREDENTIAL_PROXY_HOST = host;
-    const member = await new IdentityRepository(db, ownerId).member(userId);
-    const cookie = `factorize_session=${await signSession({ tenantId: ownerId, userId, email: "docker-owner@example.test", sessionVersion: member!.sessionVersion, exp: Math.floor(Date.now()/1000)+600 }, env.SESSION_SIGNING_SECRET)}`;
-    const request = (path: string, method = "GET", body?: unknown) => fetch(env.APP_ORIGIN + "/api/v1" + path, { method, headers: { Cookie: cookie, Origin: env.APP_ORIGIN, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(20_000) });
-    const json = async (path: string, method = "GET", body?: unknown) => { const response = await request(path, method, body); const value = await response.json(); if (!response.ok) throw new Error(`API ${method} ${path}: ${response.status} ${JSON.stringify(value)}`); return value as any; };
-    const project = await json("/projects", "POST", { name: "Docker test" });
-    const integrationId = randomUUID(), generationId = randomUUID();
-    const keyBytes = crypto.getRandomValues(new Uint8Array(32)), unlockKey = `fzk1.${Buffer.from(keyBytes).toString("base64url")}`;
-    const material = await crypto.subtle.importKey("raw", keyBytes, "HKDF", false, ["deriveKey"]);
-    const aes = await crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: new TextEncoder().encode("factorize.unlock-key.v1"), info: new TextEncoder().encode("factorize.record.aes-256-gcm.v1") }, material, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
-    async function encrypt(plain: string, id: string, kind: string, destination: string, revision: number) {
-      const nonce = crypto.getRandomValues(new Uint8Array(12));
-      const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce, additionalData: new TextEncoder().encode(JSON.stringify(["factorize-record-v1", userId, id, kind, destination, revision])) }, aes, new TextEncoder().encode(plain)));
-      return { nonce, ciphertext };
-    }
-    const verification = await encrypt("factorize-unlock-key-verification-v1", generationId, "unlock-verification", "factorize", 0);
-    await json("/unlock-key/verification", "POST", { generationId, encryptedVerification: JSON.stringify({ version: 1, algorithm: "A256GCM", nonce: Buffer.from(verification.nonce).toString("base64url"), ciphertext: Buffer.from(verification.ciphertext).toString("base64url") }) });
-    expect((await json("/unlock-key/verification")).verification.generationId).toBe(generationId);
-    await json("/integrations/bearer", "POST", { id: integrationId, expectedRevision: 0, idempotencyKey: randomUUID(), name: "Fake API", origin: upstreamOrigin, description: null, token: upstreamSecret });
-    const script = `#!/bin/bash\nset -eu\nnode --input-type=module <<'JS'\nimport fs from 'node:fs';\nimport net from 'node:net';\nconst marker=${JSON.stringify(marker)};\nconst direct=await new Promise(resolve=>{const s=net.connect({host:${JSON.stringify(fakeAddress)},port:8443}); s.setTimeout(1000,()=>{s.destroy();resolve(false)});s.once('connect',()=>{s.destroy();resolve(true)});s.once('error',()=>resolve(false))});\nif(direct)throw new Error('network isolation failed');\nconst base=process.env.FACTORIZE_PROXY_URL;\nconst list=await (await fetch(base+'/integrations',{signal:AbortSignal.timeout(10000)})).json();\nconst integration=list.integrations.find(x=>x.id===${JSON.stringify(integrationId)});\nif(!integration)throw new Error('grant missing');\nconst r=await fetch(base+integration.endpoint+'echo/'+marker,{method:'POST',body:marker,signal:AbortSignal.timeout(10000)});\nif(!r.ok||(await r.json()).marker!==marker)throw new Error('response mismatch');\nconsole.log('executed:'+marker);\nfs.writeFileSync('/home/exedev/.factorize-job/evidence.txt',marker);\nawait new Promise(r=>setTimeout(r,1500));\nfs.writeFileSync(process.env.FACTORIZE_RESULT_PATH,JSON.stringify({status:'succeeded',outputs:{marker,directBlocked:true}}));\nJS\n`;
-    const jobInput = { name: "Docker code", slug: "docker-code", projectId: project.id, executionType: "code", script, executionConfigId: "docker", triggers: [{ kind: "manual", slug: "trigger-1", config: {} }] };
-    const enabled = env.TEST_DOCKER_EXECUTION;
-    delete env.TEST_DOCKER_EXECUTION;
-    expect((await request("/jobs", "POST", jobInput)).status).toBe(400);
-    env.TEST_DOCKER_EXECUTION = enabled;
-    expect((await request("/credential-proxy/browser-capability", "POST", { action: "unlock", key: unlockKey })).status).toBe(400);
-    const job = await json("/jobs", "POST", jobInput);
-    await json(`/jobs/${job.id}`, "PUT", { ...jobInput, portableIntegrationIds: [integrationId] });
-    const ungrantedId = randomUUID();
-    await json("/integrations/bearer", "POST", { id: ungrantedId, expectedRevision: 1, idempotencyKey: randomUUID(), name: "Ungranted", origin: upstreamOrigin, description: null, token: upstreamSecret });
-    const setup = await json("/credential-proxy/setup", "POST", { operationId: randomUUID() });
-    expect(setup.proxyIdentity.startsWith(`docker:${namespace}:`)).toBe(true);
-    const lifecycle = async (action: string, body: unknown = {}) => { const c = await json("/credential-proxy/browser-capability", "POST", { action }); return fetch(c.endpoint, { method: "POST", headers: { Authorization: `Bearer ${c.capability}`, Origin: env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) }); };
-    expect((await lifecycle("status")).status).toBe(200);
-    expect((await lifecycle("unlock", { key: unlockKey })).status).toBe(200);
-    expect((await lifecycle("apply")).status).toBe(200);
-    const invoked = await json(`/jobs/${job.id}/invocations`, "POST", {});
-    const runId = invoked.run?.id ?? invoked.runId ?? invoked.id;
-    expect(typeof runId).toBe("string");
-    runner = createLocalExecutionRunner(db, env, host.backendFactory);
+// Signed provider fixtures exercise the production verifier, helper, backend and
+// scheduler. They are test-local, and do not constitute live Fly verification.
+it("runs saved code through vendor identity, selected backend egress, artifacts and cleanup",async()=>{
+  const url=process.env.AUTH_TEST_DATABASE_URL!,tls=process.env.FACTORIZE_E2E_TLS_DIR!,namespace=process.env.FACTORIZE_E2E_NAMESPACE!;
+  if(!url||!tls||!namespace)throw new Error("Use npm run test:docker");
+  const databaseName=process.env.FACTORIZE_E2E_DATABASE!;
+  if(!/^docker_e2e_[a-f0-9]{32}$/.test(databaseName))throw new Error("Invalid isolated database");
+  const admin=new Database({connectionString:url}),address=new URL(url);address.pathname="/"+databaseName;
+  const db=new Database({connectionString:address.href}),storage=await mkdtemp(join(tmpdir(),"factorize-artifacts-"));
+  const tenantId=randomUUID(),userId=randomUUID(),marker=randomUUID(),secret="synthetic-"+randomUUID(),integrationId=randomUUID(),unselectedId=randomUUID();
+  const app=namespace+"-jobs",org="factorize-fixture",issuer="https://oidc.fly.io/"+org,network=namespace+"-jobs";
+  const pair=generateKeyPairSync("rsa",{modulusLength:2048}),jwk={...pair.publicKey.export({format:"jwk"}),kid:"docker-fixture",alg:"RS256",use:"sig"};
+  const originalFetch=globalThis.fetch,receipts:unknown[]=[];
+  let created=false,api:Awaited<ReturnType<typeof startLocalApiServer>>|undefined,runner:ReturnType<typeof createLocalExecutionRunner>|undefined;
+  let destructionEvidence:unknown;
+  try{
+    await admin.pool.query(`CREATE DATABASE ${databaseName}`);created=true;
+    const migrations=new URL("../migrations/",import.meta.url);
+    for(const file of(await readdir(migrations)).filter(f=>f.endsWith(".sql")).sort())await db.pool.query(await readFile(new URL(file,migrations),"utf8"));
+    await new IdentityRepository(db,tenantId).upsertOwner(userId,"docker-owner@example.test");
+    docker("network","create",network);
+    const env={DATABASE:db,APP_ORIGIN:"",CREDENTIAL_ENCRYPTION_KEY:btoa("a".repeat(32)),SESSION_SIGNING_SECRET:randomUUID(),TEST_DOCKER_EXECUTION:{enabled:true,image:process.env.FACTORIZE_E2E_JOB_IMAGE!},RUN_ARTIFACTS:createLocalArtifactStorage(storage)} as Env;
+    await new FlyConnectionRepository(db,tenantId,env.CREDENTIAL_ENCRYPTION_KEY).save({organizationSlug:org,organizationName:"Fixture"},"fixture-control-token");
+    vi.stubGlobal("fetch",async(input:RequestInfo|URL,init?:RequestInit)=>{
+      const target=String(input instanceof Request?input.url:input);
+      if(target===issuer+"/.well-known/openid-configuration")return Response.json({issuer,jwks_uri:issuer+"/jwks"});
+      if(target===issuer+"/jwks")return Response.json({keys:[jwk]});
+      if(target.startsWith("https://fixture-upstream.example.com/")){
+        const headers=new Headers(init?.headers);
+        expect(headers.get("Authorization")).toBe("Bearer "+secret);
+        expect(headers.has("X-Factorize-Run-Id")).toBe(false);
+        const body=await new Response(init?.body).text();receipts.push({path:new URL(target).pathname,body});
+        return Response.json({marker});
+      }
+      return originalFetch(input,init);
+    });
+    api=await startLocalApiServer({key:await readFile(join(tls,"server.key")),cert:await readFile(join(tls,"server.crt")),fetch:request=>worker.fetch(request,env,{waitUntil(){}} as any)});
+    env.APP_ORIGIN=`https://${process.env.FACTORIZE_E2E_HOST_IP}:${api.port}`;
+    const member=await new IdentityRepository(db,tenantId).member(userId);
+    const cookie="factorize_session="+await signSession({tenantId,userId,email:"docker-owner@example.test",sessionVersion:member!.sessionVersion,exp:Math.floor(Date.now()/1000)+600},env.SESSION_SIGNING_SECRET);
+    const request=(path:string,method="GET",body?:unknown)=>originalFetch(env.APP_ORIGIN+"/api/v1"+path,{method,headers:{Cookie:cookie,Origin:env.APP_ORIGIN,"Content-Type":"application/json"},...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const json=async(path:string,method="GET",body?:unknown)=>{const r=await request(path,method,body),v=await r.json() as any;if(!r.ok)throw new Error(`${method} ${path}: ${r.status} ${JSON.stringify(v)}`);return v;};
+    const project=await json("/projects","POST",{name:"Docker vendor test"});
+    for(const [index,id] of[integrationId,unselectedId].entries())await json("/integrations/bearer","POST",{id,expectedRevision:index,idempotencyKey:randomUUID(),name:"Fixture "+index,origin:"https://fixture-upstream.example.com",description:null,token:secret});
+    const script=`#!/bin/bash
+set -eu
+node --input-type=module <<'JS'
+import fs from 'node:fs';
+const base=process.env.FACTORIZE_PROXY_URL;
+const list=await(await fetch(base+'/integrations')).json();
+if(list.integrations.length!==1||list.integrations[0].id!==${JSON.stringify(integrationId)})throw new Error('selection mismatch');
+const r=await fetch(base+'/integrations/${integrationId}/echo/${marker}',{method:'POST',body:${JSON.stringify(marker)}});
+if(!r.ok||(await r.json()).marker!==${JSON.stringify(marker)})throw new Error('egress failed');
+console.log('executed:${marker}');
+while(!fs.existsSync('/tmp/finish-test'))await new Promise(r=>setTimeout(r,100));
+fs.writeFileSync(process.env.FACTORIZE_RESULT_PATH,JSON.stringify({status:'succeeded',outputs:{marker:${JSON.stringify(marker)}}}));
+JS
+`;
+    const job=await json("/jobs","POST",{name:"Docker code",slug:"docker-code",projectId:project.id,executionType:"code",script,executionConfigId:"docker",portableIntegrationIds:[integrationId],triggers:[{kind:"manual",slug:"trigger-1",config:{}}]});
+    const invoked=await json(`/jobs/${job.id}/invocations`,"POST",{}),runId=invoked.runId;
+    const infrastructure=createDockerJobInfrastructure({testMode:true,namespace:app,network,beforeDestroy:async id=>{
+      const r=(await db.pool.query("SELECT job_result,artifact_state FROM app.runs WHERE tenant_id=$1 AND id=$2",[tenantId,runId])).rows[0];destructionEvidence={marker:r.job_result?.outputs?.marker,artifactState:r.artifact_state};
+    }});
+    const guests=new Map<string,ReturnType<typeof infrastructure.guest>>();
+    const guest=(id:string)=>{
+      let saved=guests.get(id);if(saved)return saved;
+      const raw=infrastructure.guest(id);let initialized:Promise<void>|undefined;
+      const prepare=()=>initialized??=(async()=>{
+        await raw.upload!("/tmp/fixture-ca.crt",new Uint8Array(await readFile(join(tls,"ca.crt"))));
+        // This signing key exists only inside this isolated fixture. Production
+        // trusts Fly's JWKS; it cannot accept this test issuer key.
+        const source=`const http=require('node:http'),crypto=require('node:crypto');const key=${JSON.stringify(pair.privateKey.export({type:"pkcs8",format:"pem"}).toString())};require('node:fs').mkdirSync('/.fly',{recursive:true});http.createServer((req,res)=>{let body='';req.on('data',c=>body+=c);req.on('end',()=>{const now=Math.floor(Date.now()/1000),h=Buffer.from(JSON.stringify({alg:'RS256',kid:'docker-fixture'})).toString('base64url'),p=Buffer.from(JSON.stringify({iss:${JSON.stringify(issuer)},sub:${JSON.stringify(org+":"+app+":"+app+"-"+runId)},aud:JSON.parse(body).aud,machine_id:${JSON.stringify(id)},iat:now,exp:now+120})).toString('base64url'),data=h+'.'+p;res.end(data+'.'+crypto.sign('RSA-SHA256',Buffer.from(data),key).toString('base64url'));});}).listen('/.fly/api');`;
+        await raw.upload!("/tmp/vendor-fixture.cjs",new TextEncoder().encode(source));
+        const started=await raw.run(["sh","-c","nohup node /tmp/vendor-fixture.cjs >/tmp/vendor-fixture.log 2>&1 </dev/null & sleep 0.3"]);expect(started.ok).toBe(true);
+      })();
+      saved={...raw,run:async(command,input)=>{await prepare();return raw.run(["env","NODE_EXTRA_CA_CERTS=/tmp/fixture-ca.crt",...command],input);}};guests.set(id,saved);return saved;
+    };
+    const backend=new FlyJobExecutionBackend({app,organizationSlug:org,image:process.env.FACTORIZE_E2E_JOB_IMAGE!,region:"iad",size:"shared-cpu-1x",machines:infrastructure.machines,guest:machine=>guest(machine.id)});
+    runner=createLocalExecutionRunner(db,env,async()=>backend);
     await runner.tick();
-    const row = (await db.pool.query("SELECT execution_handle,execution_diagnostics FROM app.runs WHERE tenant_id=$1 AND id=$2", [ownerId, runId])).rows[0];
-    if (row.execution_diagnostics?.state === "failed") throw new Error(row.execution_diagnostics.detail);
-    expect(row.execution_handle.backendKind).toBe("docker");
-    const containerId = row.execution_handle.id.split("/")[1];
-    const containerConfig = docker("inspect", containerId);
-    const inspected = JSON.parse(containerConfig)[0];
-    expect(inspected.Config.Image).toBe(jobImage);
-    expect(inspected.Mounts).toEqual([]);
-    expect(inspected.HostConfig.Privileged).toBe(false);
-    expect(inspected.Config.Labels["sh.factorize.test.operation"]).toBe(runId);
-    expect(containerConfig.includes(upstreamSecret)).toBe(false);
-    expect(/fzt_run_|fzc_/.test(containerConfig)).toBe(false);
-    const guest = createDockerJobInfrastructure({ testMode: true, namespace: `${namespace}-jobs`, network: jobNetwork }).guest(containerId);
-    const surfaces = await guest.run(["sh", "-c", "find /home/exedev/.factorize-job -type f -exec cat {} \\; ; cat /tmp/factorize.log /tmp/factorize.stderr 2>/dev/null || true; for environment in /proc/[0-9]*/environ; do cat \"$environment\" 2>/dev/null || true; done"]);
-    expect(surfaces.stdout.includes(upstreamSecret)).toBe(false);
-    expect(/fzt_run_|fzc_/.test(surfaces.stdout)).toBe(false);
-    expect(jobInputs.some(input => input.includes('"code"'))).toBe(true);
-    for (const input of jobInputs) { expect(input.includes(upstreamSecret)).toBe(false); expect(/fzt_run_|fzc_/.test(input)).toBe(false); }
-    await until(async () => (await guest.run(["test", "-s", "/home/exedev/.factorize-job/results.json"])).ok,
-      ready => ready, "saved code finishes its correlated request", 20_000);
-    // The same real run/tunnel must deny access to a saved but ungranted integration.
-    const denied = await guest.run(["runuser", "-u", "exedev", "--", "node", "-e", `fetch('http://127.0.0.1:18180/integrations/${ungrantedId}/echo/${marker}',{method:'POST',body:'${marker}',signal:AbortSignal.timeout(3000)}).then(r=>console.log(r.status))`]);
-    expect(denied.stdout.trim()).toBe("403");
-    const beforeLock = readReceipts().length;
-    expect((await lifecycle("lock")).status).toBe(200);
-    const locked = await guest.run(["runuser", "-u", "exedev", "--", "node", "-e", `fetch('http://127.0.0.1:18180/integrations/${integrationId}/echo/${marker}',{method:'POST',body:'${marker}',signal:AbortSignal.timeout(1200)}).then(r=>console.log(r.status)).catch(()=>console.log('denied'))`]);
-    expect(["423", "denied"]).toContain(locked.stdout.trim());
-    expect(readReceipts().length).toBe(beforeLock);
-    expect((await lifecycle("unlock", { key: unlockKey })).status).toBe(200);
-    await until(async () => { await runner!.tick(); return (await db.pool.query("SELECT state,artifact_state,failure_code,failure_reason FROM app.runs WHERE tenant_id=$1 AND id=$2", [ownerId, runId])).rows[0]; }, row => ["succeeded", "failed", "stopped"].includes(row.state), "normal scheduler finalization", 60_000).then(row => { if (row.state !== "succeeded" || row.artifact_state !== "stored") throw new Error(`Finalization: ${JSON.stringify(row)}`); });
-    expect(destructionEvidence).toEqual({ marker, storedLog: true });
-    expect(docker("ps", "-aq", "--filter", `id=${containerId}`)).toBe("");
-    const receipt = readReceipts();
-    expect(receipt).toEqual([{ credentialMatched: true, method: "POST", path: `/echo/${marker}`, body: marker }]);
-    const artifacts = (await db.pool.query("SELECT kind,object_key FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2", [ownerId, runId])).rows;
-    expect(artifacts.some(row => row.kind === "terminal_log")).toBe(true);
-    const log = await env.RUN_ARTIFACTS!.get(artifacts.find(row => row.kind === "terminal_log").object_key);
-    expect((await log!.text()).includes(`executed:${marker}`)).toBe(true);
-    const persistedResult = (await db.pool.query("SELECT job_result FROM app.runs WHERE tenant_id=$1 AND id=$2", [ownerId, runId])).rows[0];
-    expect(persistedResult.job_result).toMatchObject({ status: "succeeded", outputs: { marker, directBlocked: true } });
-    for (const artifact of artifacts) {
-      const stored = await env.RUN_ARTIFACTS!.get(artifact.object_key);
-      const text = await stored!.text();
-      expect(text.includes(upstreamSecret)).toBe(false);
-      expect(/fzt_run_|fzc_/.test(text)).toBe(false);
-    }
-  } finally {
-    await runner?.close(); await api?.close();
-    const containers = docker("ps", "-aq", "--filter", `label=sh.factorize.test.namespace=${namespace}`).split("\n").filter(Boolean);
-    const jobs = docker("ps", "-aq", "--filter", `label=sh.factorize.test.namespace=${namespace}-jobs`).split("\n").filter(Boolean);
-    for (const id of [...containers, ...jobs]) docker("rm", "-f", id);
-    for (const network of [jobNetwork, upstreamNetwork]) { try { docker("network", "rm", network); } catch {} }
-    await db.close(); if (createdDatabase) await admin.pool.query(`DROP DATABASE ${databaseName} WITH (FORCE)`); await admin.close();
-    await rm(storageDirectory, { recursive: true, force: true });
+    const row=(await db.pool.query("SELECT execution_handle,execution_diagnostics FROM app.runs WHERE tenant_id=$1 AND id=$2",[tenantId,runId])).rows[0];
+    expect(row.execution_diagnostics?.state,JSON.stringify(row.execution_diagnostics)).not.toBe("failed");
+    expect(row.execution_handle.backendKind).toBe("fly");
+    const id=row.execution_handle.id.split("/")[1],raw=infrastructure.guest(id);
+    const deadline=Date.now()+15_000;while(receipts.length===0&&Date.now()<deadline)await wait(100);
+    expect(receipts).toEqual([{path:`/echo/${marker}`,body:marker}]);
+    const probe=async(path:string)=>(await raw.run(["runuser","-u","exedev","--","node","-e",`fetch('http://127.0.0.1:18180${path}').then(r=>console.log(r.status))`])).stdout.trim();
+    expect(await probe(`/integrations/${unselectedId}/echo/no`)).toBe("403");
+    expect(await probe("/api/v1/jobs")).toBe("200");
+    await json(`/integrations/bearer/${integrationId}`,"DELETE",{expectedRevision:2,idempotencyKey:randomUUID()});
+    expect(await probe(`/integrations/${integrationId}/echo/no`)).toBe("403");
+    expect(receipts).toHaveLength(1);
+    const surfaces=await raw.run(["sh","-c","cat /run/factorize-identity/config.json; cat /home/exedev/.factorize-job/launch.json 2>/dev/null || true"]);
+    expect(surfaces.stdout).not.toContain(secret);expect(surfaces.stdout).not.toMatch(/fzt_run_|fzc_/);
+    await raw.run(["touch","/tmp/finish-test"]);
+    let terminal:any;
+    const end=Date.now()+60_000;while(Date.now()<end){await runner.tick();terminal=(await db.pool.query("SELECT state,artifact_state,job_result FROM app.runs WHERE tenant_id=$1 AND id=$2",[tenantId,runId])).rows[0];if(["succeeded","failed","stopped"].includes(terminal.state))break;await wait(200);}
+    expect(terminal).toMatchObject({state:"succeeded",artifact_state:"stored",job_result:{outputs:{marker}}});
+    expect(destructionEvidence).toMatchObject({marker});
+    expect(docker("ps","-aq","--filter",`id=${id}`)).toBe("");
+    const artifacts=(await db.pool.query("SELECT object_key FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2",[tenantId,runId])).rows;expect(artifacts.length).toBeGreaterThan(0);
+    for(const artifact of artifacts){const object=await env.RUN_ARTIFACTS!.get(artifact.object_key);expect(await object!.text()).not.toContain(secret);}
+  }finally{
+    await runner?.close();await api?.close();vi.unstubAllGlobals();
+    for(const id of docker("ps","-aq","--filter",`label=sh.factorize.test.namespace=${app}`).split("\n").filter(Boolean))docker("rm","-f",id);
+    try{docker("network","rm",network);}catch{}
+    await db.close();if(created)await admin.pool.query(`DROP DATABASE ${databaseName} WITH (FORCE)`);await admin.close();await rm(storage,{recursive:true,force:true});
   }
-}, 120_000);
+},120_000);

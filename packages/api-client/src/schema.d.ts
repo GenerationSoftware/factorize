@@ -19,7 +19,7 @@ export interface paths {
         put?: never;
         /**
          * Create a model account
-         * @description Requires an interactive owner browser session and the current collection revision. Creates metadata with an empty initial state; the credential proxy establishes credentials and Factorize encrypts cache updates with its server key.
+         * @description Requires an interactive owner browser session and the current collection revision. Accepts an API key or Codex credential object into Factorize-managed encrypted storage, or an empty initial state for backend device authorization. Credentials are never returned.
          *
          *     Requires the integrations:write scope.
          *
@@ -40,7 +40,15 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /**
+         * Replace a model account credential
+         * @description Owner session required. Replaces the managed credential without changing the selected account ID; active runs use the replacement on their next request.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_model_accounts_accountId"];
         post?: never;
         /**
          * Delete a model account
@@ -56,7 +64,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/credential-proxy/setup": {
+    "/api/v1/model-accounts/{accountId}/authorization/authorize": {
         parameters: {
             query?: never;
             header?: never;
@@ -66,21 +74,21 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Provision and register the owner's credential proxy
-         * @description Interactive owner session required. Calls the configured execution host; bootstrap credentials cross only the private guest transport. Reuse operationId for retries.
+         * authorize backend ChatGPT device authorization
+         * @description Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
          *
          *     Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
-        post: operations["post_api_v1_credential_proxy_setup"];
+        post: operations["post_api_v1_model_accounts_accountId_authorization_authorize"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/credential-proxy/browser-capability": {
+    "/api/v1/model-accounts/{accountId}/authorization/status": {
         parameters: {
             query?: never;
             header?: never;
@@ -90,21 +98,21 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Authorize a direct browser-to-proxy lifecycle operation
-         * @description Owner session only. One-use capability bound to action, owner, application origin and proxy boot, valid for 60 seconds. Unlock keys go directly to the proxy and are never accepted by this API.
+         * status backend ChatGPT device authorization
+         * @description Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
          *
          *     Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
-        post: operations["post_api_v1_credential_proxy_browser_capability"];
+        post: operations["post_api_v1_model_accounts_accountId_authorization_status"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/model-accounts/{accountId}/browser-capability": {
+    "/api/v1/model-accounts/{accountId}/authorization/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -114,94 +122,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Issue a short-lived browser capability for a paired model account
-         * @description Requires an interactive owner browser session. Returns a single-use, 60-second capability scoped to the account, action, proxy boot and exact application origin. The browser sends it directly to the paired proxy; Factorize never receives model-account tokens.
+         * cancel backend ChatGPT device authorization
+         * @description Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
          *
          *     Requires the integrations:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
-        post: operations["post_api_v1_model_accounts_accountId_browser_capability"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/unlock-key/verification": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get the current encrypted unlock-key verification record
-         * @description Requires an interactive owner browser session. Returns user-encrypted verification ciphertext and its key generation; the unlock key is never accepted or returned.
-         *
-         *     Requires the integrations:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_unlock_key_verification"];
-        put?: never;
-        /**
-         * Create the encrypted unlock-key verification record
-         * @description Requires an interactive owner browser session. Stores only browser-encrypted verification ciphertext and permits one setup per account.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_unlock_key_verification"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/unlock-key/rotation-snapshot": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get encrypted state for owner key rotation
-         * @description Owner browser session only. Returns encrypted records, tombstones, and pending change history for local re-encryption; plaintext credentials and unlock keys are never returned.
-         *
-         *     Requires the integrations:read scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        get: operations["get_api_v1_unlock_key_rotation_snapshot"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/unlock-key/rotation": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Atomically replace the unlock-key generation
-         * @description Owner browser session only. Commits a revision-checked encrypted generation and verification record, revokes grants, consumes enrollments, and locks the proxy. Fly connection and execution configuration are preserved.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_unlock_key_rotation"];
+        post: operations["post_api_v1_model_accounts_accountId_authorization_cancel"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2930,6 +2858,7 @@ export interface operations {
                             name: string;
                             description: string | null;
                             revision: number;
+                            credentialConfigured: boolean;
                         }[];
                     };
                 };
@@ -2961,14 +2890,58 @@ export interface operations {
                     idempotencyKey: string;
                     name: string;
                     description: string | null;
-                    /** @constant */
-                    initialState: "{}";
+                    initialState: string;
                 };
             };
         };
         responses: {
             /** @description Created model account */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_model_accounts_accountId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                    /** Format: uuid */
+                    idempotencyKey: string;
+                    name: string;
+                    description: string | null;
+                    initialState: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Model account updated */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3036,87 +3009,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_credential_proxy_setup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: uuid */
-                    operationId: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Registered proxy identity */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        proxyIdentity: string;
-                        /** Format: uuid */
-                        bootEpoch: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_credential_proxy_browser_capability: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @enum {string} */
-                    action: "unlock" | "lock" | "apply" | "status";
-                };
-            };
-        };
-        responses: {
-            /** @description Proxy endpoint and one-use capability */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uri */
-                        endpoint: string;
-                        capability: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_model_accounts_accountId_browser_capability: {
+    post_api_v1_model_accounts_accountId_authorization_authorize: {
         parameters: {
             query?: never;
             header?: never;
@@ -3127,23 +3020,23 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** @enum {string} */
-                    action: "authorize" | "status" | "cancel";
-                };
+                "application/json": Record<string, never>;
             };
         };
         responses: {
-            /** @description Paired proxy endpoint and one-use capability */
+            /** @description Device authorization state */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** Format: uri */
-                        endpoint: string;
-                        capability: string;
+                        /** @enum {string} */
+                        state: "pending" | "authorized" | "idle" | "canceled" | "expired" | "failed" | "reauthentication-required";
+                        /** @constant */
+                        verificationUrl?: "https://auth.openai.com/codex/device";
+                        userCode?: string;
+                        pollAfterSeconds?: number;
                     };
                 };
             };
@@ -3158,67 +3051,34 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_unlock_key_verification: {
+    post_api_v1_model_accounts_accountId_authorization_status: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Encrypted verification record or empty setup state */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        ownerId: string;
-                        verification: {
-                            /** Format: uuid */
-                            generationId: string;
-                            encryptedVerification: string;
-                        } | null;
-                    };
-                };
+            path: {
+                accountId: string;
             };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_unlock_key_verification: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** Format: uuid */
-                    generationId: string;
-                    encryptedVerification: string;
-                };
+                "application/json": Record<string, never>;
             };
         };
         responses: {
-            /** @description Created verification record */
+            /** @description Device authorization state */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** Format: uuid */
-                        generationId: string;
+                        /** @enum {string} */
+                        state: "pending" | "authorized" | "idle" | "canceled" | "expired" | "failed" | "reauthentication-required";
+                        /** @constant */
+                        verificationUrl?: "https://auth.openai.com/codex/device";
+                        userCode?: string;
+                        pollAfterSeconds?: number;
                     };
                 };
             };
@@ -3233,127 +3093,34 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_unlock_key_rotation_snapshot: {
+    post_api_v1_model_accounts_accountId_authorization_cancel: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Encrypted rekey snapshot */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        ownerId: string;
-                        /** Format: uuid */
-                        generationId: string;
-                        revision: number;
-                        records: {
-                            /** Format: uuid */
-                            id: string;
-                            /** @enum {string} */
-                            kind: "bearer" | "model";
-                            name: string;
-                            origin: string | null;
-                            description: string | null;
-                            revision: number;
-                            encryptedPayload: string | null;
-                            deletedAt: string | null;
-                        }[];
-                        changes: {
-                            /** Format: uuid */
-                            id: string;
-                            /** @enum {string} */
-                            kind: "bearer" | "model";
-                            name: string;
-                            origin: string | null;
-                            description: string | null;
-                            revision: number;
-                            /** Format: uuid */
-                            idempotencyKey: string;
-                            /** @enum {string} */
-                            operation: "upsert" | "delete";
-                            encryptedPayload: string | null;
-                            recordRevision?: number | null;
-                        }[];
-                    };
-                };
+            path: {
+                accountId: string;
             };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_unlock_key_rotation: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": {
-                    /** Format: uuid */
-                    expectedGenerationId: string;
-                    /** Format: uuid */
-                    generationId: string;
-                    expectedRevision: number;
-                    encryptedVerification: string;
-                    preserveManagedModelCaches?: boolean;
-                    records: {
-                        /** Format: uuid */
-                        id: string;
-                        /** @enum {string} */
-                        kind: "bearer" | "model";
-                        name: string;
-                        origin: string | null;
-                        description: string | null;
-                        revision: number;
-                        encryptedPayload: string | null;
-                        deletedAt: string | null;
-                    }[];
-                    changes: {
-                        /** Format: uuid */
-                        id: string;
-                        /** @enum {string} */
-                        kind: "bearer" | "model";
-                        name: string;
-                        origin: string | null;
-                        description: string | null;
-                        revision: number;
-                        /** Format: uuid */
-                        idempotencyKey: string;
-                        /** @enum {string} */
-                        operation: "upsert" | "delete";
-                        encryptedPayload: string | null;
-                        recordRevision?: number | null;
-                    }[];
-                };
+                "application/json": Record<string, never>;
             };
         };
         responses: {
-            /** @description Key generation replaced */
+            /** @description Device authorization state */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** Format: uuid */
-                        generationId: string;
-                        revision: number;
-                        duplicate: boolean;
+                        /** @enum {string} */
+                        state: "pending" | "authorized" | "idle" | "canceled" | "expired" | "failed" | "reauthentication-required";
+                        /** @constant */
+                        verificationUrl?: "https://auth.openai.com/codex/device";
+                        userCode?: string;
+                        pollAfterSeconds?: number;
                     };
                 };
             };
@@ -3386,6 +3153,8 @@ export interface operations {
                     "application/json": {
                         revision: number;
                         integrations: {
+                            /** @constant */
+                            kind?: "bearer";
                             /** Format: uuid */
                             id: string;
                             name: string;
