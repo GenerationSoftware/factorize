@@ -66,6 +66,7 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       const { route, params } = matched;
       if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && (route.authOperation || auth?.authMethod === "session") && !validBrowserOrigin(request, env)) throw new ServiceError(403, "invalid_origin", "Invalid request origin.");
       if (!route.authOperation && !auth) throw new ServiceError(401, "invalid_token", "Unauthorized");
+      if (route.vendorIdentityOnly && (auth?.authMethod !== "vendor_identity" || !auth.runId)) throw new ServiceError(403, "forbidden", "A vendor-verified run identity is required.");
       const requiredScopes = Array.isArray(route.scope) ? route.scope : route.scope.split("+");
       if (!route.authOperation && !requiredScopes.every(scope => auth!.scopes.includes(scope))) throw new ServiceError(403, "insufficient_scope", `The ${requiredScopes.join(" and ")} scope is required.`);
       if (!route.authOperation && route.ownerSession && auth!.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required.");

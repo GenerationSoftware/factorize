@@ -26,6 +26,20 @@ const mapped = (row: RunRow): PersistedRun => ({ tenantId: row.tenant_id, id: ro
 export class RunRepository {
   constructor(private database: Database) {}
 
+  /** The first launch owns the snapshot, including across scheduler retries. */
+  async snapshotLaunchPayload(run: Pick<PersistedRun, "tenantId" | "id">, encrypted: string): Promise<void> {
+    const result = await this.database.pool.query(`UPDATE app.runs SET encrypted_launch_payload=coalesce(encrypted_launch_payload,$3)
+      WHERE tenant_id=$1 AND id=$2 AND state='starting' RETURNING id`, [run.tenantId, run.id, encrypted]);
+    if (!result.rowCount) throw new Error("Run is no longer starting");
+  }
+
+  async activeLaunchPayload(tenantId: string, runId: string): Promise<string | null> {
+    const result = await this.database.pool.query<{encrypted_launch_payload: string | null}>(`SELECT r.encrypted_launch_payload
+      FROM app.runs r JOIN app.job_runs j ON j.tenant_id=r.tenant_id AND j.id=r.id
+      WHERE r.tenant_id=$1 AND r.id=$2 AND r.state IN ('starting','running','blocked') AND j.state IN ('starting','running','blocked')`, [tenantId, runId]);
+    return result.rows[0]?.encrypted_launch_payload ?? null;
+  }
+
   async claimNext(): Promise<PersistedRun | null> {
     return this.database.transaction(async client => {
       // Retry expired launches in their existing active slot. Requeuing them

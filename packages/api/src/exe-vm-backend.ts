@@ -10,6 +10,7 @@ import { runArtifactTarget } from "./run-artifact-target";
 import { assertExeVmIsolation } from "./exe-vm-isolation";
 import { RUN_IDENTITY_GUEST_HELPER } from "./run-identity-guest-helper";
 import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
+import { serializeLaunchPayload } from "./launch-payload";
 
 const API = "https://exe.dev/exec";
 const capabilities = ["output", "recovery", "stop"] as const;
@@ -210,6 +211,7 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async launch(request: LaunchRequest): Promise<LaunchReceipt> {
     const connection = this.connection as ExeRunConnection;
+    if (request.fetchLaunchPayload && !request.runIdentity) throw new Error("Run identity is required to fetch the launch payload");
     if (!request.code && (!connection.agentKind || !request.harness)) throw new Error("The job is missing its agent harness launch plan");
     if (request.traceSources) validateTraceSources(request.traceSources);
     const handle: RunHandle = request.reservation ?? { backendKind: this.kind, id: vmNameFor(request.runId) };
@@ -244,7 +246,7 @@ export class ExeVmBackend implements ExecutionBackend {
     }
 
     const code = request.code, output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
-    const launchPayload = JSON.stringify({ version: 1, runId: request.runId, ...(code ? { code } : { prompt: request.prompt, harness: request.harness }), ...(request.traceSources ? { traceSources: request.traceSources } : {}) });
+    const launchPayload = request.fetchLaunchPayload ? null : serializeLaunchPayload(request);
     const launchPayloadPath = "/home/exedev/.factorize-job/launch.json";
     const identitySetup = request.runIdentity ? [
       "command -v node >/dev/null && command -v curl >/dev/null",
@@ -262,8 +264,8 @@ export class ExeVmBackend implements ExecutionBackend {
       ...(request.traceSources?.primary.kind === "execution_stream" ? [`mkdir -p -- ${shellAtom(request.traceSources.primary.path.slice(0, request.traceSources.primary.path.lastIndexOf("/")) || "/")}`, `touch -- ${shellAtom(request.traceSources.primary.path)}`] : []),
       "sudo install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job",
       `printf '%s' ${shellAtom(base64(FACTORIZE_JOB_LAUNCHER))} | sudo sh -c ${shellAtom("base64 -d > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job")}`,
-      `printf '%s' ${shellAtom(base64(launchPayload))} | base64 -d > ${shellAtom(launchPayloadPath)} && sudo chown exedev:exedev ${shellAtom(launchPayloadPath)}`,
-      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=null --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr /bin/sh -c ${shellAtom(`exec ${request.runIdentity ? "/usr/bin/env FACTORIZE_PROXY_URL=http://127.0.0.1:18180 " : ""}/usr/local/bin/factorize-job launch --foreground < ${launchPayloadPath}`)}; fi`,
+      ...(launchPayload === null ? [] : [`printf '%s' ${shellAtom(base64(launchPayload))} | base64 -d > ${shellAtom(launchPayloadPath)} && sudo chown exedev:exedev ${shellAtom(launchPayloadPath)}`]),
+      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=null --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr /bin/sh -c ${shellAtom(`exec ${request.runIdentity ? "/usr/bin/env FACTORIZE_PROXY_URL=http://127.0.0.1:18180 " : ""}/usr/local/bin/factorize-job launch --foreground ${request.fetchLaunchPayload ? `--fetch-payload ${shellAtom(request.runId)}` : `< ${launchPayloadPath}`}`)}; fi`,
       "echo started",
     ].join("; ");
     if (request.traceSources?.primary.formatVersion === "codex-exec-jsonl") {

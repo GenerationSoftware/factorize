@@ -4,9 +4,10 @@ import { issueArtifactUploadGrant } from "../artifact-upload";
 import { artifactKey } from "../artifacts";
 import { ArtifactRepository } from "./artifact-repository";
 import { safeDiagnosticText } from "../harness-diagnostics";
-import { decrypt } from "../crypto";
+import { decrypt, encrypt } from "../crypto";
+import { serializeLaunchPayload } from "../launch-payload";
 import { ExeVmBackend } from "../exe-vm-backend";
-import type { ArtifactCollector, ExecutionBackend, ExecutionTerminator, HarnessLogReader, JobFileCollector, JobResultReader, TraceChunkCollector } from "../execution";
+import type { ArtifactCollector, ExecutionBackend, ExecutionTerminator, HarnessLogReader, JobFileCollector, JobResultReader, TraceChunkCollector, LaunchRequest } from "../execution";
 import type { ExeRunConnection } from "../exe";
 import type { Env } from "../types";
 import { ConnectionRepository } from "./connection-repository";
@@ -182,7 +183,7 @@ export class RunScheduler {
       if (!context || typeof context !== "object" || Array.isArray(context)) throw new Error("The code job input context snapshot is missing");
       const reservation = backend.reserve?.(run.id) ?? null;
       if (reservation) await this.runs.recordLaunchHandle(run, reservation);
-      const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: "", runIdentity: { backendOrigin: this.env.APP_ORIGIN }, code: { script: run.executionConfig.script, context }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
+      const launched = await this.launchBackend(run, backend, { runId: run.id, reservation: reservation ?? undefined, prompt: "", runIdentity: { backendOrigin: this.env.APP_ORIGIN }, code: { script: run.executionConfig.script, context }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
       await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities);
       if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
       return;
@@ -198,9 +199,17 @@ export class RunScheduler {
     const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const reservation = backend.reserve?.(run.id) ?? null;
     if (reservation) await this.runs.recordLaunchHandle(run, reservation);
-    const launched = await backend.launch({ runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runAccessInstructions({ githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId) })}`, runIdentity: { backendOrigin: this.env.APP_ORIGIN }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
+    const launched = await this.launchBackend(run, backend, { runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runAccessInstructions({ githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId) })}`, runIdentity: { backendOrigin: this.env.APP_ORIGIN }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
     if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
+  }
+
+  private async launchBackend(run: PersistedRun, backend: ExecutionBackend, request: LaunchRequest) {
+    if (backend.kind === "exe-vm") {
+      await this.runs.snapshotLaunchPayload(run, await encrypt(serializeLaunchPayload(request), this.env.CREDENTIAL_ENCRYPTION_KEY));
+      request.fetchLaunchPayload = true;
+    }
+    return backend.launch(request);
   }
 
   private async poll(run: PersistedRun) {

@@ -28,8 +28,26 @@ Amp thread URL. Amp does not declare output retrieval, so Factorize does not
 ingest thread contents. Amp credentials are dashboard-only; REST and MCP expose
 only non-secret target metadata and capabilities.
 
-The prompt is delivered as part of direct process launch. The launch receipt is
-persisted before polling begins so restarts can resume observation and cleanup.
+For exe.dev runs, the scheduler encrypts and stores the exact launch payload
+(rendered prompt, appended runtime instructions, harness and trace configuration,
+or code script and input context) before VM provisioning. The first snapshot is
+retained across launch retries. Provisioning transfers only the guest launcher
+and identity helper, keeping prompts and scripts out of exe.dev's 64 KB command
+request limit. Apply migration `0053_run_launch_payload` before deploying this
+startup path.
+
+The launcher fetches `GET /api/v1/runtime-launch` through its local identity
+helper before starting the harness. The endpoint requires the same vendor-signed
+VM/run binding as other runtime operations, returns only the calling active
+run's snapshot, requires no application scopes, rejects non-run identities and
+stopping or terminal runs, and disables response caching. Downloads are limited
+to 32 MiB, refuse redirects and mismatched run IDs, and retry transient failures
+up to three times with a ten-second socket timeout. Exhausted or invalid fetches
+record a launcher failure without starting the job. The harness receives the
+prompt through stdin as before.
+
+The launch receipt is persisted before polling begins so restarts can resume
+observation and cleanup.
 
 ## Job invocation boundary
 

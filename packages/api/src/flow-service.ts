@@ -1,4 +1,5 @@
 import { DEFAULT_RUN_SCOPES } from "./run-scopes";
+import { launchPayloadResponse } from "./launch-payload";
 import { searchResponse } from "./search-contracts";
 import { integrationStatus, exeConnection, accessToken, createdAccessToken, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
@@ -237,6 +238,16 @@ export class ApiService {
   async getRuntimeContext() {
     await this.authorizeIdentity();
     return publicValue(runtimeContextResponse, { kind: "factorize-runtime-context-v1", authMethod: this.auth.authMethod ?? "oauth", runId: this.auth.runId ?? null, jobId: this.auth.runJobId ?? null, scopes: normalizeScopes(this.auth.scopes) });
+  }
+
+  async getRuntimeLaunchPayload() {
+    await this.authorizeIdentity();
+    if (this.auth.authMethod !== "vendor_identity" || !this.auth.runId) throw new ServiceError(403, "forbidden", "A vendor-verified run identity is required.");
+    const encrypted = await new RunRepository(databaseFor(this.env)).activeLaunchPayload(this.auth.tenantId, this.auth.runId);
+    if (!encrypted) throw new ServiceError(404, "not_found", "Active launch payload unavailable.");
+    const payload = publicValue(launchPayloadResponse, JSON.parse(await decrypt(encrypted, this.env.CREDENTIAL_ENCRYPTION_KEY)));
+    if (payload.runId !== this.auth.runId) throw new ServiceError(500, "internal_error", "Invalid launch payload binding.");
+    return payload;
   }
 
 

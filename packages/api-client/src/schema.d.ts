@@ -1632,6 +1632,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runtime-launch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch this VM's immutable launch payload
+         * @description Requires the vendor-verified identity of an active run. Returns only that run's encrypted-at-rest scheduler snapshot, including the rendered prompt and harness or code context. No application scope is required. Sessions, API keys, OAuth clients, other runs and terminal runs cannot retrieve it. Responses are never cached.
+         *
+         *     Requires vendor-verified run identity; sessions and other bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_runtime_launch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runtime-context": {
         parameters: {
             query?: never;
@@ -6989,6 +7011,64 @@ export interface operations {
             /** @description queue_full — all execution slots are reserved or occupied and one waiting run already exists. Duplicate idempotency keys return the original run. */
             409: components["responses"]["Error409"];
             415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_runtime_launch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Launch payload for the calling run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        version: 1;
+                        /** Format: uuid */
+                        runId: string;
+                        traceSources?: {
+                            [key: string]: unknown;
+                        };
+                        prompt: string;
+                        harness: {
+                            executable: string;
+                            args: string[];
+                            env: {
+                                [key: string]: string;
+                            };
+                        };
+                    } | {
+                        /** @constant */
+                        version: 1;
+                        /** Format: uuid */
+                        runId: string;
+                        traceSources?: {
+                            [key: string]: unknown;
+                        };
+                        code: {
+                            script: string;
+                            context: {
+                                [key: string]: unknown;
+                            };
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
