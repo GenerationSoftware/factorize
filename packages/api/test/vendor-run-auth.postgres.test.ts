@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { loadingFixture } from "./helpers/loading-fixture";
 import { VendorRunIdentityRepository } from "../src/postgres/vendor-run-identity-repository";
 import { FlyConnectionRepository } from "../src/postgres/fly-connection-repository";
-import { issueRunCredential } from "../src/run-credentials";
+import { snapshotRunAuthorization } from "../src/run-authorizations";
 import { authenticateVendorRunRequest } from "../src/vendor-run-auth";
 import { exeWifIntegrationNameFor, vmNameFor } from "../src/exe-vm-backend";
 import { EncryptedIntegrationRepository } from "../src/postgres/encrypted-integration-repository";
@@ -41,7 +41,8 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     await new FlyConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).save({organizationSlug: "connected-org", organizationName: "A different display name"}, "fixture-token");
     await f.db.pool.query("DELETE FROM app.vendor_run_identity_bindings WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
     await new VendorRunIdentityRepository(f.db).persistVerified({tenantId: f.tenantId, issuedAt: now - 5, identity: {provider: "fly.io", issuer, subject, audience: `factorize://runs/${f.runId}`, runId: f.runId, vmId: machineId, issuedAt: now - 5, expiresAt: now + 600, keyId: "test-key"}});
-    await issueRunCredential(f.env, f.tenantId, f.runId, ["runs:read"]);
+    await f.db.pool.query("DELETE FROM app.run_authorizations WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
+    await snapshotRunAuthorization(f.db, {tenantId: f.tenantId, runId: f.runId, scopes: ["runs:read"]});
     jwt = await sign();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) === `${issuer}/.well-known/openid-configuration`) return Response.json({issuer, jwks_uri: `${issuer}/.well-known/jwks`});
@@ -60,8 +61,9 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     expect(await response.json()).toMatchObject({authMethod: "vendor_identity", scopes: ["runs:read"], runId: f.runId});
     expect((await worker.fetch(request(jwt, f.runId, "/api/v1/jobs"), f.env, {waitUntil() {}} as any)).status).toBe(403);
     await f.db.pool.query("UPDATE app.jobs SET run_scopes='[\"jobs:write\",\"jobs:read\"]' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.jobIds[0]]);
+    await snapshotRunAuthorization(f.db, {tenantId: f.tenantId, runId: f.runId, scopes: ["jobs:read", "jobs:write"]});
     expect((await authenticateVendorRunRequest(request(), f.env))?.scopes).toEqual(["runs:read"]);
-    await f.db.pool.query("UPDATE app.run_credentials SET scopes='[]' WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.run_authorizations SET scopes='[]' WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
     expect((await authenticateVendorRunRequest(request(), f.env))?.scopes).toEqual([]);
   });
 
@@ -78,7 +80,7 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
   });
 
   it("requires explicit destination permission and prevents a run from granting itself permission", async () => {
-    await f.db.pool.query("UPDATE app.run_credentials SET scopes='[\"runs:invoke\",\"jobs:write\"]' WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.run_authorizations SET scopes='[\"runs:invoke\",\"jobs:write\"]' WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
     const invoke = () => worker.fetch(new Request(request(jwt, f.runId, `/api/v1/jobs/${f.jobIds[1]}/invocations`), {
       method: "POST", headers: {Authorization: `Bearer ${jwt}`, "X-Factorize-Run-Id": f.runId, "Content-Type": "application/json"}, body: JSON.stringify({prompt: "selected destination", idempotencyKey: "vendor-run-test"}),
     }), f.env, {waitUntil() {}} as any);

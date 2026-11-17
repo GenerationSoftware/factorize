@@ -29,7 +29,7 @@ export async function authenticateVendorRunRequest(request: Request, env: Env): 
     FROM app.vendor_run_identity_bindings b
     JOIN app.job_runs j ON j.tenant_id=b.tenant_id AND j.id=b.run_id
     JOIN app.runs r ON r.tenant_id=j.tenant_id AND r.id=j.id
-    JOIN app.run_credentials c ON c.tenant_id=j.tenant_id AND c.run_id=j.id
+    JOIN app.run_authorizations c ON c.tenant_id=j.tenant_id AND c.run_id=j.id
     JOIN app.members m ON m.tenant_id=c.tenant_id AND m.user_id=c.user_id AND m.role='owner' AND m.session_version=c.session_version
     WHERE b.run_id=$1 AND b.revoked_at IS NULL AND j.state IN ('starting','running','blocked')
       AND r.state IN ('starting','running','blocked')`, [runId]);

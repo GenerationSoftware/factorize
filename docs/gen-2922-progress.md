@@ -101,3 +101,8 @@ The guest identity helper and selected-integration discovery API are now
 implemented and pass 23 focused helper/API-contract/PostgreSQL boundary tests;
 launch adoption remains pending. Discovery omits credential origins and tokens
 and reports persistent revocations as unavailable, even after reconnection.
+
+Runtime foundations now include token-free immutable run authorization
+snapshots (independent of legacy bearer rows) and a Worker-compatible Fly guest
+transport using the documented Machines HTTP exec API with argv/stdin.
+Focused transport, Fly backend and vendor-request boundary suites pass 29 tests.

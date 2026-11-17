@@ -21,6 +21,8 @@ import { rolloutTraceSources } from "../trace-source";
 import { TraceProjectionRepository, TRACE_PARSER_VERSION } from "./trace-projection-repository";
 import { LiveTraceRepository } from "./live-trace-repository";
 import { JOB_RESULT_INSTRUCTIONS, parseJobResult } from "../job-result";
+import { snapshotRunAuthorization } from "../run-authorizations";
+import { DEFAULT_RUN_SCOPES } from "../run-scopes";
 import { issueRunCredential, runProxyInstructions } from "../run-credentials";
 import { ProxyLaunchBlockedError, proxyLaunchDecision, requireProxyLaunch } from "../proxy-launch-policy";
 import { FlyConnectionRepository } from "./fly-connection-repository";
@@ -176,6 +178,7 @@ export class RunScheduler {
 
   private async launch(run: PersistedRun) {
     const config = run.executionConfig;
+    await snapshotRunAuthorization(this.database, {tenantId: run.tenantId, runId: run.id, scopes: config.runScopes ?? DEFAULT_RUN_SCOPES});
     const decision = proxyLaunchDecision({
       executionProvider: config.executionProvider === "fly" || config.executionProvider === "docker" ? "fly" : "exe",
       executionType: config.executionType === "code" ? "code" : "agent",

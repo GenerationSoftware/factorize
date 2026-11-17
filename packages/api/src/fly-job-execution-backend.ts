@@ -1,5 +1,5 @@
 import { MachineJobExecutionBackend } from "./machine-job-execution-backend";
-import { createFlyGuestTransport } from "./fly-guest-transport";
+import { createFlyHttpGuestTransport } from "./fly-http-guest-transport";
 import { flyJobMachineConfig } from "./fly-job-machine";
 export type { JobMachines as FlyJobMachines, JobGuest as FlyJobGuest, ProxyGuest as FlyProxyGuest } from "./machine-job-execution-backend";
 
@@ -26,5 +26,5 @@ export class FlyJobExecutionBackend extends MachineJobExecutionBackend {
 
 /** CLI credentials stay in the scheduler process. */
 export function flyJobGuest(options: { app: string; machine: string; token: string }) {
-  return createFlyGuestTransport({ ...options, timeoutMs: 30_000, outputLimitBytes: 64 * 1024 });
+  return createFlyHttpGuestTransport({ ...options, timeoutMs: 30_000, outputLimitBytes: 64 * 1024 });
 }
