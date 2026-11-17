@@ -6,8 +6,11 @@ array and optional stdin. It does not run a Fly CLI or SSH agent in the Worker.
 file uploads and downloads. `flyJobGuest` supplies the tenant's encrypted Fly
 provisioning credential only to the Machines API; it never enters the guest.
 
-Machines are created with top-level region and `skip_launch: true`, then started
-explicitly. Before job launch, Factorize verifies the guest's signed OIDC token
+Machines are created with top-level region and the documented default boot
+behavior. Their init process only sleeps; image CMD does not launch a job. The
+backend polls startup for at most three minutes, and starts stopped/suspended
+Machines once without replaying ambiguous responses. It does not race image
+preparation with a start request in the `created` state. Before job launch, Factorize verifies the guest's signed OIDC token
 from `/.fly/api`, pins the organization-slug issuer and exact subject/Machine,
 and persists the immutable run binding. The root-owned localhost identity
 helper requests fresh vendor tokens and forwards API, selected credential and

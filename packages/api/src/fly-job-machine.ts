@@ -28,6 +28,9 @@ export function flyJobMachineConfig(app: string, input: FlyJobMachineInput): Fly
 
   return {
     image: input.image,
+    // Boot only the base guest. The authenticated launcher starts the job
+    // after verification; an image CMD must not execute it independently.
+    init: {exec: ["/bin/sh", "-c", "exec sleep infinity"]},
     region: input.region,
     guest: { cpu_kind: size[1] === "shared-cpu" ? "shared" : "performance", cpus: cpuCount, memory_mb: cpuCount * 1024 },
     metadata: {

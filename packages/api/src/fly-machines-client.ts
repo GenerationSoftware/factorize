@@ -162,7 +162,7 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
       const {region, ...machineConfig} = config;
       const body = {
         ...(typeof region === "string" ? {region} : {}),
-        skip_launch: true,
+        skip_launch: false,
         config: {
           ...machineConfig,
           // Job Machines are supervised by Factorize. A provider restart can
@@ -199,8 +199,22 @@ export function createFlyMachinesClient(options: FlyMachinesClientOptions) {
       try { return await request(machinePath(app, machine), { method: "GET" }, true); }
       catch (error) { if (error instanceof FlyClientError && error.status === 404) return {id: machine, state: "destroyed"}; throw error; }
     },
-    startMachine(app: string, machine: string): Promise<void> {
-      return request(`${machinePath(app, machine)}/start`, { method: "POST" }, false);
+    async startMachine(app: string, machine: string): Promise<void> {
+      const path = machinePath(app, machine), deadline = Date.now() + 180_000;
+      let current = await request<FlyMachine>(path, {method: "GET"}, true);
+      // New Machines boot their base image during create. Do not race image
+      // preparation with POST /start: created is not a startable state.
+      if (["stopped", "suspended"].includes(current.state ?? "")) {
+        await request(`${path}/start`, {method: "POST"}, false);
+        current = await request<FlyMachine>(path, {method: "GET"}, true);
+      }
+      for (;;) {
+        if (current.state === "started") return;
+        if (!["created", "starting"].includes(current.state ?? "")) throw new FlyClientError("Fly Machine did not start", "invalid_response");
+        if (Date.now() >= deadline) throw new FlyClientError("Fly Machine preparation timed out", "timeout");
+        await wait(1_000);
+        current = await request<FlyMachine>(path, {method: "GET"}, true);
+      }
     },
     stopMachine(app: string, machine: string): Promise<void> {
       return request(`${machinePath(app, machine)}/stop`, { method: "POST" }, false);

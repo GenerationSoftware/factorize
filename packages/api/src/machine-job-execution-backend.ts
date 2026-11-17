@@ -243,6 +243,12 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
     if (!id) return { state: "stopped" };
     const machine = await this.options.machines.inspectMachine(this.options.app, id);
     if (["destroyed", "destroying"].includes(String(machine.state ?? "").toLowerCase())) return { state: "stopped" };
+    if (String(machine.state ?? "").toLowerCase() === "created") {
+      // A never-started/preparing Machine has no live guest to stop. The
+      // documented delete is safe; a provider rejection remains retryable.
+      await this.options.machines.destroyMachine(this.options.app, id);
+      return {state: "stopped"};
+    }
     if (String(machine.state ?? "").toLowerCase() !== "stopped") {
       await this.options.machines.stopMachine(this.options.app, id);
     }
@@ -256,7 +262,7 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
     const id = await this.machineId(handle);
     if (!id) return { state: "stopped" };
     const machine = await this.options.machines.inspectMachine(this.options.app, id);
-    if (["destroyed", "destroying", "stopped"].includes(String(machine.state ?? "").toLowerCase())) return { state: "stopped" };
+    if (["destroyed", "destroying", "stopped", "created"].includes(String(machine.state ?? "").toLowerCase())) return { state: "stopped" };
     await this.options.machines.stopMachine(this.options.app, id);
     const after = await this.options.machines.inspectMachine(this.options.app, id);
     return ["stopped", "destroyed"].includes(String(after.state ?? "").toLowerCase()) ? { state: "stopped" } : { state: "stopping" };

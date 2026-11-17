@@ -277,6 +277,12 @@ describe("Fly job execution backend", () => {
     expect(f.machines.destroyMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
   });
 
+  it("deletes a never-started Machine without issuing an invalid stop", async () => {
+    const f=fixture();
+    expect(await f.backend.stop({backendKind:"fly",id:"factorize-test/machine-1"})).toEqual({state:"stopped"});
+    expect(f.machines.stopMachine).not.toHaveBeenCalled();expect(f.machines.destroyMachine).toHaveBeenCalledWith("factorize-test","machine-1");
+  });
+
   it("destroys a stopped Machine after confirming provider state", async () => {
     const f = fixture();
     f.machines.inspectMachine.mockResolvedValue({ ...machine, state: "stopped" });
