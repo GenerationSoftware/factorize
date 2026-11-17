@@ -42,10 +42,6 @@ def child_command(payload):
     env = os.environ.copy()
     env['FACTORIZE_RESULT_PATH'] = str(RESULT)
     if 'code' in payload:
-        proxy_url = env.get('FACTORIZE_PROXY_URL')
-        if proxy_url:
-            for name in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'):
-                env[name] = proxy_url
         code = payload['code']
         if not isinstance(code, dict) or not isinstance(code.get('script'), str) or not isinstance(code.get('context'), dict):
             raise ValueError('invalid code launch payload')
@@ -66,9 +62,10 @@ def child_command(payload):
         env[name] = value
     proxy_url = os.environ.get('FACTORIZE_PROXY_URL')
     if proxy_url:
+        # The identity helper accepts explicit Factorize/provider paths, not
+        # HTTP forward-proxy requests or HTTPS CONNECT tunnels. Preserve the
+        # image's native network proxy configuration for other destinations.
         env['FACTORIZE_PROXY_URL'] = proxy_url
-        for name in ('HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'):
-            env[name] = proxy_url
     env['FACTORIZE_RESULT_PATH'] = str(RESULT)
     return [harness['executable'], *harness['args']], str(payload.get('prompt', '')).encode(), env
 

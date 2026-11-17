@@ -165,6 +165,25 @@ describe("ExeVmBackend", () => {
     }
   });
 
+  it.each(["integration isolation", "WIF attachment inventory", "WIF token acquisition", "vendor signature verification"])("identifies renewal failures during %s without exposing upstream details", async phase => {
+    const runId = "00000000-0000-4000-8000-000000000001";
+    const vm = vmNameFor(runId), name = "fzrun-00000000000040008000000000000001";
+    let inventoryCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      if (String(init.body) === "integrations list --json") {
+        inventoryCalls++;
+        if (phase === "integration isolation" || (phase === "WIF attachment inventory" && inventoryCalls === 2)) return new Response("private-provider-detail", { status: 503 });
+        return Response.json([{ name, type: "wif", config: { issuer_id: "test", subject: "sub-test", audience: `factorize://runs/${runId}` }, attachments: [`vm:${vm}`] }]);
+      }
+      return phase === "WIF token acquisition" ? new Response("private-provider-detail", { status: 503 }) : new Response("header.claims.signature");
+    }));
+    const backend = new ExeVmBackend(connection, async () => { throw new Error("private-provider-detail"); });
+    const result = await backend.inspect({ backendKind: "exe-vm", id: vm, operationId: runId, vendorIdentityIntegrationName: name, identityProxyOrigin: "https://factorize.example.com" });
+    expect(result).toMatchObject({ state: "failed", detail: `exe.dev vendor identity renewal failed during ${phase}`, failure: { code: "vendor_identity_renewal_failed" } });
+    expect(JSON.stringify(result)).not.toContain("private-provider-detail");
+    expect(JSON.stringify(result)).not.toContain("header.claims.signature");
+  });
+
   it("quotes a snapshotted public image in the exe.dev VM creation command", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => { requests.push(String(init.body)); return new Response(requests.length === 1 ? "{}" : "started", { headers: { "X-Exe-Exit": "0" } }); }));

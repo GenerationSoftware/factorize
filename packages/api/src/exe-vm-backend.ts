@@ -283,14 +283,19 @@ export class ExeVmBackend implements ExecutionBackend {
   async inspect(handle: RunHandle): Promise<ExecutionObservation> {
     const vm = this.vm(handle);
     if (handle.operationId && handle.vendorIdentityIntegrationName && this.vendorIdentityVerifier) {
+      let phase = "integration isolation";
       try {
         if (handle.identityProxyOrigin) await assertExeVmIsolation({execute: command => this.api(command), vm, backendOrigin: handle.identityProxyOrigin, tags: this.connection.tags ?? []});
+        phase = "WIF attachment inventory";
         const integration = await this.ensureExeWif(vm, handle.operationId, false);
         if (integration.integrationName !== handle.vendorIdentityIntegrationName) throw new Error("WIF integration changed");
+        phase = "WIF token acquisition";
         const token = await this.exeWifToken(vm, handle.vendorIdentityIntegrationName);
+        phase = "vendor signature verification";
         await this.vendorIdentityVerifier({ provider: "exe.dev", vmId: vm, token, integrationName: integration.integrationName, expectedIssuer: integration.issuer, expectedSubject: integration.subject });
       } catch {
-        return { state: "failed", detail: "exe.dev vendor identity renewal failed", failure: { source: "system", code: "vendor_identity_renewal_failed", reason: "exe.dev vendor identity renewal failed" } };
+        // Identify the failing boundary without returning upstream errors or JWTs.
+        return { state: "failed", detail: `exe.dev vendor identity renewal failed during ${phase}`, failure: { source: "system", code: "vendor_identity_renewal_failed", reason: "exe.dev vendor identity renewal failed" } };
       }
     }
     const inspect = `sudo systemctl show ${shellAtom(vm)} --property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus`;

@@ -1,4 +1,7 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { connect } from "node:net";
 import { mkdir, mkdtemp, readFile, rm, watch, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +9,60 @@ import { describe, expect, it } from "vitest";
 import { FACTORIZE_JOB_LAUNCHER } from "../src/factorize-job-launcher";
 
 describe("shared factorize-job launcher", () => {
+  it.each(["agent", "code"] as const)("preserves native HTTPS proxy routing for %s jobs alongside the Factorize helper", async kind => {
+    const directory = await mkdtemp(join(tmpdir(), "factorize-launcher-network-"));
+    const root = join(directory, "job"), helper = join(directory, "factorize-job"), agent = join(directory, "network-agent.py");
+    const key = join(directory, "key.pem"), cert = join(directory, "cert.pem");
+    const tunnels: string[] = [];
+    let helperRequests = 0;
+    const origin = createHttpsServer();
+    const nativeProxy = createHttpServer();
+    const identityHelper = createHttpServer((_request, response) => { helperRequests++; response.writeHead(404).end(); });
+    identityHelper.on("connect", (_request, socket) => { helperRequests++; socket.end("HTTP/1.1 405 Method Not Allowed\r\n\r\n"); });
+    try {
+      await mkdir(root, { mode: 0o700 });
+      execFileSync("openssl", ["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-keyout", key, "-out", cert, "-days", "1", "-subj", "/CN=models.fixture"], { stdio: "ignore" });
+      origin.setSecureContext({ key: await readFile(key), cert: await readFile(cert) });
+      origin.on("request", (_request, response) => response.end("model-network-ok"));
+      await new Promise<void>(resolve => origin.listen(0, "127.0.0.1", resolve));
+      const originPort = (origin.address() as { port: number }).port;
+      nativeProxy.on("connect", (request, client, head) => {
+        tunnels.push(request.url!);
+        const upstream = connect(originPort, "127.0.0.1", () => {
+          client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+          if (head.length) upstream.write(head);
+          client.pipe(upstream); upstream.pipe(client);
+        });
+        client.on("error", () => upstream.destroy());
+        client.on("close", () => upstream.destroy());
+        upstream.on("error", () => client.destroy());
+      });
+      await new Promise<void>(resolve => nativeProxy.listen(0, "127.0.0.1", resolve));
+      await new Promise<void>(resolve => identityHelper.listen(0, "127.0.0.1", resolve));
+      const proxy = `http://127.0.0.1:${(nativeProxy.address() as { port: number }).port}`;
+      const factorize = `http://127.0.0.1:${(identityHelper.address() as { port: number }).port}`;
+      const proxyNames = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"];
+      await writeFile(helper, FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-job", root));
+      await writeFile(agent, `import json, os, ssl, urllib.request\ncontext = ssl.create_default_context(cafile=${JSON.stringify(cert)})\nbody = urllib.request.urlopen('https://models.fixture/check', context=context, timeout=3).read().decode()\nprint(json.dumps({'body': body, 'factorize': os.environ['FACTORIZE_PROXY_URL'], 'proxies': {name: os.environ[name] for name in ${JSON.stringify(proxyNames)}}}))\n`);
+      const payload = { version: 1, runId: "network-fixture", ...(kind === "agent"
+        ? { harness: { executable: "python3", args: [agent], env: {} }, prompt: "verify networking" }
+        : { code: { script: `python3 '${agent}'`, context: {} } }) };
+      const stdout = await new Promise<string>((resolve, reject) => {
+        const child = execFile("python3", [helper, "launch", "--foreground"], {
+          timeout: 5_000,
+          env: { ...process.env, ...Object.fromEntries(proxyNames.map(name => [name, proxy])), NO_PROXY: "", no_proxy: "", FACTORIZE_PROXY_URL: factorize },
+        }, (error, stdout) => error ? reject(error) : resolve(stdout));
+        child.stdin!.end(JSON.stringify(payload));
+      });
+      expect(JSON.parse(stdout)).toEqual({ body: "model-network-ok", factorize, proxies: Object.fromEntries(proxyNames.map(name => [name, proxy])) });
+      expect(tunnels).toEqual(["models.fixture:443"]);
+      expect(helperRequests).toBe(0);
+    } finally {
+      for (const server of [origin, nativeProxy, identityHelper]) await new Promise<void>(resolve => server.close(() => resolve()));
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("runs code jobs asynchronously and records process completion and output", async () => {
     const directory = await mkdtemp(join(tmpdir(), "factorize-job-launcher-"));
     const root = join(directory, "job"), log = join(directory, "factorize.log"), helper = join(directory, "factorize-job");
