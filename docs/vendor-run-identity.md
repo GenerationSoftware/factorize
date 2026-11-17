@@ -33,8 +33,9 @@ token expires.
   tag-attached integration does not establish an exclusive VM binding.
 * Fly.io's [OIDC workload identity guide](https://fly.io/blog/oidc-cloud-roles/)
   documents signed machine tokens, a machine-specific `machine_id`, an
-  app-scoped issuer, short-lived tokens, and key publication. Factorize must
-  pin the app issuer/audience and compare the signed machine ID to the
+  organization-scoped issuer, short-lived tokens, and key publication. Factorize must
+  pin the connected organization slug as issuer, the run audience, and the
+  `org-slug:app-name:machine-name` subject and compare the signed machine ID to the
   provisioned machine.
 
 `packages/api/src/vendor-run-token-sources.ts` implements the documented guest
@@ -52,6 +53,12 @@ removes the per-run exe.dev integration after verifying its VM attachment.
 Focused backend tests use deterministic token and provider response fixtures,
 and the PostgreSQL repository tests cover immutable renewal, revocation,
 expiry, duplicate bindings, and inactive runs. They do not establish live
-vendor behavior. No live exe.dev or Fly token was observed in development or
-validation. The existing proxy admission and proxy identity remain outside this
-milestone; vendor verification does not add a shared-secret fallback.
+vendor behavior. On 2026-11-17 the verifier accepted real exe.dev and Fly signed tokens using
+live vendor discovery and JWKS, and rejected wrong VM, subject, issuer, audience,
+and inactive-run bindings. Fly renewal was verified with a second live token.
+exe.dev's WIF integration was attached only to `expressway-by-scraper`; an
+unattached validation VM received HTTP 403 from its token endpoint. The local
+run binding in these checks was explicit test input, not a production run or an
+end-to-end backend proxy session. See [the completion ledger](gen-2922-progress.md)
+for the remaining runtime and cutover gates. The existing proxy admission and
+proxy identity remain outside this verification evidence.

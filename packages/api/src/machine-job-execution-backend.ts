@@ -54,6 +54,7 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
       destinationUrl?: (machine: JobMachine) => string;
       vendorIdentityAudience?: (runId: string) => string;
       vendorIdentitySubject?: (machine: JobMachine) => string;
+      vendorIdentityIssuer?: string;
       verifyVendorIdentity?: (input: { provider: "exe.dev" | "fly.io"; vmId: string; token: string; integrationName?: string; expectedIssuer?: string; expectedSubject?: string }) => Promise<void>;
     },
   ) {}
@@ -104,7 +105,7 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
         const token = await acquireFlyMachineOidcToken({ guest, audience });
         const expectedSubject = this.options.vendorIdentitySubject?.(machine);
         if (this.options.vendorIdentitySubject && !expectedSubject) throw new Error("Fly vendor identity subject is unavailable");
-        await verifyVendorIdentity({ provider: "fly.io", vmId: machine.id, token, ...(expectedSubject ? { expectedSubject } : {}) });
+        await verifyVendorIdentity({ provider: "fly.io", vmId: machine.id, token, ...(this.options.vendorIdentityIssuer ? { expectedIssuer: this.options.vendorIdentityIssuer } : {}), ...(expectedSubject ? { expectedSubject } : {}) });
       }
       const tunnelPrerequisites = request.runProxy ? " && command -v node >/dev/null && command -v openssl >/dev/null" : "";
       const installed = await guest.run(["/bin/sh", "-c", `command -v python3 >/dev/null && command -v runuser >/dev/null${tunnelPrerequisites} && id exedev >/dev/null && mkdir -p /usr/local/bin && install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job && cat > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job`], FACTORIZE_JOB_LAUNCHER);
@@ -179,7 +180,7 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
             const token = await acquireFlyMachineOidcToken({ guest: this.options.guest({ id }), audience });
             const expectedSubject = this.options.vendorIdentitySubject?.(machine);
             if (this.options.vendorIdentitySubject && !expectedSubject) throw new Error("Fly vendor identity subject is unavailable");
-            await this.options.verifyVendorIdentity({ provider: "fly.io", vmId: id, token, ...(expectedSubject ? { expectedSubject } : {}) });
+            await this.options.verifyVendorIdentity({ provider: "fly.io", vmId: id, token, ...(this.options.vendorIdentityIssuer ? { expectedIssuer: this.options.vendorIdentityIssuer } : {}), ...(expectedSubject ? { expectedSubject } : {}) });
           } catch {
             return { state: "failed", detail: "Fly Machine vendor identity renewal failed", failure: { source: "system", code: "vendor_identity_renewal_failed", reason: "Fly Machine vendor identity renewal failed" } };
           }

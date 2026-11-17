@@ -158,13 +158,13 @@ export class RunScheduler {
       const app = proxy[1]!;
       const machines = createFlyMachinesClient({ token: connection });
       return new FlyJobExecutionBackend({
-        app, organizationName: connectionDetails.organizationName, image: configuration.image, region: configuration.region, size: configuration.size,
+        app, organizationSlug: connectionDetails.organizationSlug, image: configuration.image, region: configuration.region, size: configuration.size,
         machines, guest: machine => flyJobGuest({ app, machine: machine.id, token: connection }),
         proxyIdentity: rows[0]!.proxy_identity,
         proxyBootEpoch: rows[0]!.boot_epoch,
         proxyGuest: createFlyCredentialProxyGuest({ app, machine: proxy[2]!, token: connection }),
         vendorIdentityAudience: runId => `factorize://runs/${runId}`,
-        verifyVendorIdentity: this.vendorIdentityVerifier(run, `https://oidc.fly.io/${app}`),
+        verifyVendorIdentity: this.vendorIdentityVerifier(run, `https://oidc.fly.io/${connectionDetails.organizationSlug}`),
       });
     }
     const kind = run.executionConfig.backendKind ?? (run.executionConfig.agentKind === "Amp" ? "amp" : "exe-vm");

@@ -118,7 +118,7 @@ export function createJwksResolver(options: { jwksUri: string; fetcher?: typeof 
   let keys = new Map<string, JsonWebKey>(), expiresAt = 0;
   const load = async (force: boolean) => {
     if (!force && keys.size && now() < expiresAt) return;
-    const response = await fetcher(options.jwksUri, { headers: { accept: "application/json" } });
+    const response = await fetcher(options.jwksUri, { headers: { accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) throw new Error(`Vendor signing keys unavailable (${response.status})`);
     const body = await response.json() as { keys?: unknown };
     if (!Array.isArray(body.keys)) throw new Error("Vendor signing keys response is invalid");
@@ -154,7 +154,7 @@ export async function discoverVendorIssuerTrust(options: {
   if (options.provider === "fly.io" && !/^\/[A-Za-z0-9-]+\/?$/.test(issuerUrl.pathname)) throw new Error("Fly.io issuer path is invalid");
   const issuer = options.issuer.replace(/\/$/, "");
   const discoveryUrl = `${issuer}/.well-known/openid-configuration`;
-  const response = await (options.fetcher ?? fetch)(discoveryUrl, { headers: { accept: "application/json" } });
+  const response = await (options.fetcher ?? fetch)(discoveryUrl, { headers: { accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(`Vendor issuer metadata unavailable (${response.status})`);
   const metadata = await response.json() as { issuer?: unknown; jwks_uri?: unknown };
   if (metadata.issuer !== issuer || typeof metadata.jwks_uri !== "string") throw new Error("Vendor issuer metadata does not match the configured issuer");

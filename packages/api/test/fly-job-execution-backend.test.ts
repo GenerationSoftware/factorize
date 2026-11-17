@@ -55,12 +55,30 @@ describe("Fly job execution backend", () => {
     f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: token, stderr: "" });
     const verify = vi.fn(async () => undefined);
     const runId = "11111111-1111-4111-8111-111111111111";
-    const backend = new FlyJobExecutionBackend({ app: "factorize-test", organizationName: "factorize-org", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
+    const backend = new FlyJobExecutionBackend({ app: "factorize-test", organizationSlug: "factorize-org", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
     const receipt = await backend.launch({ runId, prompt: "work" });
     expect(receipt.observation.state).toBe("running");
     expect(f.guest.run.mock.calls[0]?.[0]).toContain("http://localhost/v1/tokens/oidc");
-    expect(verify).toHaveBeenCalledWith({ provider: "fly.io", vmId: "machine-1", token, expectedSubject: "factorize-org:factorize-test:machine-name" });
+    expect(verify).toHaveBeenCalledWith({ provider: "fly.io", vmId: "machine-1", token, expectedIssuer: "https://oidc.fly.io/factorize-org", expectedSubject: "factorize-org:factorize-test:machine-name" });
     expect(verify.mock.invocationCallOrder[0]).toBeLessThan(f.guest.run.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it("pins the organization slug issuer and subject again during renewal", async () => {
+    const f = fixture();
+    const token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.c2ln";
+    f.machines.inspectMachine.mockResolvedValue({ ...machine, state: "started" });
+    f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: token, stderr: "" });
+    f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: '{"state":"running"}', stderr: "" });
+    const verify = vi.fn(async () => undefined);
+    const backend = new FlyJobExecutionBackend({ app: "factorize-test", organizationSlug: "factorize-org", image: "image", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
+    await backend.inspect({ backendKind: "fly", id: "factorize-test/machine-1", operationId: "11111111-1111-4111-8111-111111111111" });
+    expect(verify).toHaveBeenCalledWith({ provider: "fly.io", vmId: machine.id, token,
+      expectedIssuer: "https://oidc.fly.io/factorize-org", expectedSubject: "factorize-org:factorize-test:machine-name" });
+    verify.mockRejectedValueOnce(new Error("issuer mismatch"));
+    f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: token, stderr: "" });
+    await expect(backend.inspect({ backendKind: "fly", id: "factorize-test/machine-1", operationId: "11111111-1111-4111-8111-111111111111" })).resolves.toMatchObject({
+      state: "failed", failure: { code: "vendor_identity_renewal_failed" },
+    });
   });
 
   it("reports a nonzero Fly guest process exit as a failed run", async () => {

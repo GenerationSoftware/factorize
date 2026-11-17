@@ -12,7 +12,7 @@ async function token(claims: Record<string, unknown>, kid = "key-1", key = priva
   return `${input}.${btoa(String.fromCharCode(...signature)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")}`;
 }
 
-const flyBinding: VendorRunBinding = { provider: "fly.io", runId: "run-1", activeRunId: "run-1", vmId: "machine-1", issuer: "https://oidc.fly.io/factorize-app", audience: "factorize-run", subject: "org:factorize-app:run-machine", maxTokenAgeSeconds: 600 };
+const flyBinding: VendorRunBinding = { provider: "fly.io", runId: "run-1", activeRunId: "run-1", vmId: "machine-1", issuer: "https://oidc.fly.io/org", audience: "factorize-run", subject: "org:factorize-app:run-machine", maxTokenAgeSeconds: 600 };
 const claims = { iss: flyBinding.issuer, sub: flyBinding.subject, aud: flyBinding.audience, iat: now - 10, exp: now + 100, machine_id: flyBinding.vmId };
 
 beforeAll(async () => {
@@ -63,6 +63,8 @@ describe("vendor run identity", () => {
     rotated.kid = "key-2";
     const fetches: string[] = [];
     const resolver = createJwksResolver({ jwksUri: "https://issuer.example/keys", now: () => now * 1000, fetcher: async (_url, init) => {
+      expect(init?.redirect).toBe("error");
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
       fetches.push(String(init?.headers ? "requested" : "missing-accept"));
       return Response.json({ keys: fetches.length === 1 ? [publicJwk] : [rotated] });
     } });
@@ -78,7 +80,9 @@ describe("vendor run identity", () => {
 
   it("loads issuer keys only from matching HTTPS metadata on the vendor origin", async () => {
     const calls: string[] = [];
-    const trust = await discoverVendorIssuerTrust({ provider: "fly.io", issuer: flyBinding.issuer, fetcher: async input => {
+    const trust = await discoverVendorIssuerTrust({ provider: "fly.io", issuer: flyBinding.issuer, fetcher: async (input, init) => {
+      expect(init?.redirect).toBe("error");
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
       calls.push(String(input));
       return Response.json({ issuer: flyBinding.issuer, jwks_uri: "https://oidc.fly.io/keys" });
     } });
