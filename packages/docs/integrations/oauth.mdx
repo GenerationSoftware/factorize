@@ -7,14 +7,37 @@ Factorize accounts own dashboard identity. Sign up with an email and password, v
 
 | Account | Browser action and required access | Verification |
 | --- | --- | --- |
-| exe.dev | Add an account-level token, test credentials, and save. Execution integrations select Codex/Claude/Pi; jobs select VM tags, model, and effort. Needs VM listing/creation/SSH/deletion, per-run proxy management, and tagged repository/model integrations; see [operations](/self-hosting/operations). | Test connection, then `list_execution_configs`; optionally diagnose the saved connection. |
+| exe.dev | Add an account-level token, test credentials, and save. Execution integrations select Codex/Claude/Pi; jobs select VM tags, model, and effort. Needs VM listing/creation/SSH/deletion, per-run WIF integration management and exclusive VM attachment; see [operations](/self-hosting/operations). | Test connection, then `list_execution_configs`; optionally diagnose the saved connection. |
 | Amp | Add access token and project; ensure project/model/repository access. | Test and save, then discover the `amp:` target. |
 | Linear | Connect Linear and approve the workspace. Your account must access the selected project and issues; organization policies may require an administrator. | Select project/rules in the browser editor, send one matching event, inspect delivery/run. |
 | ClickUp | Connect ClickUp and approve the intended workspace/team with access to the list/tasks. | Select list/rules, change one matching task and inspect delivery/run. |
 | GitHub | Connect GitHub to install/authorize the Factorize App on the intended account/repositories; organization approval may be required. | Confirm active installation and repository selection, then send a matching event. |
 
-The provider consent/installation screen is the authority for granted permissions. Grant access to the selected resources; changing those resources can require provider reauthorization. Job-trigger access and execution-agent access are separate: installing the Factorize GitHub App does not supply git credentials to an exe.dev VM.
+The provider consent/installation screen is the authority for granted permissions. Grant access to the selected resources; changing those resources can require provider reauthorization. Job-trigger access and execution-agent access are separate: select an existing GitHub installation or Linear connection in each job to authorize its backend proxy access. Factorize reuses those credentials and their existing upstream permissions; it does not deliver tokens to the VM.
 
 MCP exposes safe connection/installation/target metadata, not tokens. Account connections, resource pickers and credential management require browser setup. Reconnect Linear/ClickUp from Settings; use GitHub's Configure installation link for repository access and verify the installation is active. Do not disconnect integrations while jobs still reference them; update those jobs first.
 
 After changing access, create one controlled event and use `list_webhook_deliveries`, `get_webhook_delivery`, `list_job_webhook_activity`, and `list_runs` to verify delivery and execution. See [jobs not firing](/troubleshooting/events). Hosted Factorize manages OAuth application registration, callbacks and webhook infrastructure. Operators of their own deployment use [configuration](/self-hosting/configuration).
+
+
+## Credentials selected by a job
+
+In Settings → Integrations, add custom bearer credentials with a fixed HTTPS
+origin. Add model accounts with ChatGPT device authorization or an OpenAI API
+key. Factorize encrypts these credentials on the server; stored secrets cannot
+be viewed and no unlock key is required. Replace an existing credential to
+rotate it without changing job selections. ChatGPT refresh happens server-side.
+
+Select only the bearer integrations, GitHub installations, Linear connection
+and model account that each job needs. Managed model accounts support Codex;
+Fly Codex jobs require one. Native exe.dev model access remains available.
+Each run uses its saved selection and Factorize API scope snapshot; later job
+edits affect future runs. Disconnect revokes existing run access permanently,
+even after reconnecting the same account. Select a replacement explicitly for
+future runs. Missing selections remain visible for repair and are never
+silently replaced with all available credentials.
+
+exe.dev and Fly guests use a localhost helper that authenticates to Factorize
+with fresh vendor signatures bound to that exact VM/run. Selected upstream
+credentials stay in the backend. Canceling or terminating a run removes its API
+and outbound access, independently of external VM deletion retries.

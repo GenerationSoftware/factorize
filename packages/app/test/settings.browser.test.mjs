@@ -102,7 +102,7 @@ test("model account create/delete uses server-managed state without an unlock ke
   const models = page.getByRole("region", { name: "Model accounts" });
   await models.getByLabel("Name").fill("Work account");
   await models.getByLabel("Description (optional)").fill("Personal account");
-  await models.getByLabel("Connection", {exact:true}).selectOption("api-key");
+  await models.getByRole("combobox", {name:/^Connection/}).selectOption("api-key");
   await models.getByLabel("API key", {exact:true}).fill("synthetic-model-key");
   await models.getByRole("button", { name: "Save model account" }).click();
   await models.getByText("Work account", { exact: true }).waitFor();

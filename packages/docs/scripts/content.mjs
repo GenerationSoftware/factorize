@@ -31,7 +31,7 @@ export async function checkContent() {
   if (/Worker secrets|POSTMARK_SERVER_TOKEN|LINEAR_CLIENT_SECRET|Cloudflare account/.test(main)) throw new Error("Operator prerequisite in main onboarding");
   for (const body of guides.values()) if (/username\/password|username, email|Job create object|mirrors REST/.test(body)) throw new Error("Stale auth or capability claim");
   const cutover = guides.get("self-hosting/credential-cutover");
-  for (const phrase of ["verify that each is terminal", "Stop the proxy Machine and verify its stopped state", "reconnects model accounts", "re-enters custom bearer", "must not select every tenant credential automatically", "do not substitute another credential silently"]) {
+  for (const phrase of ["verify that each is terminal", "verify deletion of only the", "prepare-credential-cutover.mjs", "re-enter unreadable custom bearer", "must not select every tenant credential automatically", "do not substitute another credential silently"]) {
     if (!cutover.includes(phrase)) throw new Error(`Incomplete credential cutover and repair procedure: ${phrase}`);
   }
   const reference = guides.get("mcp/tools");

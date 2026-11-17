@@ -294,35 +294,53 @@ Available states are `succeeded`, `failed`, `stopped`, and `edited`. **Edited** 
 ## Manual job invocation permissions
 Source: https://docs.factorize.sh/work/manual-invocation-permissions
 
-Manual invocation permissions are separate from lifecycle subscriptions. Configure the allowed destination jobs in a source job's editor. The public API can read them with `GET /api/v1/jobs/{jobId}/invocation-permissions` and replace them with a `PUT` containing `{"destinationJobIds":["..."]}`. The write requires `jobs:write` and accepts a browser owner session, scoped API key, or authorized OAuth client. Destinations must belong to the source job's project; a job can include itself to opt in to explicitly requested successor runs. A run token can invoke a configured destination only while the source and destination remain in the same project. Deleting either job removes its permission edges. Revocation takes effect on the next invocation request.
+Manual invocation permissions are separate from lifecycle subscriptions. Configure the allowed destination jobs in a source job's editor. The public API can read them with `GET /api/v1/jobs/{jobId}/invocation-permissions` and replace them with a `PUT` containing `{"destinationJobIds":["..."]}`. The write requires `jobs:write` and accepts a browser owner session, scoped API key, or authorized OAuth client. Destinations must belong to the source job's project; a job can include itself to opt in to explicitly requested successor runs. A verified run can invoke a configured destination only while the source and destination remain in the same project. Deleting either job removes its permission edges. Revocation takes effect on the next invocation request.
 
-Permissions are project-local. The editor searches only the source job's project, and the API rejects cross-project permission writes. Existing cross-project permission rows are hidden from reads and cannot authorize run-token invocation. Existing lifecycle, edited, idle, schedule, and webhook triggers remain independent and do not grant manual invocation.
+Permissions are project-local. The editor searches only the source job's project, and the API rejects cross-project permission writes. Existing cross-project permission rows are hidden from reads and cannot authorize run invocation. Existing lifecycle, edited, idle, schedule, and webhook triggers remain independent and do not grant manual invocation.
 
-For each execution VM, Factorize creates an exe.dev HTTP proxy named `fz-run-<run UUID>`. Its credential is installed by the Factorize control plane and held by exe.dev; it is never placed in the guest environment, prompt, or files. The integration is attached only to that VM for at most 24 hours. Discover its URL through `https://reflection.int.exe.xyz/integrations`, using the name supplied in the run instructions. No API URL configuration or client-supplied Authorization header is needed.
+Each execution VM runs a localhost helper at `http://127.0.0.1:18180` (also
+available as `FACTORIZE_PROXY_URL`). It requests fresh vendor-signed proof and
+forwards authorized requests to Factorize. exe.dev uses an exclusively attached
+per-run WIF integration; Fly uses its Machine OIDC Unix socket. Factorize binds
+that identity to the provisioned VM, tenant, owner session and active run. No
+Factorize-issued VM bearer or upstream credential enters guest configuration.
 
-The credential is bound to the source job and run, expires after 24 hours, and stops authorizing requests when that run is no longer active. Its scopes come from the job’s Run permissions setting (`runScopes` in the job REST/MCP contract). Existing jobs and omitted create fields default to tenant-scoped reads of projects, jobs, runs, safe integration metadata, and skills, plus invoking authorized destinations. You can select additional write/cancel scopes, remove default scopes, or choose no scopes. Write scopes do not imply read scopes, except the legacy `runs:write` expansion. Credentials remain outside the VM regardless of scope. Do not pass a source job or run ID: the service derives both from the credential. `GET /api/v1/runtime-context` (MCP `get_runtime_context`) returns the verified source run/job identity and effective scopes without exposing the credential. It requires an authenticated active identity, but no application-resource scope, so even a zero-scope run can verify its own identity.
+The job's Run permissions (`runScopes`) are snapshotted with its execution
+configuration. Default scopes allow tenant reads of projects, jobs, runs, safe
+integration metadata and skills, plus explicitly authorized invocation. Writes
+do not imply reads, except the legacy `runs:write` expansion. An explicit empty
+scope list grants no application-resource access. `GET /api/v1/runtime-context`
+(MCP `get_runtime_context`) returns verified source run/job identity and effective
+scopes, including for zero-scope runs. The service derives source identity from
+the vendor binding; the guest cannot choose a different source run.
 
 Use the normal manual invocation endpoint, which is also the `invoke_job` MCP tool:
 
 ```sh
-curl --fail-with-body -X POST 'https://PROXY_HOST_FROM_REFLECTION/api/v1/jobs/DESTINATION_JOB_ID/invocations' \
+curl --fail-with-body -X POST 'http://127.0.0.1:18180/api/v1/jobs/DESTINATION_JOB_ID/invocations' \
   -H 'Content-Type: application/json' \
   --data '{"prompt":"Run the authorized follow-up","data":{"key":"value"},"idempotencyKey":"source-run-step-1"}'
 ```
 
-Only explicitly configured destinations may be invoked with a run token. Factorize checks the permission, active source run, destination enabled state, enabled manual trigger, and queue capacity at invocation time. Reuse the same `idempotencyKey` when retrying an uncertain request. Destination run details expose `invocation.source_job_id` and `invocation.source_run_id`; human and external invocations leave these values null.
+Only explicitly configured destinations may be invoked by a verified run. Factorize checks the permission, active source run, destination enabled state, enabled manual trigger, and queue capacity at invocation time. Reuse the same `idempotencyKey` when retrying an uncertain request. Destination run details expose `invocation.source_job_id` and `invocation.source_run_id`; human and external invocations leave these values null.
 
-Before starting the agent, Factorize verifies the run proxy and checks the control-plane attachments of other HTTP proxies targeting the same Factorize origin. Any shared Factorize proxy attached to that VM blocks startup, regardless of its scopes. The dedicated run proxy provides the job’s configured API access. Keep shared Factorize integrations on operator-only VM attachments. A public API credential with `runs:invoke` still supports ordinary external clients; do not attach that credential to execution VMs. Configure any alternate Factorize hostnames with the same isolation; never attach a broader proxy through an alias.
+Shared Factorize HTTP integrations must remain on operator-only attachments.
+exe.dev launch and renewal reject broader shared proxies for the configured
+Factorize origin. Do not attach external API credentials to execution VMs.
 
-Proxy removal is part of VM cleanup and is retried after failure. The credential's active-run and expiry checks remain effective even if external cleanup is temporarily unavailable. Installing credentials in a proxy prevents exporting the secret from the VM; it does not prevent an agent from misusing its permitted operations while running. Keep destination permissions narrow.
+Backend checks remove normal API and outbound access as soon as cancellation
+starts, or the run becomes terminal. Provider cleanup retries cannot restore
+access. Disconnecting a selected credential permanently revokes its use by
+existing runs; rotation of a live credential is transparent. Keep destination
+permissions narrow because an agent can use all operations you authorize.
 
 ## Configuring privileged orchestration jobs
 
-In a job’s editor, select Run permissions and save its configuration. API/MCP clients can supply `runScopes` when creating or updating the job. Omitting `runScopes` on update preserves the existing setting; an explicit empty array grants no application API scopes. Both agent and code jobs use the same per-run proxy delivery.
+In a job’s editor, select Run permissions and save its configuration. API/MCP clients can supply `runScopes` when creating or updating the job. Omitting `runScopes` on update preserves the existing setting; an explicit empty array grants no application API scopes. Both agent and code jobs use the same vendor identity helper.
 
 For example, an orchestration job that reads and repairs job configuration needs `jobs:read` and `jobs:write`. A job granted `jobs:write` may also change its own or other jobs’ run scopes, using the normal tenant-local job update API. This is administrative authority over future job execution; grant it only when intended. Manual invocation still needs `runs:invoke` and an explicitly authorized destination.
 
-Scopes are snapshotted when the invocation is created and stored with its execution credential. Updating a job does not add or remove authority from existing queued or active runs; cancel existing runs when immediate revocation is required. Credential rotation during a launch retry preserves the original scope snapshot. Runtime context reports the effective scopes, including legacy scope expansion. Browser-only API-key management, authorized-client management, and trace replay retain their existing session requirements.
+Scopes are snapshotted when the invocation is created and stored in immutable token-free authorization metadata. Updating a job does not add or remove authority from existing queued or active runs; cancel existing runs when immediate revocation is required. Launch retry and credential rotation preserve the original scope snapshot. Runtime context reports the effective scopes, including legacy scope expansion. Browser-only API-key management, authorized-client management, and trace replay retain their existing session requirements.
 
 ## Connect your accounts
 Source: https://docs.factorize.sh/integrations/oauth
@@ -331,17 +349,40 @@ Factorize accounts own dashboard identity. Sign up with an email and password, v
 
 | Account | Browser action and required access | Verification |
 | --- | --- | --- |
-| exe.dev | Add an account-level token, test credentials, and save. Execution integrations select Codex/Claude/Pi; jobs select VM tags, model, and effort. Needs VM listing/creation/SSH/deletion, per-run proxy management, and tagged repository/model integrations; see [operations](https://docs.factorize.sh/self-hosting/operations). | Test connection, then `list_execution_configs`; optionally diagnose the saved connection. |
+| exe.dev | Add an account-level token, test credentials, and save. Execution integrations select Codex/Claude/Pi; jobs select VM tags, model, and effort. Needs VM listing/creation/SSH/deletion, per-run WIF integration management and exclusive VM attachment; see [operations](https://docs.factorize.sh/self-hosting/operations). | Test connection, then `list_execution_configs`; optionally diagnose the saved connection. |
 | Amp | Add access token and project; ensure project/model/repository access. | Test and save, then discover the `amp:` target. |
 | Linear | Connect Linear and approve the workspace. Your account must access the selected project and issues; organization policies may require an administrator. | Select project/rules in the browser editor, send one matching event, inspect delivery/run. |
 | ClickUp | Connect ClickUp and approve the intended workspace/team with access to the list/tasks. | Select list/rules, change one matching task and inspect delivery/run. |
 | GitHub | Connect GitHub to install/authorize the Factorize App on the intended account/repositories; organization approval may be required. | Confirm active installation and repository selection, then send a matching event. |
 
-The provider consent/installation screen is the authority for granted permissions. Grant access to the selected resources; changing those resources can require provider reauthorization. Job-trigger access and execution-agent access are separate: installing the Factorize GitHub App does not supply git credentials to an exe.dev VM.
+The provider consent/installation screen is the authority for granted permissions. Grant access to the selected resources; changing those resources can require provider reauthorization. Job-trigger access and execution-agent access are separate: select an existing GitHub installation or Linear connection in each job to authorize its backend proxy access. Factorize reuses those credentials and their existing upstream permissions; it does not deliver tokens to the VM.
 
 MCP exposes safe connection/installation/target metadata, not tokens. Account connections, resource pickers and credential management require browser setup. Reconnect Linear/ClickUp from Settings; use GitHub's Configure installation link for repository access and verify the installation is active. Do not disconnect integrations while jobs still reference them; update those jobs first.
 
 After changing access, create one controlled event and use `list_webhook_deliveries`, `get_webhook_delivery`, `list_job_webhook_activity`, and `list_runs` to verify delivery and execution. See [jobs not firing](https://docs.factorize.sh/troubleshooting/events). Hosted Factorize manages OAuth application registration, callbacks and webhook infrastructure. Operators of their own deployment use [configuration](https://docs.factorize.sh/self-hosting/configuration).
+
+
+## Credentials selected by a job
+
+In Settings → Integrations, add custom bearer credentials with a fixed HTTPS
+origin. Add model accounts with ChatGPT device authorization or an OpenAI API
+key. Factorize encrypts these credentials on the server; stored secrets cannot
+be viewed and no unlock key is required. Replace an existing credential to
+rotate it without changing job selections. ChatGPT refresh happens server-side.
+
+Select only the bearer integrations, GitHub installations, Linear connection
+and model account that each job needs. Managed model accounts support Codex;
+Fly Codex jobs require one. Native exe.dev model access remains available.
+Each run uses its saved selection and Factorize API scope snapshot; later job
+edits affect future runs. Disconnect revokes existing run access permanently,
+even after reconnecting the same account. Select a replacement explicitly for
+future runs. Missing selections remain visible for repair and are never
+silently replaced with all available credentials.
+
+exe.dev and Fly guests use a localhost helper that authenticates to Factorize
+with fresh vendor signatures bound to that exact VM/run. Selected upstream
+credentials stay in the backend. Canceling or terminating a run removes its API
+and outbound access, independently of external VM deletion retries.
 
 ## Trigger configuration
 Source: https://docs.factorize.sh/integrations/triggers
@@ -864,34 +905,54 @@ Trace replay is REST-only and requires an interactive owner session with `runs:w
 
 Cloudflare Tail infrastructure is optional: use the [Tail relay deployment guide](https://github.com/GenerationSoftware/factorize/blob/main/docs/cloudflare-tail.md). Hosted users still supply their own source Worker/relay integration.
 
-## Per-run exe.dev proxies
+## Per-run vendor identity
 
-The account-level exe.dev token used by the Worker must allow `ls`, `new`, `ssh`, `rm`, `integrations list`, `integrations add`, `integrations attach`, and `integrations remove`. Test the saved connection in Settings; a missing permission must be fixed before launching jobs. The agent VM never receives this account token or its run-proxy bearer credential.
+The exe.dev account token must allow VM list/create/SSH/delete and integration
+list/add/attach/remove. Each run creates one WIF integration, with the run's
+unique audience and an exclusive VM attachment. Factorize verifies the vendor
+signature and current attachment inventory on admission. A WIF subject identifies
+an integration; it is not treated as a VM ID. The account token stays in Factorize.
 
-Keep shared Factorize integrations on operator-only attachments, such as a dedicated `human` tag that is never selected for jobs. Do not attach shared Factorize proxies to execution VMs, even when currently read-only, and do not use `auto:all`. Legacy `runs:write` expands to `runs:invoke` and is therefore not read-only. Provisioning checks the control-plane attachments for the configured Factorize origin and fails closed on shared access. Apply the same isolation to any alternate Factorize hostname or proxy alias.
+Keep shared Factorize integrations on operator-only attachments. Do not use
+`auto:all` or shared tags to grant broader Factorize API access to execution VMs.
+Provisioning and renewal reject shared proxies targeting the Factorize origin.
+Apply the same isolation to alternate hostnames and aliases.
 
-Each run creates a marked `fz-run-<UUID>` HTTP proxy targeting the Worker HTTPS origin, attaches it to that exact VM with `--for=24h`, and discovers it through Reflection. The first proxy preflight requires the deployed `/api/v1/runtime-context` operation. Deploy the API and scheduler together, then check the saved exe.dev token permissions and run a canary before resuming normal dispatch.
+Fly uses organization-slug OIDC discovery/JWKS and a fresh token from the guest
+`/.fly/api` Unix socket. The backend pins issuer, audience, exact subject and
+Machine ID to the active run. Machines live in a tenant execution app with no
+standalone proxy Machine. Guest HTTP exec uses the documented Machines API.
 
-Migration `0027_run_proxy_delivery.sql` distinguishes proxy-issued credentials from legacy credentials placed in VM environments. At the code cutover, legacy credentials stop authenticating; they never gain the proxy's read scopes. In-flight legacy agents can still write their result files, but must be restarted if they need Factorize API access. Rollback to the pre-proxy code restores the legacy credential behavior, so review that security implication before rolling back.
+Both providers run a root-owned localhost identity helper. It forwards only
+the configured backend routes and renews vendor proof for every request. No
+Factorize guest bearer, upstream token, browser capability or unlock key is
+installed. Cancel/terminal/disconnect checks occur in the backend, so failed
+provider cleanup cannot restore access. Artifact finalization during stopping
+additionally requires a separately signed upload grant.
 
-Cleanup checks the integration's run ownership marker before removal and retries failures. The scheduler persists its execution handle before external provisioning, so interrupted and partial launches retain cleanup ownership when their launch lease is recovered. Inspect failed cleanup before removing a marked integration manually; never delete an unrelated name collision. VM attachments and credentials expire after at most 24 hours even when external cleanup is unavailable.
+The scheduler persists cleanup ownership before provisioning, verifies vendor
+identity before launch, and resumes cleanup after interrupted leases. Verify
+resource ownership before manual removal; never delete an unrelated collision.
+Before deploying migration 0052, follow the credential cutover runbook above.
 
 ## Credential proxy cutover and recovery
 Source: https://docs.factorize.sh/self-hosting/credential-cutover
 
 # Credential proxy cutover and recovery
 
-This procedure describes the required breaking cutover; it is not evidence
-that the cutover has shipped. In the current repository checkpoint, the old
-proxy provisioning, pairing, and unlock paths are still wired into the API,
-settings UI, and scheduler. Do not execute this procedure until those paths
-have been removed and the new backend release is verified.
+This is a breaking migration from the separate per-owner proxy and user-held
+unlock key to the Factorize backend proxy. The release removes the old proxy,
+unlock, pairing and run-bearer endpoints. Guest access requires a fresh vendor
+signature bound to the exact run VM; there is no Factorize VM token fallback.
 
-This is a breaking migration. The previous per-owner Fly credential proxy,
-browser pairing, and user-held unlock key are not compatible with the Factorize
-backend run proxy. Do not run the cutover until the backend release containing
-vendor-verified VM identity and tenant-selected run credentials is deployed and
-the acceptance checks for both execution providers pass.
+Credentials are encrypted with the server's `CREDENTIAL_ENCRYPTION_KEY`. The
+backend can migrate its own managed credentials, but cannot recover secrets
+inside the old user encryption. Those records require owner re-entry.
+
+Do this during a maintenance window. Migration `0052_retire_credential_proxy`
+refuses nonterminal runs or existing credential records without operator
+preparation. This document describes deployment work; repository tests do not
+mean the production cutover has already happened.
 
 ## Before the cutover
 
@@ -904,42 +965,49 @@ the acceptance checks for both execution providers pass.
 3. Let active runs finish. For runs that cannot finish, stop them through the
    Factorize run controls and verify that each is terminal before proceeding.
    Do not stop a shared execution app or VM to drain one tenant's runs.
-4. Confirm the new backend is healthy and that a canary run can use only its
-   selected credentials. Check both exe.dev and Fly runs, including a run with
-   no portable credentials and one with explicit selections.
+4. Pause credential writes as well as all dispatch. With the pre-cutover
+   schema (through migration 0051), run the read-only preparation plan:
 
-If any run is still active or cannot be confirmed terminal, pause the cutover.
-Do not revoke its old proxy access while it is running.
+   ```sh
+   node packages/api/scripts/prepare-credential-cutover.mjs > private-cutover-plan.json
+   ```
 
-## Retire the old proxy
+   Supply `DATABASE_URL` and `CREDENTIAL_ENCRYPTION_KEY` through the operator's
+   secret environment. The report contains identifiers and job selections, not
+   secret values. Confirm every recorded `proxy_identity` against vendor
+   inventory; distinguish proxy-only apps from execution resources.
+5. Review the plan, then run the same command with `--apply`, preserving its
+   report privately. This disables jobs selecting legacy user ciphertext,
+   leaves their credential IDs and execution configuration intact, tombstones
+   those unreadable credentials, clears the retired change feed and revokes
+   old proxy control/enrollment state. Managed active credentials, GitHub and
+   Linear connections, Fly connections and execution configurations survive.
+6. Keep dispatch and writes paused. Stop and verify deletion of only the
+   inventoried old proxy Machines/VMs, shared proxy integrations and proxy-only
+   apps through documented vendor controls. Record resource identifiers and
+   absence checks. The preparation script does not delete vendor resources.
+7. Apply migration 0052 and deploy the backend and static application together
+   following the package migration release gates. Do not deploy this release
+   over an undrained database. The migration checks for credential writes after
+   preparation and drops the obsolete proxy, enrollment, unlock and generation
+   tables. Remove obsolete proxy image/build secrets and model browser
+   capability signing keys from deployment configuration.
+8. Verify live canary runs on exe.dev and Fly: exact run identity, selected and
+   unselected credential behavior, empty scopes, cancellation, artifacts and
+   cleanup. exe.dev requires unique per-run WIF attachment and inventory access;
+   Fly requires organization OIDC discovery/JWKS and guest Unix-socket tokens.
+   Fix failed canaries before resuming dispatch.
 
-1. In the owner settings, disable the old credential proxy and revoke its run
-   enrollment before removing any resource. Verify that it no longer accepts
-   new runs. Disabling the proxy does not stop agent VMs; the drain step above
-   is required.
-2. Identify the proxy Machine from the owner's saved Factorize proxy record.
-   Confirm the recorded Fly app and Machine ID in the Fly dashboard before
-   stopping it. Stop the proxy Machine and verify its stopped state. Do not
-   stop execution Machines as a substitute.
-3. After the stop is verified and no old run depends on it, destroy the proxy
-   Machine and retire the proxy-only Fly app, deployment secret, browser
-   pairing, and control credential. Keep the owner's Fly connection and all
-   execution configurations. Remove obsolete proxy-specific deployment
-   settings from the backend only after the new backend release is serving
-   traffic.
-4. Do not copy the old proxy's unlock key or decrypt old ciphertext into the
-   new service. The old user-encrypted secrets cannot be migrated by Factorize.
-
-Use the Fly dashboard or documented Fly CLI commands for resource retirement.
-Record the app and Machine identifiers that were removed, but never record
-credentials, unlock keys, or decrypted secret values.
+If any run remains active, or a resource identity cannot be established, keep
+maintenance in place. Never stop a shared execution app to retire one proxy.
 
 ## Reconnect credentials and repair jobs
 
-1. Each owner reconnects GitHub and Linear using the existing Factorize
-   connection flow, reconnects model accounts, and re-enters custom bearer
-   credentials. Re-enter the same intended account where possible; a new
-   connection ID is expected.
+1. Keep existing GitHub and Linear connections; their upstream permissions do
+   not expand. Owners reconnect unavailable model accounts using ChatGPT device
+   authorization or an OpenAI API key, and re-enter unreadable custom bearer
+   credentials. New IDs may need explicit job repair. Existing server-managed
+   records retain their IDs and do not require unnecessary reconnection.
 2. Compare the new connection metadata with the private inventory. Update each
    affected job to select the corresponding new credential ID. The cutover
    must not select every tenant credential automatically. A job that cannot
@@ -956,13 +1024,12 @@ credentials, unlock keys, or decrypted secret values.
 
 ## Recovery
 
-If the new backend canary fails, keep affected jobs paused and repair the new
-backend or the specific credential selection. The old unlock architecture is
-not a rollback path. Re-enable an old proxy only if the deployment has not
-retired it, its identity is still verified, and an operator has confirmed that
-doing so will not reintroduce access for unrelated tenants or runs. Never
-restore old credentials or ciphertext from a database backup as part of
-rollback. Re-enter or reconnect credentials after service is restored.
+If a canary fails, keep dispatch paused and repair the new backend or the
+specific credential selection. After migration 0052, the old backend is not a
+compatible rollback target: it depends on removed tables and credentials.
+Never restore old credentials or user ciphertext to revive access. A rollback
+requires a separately reviewed deployment/database recovery plan with dispatch
+paused; ordinary recovery proceeds forward on the managed architecture.
 
 ## Completion record
 

@@ -14,7 +14,7 @@ describe.skipIf(!url)("breaking credential cutover",{timeout:60_000},()=>{
       for(const file of files.filter(f=>f<"0052"))await db.pool.query(await readFile(new URL(file,directory),"utf8"));
       const tenant=crypto.randomUUID(),legacy=crypto.randomUUID(),managed=crypto.randomUUID(),job=crypto.randomUUID(),project=crypto.randomUUID(),key=btoa("a".repeat(32));
       await db.pool.query("INSERT INTO app.tenants(id) VALUES($1)",[tenant]);await db.pool.query("INSERT INTO app.integration_collections(tenant_id) VALUES($1)",[tenant]);
-      for(const [id,payload] of [[legacy,"unreadable-inner-user-ciphertext"],[managed,"factorize-managed-bearer-v1:managed-secret"]])await db.pool.query("INSERT INTO app.integration_records(tenant_id,id,kind,name,origin,revision,encrypted_payload) VALUES($1,$2,'bearer','Fixture','https://api.example.com',1,$3)",[tenant,id,await encrypt(payload,key)]);
+      for(const [id,payload] of [[legacy,"unreadable-inner-user-ciphertext"],[managed,"factorize-managed-bearer-v1:managed-secret"]])await db.pool.query("INSERT INTO app.integration_records(tenant_id,id,kind,name,origin,revision,encrypted_payload) VALUES($1,$2,'bearer',$2::text,'https://api.example.com',1,$3)",[tenant,id,await encrypt(payload,key)]);
       await db.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES($1,$2,'Fixture')",[tenant,project]);
       const config={connectionId:"existing-exe",portableIntegrationIds:[legacy,managed],modelAccess:"native"};
       await db.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit) VALUES($1,$2,$3,'Fixture','fixture','encrypted',$4,1)",[tenant,job,project,config]);

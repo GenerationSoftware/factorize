@@ -154,8 +154,7 @@ export class RunRetentionRepository {
         SELECT tenant_id,id FROM app.access_tokens WHERE expires_at < now() OR revoked_at IS NOT NULL
         ORDER BY expires_at,tenant_id,id LIMIT $1 FOR UPDATE SKIP LOCKED
       ) DELETE FROM app.access_tokens t USING expired x WHERE t.tenant_id=x.tenant_id AND t.id=x.id`],
-      // Keep the incremental cursor honest: any consumer older than this
-      // floor must fetch the current collection instead of applying a gap.
+      // Retain a bounded idempotency history; the old incremental feed is retired.
       ["integration_changes", `WITH expired AS (
         SELECT tenant_id,revision FROM app.integration_changes WHERE created_at<now()-interval '14 days'
         ORDER BY created_at,tenant_id,revision LIMIT $1 FOR UPDATE SKIP LOCKED

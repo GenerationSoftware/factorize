@@ -13,14 +13,32 @@ Trace replay is REST-only and requires an interactive owner session with `runs:w
 
 Cloudflare Tail infrastructure is optional: use the [Tail relay deployment guide](https://github.com/GenerationSoftware/factorize/blob/main/docs/cloudflare-tail.md). Hosted users still supply their own source Worker/relay integration.
 
-## Per-run exe.dev proxies
+## Per-run vendor identity
 
-The account-level exe.dev token used by the Worker must allow `ls`, `new`, `ssh`, `rm`, `integrations list`, `integrations add`, `integrations attach`, and `integrations remove`. Test the saved connection in Settings; a missing permission must be fixed before launching jobs. The agent VM never receives this account token or its run-proxy bearer credential.
+The exe.dev account token must allow VM list/create/SSH/delete and integration
+list/add/attach/remove. Each run creates one WIF integration, with the run's
+unique audience and an exclusive VM attachment. Factorize verifies the vendor
+signature and current attachment inventory on admission. A WIF subject identifies
+an integration; it is not treated as a VM ID. The account token stays in Factorize.
 
-Keep shared Factorize integrations on operator-only attachments, such as a dedicated `human` tag that is never selected for jobs. Do not attach shared Factorize proxies to execution VMs, even when currently read-only, and do not use `auto:all`. Legacy `runs:write` expands to `runs:invoke` and is therefore not read-only. Provisioning checks the control-plane attachments for the configured Factorize origin and fails closed on shared access. Apply the same isolation to any alternate Factorize hostname or proxy alias.
+Keep shared Factorize integrations on operator-only attachments. Do not use
+`auto:all` or shared tags to grant broader Factorize API access to execution VMs.
+Provisioning and renewal reject shared proxies targeting the Factorize origin.
+Apply the same isolation to alternate hostnames and aliases.
 
-Each run creates a marked `fz-run-<UUID>` HTTP proxy targeting the Worker HTTPS origin, attaches it to that exact VM with `--for=24h`, and discovers it through Reflection. The first proxy preflight requires the deployed `/api/v1/runtime-context` operation. Deploy the API and scheduler together, then check the saved exe.dev token permissions and run a canary before resuming normal dispatch.
+Fly uses organization-slug OIDC discovery/JWKS and a fresh token from the guest
+`/.fly/api` Unix socket. The backend pins issuer, audience, exact subject and
+Machine ID to the active run. Machines live in a tenant execution app with no
+standalone proxy Machine. Guest HTTP exec uses the documented Machines API.
 
-Migration `0027_run_proxy_delivery.sql` distinguishes proxy-issued credentials from legacy credentials placed in VM environments. At the code cutover, legacy credentials stop authenticating; they never gain the proxy's read scopes. In-flight legacy agents can still write their result files, but must be restarted if they need Factorize API access. Rollback to the pre-proxy code restores the legacy credential behavior, so review that security implication before rolling back.
+Both providers run a root-owned localhost identity helper. It forwards only
+the configured backend routes and renews vendor proof for every request. No
+Factorize guest bearer, upstream token, browser capability or unlock key is
+installed. Cancel/terminal/disconnect checks occur in the backend, so failed
+provider cleanup cannot restore access. Artifact finalization during stopping
+additionally requires a separately signed upload grant.
 
-Cleanup checks the integration's run ownership marker before removal and retries failures. The scheduler persists its execution handle before external provisioning, so interrupted and partial launches retain cleanup ownership when their launch lease is recovered. Inspect failed cleanup before removing a marked integration manually; never delete an unrelated name collision. VM attachments and credentials expire after at most 24 hours even when external cleanup is unavailable.
+The scheduler persists cleanup ownership before provisioning, verifies vendor
+identity before launch, and resumes cleanup after interrupted leases. Verify
+resource ownership before manual removal; never delete an unrelated collision.
+Before deploying migration 0052, follow the credential cutover runbook above.

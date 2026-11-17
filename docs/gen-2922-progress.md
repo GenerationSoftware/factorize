@@ -17,15 +17,15 @@ complete or release the breaking change until every remaining gate passes.
 - [x] Vendor identity authentication at the existing backend API/MCP boundary,
   with fixture coverage for scope snapshots, eligibility/revocation, invocation
   permissions, invalid tokens and fresh exe.dev attachment checks.
-- [ ] Adopt vendor authentication in guest/runtime setup and outbound forwarding.
-  Current run bearer credentials and standalone proxy admission still exist.
+- [x] Adopt vendor authentication in guest/runtime setup and outbound forwarding.
+  No Factorize guest bearer or standalone proxy admission remains.
 - [x] Backend streaming outbound protocol for selected managed bearers, existing
   GitHub API/Git/raw/archive and Linear connections, and managed model accounts.
   Model refresh is serialized/persisted server-side; disconnection persists
   per-run revocation and reconnect cannot restore the old selection.
-- [ ] Adopt the backend protocol in guest/runtime setup and retire old forwarding.
-- [ ] Replace runtime provisioning, guest discovery/client setup and scheduler gates.
-- [ ] Remove standalone proxy/pairing/unlock API, UI, configuration and dependencies.
+- [x] Adopt the backend protocol in guest/runtime setup and retire old forwarding.
+- [x] Replace runtime provisioning, guest discovery/client setup and scheduler gates.
+- [x] Remove standalone proxy/pairing/unlock API, UI, configuration and dependencies.
 - [ ] Implement and test the documented breaking migration and job repair behavior.
 - [ ] Reconcile operator/user docs, superseded work, and deployment/release gates.
 - [ ] End-to-end live vendor/run/proxy evidence and final complete root validation.
@@ -126,3 +126,26 @@ that expected the old proxy gate/token schema; those tests are now replaced by
 vendor launch assertions. Final complete validation is pending old architecture
 removal and E2E adaptation. Old implementation files/API/UI still require removal;
 the old Worker run-bearer and proxy-control HTTP admission paths are disabled.
+
+
+Cutover implementation at `066b6d5` removes the standalone workspace/image,
+certificate tunnel/control/enrollment code, guest bearer code, unlock API/UI,
+browser capability keys and old schema registrations. Migration 0052 requires
+terminal runs and explicit operator preparation for existing credential data.
+Preparation decrypts only Factorize envelopes, preserves managed credentials
+and execution connections/configuration, tombstones unreadable inner ciphertext,
+and disables affected jobs without changing their selections. The UI preserves
+missing selections explicitly and supports owner repair. Final migration and
+full-suite results are pending.
+
+Model connection now uses owner-only backend device authorization or write-only
+OpenAI API keys. Device challenge polling/exchange, PKCE, expiry/cancel, cache
+rotation and disconnect are fixture-tested; no live user model consent was
+performed. Browser tests use the same generated `/api/v1` client as external
+clients. Docker E2E now exercises a signed vendor fixture and the backend proxy;
+it does not build or run the retired credential proxy.
+
+Superseded Linear work: GEN-2824's user-unlocked separate proxy architecture,
+GEN-2892's boot/control enrollment (already canceled), and GEN-2826's browser
+pairing decision. GEN-2921's Docker validation intent is retained through the
+new backend/identity E2E. No unrelated Linear issues were closed.
