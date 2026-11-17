@@ -6,7 +6,7 @@ import { normalizeScopes } from "./access-tokens";
 import { integrationScopePattern, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
 import { resolveAgentCredential } from "./agent-credentials";
 import { forwardRunOutbound } from "./run-outbound-forwarder";
-import { XConnectionRepository } from "./postgres/x-connection-repository";
+import { XConnectionRepository, XReconnectRequiredError } from "./postgres/x-connection-repository";
 import type { z } from "zod";
 
 export class AgentApiError extends Error {
@@ -135,13 +135,32 @@ export class AgentApiService {
     const repository = new XConnectionRepository(this.database, this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const connection = await repository.get(connectionId);
     if (!connection || connection.status !== "connected") throw forbidden();
-    const credentials = await repository.clientCredentials(connectionId);
-    if (!credentials?.accessToken || !credentials.expiresAt || Date.parse(credentials.expiresAt) <= Date.now()) throw forbidden();
     if (!connection.scopes.includes(required) || !connection.grantedScopes.includes(required)) throw new AgentApiError(403, "insufficient_scope", `This X connection does not grant ${required}.`);
+    let accessToken: string | null;
+    try {
+      accessToken = await repository.accessToken(connectionId, async credentials => {
+        const response = await fetch("https://api.x.com/2/oauth2/token", {
+          method: "POST", redirect: "error", signal: AbortSignal.timeout(15_000),
+          headers: { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+          body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: credentials.refreshToken }),
+        });
+        const body = await response.json().catch(() => null) as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown; error?: unknown } | null;
+        if (!response.ok) {
+          if (response.status === 401 || body?.error === "invalid_grant") throw new XReconnectRequiredError();
+          throw new Error("X token refresh temporarily failed");
+        }
+        if (typeof body?.access_token !== "string" || typeof body.refresh_token !== "string" || typeof body.expires_in !== "number" || !Number.isFinite(body.expires_in) || body.expires_in <= 0) throw new Error("X token refresh response was invalid");
+        return { accessToken: body.access_token, refreshToken: body.refresh_token, expiresAt: new Date(Date.now() + body.expires_in * 1000).toISOString() };
+      });
+    } catch (error) {
+      if (error instanceof XReconnectRequiredError) throw new AgentApiError(401, "reconnect_required", "X authorization expired or was revoked. Reconnect this connection in Settings.");
+      throw new AgentApiError(502, "refresh_unavailable", "X authorization could not be refreshed temporarily. Retry the request later.");
+    }
+    if (!accessToken) throw forbidden();
     const currentIdentity = await this.identity();
     const current = await repository.get(connectionId);
     if (currentIdentity.kind !== "run" || !Array.isArray(currentIdentity.config?.xConnectionIds) || !currentIdentity.config.xConnectionIds.includes(connectionId) || current?.status !== "connected" || !current.scopes.includes(required) || !current.grantedScopes.includes(required)) throw forbidden();
-    try { return await forwardRunOutbound(request, { origin: "https://api.x.com", path: path, credential: credentials.accessToken }); }
+    try { return await forwardRunOutbound(request, { origin: "https://api.x.com", path: path, credential: accessToken }); }
     catch { throw new AgentApiError(502, "proxy_failed", "The X API request failed. Check X API access, credits, and rate limits, then retry if safe."); }
   }
   async request(input: z.infer<typeof requestApiInput>, signal?: AbortSignal) {

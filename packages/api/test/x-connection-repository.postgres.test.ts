@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { decrypt } from "../src/crypto";
-import { XConnectionRepository } from "../src/postgres/x-connection-repository";
+import { XConnectionRepository, XReconnectRequiredError } from "../src/postgres/x-connection-repository";
 import { loadingFixture } from "./helpers/loading-fixture";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
@@ -37,6 +37,52 @@ describe.skipIf(!url)("encrypted X app connections (PostgreSQL)", { timeout: 60_
       await expect(repository.clientCredentials(id)).rejects.toThrow();
       expect(await repository.delete(id)).toBe(false);
       await expect(repository.create({ ...input, name: "My X app" })).rejects.toMatchObject({ code: "23505" });
+    } finally { await f.cleanup(); }
+  });
+
+  it("serializes concurrent refresh rotation and persists only the newest encrypted token pair", async () => {
+    const f = await loadingFixture(url!);
+    try {
+      const id = crypto.randomUUID(), repository = new XConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+      await repository.create({ id, name: "Rotating X", clientId: "client", clientSecret: "private", scopes: ["tweet.read", "users.read", "offline.access"] });
+      await repository.completeOAuth(id, { accessToken: "expired-access", refreshToken: "refresh-v1", expiresAt: new Date(Date.now() - 1_000).toISOString(), accountId: "123", accountHandle: "user", grantedScopes: ["tweet.read", "users.read", "offline.access"] });
+      let release!: () => void, started!: () => void;
+      const waiting = new Promise<void>(resolve => { release = resolve; }), began = new Promise<void>(resolve => { started = resolve; });
+      const refresh = vi.fn(async () => { started(); await waiting; return { accessToken: "access-v2", refreshToken: "refresh-v2", expiresAt: new Date(Date.now() + 3_600_000).toISOString() }; });
+      const first = repository.accessToken(id, refresh), second = repository.accessToken(id, refresh);
+      await began;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(refresh).toHaveBeenCalledOnce();
+      release();
+      await expect(Promise.all([first, second])).resolves.toEqual(["access-v2", "access-v2"]);
+      expect(refresh).toHaveBeenCalledOnce();
+      await expect(repository.clientCredentials(id)).resolves.toMatchObject({ accessToken: "access-v2", refreshToken: "refresh-v2" });
+    } finally { await f.cleanup(); }
+  });
+
+  it("marks invalid_grant terminal, preserves transient failures, and disconnect wins over an in-flight refresh", async () => {
+    const f = await loadingFixture(url!);
+    try {
+      const id = crypto.randomUUID(), repository = new XConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+      await repository.create({ id, name: "Race X", clientId: "client", clientSecret: "private", scopes: ["tweet.read", "users.read", "offline.access"] });
+      await repository.completeOAuth(id, { accessToken: "expired-access", refreshToken: "refresh-v1", expiresAt: new Date(Date.now() - 1_000).toISOString(), accountId: "123", accountHandle: "user", grantedScopes: ["tweet.read", "users.read", "offline.access"] });
+      await expect(repository.accessToken(id, async () => { throw new Error("temporary 503"); })).rejects.toThrow("temporary 503");
+      expect(await repository.get(id)).toMatchObject({ status: "connected" });
+      await expect(repository.accessToken(id, async () => { throw new XReconnectRequiredError(); })).rejects.toBeInstanceOf(XReconnectRequiredError);
+      expect(await repository.get(id)).toMatchObject({ status: "reconnect_required" });
+
+      await repository.completeOAuth(id, { accessToken: "expired-access", refreshToken: "refresh-v1", expiresAt: new Date(Date.now() - 1_000).toISOString(), accountId: "123", accountHandle: "user", grantedScopes: ["tweet.read", "users.read", "offline.access"] });
+      let release!: () => void, started!: () => void;
+      const waiting = new Promise<void>(resolve => { release = resolve; }), began = new Promise<void>(resolve => { started = resolve; });
+      const refresh = repository.accessToken(id, async () => { started(); await waiting; return { accessToken: "late-access", refreshToken: "late-refresh", expiresAt: new Date(Date.now() + 3_600_000).toISOString() }; });
+      await began;
+      const disconnect = repository.disconnect(id);
+      release();
+      expect(await refresh).toBe("late-access");
+      expect(await disconnect).toMatchObject({ accessToken: "late-access", refreshToken: "late-refresh" });
+      expect(await repository.get(id)).toMatchObject({ status: "revoked", accountId: null, grantedScopes: [] });
+      expect(await repository.accessToken(id, async () => { throw new Error("must not refresh revoked connection"); })).toBeNull();
+      await expect(repository.clientCredentials(id)).rejects.toThrow();
     } finally { await f.cleanup(); }
   });
 });

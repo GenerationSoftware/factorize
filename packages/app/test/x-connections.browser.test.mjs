@@ -61,3 +61,29 @@ test("X settings guides app callback setup, validated permissions, and starts ow
   await page.getByText(/Granted permissions:.*tweet.write/).waitFor();
   await context.close();
 });
+
+test("X settings explains terminal authorization failures and offers an explicit reconnect", async () => {
+  const context = await browser.newContext(), page = await context.newPage();
+  const connectionId = "7d2edbbf-aac8-4f20-9b70-818bc5c03294";
+  let authorizeCalls = 0;
+  await page.route("**/api/v1/**", route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/v1/session") return route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: ["integrations:read", "integrations:write"] } });
+    if (path === "/api/v1/projects") return route.fulfill({ json: [] });
+    if (path === "/api/v1/integrations") return route.fulfill({ json: { exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] }, linear: null, clickup: null } });
+    if (path.includes("providers/github/installations")) return route.fulfill({ json: [] });
+    if (path === "/api/v1/model-accounts") return route.fulfill({ json: { accounts: [], revision: 0 } });
+    if (path === "/api/v1/integrations/bearer") return route.fulfill({ json: { integrations: [], revision: 0 } });
+    if (path === "/api/v1/integration-api-policies") return route.fulfill({ json: { integrations: [] } });
+    if (path === "/api/v1/x/connections") return route.fulfill({ json: { connections: [{ id: connectionId, name: "Work account", clientId: "client-123", scopes: ["tweet.read", "users.read", "offline.access"], accountId: "123", accountHandle: "work_user", grantedScopes: ["tweet.read", "users.read", "offline.access"], status: "reconnect_required", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] } });
+    if (path.endsWith("/authorize")) { authorizeCalls++; return route.fulfill({ json: { authorizationUrl: "https://x.com/i/oauth2/authorize?state=fresh" } }); }
+    return route.fulfill({ json: {} });
+  });
+  await page.route("https://x.com/**", route => route.fulfill({ contentType: "text/html", body: "X consent" }));
+  await page.goto(origin + "/settings/integrations");
+  await page.getByText("Needs attention", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Connect X", exact: true }).click();
+  await page.waitForURL("https://x.com/i/oauth2/authorize**");
+  assert.equal(authorizeCalls, 1);
+  await context.close();
+});

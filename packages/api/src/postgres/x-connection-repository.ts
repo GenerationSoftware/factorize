@@ -14,6 +14,10 @@ export type XConnectionMetadata = {
   updatedAt: string;
 };
 
+export class XReconnectRequiredError extends Error {
+  constructor() { super("X authorization requires reconnection"); }
+}
+
 type XConnectionRow = XConnectionMetadata & { encrypted_secret: string };
 
 /** Tenant-scoped X app credentials. Client secrets and later OAuth tokens share
@@ -61,6 +65,52 @@ export class XConnectionRepository {
     return { clientId: row.client_id, clientSecret: secret.clientSecret, scopes: row.scopes, accessToken: typeof secret.accessToken === "string" ? secret.accessToken : undefined, refreshToken: typeof secret.refreshToken === "string" ? secret.refreshToken : undefined, expiresAt: typeof secret.expiresAt === "string" ? secret.expiresAt : undefined };
   }
 
+  /** Refresh under the connection row lock so concurrent requests share one
+   * rotated refresh token. Disconnect and OAuth completion use the same row,
+   * so neither can be overwritten by a late refresh. */
+  async accessToken(id: string, refresh: (input: { clientId: string; clientSecret: string; refreshToken: string }) => Promise<{ accessToken: string; refreshToken: string; expiresAt: string }>): Promise<string | null> {
+    const result = await this.database.transaction(async client => {
+      const { rows } = await client.query<{ client_id: string; encrypted_secret: string; status: string }>(
+        "SELECT client_id,encrypted_secret,status FROM app.x_connections WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, id]);
+      const row = rows[0];
+      if (!row || row.status !== "connected") return { accessToken: null };
+      const stored = JSON.parse(await decrypt(row.encrypted_secret, this.encryptionKey)) as { clientSecret?: string; accessToken?: string; refreshToken?: string; expiresAt?: string };
+      if (stored.accessToken && stored.expiresAt && Date.parse(stored.expiresAt) > Date.now() + 60_000) return { accessToken: stored.accessToken };
+      if (!stored.clientSecret || !stored.refreshToken) {
+        await client.query("UPDATE app.x_connections SET status='reconnect_required',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status='connected'", [this.tenantId, id]);
+        return { reconnectRequired: true as const };
+      }
+      let rotated: { accessToken: string; refreshToken: string; expiresAt: string };
+      try { rotated = await refresh({ clientId: row.client_id, clientSecret: stored.clientSecret, refreshToken: stored.refreshToken }); }
+      catch (error) {
+        if (!(error instanceof XReconnectRequiredError)) throw error;
+        await client.query("UPDATE app.x_connections SET status='reconnect_required',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status='connected'", [this.tenantId, id]);
+        return { reconnectRequired: true as const };
+      }
+      const encrypted = await encrypt(JSON.stringify({ clientSecret: stored.clientSecret, ...rotated }), this.encryptionKey);
+      const updated = await client.query("UPDATE app.x_connections SET encrypted_secret=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status='connected'", [this.tenantId, id, encrypted]);
+      if (!updated.rowCount) return { accessToken: null };
+      return { accessToken: rotated.accessToken };
+    });
+    if (result?.reconnectRequired) throw new XReconnectRequiredError();
+    return result.accessToken;
+  }
+
+  /** Revoke locally first and return the old upstream credentials for a
+   * best-effort X revocation request after the transaction commits. */
+  async disconnect(id: string): Promise<{ clientId: string; clientSecret: string; accessToken?: string; refreshToken?: string } | null> {
+    return this.database.transaction(async client => {
+      const { rows } = await client.query<{ encrypted_secret: string; client_id: string; status: string }>(
+        "SELECT encrypted_secret,client_id,status FROM app.x_connections WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.tenantId, id]);
+      const row = rows[0];
+      if (!row || row.status === "revoked") return null;
+      const stored = JSON.parse(await decrypt(row.encrypted_secret, this.encryptionKey)) as { clientSecret?: string; accessToken?: string; refreshToken?: string };
+      const tombstone = await encrypt(JSON.stringify({}), this.encryptionKey);
+      await client.query("UPDATE app.x_connections SET status='revoked',encrypted_secret=$3,account_id=NULL,account_handle=NULL,granted_scopes='{}',updated_at=now() WHERE tenant_id=$1 AND id=$2", [this.tenantId, id, tombstone]);
+      return stored.clientSecret ? { clientId: row.client_id, clientSecret: stored.clientSecret, accessToken: stored.accessToken, refreshToken: stored.refreshToken } : null;
+    });
+  }
+
   async createOAuthAttempt(input: { nonce: string; userId: string; sessionVersion: number; connectionId: string; scopes: string[]; verifier: string; expiresAt: Date }): Promise<boolean> {
     const encryptedVerifier = await encrypt(input.verifier, this.encryptionKey);
     const result = await this.database.pool.query(`INSERT INTO app.x_oauth_attempts(tenant_id,nonce,user_id,session_version,connection_id,scopes,encrypted_verifier,expires_at)
@@ -93,9 +143,7 @@ export class XConnectionRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const tombstone = await encrypt(JSON.stringify({}), this.encryptionKey);
-    const { rowCount } = await this.database.pool.query("UPDATE app.x_connections SET status='revoked',encrypted_secret=$3,account_id=NULL,account_handle=NULL,granted_scopes='{}',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status<>'revoked'", [this.tenantId, id, tombstone]);
-    return (rowCount ?? 0) > 0;
+    return Boolean(await this.disconnect(id));
   }
 }
 

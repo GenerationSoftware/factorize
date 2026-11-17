@@ -632,7 +632,19 @@ export class ApiService {
   }
   async deleteXConnection(id: string) {
     await this.authorizeOwnerSession("integrations:write");
-    if (!await this.xConnections().delete(id)) throw new ServiceError(404, "not_found", "X connection not found.");
+    const credentials = await this.xConnections().disconnect(id);
+    if (!credentials) throw new ServiceError(404, "not_found", "X connection not found.");
+    // Local revocation is committed before contacting X. Upstream availability
+    // must never keep a disconnected run grant usable.
+    for (const token of [credentials.refreshToken, credentials.accessToken].filter((value): value is string => Boolean(value))) {
+      try {
+        await fetch("https://api.x.com/2/oauth2/revoke", {
+          method: "POST", redirect: "error", signal: AbortSignal.timeout(5_000),
+          headers: { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ token, token_type_hint: token === credentials.refreshToken ? "refresh_token" : "access_token" }),
+        });
+      } catch { /* Best effort after local run access has already been revoked. */ }
+    }
     return { id, deleted: true as const };
   }
   async authorizeXConnection(id: string) {
