@@ -1,4 +1,5 @@
 import { queryOf } from "./query-params";
+import { launchPayloadResponse } from "./launch-payload";
 import { searchResponse } from "./search-contracts";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
 import { exeConnection, integrationStatus, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
@@ -37,6 +38,7 @@ export interface RouteContract {
   path: string;
   scope: string | string[];
   ownerSession: boolean;
+  vendorIdentityOnly?: boolean;
   authOperation?: AuthAction;
   body?: z.ZodType;
   maxBodyBytes?: number;
@@ -150,7 +152,7 @@ function route(
   documentation: RouteContract["documentation"],
   execute: RouteContract["execute"],
   options: Partial<
-    Pick<RouteContract, "body" | "maxBodyBytes" | "query" | "ownerSession" | "parameters" | "authOperation">
+    Pick<RouteContract, "body" | "maxBodyBytes" | "query" | "ownerSession" | "vendorIdentityOnly" | "parameters" | "authOperation">
   > = {},
 ): RouteContract {
   const keys = [...path.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]);
@@ -185,7 +187,7 @@ function route(
 // Legacy route labels are translated by resource and effect; they are never
 // accepted as newly issued scopes.
 function scopeForRoute(path: string, legacy: string): string | string[] {
-  if (path === "/api/v1/runtime-context" || path === "/api/v1/runtime-integrations") return [];
+  if (path === "/api/v1/runtime-context" || path === "/api/v1/runtime-integrations" || path === "/api/v1/runtime-launch") return [];
   if (legacy === "runs:write" && path.endsWith("/report-error")) return "runs:write";
   if (legacy === "runs:write" && path === "/api/v1/runs/{runId}" ) return "runs:write";
   if (legacy === "runs:read" && path === "/api/v1/search") return "jobs:read+runs:read";
@@ -846,6 +848,11 @@ export const API_ROUTES: RouteContract[] = [
     (service, { params, body }) => service.invokeJob(params.jobId, body),
     { body: manualInvocationSchema },
   ),
+  route("GET", "/api/v1/runtime-launch", "runs:read", {
+    summary: "Fetch this VM's immutable launch payload",
+    description: "Requires the vendor-verified identity of an active run. Returns only that run's encrypted-at-rest scheduler snapshot, including the rendered prompt and harness or code context. No application scope is required. Sessions, API keys, OAuth clients, other runs and terminal runs cannot retrieve it. Responses are never cached.",
+    responses: { "200": { description: "Launch payload for the calling run", content: { "application/json": { schema: jsonSchema(launchPayloadResponse, "output") } } } } },
+  service => service.getRuntimeLaunchPayload(), { vendorIdentityOnly: true }),
   route("GET", "/api/v1/runtime-context", "runs:read", {
     summary: "Inspect the current runtime identity and scopes",
     description: "Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.",
@@ -1279,7 +1286,7 @@ export function generateOpenApi() {
       description: [
         route.documentation.description,
         route.authOperation || (Array.isArray(route.scope) && route.scope.length === 0) ? undefined : `Requires the ${Array.isArray(route.scope) ? route.scope.join(" and ") : route.scope.replaceAll("+", " and ")} scope${Array.isArray(route.scope) || route.scope.includes("+") ? "s" : ""}.`,
-        route.authOperation ? undefined : route.ownerSession
+        route.vendorIdentityOnly ? "Requires vendor-verified run identity; sessions and other bearer tokens cannot call this operation." : route.authOperation ? undefined : route.ownerSession
           ? "An interactive owner session is required; bearer tokens cannot call this operation."
           : "Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.",
       ]
@@ -1287,7 +1294,7 @@ export function generateOpenApi() {
         .join("\n\n"),
       operationId: `${route.method.toLowerCase()}_${route.path.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, "")}`,
       tags: [route.path.split("/")[3]],
-      security: route.authOperation ? (route.ownerSession ? [{ cookieAuth: [] }] : []) : route.ownerSession ? [{ cookieAuth: [] }] : [{ bearerAuth: [] }, { vendorRunIdentity: [], runIdentityHeader: [] }, { cookieAuth: [] }],
+      security: route.vendorIdentityOnly ? [{ vendorRunIdentity: [], runIdentityHeader: [] }] : route.authOperation ? (route.ownerSession ? [{ cookieAuth: [] }] : []) : route.ownerSession ? [{ cookieAuth: [] }] : [{ bearerAuth: [] }, { vendorRunIdentity: [], runIdentityHeader: [] }, { cookieAuth: [] }],
       ...(route.authOperation ? { "x-browser-auth-operation": route.authOperation } : { "x-required-scope": route.scope }),
       "x-owner-session-required": route.ownerSession,
       ...(parameters.length ? { parameters } : {}),

@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { RunScheduler } from "../src/postgres/run-scheduler";
 import { RunRepository } from "../src/postgres/run-repository";
 import { ExeVmBackend } from "../src/exe-vm-backend";
-import { encrypt } from "../src/crypto";
+import { decrypt, encrypt } from "../src/crypto";
+import { serializeLaunchPayload } from "../src/launch-payload";
 
 import { RunCredentialRepairRequired } from "../src/run-credential-launch";
 
@@ -38,9 +39,13 @@ describe("vendor-authenticated run launch", () => {
     vi.spyOn(scheduler, "backend").mockResolvedValue(backend);
     const launch = vi.spyOn(backend, "launch").mockResolvedValue({ handle: { backendKind: "exe-vm", id: "factorize-run" }, observation: { state: "running" }, capabilities: [], destinationUrl: "https://vm.test" });
     vi.spyOn(RunRepository.prototype, "markLaunched").mockResolvedValue();
+    const snapshot = vi.spyOn(RunRepository.prototype, "snapshotLaunchPayload").mockResolvedValue();
     const recordHandle = vi.spyOn(RunRepository.prototype, "recordLaunchHandle").mockResolvedValue();
     await scheduler.launch({ id: runId, tenantId: "tenant", executionConfig: { agentKind, runScopes: ["jobs:read", "jobs:write"], ...(agentKind === "code" ? { executionType: "code", script: "echo test", inputContext: {} } : {}) }, encryptedPrompt: await encrypt("Complete the task", key) });
     const request = launch.mock.calls[0][0];
+    expect(snapshot.mock.invocationCallOrder[0]).toBeLessThan(launch.mock.invocationCallOrder[0]);
+    expect(await decrypt(snapshot.mock.calls[0][1], key)).toBe(serializeLaunchPayload(request));
+    expect(request.fetchLaunchPayload).toBe(true);
     expect(recordHandle.mock.invocationCallOrder[0]).toBeLessThan(launch.mock.invocationCallOrder[0]);
     expect(request).not.toHaveProperty("runProxy");
     expect(request.runIdentity).toEqual({backendOrigin: env.APP_ORIGIN});

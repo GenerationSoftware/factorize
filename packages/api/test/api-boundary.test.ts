@@ -94,6 +94,18 @@ const jobInput = {
 };
 
 describe("Worker OpenAPI request/response boundaries", () => {
+  it("documents the run launch payload and requires vendor identity without an application scope", async () => {
+    const runId = "00000000-0000-4000-8000-000000000001";
+    const payload = {version: 1 as const, runId, prompt: "stored prompt", harness: {executable: "codex", args: ["exec"], env: {}}};
+    const get = vi.spyOn(ApiService.prototype, "getRuntimeLaunchPayload").mockResolvedValue(payload);
+    await assertResponse(await request("GET", "/api/v1/runtime-launch"), "GET", "/api/v1/runtime-launch", 403);
+    expect(get).not.toHaveBeenCalled();
+    const response = await request("GET", "/api/v1/runtime-launch", undefined, {auth: {...auth, authMethod: "vendor_identity", runId, scopes: []}});
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await assertResponse(response, "GET", "/api/v1/runtime-launch", 200)).toEqual(payload);
+    expect(openapi.paths["/api/v1/runtime-launch"].get.security).toEqual([{vendorRunIdentity: [], runIdentityHeader: []}]);
+  });
+
   it("returns a documented JSON array for a read", async () => {
     vi.spyOn(ApiService.prototype, "listJobs").mockResolvedValue([]);
     expect(

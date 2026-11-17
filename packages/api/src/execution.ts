@@ -18,6 +18,8 @@ export interface LaunchRequest {
   prompt: string;
   /** Public backend configuration only; requests must use fresh vendor identity. */
   runIdentity?: { backendOrigin: string };
+  /** The exact payload has been persisted for the VM to fetch with its vendor identity. */
+  fetchLaunchPayload?: boolean;
   traceSources?: TraceSources;
   harness?: { executable: string; args: string[]; env: Record<string, string> };
   code?: { script: string; context: Record<string, unknown> };

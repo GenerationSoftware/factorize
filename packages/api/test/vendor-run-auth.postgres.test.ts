@@ -10,6 +10,9 @@ import { CredentialRepository } from "../src/postgres/credential-repository";
 import { GitHubRepository } from "../src/postgres/github-repository";
 import { ConnectionRepository } from "../src/postgres/connection-repository";
 import worker from "../src/worker";
+import { RunRepository } from "../src/postgres/run-repository";
+import { decrypt, encrypt } from "../src/crypto";
+import { protectedApiFetch } from "../src/protected-api";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
@@ -38,6 +41,7 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
   beforeEach(async () => {
     const now = Math.floor(Date.now() / 1000);
     await f.db.pool.query("UPDATE app.job_runs SET state='running' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await f.db.pool.query("UPDATE app.runs SET encrypted_launch_payload=NULL WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     await f.db.pool.query("UPDATE app.runs SET state='running',execution_handle=$3,execution_config=$4 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, {backendKind: "fly", id: `run-app/${machineId}`}, {executionProvider: "fly", connectionId: "config", runScopes: ["runs:read"]}]);
     await new FlyConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY).save({organizationSlug: "connected-org", organizationName: "A different display name"}, "fixture-token");
     await f.db.pool.query("DELETE FROM app.vendor_run_identity_bindings WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
@@ -78,6 +82,57 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     expect(await authenticateVendorRunRequest(request(forged.join(".")), f.env)).toBeNull();
     // A malformed run-auth request cannot fall back to an otherwise valid session.
     expect((await worker.fetch(request("invalid", f.runId, undefined, {Cookie: f.cookie}), f.env, {waitUntil() {}} as any)).status).toBe(401);
+  });
+
+  it.each(["agent", "code"] as const)("serves an encrypted immutable %s launch snapshot only to its own active VM, even with zero API scopes", async kind => {
+    const repository = new RunRepository(f.db);
+    const run = {tenantId: f.tenantId, id: f.runId};
+    const prompt = "Exact snapshot 🦊\n".repeat(10_000);
+    const payload = {version: 1, runId: f.runId, ...(kind === "agent"
+      ? {prompt, harness: {executable: "codex", args: ["exec", "--json"], env: {}}}
+      : {code: {script: "echo snapshot", context: {prompt}}})};
+    await f.db.pool.query("UPDATE app.runs SET state='starting' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    await repository.snapshotLaunchPayload(run, await encrypt(JSON.stringify(payload), f.env.CREDENTIAL_ENCRYPTION_KEY));
+    await repository.snapshotLaunchPayload(run, await encrypt(JSON.stringify({...payload, runId: "replacement"}), f.env.CREDENTIAL_ENCRYPTION_KEY));
+    const stored = (await f.db.pool.query("SELECT encrypted_launch_payload FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0].encrypted_launch_payload;
+    expect(stored).not.toContain("Exact snapshot");
+    expect(JSON.parse(await decrypt(stored, f.env.CREDENTIAL_ENCRYPTION_KEY))).toEqual(payload);
+    expect(await repository.activeLaunchPayload(f.otherTenant, f.runId)).toBeNull();
+    // Subsequent job/prompt edits cannot change the launch snapshot.
+    await f.db.pool.query("UPDATE app.job_runs SET encrypted_prompt=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, await encrypt("changed prompt", f.env.CREDENTIAL_ENCRYPTION_KEY)]);
+    await f.db.pool.query("UPDATE app.run_authorizations SET scopes='[]' WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId]);
+    const ctx = {waitUntil() {}} as any;
+    const call = (token = jwt, id = f.runId) => worker.fetch(request(token, id, "/api/v1/runtime-launch"), f.env, ctx);
+    for (const state of ["starting", "running", "blocked"]) {
+      await f.db.pool.query("UPDATE app.job_runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
+      await f.db.pool.query("UPDATE app.runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
+      const response = await call();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(await response.json()).toEqual(payload);
+    }
+    expect((await f.request("/api/v1/runtime-launch")).status).toBe(403);
+    for (const authMethod of ["session", "access_token", "oauth"] as const) {
+      const response = await protectedApiFetch(new Request(f.env.APP_ORIGIN + "/api/v1/runtime-launch"), f.env, {...f.auth, authMethod}, ctx);
+      expect(response.status).toBe(403);
+    }
+    for (const token of [await sign({aud: "other-run"}), await sign({machine_id: "foreign-vm"})]) expect((await call(token)).status).toBe(401);
+    expect((await call(jwt, crypto.randomUUID())).status).toBe(401);
+    for (const state of ["stopping", "stopped", "failed", "succeeded"]) {
+      await f.db.pool.query("UPDATE app.job_runs SET state=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, state]);
+      expect((await call()).status).toBe(401);
+    }
+  });
+
+  it("does not fall back to an inline or different-run payload when the snapshot is unavailable or misbound", async () => {
+    const ctx = {waitUntil() {}} as any;
+    const call = () => worker.fetch(request(jwt, f.runId, "/api/v1/runtime-launch"), f.env, ctx);
+    expect((await call()).status).toBe(404);
+    await f.db.pool.query("UPDATE app.runs SET encrypted_launch_payload=$3 WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId,
+      await encrypt(JSON.stringify({version: 1, runId: crypto.randomUUID(), prompt: "other-run-prompt", harness: {executable: "codex", args: [], env: {}}}), f.env.CREDENTIAL_ENCRYPTION_KEY)]);
+    const response = await call();
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("other-run-prompt");
   });
 
   it("requires explicit destination permission and prevents a run from granting itself permission", async () => {

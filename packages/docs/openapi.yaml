@@ -10467,6 +10467,120 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ManualInvocation"
+  /api/v1/runtime-launch:
+    get:
+      summary: Fetch this VM's immutable launch payload
+      description: |-
+        Requires the vendor-verified identity of an active run. Returns only that run's encrypted-at-rest scheduler snapshot, including the rendered prompt and harness or code context. No application scope is required. Sessions, API keys, OAuth clients, other runs and terminal runs cannot retrieve it. Responses are never cached.
+
+        Requires vendor-verified run identity; sessions and other bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Launch payload for the calling run
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      version:
+                        type: number
+                        const: 1
+                      runId:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      traceSources:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties: {}
+                      prompt:
+                        type: string
+                      harness:
+                        type: object
+                        properties:
+                          executable:
+                            type: string
+                            minLength: 1
+                          args:
+                            type: array
+                            items:
+                              type: string
+                          env:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties:
+                              type: string
+                        required:
+                          - executable
+                          - args
+                          - env
+                        additionalProperties: false
+                    required:
+                      - version
+                      - runId
+                      - prompt
+                      - harness
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      version:
+                        type: number
+                        const: 1
+                      runId:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      traceSources:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties: {}
+                      code:
+                        type: object
+                        properties:
+                          script:
+                            type: string
+                          context:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
+                        required:
+                          - script
+                          - context
+                        additionalProperties: false
+                    required:
+                      - version
+                      - runId
+                      - code
+                    additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_runtime_launch
+      tags:
+        - runtime-launch
+      security:
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+      x-required-scope: []
+      x-owner-session-required: false
   /api/v1/runtime-context:
     get:
       summary: Inspect the current runtime identity and scopes

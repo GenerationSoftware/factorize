@@ -109,7 +109,7 @@ describe("ExeVmBackend", () => {
     expect(requests[1]).toContain("systemctl show");
   });
 
-  it("acquires a per-VM exe.dev WIF identity and verifies it before starting the job", async () => {
+  it.each(["codex", "claude", "pi", "code"] as const)("keeps %s startup below the exe.dev limit by fetching its large payload after identity verification", async kind => {
     const requests: string[] = [], token = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2V4ZS5kZXYvaXNzdWVyL3Rlc3QifQ.c2ln";
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
       const command = String(init.body); requests.push(command);
@@ -121,7 +121,10 @@ describe("ExeVmBackend", () => {
     }));
     const verify = vi.fn(async () => undefined);
     const runId = "00000000-0000-4000-8000-000000000001";
-    const launched = await new ExeVmBackend(connection).launch({ runId, prompt: "work", harness: agentDriver("codex").launch(runId, {}), verifyVendorIdentity: verify, runIdentity: {backendOrigin: "https://factorize.example.com"} });
+    const large = "large-payload-".repeat(100_000);
+    const launched = await new ExeVmBackend(connection).launch({ runId, prompt: large,
+      ...(kind === "code" ? {code: {script: large, context: {large}}} : {harness: agentDriver(kind).launch(runId, {})}),
+      fetchLaunchPayload: true, verifyVendorIdentity: verify, runIdentity: {backendOrigin: "https://factorize.example.com"} });
     expect(launched.observation.state).toBe("running");
     expect(requests[0]).toBe("integrations list --json");
     const wif = requests.find(value => value.startsWith("integrations add wif"))!;
@@ -130,6 +133,10 @@ describe("ExeVmBackend", () => {
     const work = requests.find(value => value.includes("sudo systemd-run"))!;
     expect(work).toContain("/run/factorize-identity/proxy.mjs");
     expect(work).toContain("FACTORIZE_PROXY_URL=http://127.0.0.1:18180");
+    expect(work).toContain("--fetch-payload");
+    expect(work).not.toContain("base64 -d > '/home/exedev/.factorize-job/launch.json'");
+    expect(requests.every(command => Buffer.byteLength(command) < 65_536)).toBe(true);
+    expect(requests.some(command => command.includes(large) || command.includes(Buffer.from(large).toString("base64")))).toBe(false);
     expect(launched.handle).not.toHaveProperty("runProxyName");
     expect(verify).toHaveBeenCalledWith({ provider: "exe.dev", vmId: "factorize-00000000-0000-4000-8000-000000000001", token, integrationName: "fzrun-00000000000040008000000000000001", expectedIssuer: "https://exe.dev/issuer/test", expectedSubject: "sub-test" });
     expect(requests.indexOf(requests.find(value => value.includes("sudo systemd-run"))!)).toBeGreaterThan(requests.indexOf(requests.find(value => value.includes("/token"))!));

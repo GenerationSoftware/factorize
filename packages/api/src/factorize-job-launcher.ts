@@ -7,6 +7,9 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
+import urllib.request
 
 ROOT = pathlib.Path('/home/exedev/.factorize-job')
 PAYLOAD = ROOT / 'launch.json'
@@ -27,8 +30,31 @@ def save(path, value):
         try: os.unlink(temp)
         except FileNotFoundError: pass
 
-def load_payload():
-    raw = sys.stdin.buffer.read(32 * 1024 * 1024 + 1)
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+def fetch_payload(run_id):
+    proxy = os.environ.get('FACTORIZE_PROXY_URL', '')
+    if not re.fullmatch(r'http://127\.0\.0\.1:[0-9]+', proxy):
+        raise ValueError('launch payload requires the local identity helper')
+    # Never route the local helper through the image's native HTTP proxy.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    for attempt in range(3):
+        try:
+            with opener.open(proxy + '/api/v1/runtime-launch', timeout=10) as response:
+                return response.read(32 * 1024 * 1024 + 1)
+        except urllib.error.HTTPError as error:
+            if error.code not in (408, 429, 500, 502, 503, 504):
+                raise RuntimeError('launch payload fetch rejected (HTTP %s)' % error.code) from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            pass
+        if attempt < 2:
+            time.sleep(attempt + 1)
+    raise RuntimeError('launch payload fetch failed after 3 attempts')
+
+def load_payload(run_id=None):
+    raw = fetch_payload(run_id) if run_id else sys.stdin.buffer.read(32 * 1024 * 1024 + 1)
     if len(raw) > 32 * 1024 * 1024:
         raise ValueError('launch payload exceeds 32 MiB')
     value = json.loads(raw)
@@ -36,6 +62,8 @@ def load_payload():
         raise ValueError('unsupported launch payload')
     if ('code' in value) == ('harness' in value):
         raise ValueError('launch payload must contain code or harness')
+    if run_id and value.get('runId') != run_id:
+        raise ValueError('launch payload run binding mismatch')
     return value
 
 def child_command(payload):
@@ -69,7 +97,7 @@ def child_command(payload):
     env['FACTORIZE_RESULT_PATH'] = str(RESULT)
     return [harness['executable'], *harness['args']], str(payload.get('prompt', '')).encode(), env
 
-def launch(foreground=False):
+def launch(foreground=False, run_id=None):
     ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
     if STATE.exists():
         current = json.loads(STATE.read_text())
@@ -78,7 +106,8 @@ def launch(foreground=False):
             try: os.kill(pid, 0)
             except ProcessLookupError: pass
             else: raise RuntimeError('a Factorize job is already active')
-    payload = load_payload()
+    save(STATE, {'state': 'starting'})
+    payload = load_payload(run_id)
     source = payload.get('traceSources', {}).get('primary', {})
     trace_path = source.get('path') if source.get('kind') == 'execution_stream' else None
     if trace_path:
@@ -141,10 +170,13 @@ if __name__ == '__main__':
     try:
         if sys.argv[1:] == ['launch']: launch()
         elif sys.argv[1:] == ['launch', '--foreground']: launch(foreground=True)
+        elif len(sys.argv) == 5 and sys.argv[1:4] == ['launch', '--foreground', '--fetch-payload']: launch(foreground=True, run_id=sys.argv[4])
         elif len(sys.argv) == 4 and sys.argv[1] == '_run': run(json.loads(sys.argv[2]), sys.argv[3])
         elif sys.argv[1:] == ['status']: raise SystemExit(status())
-        else: raise ValueError('usage: factorize-job launch [--foreground]|status')
+        else: raise ValueError('usage: factorize-job launch [--foreground [--fetch-payload RUN_ID]]|status')
     except Exception as error:
+        if sys.argv[1:2] == ['launch'] and STATE.exists() and json.loads(STATE.read_text()).get('state') == 'starting':
+            save(STATE, {'state': 'exited', 'exitCode': 1, 'error': str(error)[:500]})
         print('factorize-job: ' + str(error)[:500], file=sys.stderr)
         raise SystemExit(1)
 `;
