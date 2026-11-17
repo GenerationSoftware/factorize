@@ -71,4 +71,22 @@ describe.skipIf(!databaseUrl)("X owner OAuth callback (PostgreSQL)", { timeout: 
       expect(await repository.get(id)).toMatchObject({ status: "pending", accountId: null });
     } finally { await fixture.cleanup(); }
   });
+
+  it("rejects a token response that omits a requested permission", async () => {
+    const fixture = await loadingFixture(databaseUrl!);
+    try {
+      const repository = new XConnectionRepository(fixture.db, fixture.tenantId, fixture.env.CREDENTIAL_ENCRYPTION_KEY), id = crypto.randomUUID();
+      await repository.create({ id, name: "Limited X app", clientId: "client-789", clientSecret: "private", scopes: ["tweet.read", "users.read", "offline.access"] });
+      const start = await worker.fetch(new Request(`https://factorize.test/api/v1/x/connections/${id}/authorize`, { method: "POST", headers: { Cookie: fixture.cookie, Origin: fixture.env.APP_ORIGIN, "Content-Type": "application/json" }, body: "{}" }), fixture.env, { waitUntil() {} } as any);
+      const state = new URL((await start.json() as { authorizationUrl: string }).authorizationUrl).searchParams.get("state")!;
+      const cookie = start.headers.get("Set-Cookie")!.split(";", 1)[0]!;
+      const fetcher = vi.fn(async () => Response.json({ access_token: "secret-access", refresh_token: "secret-refresh", expires_in: 3600, scope: "tweet.read users.read" }));
+      vi.stubGlobal("fetch", fetcher);
+      const response = await worker.fetch(new Request(`https://factorize.test/oauth/x/callback?code=authorization-code&state=${encodeURIComponent(state)}`, { headers: { Cookie: `${fixture.cookie}; ${cookie}` } }), fixture.env, { waitUntil() {} } as any);
+      expect(response.headers.get("Location")).toContain("x=scope_mismatch");
+      expect(fetcher).toHaveBeenCalledOnce();
+      expect(await repository.get(id)).toMatchObject({ status: "pending", accountId: null, grantedScopes: [] });
+      await expect(repository.clientCredentials(id)).resolves.toMatchObject({ clientSecret: "private", accessToken: undefined, refreshToken: undefined });
+    } finally { await fixture.cleanup(); }
+  });
 });
