@@ -91,6 +91,12 @@ export class ExeVmBackend implements ExecutionBackend {
     } catch { throw new Error("exe.dev WIF integration metadata is invalid"); }
   }
 
+  /** Read-only provider check used on every backend request admission. */
+  async verifyIdentityAttachment(vm: string, runId: string): Promise<ExeWifConfiguration> {
+    if (vm !== vmNameFor(runId)) throw new Error("exe.dev VM/run mismatch");
+    return this.ensureExeWif(vm, runId, false);
+  }
+
   private async removeExeWif(vm: string, runId: string, name: string): Promise<void> {
     if (name !== exeWifIntegrationNameFor(runId)) throw new Error("Refusing to remove an unrelated exe.dev WIF integration");
     const listed = await this.api("integrations list --json");

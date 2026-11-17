@@ -62,3 +62,27 @@ run binding in these checks was explicit test input, not a production run or an
 end-to-end backend proxy session. See [the completion ledger](gen-2922-progress.md)
 for the remaining runtime and cutover gates. The existing proxy admission and
 proxy identity remain outside this verification evidence.
+
+
+## Backend request authentication
+
+A VM can call the existing `/api/v1` and `/mcp` boundaries with a fresh vendor
+JWT in `Authorization: Bearer ...` and its provisioned UUID in
+`X-Factorize-Run-Id`. The UUID is only a lookup hint: Factorize reads the tenant,
+owner/session binding, immutable vendor/VM binding and scope snapshot from its
+database. It verifies the signature and exact stored issuer, subject, audience
+and VM for every request. A vendor token alone grants no access. An invalid
+run-identity request cannot fall back to another authentication method.
+
+Admission requires both execution records to remain starting/running/blocked,
+an unrevoked binding, a matching persisted execution handle, and a connected
+execution provider. exe.dev additionally rechecks its exclusive WIF attachment
+through provider inventory on every admission. Fly pins the connected
+organization slug and app/Machine association. Job edits cannot broaden the
+active run's API scopes; an empty scope snapshot remains empty. A run with
+`jobs:write` cannot grant itself new invocation destinations.
+
+This request path is implemented alongside the old launch/runtime path while
+GEN-2922 remains in progress. Guest setup still needs to adopt it, and old run
+bearer authentication must be removed during the breaking cutover. It is not
+completion or release evidence for that cutover.

@@ -19,6 +19,16 @@ components:
       type: apiKey
       in: cookie
       name: factorize_session
+    vendorRunIdentity:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Fresh vendor-signed exe.dev WIF or Fly Machine OIDC token matching the provisioned active run. Must be combined with X-Factorize-Run-Id; a vendor token alone grants no access.
+    runIdentityHeader:
+      type: apiKey
+      in: header
+      name: X-Factorize-Run-Id
+      description: Provisioned run UUID. Used only to locate the immutable vendor/VM binding; this header is not a credential. Scopes and tenant come from the server-side run snapshot.
   schemas:
     Error:
       type: object
@@ -1888,7 +1898,6 @@ paths:
       tags:
         - model-accounts
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
@@ -1940,7 +1949,6 @@ paths:
       tags:
         - model-accounts
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -2041,7 +2049,6 @@ paths:
       tags:
         - model-accounts
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -2121,7 +2128,6 @@ paths:
       tags:
         - credential-proxy
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -2187,7 +2193,6 @@ paths:
       tags:
         - credential-proxy
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -2256,7 +2261,6 @@ paths:
       tags:
         - model-accounts
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -2342,7 +2346,6 @@ paths:
       tags:
         - unlock-key
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
@@ -2391,7 +2394,6 @@ paths:
       tags:
         - unlock-key
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -2584,7 +2586,6 @@ paths:
       tags:
         - unlock-key
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
@@ -2642,7 +2643,6 @@ paths:
       tags:
         - unlock-key
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -2868,7 +2868,6 @@ paths:
       tags:
         - integrations
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
@@ -2920,7 +2919,6 @@ paths:
       tags:
         - integrations
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -3018,7 +3016,6 @@ paths:
       tags:
         - integrations
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -3126,7 +3123,6 @@ paths:
       tags:
         - integrations
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -4361,12 +4357,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_trigger_contexts
       tags:
         - trigger-contexts
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -4435,12 +4433,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_exe_connections
       tags:
         - exe-connections
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -4498,12 +4498,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_github_installations
       tags:
         - github-installations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -4563,12 +4565,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_job_trigger_availability
       tags:
         - job-trigger-availability
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -4609,12 +4613,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_schedules_preview
       tags:
         - schedules
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -4692,12 +4698,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_integrations_cloudflare_tail
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -4750,12 +4758,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_integrations_cloudflare_tail
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -4983,12 +4993,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_integrations
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -5045,7 +5057,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
@@ -5101,7 +5112,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5167,7 +5177,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5228,7 +5237,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5323,7 +5331,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
@@ -5396,7 +5403,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5494,7 +5500,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: true
@@ -5573,7 +5578,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5656,7 +5660,6 @@ paths:
       tags:
         - fly
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: true
@@ -5712,12 +5715,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: put_api_v1_integrations_exe
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -5819,12 +5824,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_integrations_exe_test
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -5894,12 +5901,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: put_api_v1_integrations_amp
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -5960,12 +5969,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_integrations_amp_test
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -6029,12 +6040,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_linear_projects
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -6112,12 +6125,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_linear_options
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -6161,12 +6176,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_clickup_lists
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -6244,12 +6261,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_clickup_options
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -6314,12 +6333,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_github_installations
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -6389,7 +6410,6 @@ paths:
       tags:
         - access
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: true
@@ -6470,7 +6490,6 @@ paths:
       tags:
         - access-tokens
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: true
@@ -6553,7 +6572,6 @@ paths:
       tags:
         - access-tokens
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: true
@@ -6637,7 +6655,6 @@ paths:
       tags:
         - access-tokens
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: true
@@ -6682,7 +6699,6 @@ paths:
       tags:
         - access
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: true
@@ -6722,12 +6738,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_integrations_exe_connectionId
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -6767,12 +6785,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_integrations_amp_connectionId
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -6833,12 +6853,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: put_api_v1_integrations_cloudflare_tail_integrationId
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -6902,12 +6924,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_integrations_cloudflare_tail_integrationId
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -6953,12 +6977,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_integrations_cloudflare_tail_integrationId_test
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -7023,12 +7049,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_github_installations_installationId_repositories
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -7113,12 +7141,14 @@ paths:
       description: |-
         Requires the integrations:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_providers_github_installations_installationId_repositories_repositoryId_issue_options
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:read
       x-owner-session-required: false
@@ -7164,12 +7194,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_providers_github_installations_installationId
       tags:
         - providers
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -7209,12 +7241,14 @@ paths:
       description: |-
         Requires the integrations:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_integrations_exe_connectionId_diagnostics
       tags:
         - integrations
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: integrations:write
       x-owner-session-required: false
@@ -7233,7 +7267,7 @@ paths:
 
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Summary page
@@ -7345,6 +7379,8 @@ paths:
         - job-summaries
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -7463,12 +7499,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_job_selector
       tags:
         - job-selector
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -7583,12 +7621,14 @@ paths:
       description: |-
         Requires the projects:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_projects
       tags:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:read
       x-owner-session-required: false
@@ -7664,12 +7704,14 @@ paths:
       description: |-
         Requires the projects:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_projects
       tags:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:write
       x-owner-session-required: false
@@ -7743,12 +7785,14 @@ paths:
       description: |-
         Requires the projects:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_projects_projectId
       tags:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:read
       x-owner-session-required: false
@@ -7813,12 +7857,14 @@ paths:
       description: |-
         Requires the projects:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: put_api_v1_projects_projectId
       tags:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:write
       x-owner-session-required: false
@@ -7874,12 +7920,14 @@ paths:
       description: |-
         Requires the projects:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_projects_projectId
       tags:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:write
       x-owner-session-required: false
@@ -7898,7 +7946,7 @@ paths:
 
         Requires the projects:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Complete project graph
@@ -8002,6 +8050,8 @@ paths:
         - projects
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:read
       x-owner-session-required: false
@@ -8083,12 +8133,14 @@ paths:
       description: |-
         Requires the skills:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_skills
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:read
       x-owner-session-required: false
@@ -8174,12 +8226,14 @@ paths:
       description: |-
         Requires the skills:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_skills
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:write
       x-owner-session-required: false
@@ -8231,12 +8285,14 @@ paths:
       description: |-
         Requires the skills:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_skills_preview
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:read
       x-owner-session-required: false
@@ -8325,12 +8381,14 @@ paths:
       description: |-
         Requires the skills:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_skills_skillId
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:read
       x-owner-session-required: false
@@ -8401,12 +8459,14 @@ paths:
       description: |-
         Requires the skills:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: put_api_v1_skills_skillId
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:write
       x-owner-session-required: false
@@ -8465,12 +8525,14 @@ paths:
       description: |-
         Requires the skills:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_skills_skillId
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:write
       x-owner-session-required: false
@@ -8552,12 +8614,14 @@ paths:
       description: |-
         Requires the skills:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_skills_skillId_jobs
       tags:
         - skills
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: skills:read
       x-owner-session-required: false
@@ -9166,12 +9230,14 @@ paths:
       description: |-
         Requires the projects:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_jobs_jobId_project
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: projects:write
       x-owner-session-required: false
@@ -9207,7 +9273,7 @@ paths:
 
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Verification operation
@@ -9277,6 +9343,8 @@ paths:
         - vm-image-verifications
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -9387,12 +9455,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_vm_image_verifications_verificationId
       tags:
         - vm-image-verifications
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -10001,12 +10071,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_jobs
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -10607,12 +10679,14 @@ paths:
       description: |-
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_jobs
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -10630,7 +10704,7 @@ paths:
 
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Decision
@@ -10681,6 +10755,8 @@ paths:
         - job-conditions
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -10736,12 +10812,14 @@ paths:
       description: |-
         Requires the runs:invoke scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_jobs_jobId_invocations
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:invoke
       x-owner-session-required: false
@@ -10764,7 +10842,7 @@ paths:
       description: |-
         Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Verified runtime identity
@@ -10818,6 +10896,8 @@ paths:
         - runtime-context
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: []
       x-owner-session-required: false
@@ -10865,12 +10945,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_jobs_jobId_invocation_permissions
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -10888,7 +10970,7 @@ paths:
 
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Saved manual invocation permissions
@@ -10934,6 +11016,8 @@ paths:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -10992,12 +11076,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_jobs_jobId_events
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -11045,12 +11131,14 @@ paths:
       description: |-
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_jobs_jobId_enable
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -11090,12 +11178,14 @@ paths:
       description: |-
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_jobs_jobId_disable
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -11702,12 +11792,14 @@ paths:
       description: |-
         Requires the jobs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_jobs_jobId
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read
       x-owner-session-required: false
@@ -11725,7 +11817,7 @@ paths:
 
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Updated
@@ -12324,6 +12416,8 @@ paths:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -12777,12 +12871,14 @@ paths:
       description: |-
         Requires the jobs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: delete_api_v1_jobs_jobId
       tags:
         - jobs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:write
       x-owner-session-required: false
@@ -12801,7 +12897,7 @@ paths:
 
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Paginated runs
@@ -12830,6 +12926,8 @@ paths:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -12947,7 +13045,7 @@ paths:
 
         Requires the jobs:read and runs:read scopes.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Search results
@@ -13052,6 +13150,8 @@ paths:
         - search
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: jobs:read+runs:read
       x-owner-session-required: false
@@ -13091,12 +13191,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_webhooks_deliveries
       tags:
         - webhooks
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13178,12 +13280,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_webhooks_deliveries_deliveryId
       tags:
         - webhooks
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13202,7 +13306,7 @@ paths:
 
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Status
@@ -13362,6 +13466,8 @@ paths:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13403,12 +13509,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_runs_runId_artifacts_artifactId
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13435,7 +13543,7 @@ paths:
 
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Revision-bound page
@@ -13537,6 +13645,8 @@ paths:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13612,12 +13722,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_runs_runId
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13635,7 +13747,7 @@ paths:
 
         Requires the runs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Saved run display name
@@ -13674,6 +13786,8 @@ paths:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:write
       x-owner-session-required: false
@@ -13710,7 +13824,7 @@ paths:
 
         Requires the runs:write scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "200":
           description: Report saved or identical retry acknowledged
@@ -13758,6 +13872,8 @@ paths:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:write
       x-owner-session-required: false
@@ -13824,12 +13940,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_runs_runId_trace
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13901,7 +14019,6 @@ paths:
       tags:
         - runs
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: runs:cancel
       x-owner-session-required: true
@@ -13948,12 +14065,14 @@ paths:
       description: |-
         Requires the runs:read scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: get_api_v1_runs_runId_diagnostics
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:read
       x-owner-session-required: false
@@ -13993,12 +14112,14 @@ paths:
       description: |-
         Requires the runs:cancel scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_runs_runId_stop
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:cancel
       x-owner-session-required: false
@@ -14058,7 +14179,6 @@ paths:
       tags:
         - runs
       security:
-        - bearerAuth: []
         - cookieAuth: []
       x-required-scope: runs:cancel
       x-owner-session-required: true
@@ -14099,12 +14219,14 @@ paths:
       description: |-
         Requires the runs:cancel scope.
 
-        Accepts a scoped bearer token or interactive owner session.
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_runs_runId_kill
       tags:
         - runs
       security:
         - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
         - cookieAuth: []
       x-required-scope: runs:cancel
       x-owner-session-required: false

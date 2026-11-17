@@ -9,6 +9,7 @@ import { consentDecision } from "./consent-api";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
 import { ACCESS_SCOPES, authenticateAccessToken } from "./access-tokens";
+import { authenticateVendorRunRequest, RUN_IDENTITY_HEADER } from "./vendor-run-auth";
 import { authenticateRunCredential } from "./run-credentials";
 import { artifactUpload } from "./artifact-upload";
 import { traceChunkUpload } from "./trace-chunk-upload";
@@ -96,6 +97,11 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
   if (traceChunkMatch) return traceChunkUpload(request, env, decodeURIComponent(traceChunkMatch[1]!));
   const artifactMatch = url.pathname.match(/^\/internal\/run-artifacts\/([^/]+)$/);
   if (artifactMatch) return artifactUpload(request, env, decodeURIComponent(artifactMatch[1]!));
+  if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1")) && request.headers.has(RUN_IDENTITY_HEADER)) {
+    const auth = await authenticateVendorRunRequest(request, env);
+    if (!auth) return Response.json({ error: { code: "invalid_token", message: "The vendor identity is invalid or the run is no longer authorized." } }, { status: 401, headers: { "WWW-Authenticate": 'Bearer error="invalid_token"' } });
+    return protectedApiFetch(request, apiEnv, auth, ctx);
+  }
   if (isBrowserAuthOperation(request.method, url.pathname)) return protectedApiFetch(request, apiEnv, null, ctx);
   if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {
     // Signature and expiry here; the service performs the authoritative owner,

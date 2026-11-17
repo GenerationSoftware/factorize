@@ -14,8 +14,11 @@ complete or release the breaking change until every remaining gate passes.
   same pinned issuer/subject on launch and renewal.
 - [x] Reject redirects and bound discovery/JWKS fetches to ten seconds.
 - [x] Live vendor signature verification described below.
-- [ ] Vendor identity authentication on each backend API/proxy request. Current run
-  bearer credentials and standalone proxy admission still exist.
+- [x] Vendor identity authentication at the existing backend API/MCP boundary,
+  with fixture coverage for scope snapshots, eligibility/revocation, invocation
+  permissions, invalid tokens and fresh exe.dev attachment checks.
+- [ ] Adopt vendor authentication in guest/runtime setup and outbound forwarding.
+  Current run bearer credentials and standalone proxy admission still exist.
 - [ ] Move outbound forwarding and model authentication/refresh into the backend.
 - [ ] Replace runtime provisioning, guest discovery/client setup and scheduler gates.
 - [ ] Remove standalone proxy/pairing/unlock API, UI, configuration and dependencies.
@@ -53,7 +56,8 @@ to `expressway-by-scraper` with a one-hour grant:
   subject, VM and inactive run were rejected.
 - The unattached VM `factorize-gen2922-validation` received HTTP 403 from that
   endpoint. No assumption was made that the WIF subject itself identifies a VM.
-- Temporary WIF integration cleanup and validation VM cleanup are pending.
+- Temporary WIF integration removed after the test. The isolated validation VM
+  is retained while implementation and required local validation continue.
 
 Signing-key rotation, database revocation, terminal/canceled runs, cross-tenant
 isolation and provider requests remain deterministic fixture evidence until the
@@ -66,3 +70,17 @@ Fly backend suites: 32 tests passed. Root local validation on the development VM
 stopped before tests because its PostgreSQL password does not match the runner
 configuration. No host repair was attempted. A new isolated exe.dev VM is booted
 from the documented immutable validation-runner image for the required suite.
+
+
+The complete root suite at `47ccf62` passed on a fresh exe.dev VM using the
+pinned validation image: backend, static slice, functional/browser unit, proxy,
+and Docker E2E lanes all passed. SSH does not inherit the OCI browser-path
+environment; the image's existing login profile supplies it. The image smoke
+was run through a root login shell (and itself launches a non-login `exedev`
+Chromium process), and validation through an `exedev` login shell. This is not
+evidence that non-login Factorize job processes inherit OCI environment on
+exe.dev; that separate runner-image gate remains unchanged.
+
+The request-admission fixture suite adds five PostgreSQL/Worker tests and
+passed in the isolated validation VM. Complete validation of that follow-up
+commit is pending.

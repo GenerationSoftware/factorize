@@ -1305,13 +1305,13 @@ export function generateOpenApi() {
         route.authOperation || (Array.isArray(route.scope) && route.scope.length === 0) ? undefined : `Requires the ${Array.isArray(route.scope) ? route.scope.join(" and ") : route.scope.replaceAll("+", " and ")} scope${Array.isArray(route.scope) || route.scope.includes("+") ? "s" : ""}.`,
         route.authOperation ? undefined : route.ownerSession
           ? "An interactive owner session is required; bearer tokens cannot call this operation."
-          : "Accepts a scoped bearer token or interactive owner session.",
+          : "Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.",
       ]
         .filter(Boolean)
         .join("\n\n"),
       operationId: `${route.method.toLowerCase()}_${route.path.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, "")}`,
       tags: [route.path.split("/")[3]],
-      security: route.authOperation ? (route.ownerSession ? [{ cookieAuth: [] }] : []) : [{ bearerAuth: [] }, { cookieAuth: [] }],
+      security: route.authOperation ? (route.ownerSession ? [{ cookieAuth: [] }] : []) : route.ownerSession ? [{ cookieAuth: [] }] : [{ bearerAuth: [] }, { vendorRunIdentity: [], runIdentityHeader: [] }, { cookieAuth: [] }],
       ...(route.authOperation ? { "x-browser-auth-operation": route.authOperation } : { "x-required-scope": route.scope }),
       "x-owner-session-required": route.ownerSession,
       ...(parameters.length ? { parameters } : {}),
@@ -1330,7 +1330,7 @@ export function generateOpenApi() {
   }
   return {
     ...document,
-    components: { ...document.components, securitySchemes: { ...document.components.securitySchemes, cookieAuth: { type: "apiKey", in: "cookie", name: "factorize_session" } }, schemas, responses: errorResponses },
+    components: { ...document.components, securitySchemes: { ...document.components.securitySchemes, cookieAuth: { type: "apiKey", in: "cookie", name: "factorize_session" }, vendorRunIdentity: { type: "http", scheme: "bearer", bearerFormat: "JWT", description: "Fresh vendor-signed exe.dev WIF or Fly Machine OIDC token matching the provisioned active run. Must be combined with X-Factorize-Run-Id; a vendor token alone grants no access." }, runIdentityHeader: { type: "apiKey", in: "header", name: "X-Factorize-Run-Id", description: "Provisioned run UUID. Used only to locate the immutable vendor/VM binding; this header is not a credential. Scopes and tenant come from the server-side run snapshot." } }, schemas, responses: errorResponses },
     paths,
   };
 }

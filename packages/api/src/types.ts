@@ -55,10 +55,11 @@ export type OAuthProps = {
   runId?: string;
   runJobId?: string;
   runCredentialDigest?: string;
+  runIdentityProvider?: "exe.dev" | "fly.io";
   /** Stable identifier for the OAuth authorization grant; never a bearer token. */
   oauthGrantId?: string;
   oauthClientId?: string;
-  authMethod?: "session" | "oauth" | "access_token" | "run_token";
+  authMethod?: "session" | "oauth" | "access_token" | "run_token" | "vendor_identity";
 };
 
 export interface WorkItem {

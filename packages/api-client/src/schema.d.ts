@@ -571,7 +571,7 @@ export interface paths {
          * Get template autocomplete metadata
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_trigger_contexts"];
         put?: never;
@@ -593,7 +593,7 @@ export interface paths {
          * List exe connections
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_exe_connections"];
         put?: never;
@@ -615,7 +615,7 @@ export interface paths {
          * List GitHub installations
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_github_installations"];
         put?: never;
@@ -637,7 +637,7 @@ export interface paths {
          * List available trigger kinds
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_job_trigger_availability"];
         put?: never;
@@ -661,7 +661,7 @@ export interface paths {
          * Preview schedule
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_schedules_preview"];
         delete?: never;
@@ -681,7 +681,7 @@ export interface paths {
          * List Tail integrations
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_integrations_cloudflare_tail"];
         put?: never;
@@ -689,7 +689,7 @@ export interface paths {
          * Create a Tail integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_integrations_cloudflare_tail"];
         delete?: never;
@@ -709,7 +709,7 @@ export interface paths {
          * List installed integrations
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_integrations"];
         put?: never;
@@ -862,7 +862,7 @@ export interface paths {
          * Create an exe.dev integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_integrations_exe"];
         post?: never;
@@ -885,7 +885,7 @@ export interface paths {
          * Test exe.dev credentials
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_integrations_exe_test"];
         delete?: never;
@@ -906,7 +906,7 @@ export interface paths {
          * Create an Amp integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_integrations_amp"];
         post?: never;
@@ -929,7 +929,7 @@ export interface paths {
          * Test Amp credentials
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_integrations_amp_test"];
         delete?: never;
@@ -949,7 +949,7 @@ export interface paths {
          * List Linear projects
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_linear_projects"];
         put?: never;
@@ -971,7 +971,7 @@ export interface paths {
          * List Linear trigger options
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_linear_options"];
         put?: never;
@@ -993,7 +993,7 @@ export interface paths {
          * List ClickUp lists
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_clickup_lists"];
         put?: never;
@@ -1015,7 +1015,7 @@ export interface paths {
          * List ClickUp trigger options
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_clickup_options"];
         put?: never;
@@ -1037,7 +1037,7 @@ export interface paths {
          * List GitHub installations for provider setup
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_github_installations"];
         put?: never;
@@ -1156,7 +1156,7 @@ export interface paths {
          * Remove an exe.dev integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_integrations_exe_connectionId"];
         options?: never;
@@ -1178,7 +1178,7 @@ export interface paths {
          * Remove an Amp integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_integrations_amp_connectionId"];
         options?: never;
@@ -1198,7 +1198,7 @@ export interface paths {
          * Update a Tail integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_integrations_cloudflare_tail_integrationId"];
         post?: never;
@@ -1206,7 +1206,7 @@ export interface paths {
          * Remove a Tail integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_integrations_cloudflare_tail_integrationId"];
         options?: never;
@@ -1227,7 +1227,7 @@ export interface paths {
          * Test a Tail integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_integrations_cloudflare_tail_integrationId_test"];
         delete?: never;
@@ -1247,7 +1247,7 @@ export interface paths {
          * List installation repositories
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_github_installations_installationId_repositories"];
         put?: never;
@@ -1269,7 +1269,7 @@ export interface paths {
          * List GitHub issue trigger options
          * @description Requires the integrations:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_providers_github_installations_installationId_repositories_repositoryId_issue_options"];
         put?: never;
@@ -1294,7 +1294,7 @@ export interface paths {
          * Disconnect a GitHub installation
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_providers_github_installations_installationId"];
         options?: never;
@@ -1315,7 +1315,7 @@ export interface paths {
          * Probe exe.dev permissions and a disposable VM's agent/model integration
          * @description Requires the integrations:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_integrations_exe_connectionId_diagnostics"];
         delete?: never;
@@ -1337,7 +1337,7 @@ export interface paths {
          *
          *     Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_job_summaries"];
         put?: never;
@@ -1359,7 +1359,7 @@ export interface paths {
          * Search bounded lifecycle job options
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_job_selector"];
         put?: never;
@@ -1381,7 +1381,7 @@ export interface paths {
          * List projects
          * @description Requires the projects:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_projects"];
         put?: never;
@@ -1389,7 +1389,7 @@ export interface paths {
          * Create project
          * @description Requires the projects:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_projects"];
         delete?: never;
@@ -1409,14 +1409,14 @@ export interface paths {
          * Get project
          * @description Requires the projects:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_projects_projectId"];
         /**
          * Update project
          * @description Requires the projects:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_projects_projectId"];
         post?: never;
@@ -1424,7 +1424,7 @@ export interface paths {
          * Delete empty project
          * @description Requires the projects:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_projects_projectId"];
         options?: never;
@@ -1445,7 +1445,7 @@ export interface paths {
          *
          *     Requires the projects:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_projects_projectId_graph"];
         put?: never;
@@ -1467,7 +1467,7 @@ export interface paths {
          * Search global skills
          * @description Requires the skills:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_skills"];
         put?: never;
@@ -1475,7 +1475,7 @@ export interface paths {
          * Create a global skill
          * @description Requires the skills:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_skills"];
         delete?: never;
@@ -1497,7 +1497,7 @@ export interface paths {
          * Preview a composed job prompt
          * @description Requires the skills:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_skills_preview"];
         delete?: never;
@@ -1517,14 +1517,14 @@ export interface paths {
          * Get a global skill
          * @description Requires the skills:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_skills_skillId"];
         /**
          * Update a global skill
          * @description Requires the skills:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_skills_skillId"];
         post?: never;
@@ -1532,7 +1532,7 @@ export interface paths {
          * Delete an unused global skill
          * @description Requires the skills:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_skills_skillId"];
         options?: never;
@@ -1551,7 +1551,7 @@ export interface paths {
          * List jobs using a skill
          * @description Requires the skills:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_skills_skillId_jobs"];
         put?: never;
@@ -1575,7 +1575,7 @@ export interface paths {
          * Move a job to a project
          * @description Requires the projects:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_jobs_jobId_project"];
         delete?: never;
@@ -1599,7 +1599,7 @@ export interface paths {
          *
          *     Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_vm_image_verifications"];
         delete?: never;
@@ -1619,7 +1619,7 @@ export interface paths {
          * Get VM image verification progress
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_vm_image_verifications_verificationId"];
         put?: never;
@@ -1641,7 +1641,7 @@ export interface paths {
          * List jobs
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_jobs"];
         put?: never;
@@ -1649,7 +1649,7 @@ export interface paths {
          * Create job
          * @description Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_jobs"];
         delete?: never;
@@ -1673,7 +1673,7 @@ export interface paths {
          *
          *     Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_job_conditions_test"];
         delete?: never;
@@ -1695,7 +1695,7 @@ export interface paths {
          * Invoke job
          * @description Requires the runs:invoke scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_jobs_jobId_invocations"];
         delete?: never;
@@ -1715,7 +1715,7 @@ export interface paths {
          * Inspect the current runtime identity and scopes
          * @description Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runtime_context"];
         put?: never;
@@ -1737,7 +1737,7 @@ export interface paths {
          * List a source job's manual invocation destinations
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_jobs_jobId_invocation_permissions"];
         /**
@@ -1746,7 +1746,7 @@ export interface paths {
          *
          *     Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_jobs_jobId_invocation_permissions"];
         post?: never;
@@ -1767,7 +1767,7 @@ export interface paths {
          * List webhook activity
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_jobs_jobId_events"];
         put?: never;
@@ -1791,7 +1791,7 @@ export interface paths {
          * Enable job
          * @description Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_jobs_jobId_enable"];
         delete?: never;
@@ -1813,7 +1813,7 @@ export interface paths {
          * Disable job
          * @description Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_jobs_jobId_disable"];
         delete?: never;
@@ -1833,7 +1833,7 @@ export interface paths {
          * Get job
          * @description Requires the jobs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_jobs_jobId"];
         /**
@@ -1842,7 +1842,7 @@ export interface paths {
          *
          *     Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         put: operations["put_api_v1_jobs_jobId"];
         post?: never;
@@ -1850,7 +1850,7 @@ export interface paths {
          * Delete job
          * @description Requires the jobs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_jobs_jobId"];
         options?: never;
@@ -1871,7 +1871,7 @@ export interface paths {
          *
          *     Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs"];
         put?: never;
@@ -1895,7 +1895,7 @@ export interface paths {
          *
          *     Requires the jobs:read and runs:read scopes.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_search"];
         put?: never;
@@ -1917,7 +1917,7 @@ export interface paths {
          * Search webhook deliveries
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_webhooks_deliveries"];
         put?: never;
@@ -1939,7 +1939,7 @@ export interface paths {
          * Get webhook delivery detail and processing timeline
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_webhooks_deliveries_deliveryId"];
         put?: never;
@@ -1963,7 +1963,7 @@ export interface paths {
          *
          *     Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId_status"];
         put?: never;
@@ -1985,7 +1985,7 @@ export interface paths {
          * Download a retained run artifact
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId_artifacts_artifactId"];
         put?: never;
@@ -2009,7 +2009,7 @@ export interface paths {
          *
          *     Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId_trace_pages"];
         put?: never;
@@ -2031,7 +2031,7 @@ export interface paths {
          * Get run
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId"];
         put?: never;
@@ -2045,7 +2045,7 @@ export interface paths {
          *
          *     Requires the runs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         patch: operations["patch_api_v1_runs_runId"];
         trace?: never;
@@ -2065,7 +2065,7 @@ export interface paths {
          *
          *     Requires the runs:write scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_runs_runId_report_error"];
         delete?: never;
@@ -2085,7 +2085,7 @@ export interface paths {
          * Get paginated run trace events
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId_trace"];
         put?: never;
@@ -2131,7 +2131,7 @@ export interface paths {
          * Get credential-safe run lifecycle diagnostics
          * @description Requires the runs:read scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_runs_runId_diagnostics"];
         put?: never;
@@ -2155,7 +2155,7 @@ export interface paths {
          * Stop run
          * @description Requires the runs:cancel scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_runs_runId_stop"];
         delete?: never;
@@ -2201,7 +2201,7 @@ export interface paths {
          * Kill run and immediately release its concurrency slot
          * @description Requires the runs:cancel scope.
          *
-         *     Accepts a scoped bearer token or interactive owner session.
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_runs_runId_kill"];
         delete?: never;

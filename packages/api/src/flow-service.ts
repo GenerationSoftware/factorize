@@ -250,7 +250,7 @@ export class ApiService {
     await this.authorize("runs:write");
     const parsed = reportRunErrorSchema.parse(input), reason = safeDiagnosticText(parsed.reason, 1000);
     if (!reason.trim()) throw new ServiceError(400, "invalid_request", "Reason must contain safe text.");
-    const reporterKind = this.auth.authMethod === "oauth" ? "oauth" : this.auth.authMethod === "access_token" ? "api_key" : this.auth.authMethod === "run_token" ? "run_token" : "session";
+    const reporterKind = this.auth.authMethod === "oauth" ? "oauth" : this.auth.authMethod === "access_token" ? "api_key" : (this.auth.authMethod === "run_token" || this.auth.authMethod === "vendor_identity") ? "run_token" : "session";
     const reporterId = reporterKind === "oauth" ? this.auth.oauthGrantId && this.auth.oauthClientId ? `${this.auth.oauthClientId}:${this.auth.oauthGrantId}` : undefined : reporterKind === "api_key" ? this.auth.accessTokenId : reporterKind === "run_token" ? this.auth.runId : this.auth.userId;
     if (!reporterId) throw new ServiceError(403, "invalid_token", "Authenticated reporter identity is unavailable.");
     const result = await new RunRepository(databaseFor(this.env)).reportAgentError({ tenantId: this.auth.tenantId, runId, reason, userId: this.auth.userId, reporterKind, reporterId });
@@ -475,9 +475,17 @@ export class ApiService {
   async setJobEnabled(jobId: string, enabled: boolean) { await this.authorize("jobs:write"); const repository = this.jobs(); if (!await repository.setEnabled(jobId, enabled, new Date().toISOString())) throw new ServiceError(404, "not_found", "Job not found"); await this.wakeScheduler(); return { id: jobId, enabled }; }
   async invokeJob(jobId: string, input: ManualInvocationInput) {
     await this.authorize("runs:invoke"); const repository = this.jobs(), job = await repository.getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found");
-    if (this.auth.authMethod === "run_token") {
+    if (this.auth.authMethod === "run_token" || this.auth.authMethod === "vendor_identity") {
       if (!this.auth.runId || !this.auth.runJobId) throw new ServiceError(401, "invalid_token", "A verified run identity is required.");
-      const permission = await databaseFor(this.env).pool.query(`SELECT 1 FROM app.run_credentials c
+      const permission = this.auth.authMethod === "vendor_identity"
+        ? await databaseFor(this.env).pool.query(`SELECT 1 FROM app.vendor_run_identity_bindings b
+          JOIN app.job_runs r ON r.tenant_id=b.tenant_id AND r.id=b.run_id
+          JOIN app.jobs source ON source.tenant_id=r.tenant_id AND source.id=r.job_id
+          JOIN app.jobs destination ON destination.tenant_id=source.tenant_id AND destination.id=$3 AND destination.project_id=source.project_id
+          JOIN app.manual_invocation_permissions p ON p.tenant_id=b.tenant_id AND p.source_job_id=r.job_id AND p.destination_job_id=$3
+          WHERE b.tenant_id=$1 AND b.run_id=$2 AND b.provider=$4 AND b.revoked_at IS NULL
+            AND r.state IN ('starting','running','blocked')`, [this.auth.tenantId, this.auth.runId, jobId, this.auth.runIdentityProvider])
+        : await databaseFor(this.env).pool.query(`SELECT 1 FROM app.run_credentials c
         JOIN app.job_runs r ON r.tenant_id=c.tenant_id AND r.id=c.run_id
         JOIN app.jobs source ON source.tenant_id=r.tenant_id AND source.id=r.job_id
         JOIN app.jobs destination ON destination.tenant_id=source.tenant_id AND destination.id=$3 AND destination.project_id=source.project_id
@@ -487,8 +495,8 @@ export class ApiService {
     }
     const trigger = job.triggers.find(value => value.kind === "manual" && value.enabled); if (!trigger) throw new ServiceError(409, "operation_failed", "The manual trigger is disabled");
     const service = new InvocationService(repository, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY));
-    const claimKey = input.idempotencyKey ? `manual:${this.auth.authMethod === "run_token" ? `run:${this.auth.runId}:` : ""}${input.idempotencyKey}` : `manual:${crypto.randomUUID()}`;
-    const result = await service.invoke(jobId, { source: "manual", name: input.name, triggerId: trigger.id, claimKey, ...(this.auth.authMethod === "run_token" ? { sourceJobId: this.auth.runJobId, sourceRunId: this.auth.runId } : {}), context: { [trigger.slug]: { prompt: input.prompt, data: input.data ?? {} } } });
+    const claimKey = input.idempotencyKey ? `manual:${(this.auth.authMethod === "run_token" || this.auth.authMethod === "vendor_identity") ? `run:${this.auth.runId}:` : ""}${input.idempotencyKey}` : `manual:${crypto.randomUUID()}`;
+    const result = await service.invoke(jobId, { source: "manual", name: input.name, triggerId: trigger.id, claimKey, ...((this.auth.authMethod === "run_token" || this.auth.authMethod === "vendor_identity") ? { sourceJobId: this.auth.runJobId, sourceRunId: this.auth.runId } : {}), context: { [trigger.slug]: { prompt: input.prompt, data: input.data ?? {} } } });
     if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" });
     return { invocationId: result.invocation.id, runId: result.run.id, state: result.run.state, duplicate: result.duplicate };
   }
@@ -503,9 +511,8 @@ export class ApiService {
   }
   async setInvocationPermissions(sourceJobId: string, destinationJobIds: string[]) {
     await this.authorize("jobs:write");
-    // Run credentials intentionally have a read/invoke-only scope set. Keep this
-    // service guard as defense in depth if a future run credential gains scopes.
-    if (this.auth.authMethod === "run_token") throw new ServiceError(403, "insufficient_scope", "Run credentials cannot change invocation permissions.");
+    // A run with jobs:write still cannot expand its invocation destinations.
+    if (this.auth.authMethod === "run_token" || this.auth.authMethod === "vendor_identity") throw new ServiceError(403, "insufficient_scope", "Run credentials cannot change invocation permissions.");
     const unique = [...new Set(destinationJobIds)];
     if (unique.length !== destinationJobIds.length) throw new ServiceError(400, "invalid_request", "Destination jobs must be unique.");
     const db = databaseFor(this.env);
