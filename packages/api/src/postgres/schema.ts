@@ -52,6 +52,7 @@ export const xConnections = app.table("x_connections", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   id: uuid("id").notNull(), name: text("name").notNull(), clientId: text("client_id").notNull(),
   scopes: text("scopes").array().notNull(), encryptedSecret: text("encrypted_secret").notNull(),
+  credentialVersion: integer("credential_version").notNull().default(1),
   accountId: text("account_id"), accountHandle: text("account_handle"), grantedScopes: text("granted_scopes").array().notNull().default(sql`'{}'::text[]`),
   status: text("status").$type<"pending" | "connected" | "reconnect_required">().notNull().default("pending"),
   createdAt: createdAt(), updatedAt: updatedAt(),
@@ -59,6 +60,7 @@ export const xConnections = app.table("x_connections", {
 export const xOAuthAttempts = app.table("x_oauth_attempts", {
   tenantId: uuid("tenant_id").notNull(), nonce: text("nonce").notNull(), userId: uuid("user_id").notNull(), sessionVersion: integer("session_version").notNull(),
   connectionId: uuid("connection_id").notNull(), scopes: text("scopes").array().notNull(), encryptedVerifier: text("encrypted_verifier").notNull(),
+  credentialVersion: integer("credential_version").notNull().default(1),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), consumedAt: timestamp("consumed_at", { withTimezone: true }),
 }, t => [primaryKey({ columns: [t.tenantId, t.nonce] }), foreignKey({ columns: [t.tenantId, t.connectionId], foreignColumns: [xConnections.tenantId, xConnections.id] }).onDelete("cascade"), index("x_oauth_attempt_expiry").on(t.expiresAt)]);
 export const agentIntegrations = app.table("agent_integrations", {

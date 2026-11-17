@@ -29,6 +29,7 @@ const suggested: XScope[] = ["tweet.read", "users.read", "offline.access"];
 export function XConnections() {
   const cache = useQueryClient();
   const [name, setName] = useState(""), [clientId, setClientId] = useState(""), [clientSecret, setClientSecret] = useState("");
+  const [replaceId, setReplaceId] = useState<string | null>(null), [replacementClientId, setReplacementClientId] = useState(""), [replacementSecret, setReplacementSecret] = useState("");
   const [scopes, setScopes] = useState<XScope[]>(suggested), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
   const connections = useQuery({ queryKey: ["settings", "x-connections"], queryFn: async ({ signal }) => {
     const result = await api.GET("/api/v1/x/connections", { signal });
@@ -41,6 +42,7 @@ export function XConnections() {
       connected: "X account connected and verified.", denied: "X authorization was declined. You can try again when ready.",
       expired: "That X authorization expired or was already used. Start a new attempt.",
       scope_mismatch: "X granted fewer permissions than selected. Review the scopes and reconnect.",
+      account_mismatch: "X authorized a different account. This connection remains bound to its original account; create a new connection to use another account.",
       session_required: "Sign in again as the workspace owner before connecting X.", failed: "X authorization could not be verified. Check the app setup and try again.",
     };
     if (result && messages[result]) {
@@ -65,6 +67,21 @@ export function XConnections() {
     if (!response.data || response.error) throw new Error(messageOf(response.error));
     location.assign(response.data.authorizationUrl);
   }, onError: value => setError(value.message) });
+  const testConnection = useMutation({ retry: false, mutationFn: async (id: string) => {
+    const response = await api.POST("/api/v1/x/connections/{connectionId}/test", { params: { path: { connectionId: id } }, body: {} });
+    if (!response.data || response.error) throw new Error(messageOf(response.error));
+    return response.data;
+  }, onSuccess: result => setNotice(result.message), onError: value => setError(value.message) });
+  const replaceCredentials = useMutation({ retry: false, mutationFn: async (id: string) => {
+    const response = await api.PUT("/api/v1/x/connections/{connectionId}/credentials", { params: { path: { connectionId: id } }, body: { clientId: replacementClientId, clientSecret: replacementSecret } });
+    if (!response.data || response.error) throw new Error(messageOf(response.error));
+    return response.data;
+  }, onSuccess: async connection => {
+    setReplacementSecret(""); setReplacementClientId(""); setReplaceId(null);
+    await cache.invalidateQueries({ queryKey: ["settings", "x-connections"] });
+    setNotice("App credentials replaced. Reauthorize the same X account to restore access.");
+    authorize.mutate(connection.id);
+  }, onError: value => setError(value.message) });
   const toggle = (scope: XScope) => setScopes(current => current.includes(scope) ? current.filter(item => item !== scope) : [...current, scope]);
   const callback = `${location.origin}/oauth/x/callback`;
 
@@ -76,6 +93,16 @@ export function XConnections() {
       <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">{connection.name}</h3><p className="text-sm text-slate-600 dark:text-slate-400">{connection.accountHandle ? `@${connection.accountHandle} · ${connection.accountId}` : "No X account connected yet"}</p></div><span className="rounded-full border px-3 py-1 text-sm">{connection.status === "connected" ? "Connected" : connection.status === "reconnect_required" ? "Needs attention" : connection.status === "revoked" ? "Disconnected" : "Setup incomplete"}</span></div>
       {connection.grantedScopes.length > 0 && <p className="text-sm">Granted permissions: {connection.grantedScopes.join(", ")}</p>}
       {connection.status === "revoked" ? <p className="text-sm">Disconnected. Create a new connection to use X again.</p> : connection.status !== "connected" && <Button disabled={authorize.isPending} onClick={() => { setError(null); authorize.mutate(connection.id); }}>Connect X</Button>}
+      {connection.status !== "revoked" && <div className="flex flex-wrap gap-2">
+        <Button type="button" disabled={testConnection.isPending || connection.status !== "connected"} onClick={() => { setError(null); setNotice(null); testConnection.mutate(connection.id); }}>Test connection</Button>
+        <Button type="button" onClick={() => { setError(null); setNotice(null); setReplaceId(current => current === connection.id ? null : connection.id); setReplacementClientId(""); setReplacementSecret(""); }}>Replace app credentials</Button>
+      </div>}
+      {replaceId === connection.id && <div className="space-y-3 rounded-lg border p-4">
+        <p className="text-sm">Replacing credentials clears saved tokens and pauses this connection until reauthorization. The existing X account stays bound; to connect another account, create a new connection.</p>
+        <label className="block text-sm font-medium">Replacement OAuth 2.0 Client ID<input className="mt-1 block w-full rounded-lg border px-3 py-2 dark:bg-slate-950" autoComplete="off" value={replacementClientId} onChange={event => setReplacementClientId(event.target.value)} required /></label>
+        <label className="block text-sm font-medium">Replacement OAuth 2.0 Client Secret<input className="mt-1 block w-full rounded-lg border px-3 py-2 dark:bg-slate-950" type="password" autoComplete="new-password" value={replacementSecret} onChange={event => setReplacementSecret(event.target.value)} required /></label>
+        <Button type="button" disabled={replaceCredentials.isPending || !replacementClientId.trim() || !replacementSecret} onClick={() => { setError(null); replaceCredentials.mutate(connection.id); }}>{replaceCredentials.isPending ? "Replacing…" : "Replace credentials and reauthorize"}</Button>
+      </div>}
     </Card>)}
     <Card className="space-y-5">
       <div><h3 className="text-lg font-semibold">Set up your X developer app</h3><ol className="ml-5 list-decimal space-y-2 text-sm text-slate-700 dark:text-slate-300">

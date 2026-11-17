@@ -80,6 +80,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/x/connections/{connectionId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test an X connection
+         * @description Requires an interactive owner session. Performs a non-mutating GET to X /2/users/me using the saved access token. Returns only a safe status and the already stored account handle; it never returns tokens, credentials, or upstream error bodies. The verification read may incur X API usage charges.
+         *
+         *     Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_x_connections_connectionId_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/x/connections/{connectionId}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace X app credentials
+         * @description Requires an interactive owner session. Replaces the encrypted client credentials, invalidates saved access and refresh tokens and pending OAuth attempts, preserves the existing account identity binding, and requires reauthorization. Reauthorization cannot switch the connection to a different X account; create a new connection for another account. Existing run selections remain unavailable until authorization succeeds.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_x_connections_connectionId_credentials"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/model-accounts": {
         parameters: {
             query?: never;
@@ -3229,6 +3277,97 @@ export interface operations {
                     "application/json": {
                         /** Format: uri */
                         authorizationUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_x_connections_connectionId_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Safe connection test result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "connected" | "failed" | "reconnect_required";
+                        accountHandle: string | null;
+                        message: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_x_connections_connectionId_credentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    clientId: string;
+                    clientSecret: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated safe connection metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        clientId: string;
+                        scopes: string[];
+                        accountId: string | null;
+                        accountHandle: string | null;
+                        grantedScopes: string[];
+                        /** @enum {string} */
+                        status: "pending" | "connected" | "reconnect_required" | "revoked";
+                        createdAt: string;
+                        updatedAt: string;
                     };
                 };
             };

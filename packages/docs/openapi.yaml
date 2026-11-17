@@ -2204,6 +2204,199 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /api/v1/x/connections/{connectionId}/test:
+    post:
+      summary: Test an X connection
+      description: |-
+        Requires an interactive owner session. Performs a non-mutating GET to X /2/users/me using the saved access token. Returns only a safe status and the already stored account handle; it never returns tokens, credentials, or upstream error bodies. The verification read may incur X API usage charges.
+
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Safe connection test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - connected
+                      - failed
+                      - reconnect_required
+                  accountHandle:
+                    type:
+                      - string
+                      - "null"
+                  message:
+                    type: string
+                required:
+                  - status
+                  - accountHandle
+                  - message
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_x_connections_connectionId_test
+      tags:
+        - x
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+  /api/v1/x/connections/{connectionId}/credentials:
+    put:
+      summary: Replace X app credentials
+      description: |-
+        Requires an interactive owner session. Replaces the encrypted client credentials, invalidates saved access and refresh tokens and pending OAuth attempts, preserves the existing account identity binding, and requires reauthorization. Reauthorization cannot switch the connection to a different X account; create a new connection for another account. Existing run selections remain unavailable until authorization succeeds.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Updated safe connection metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  clientId:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                  accountId:
+                    type:
+                      - string
+                      - "null"
+                  accountHandle:
+                    type:
+                      - string
+                      - "null"
+                  grantedScopes:
+                    type: array
+                    items:
+                      type: string
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - connected
+                      - reconnect_required
+                      - revoked
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - name
+                  - clientId
+                  - scopes
+                  - accountId
+                  - accountHandle
+                  - grantedScopes
+                  - status
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: put_api_v1_x_connections_connectionId_credentials
+      tags:
+        - x
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                clientId:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+                clientSecret:
+                  type: string
+                  minLength: 1
+                  maxLength: 4096
+                  pattern: ^[^\r\n]+$
+                  writeOnly: true
+              required:
+                - clientId
+                - clientSecret
+              additionalProperties: false
   /api/v1/model-accounts:
     get:
       summary: List model accounts available to the owner

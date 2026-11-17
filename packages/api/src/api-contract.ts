@@ -152,6 +152,8 @@ const xConnectionCreate = z.object({
 }).strict();
 const xConnectionList = z.object({ connections: z.array(xConnectionMetadata) });
 const xAuthorizationStart = z.object({ authorizationUrl: z.url() });
+const xConnectionTest = z.object({ status: z.enum(["connected", "failed", "reconnect_required"]), accountHandle: z.string().nullable(), message: z.string() });
+const xConnectionCredentialReplacement = z.object({ clientId: z.string().trim().min(1).max(256), clientSecret: z.string().min(1).max(4096).regex(/^[^\r\n]+$/).meta({ writeOnly: true }) }).strict();
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 
@@ -255,6 +257,16 @@ export const API_ROUTES: RouteContract[] = [
     const started = await service.authorizeXConnection(params.connectionId);
     return Response.json({ authorizationUrl: started.authorizationUrl }, { headers: { "Set-Cookie": `factorize_x_oauth_state=${started.stateCookie}; HttpOnly; Secure; SameSite=Lax; Path=/oauth/x/callback; Max-Age=600` } });
   }, { body: z.object({}).strict(), maxBodyBytes: 1024, ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
+  route("POST", "/api/v1/x/connections/{connectionId}/test", "integrations:read", {
+    summary: "Test an X connection",
+    description: "Requires an interactive owner session. Performs a non-mutating GET to X /2/users/me using the saved access token. Returns only a safe status and the already stored account handle; it never returns tokens, credentials, or upstream error bodies. The verification read may incur X API usage charges.",
+    responses: { "200": { description: "Safe connection test result", content: { "application/json": { schema: jsonSchema(xConnectionTest, "output") } } } },
+  }, (service, { params }) => service.testXConnection(params.connectionId), { body: z.object({}).strict(), maxBodyBytes: 1024, ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
+  route("PUT", "/api/v1/x/connections/{connectionId}/credentials", "integrations:write", {
+    summary: "Replace X app credentials",
+    description: "Requires an interactive owner session. Replaces the encrypted client credentials, invalidates saved access and refresh tokens and pending OAuth attempts, preserves the existing account identity binding, and requires reauthorization. Reauthorization cannot switch the connection to a different X account; create a new connection for another account. Existing run selections remain unavailable until authorization succeeds.",
+    responses: { "200": { description: "Updated safe connection metadata", content: { "application/json": { schema: jsonSchema(xConnectionMetadata, "output") } } } },
+  }, (service, { params, body }) => service.replaceXConnectionCredentials(params.connectionId, body), { body: xConnectionCredentialReplacement, maxBodyBytes: 8192, ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
   route("GET", "/api/v1/model-accounts", "integrations:read", {
     summary: "List model accounts available to the owner",
     description: "Requires an interactive owner browser session. Returns account metadata and the collection revision only; encrypted account caches and credentials are never returned.",

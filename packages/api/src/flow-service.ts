@@ -647,6 +647,37 @@ export class ApiService {
     }
     return { id, deleted: true as const };
   }
+  async testXConnection(id: string) {
+    await this.authorizeOwnerSession("integrations:read");
+    const repository = this.xConnections(), connection = await repository.get(id);
+    if (!connection || connection.status === "revoked") throw new ServiceError(404, "not_found", "X connection not found.");
+    if (connection.status !== "connected") return { status: "reconnect_required" as const, accountHandle: connection.accountHandle, message: "Reconnect this X connection before testing it." };
+    const credentials = await repository.clientCredentials(id);
+    if (!credentials?.accessToken || !credentials.expiresAt || Date.parse(credentials.expiresAt) <= Date.now())
+      return { status: "reconnect_required" as const, accountHandle: connection.accountHandle, message: "Reconnect this X connection before testing it." };
+    try {
+      const response = await fetch("https://api.x.com/2/users/me?user.fields=id%2Cusername", {
+        method: "GET", redirect: "error", signal: AbortSignal.timeout(10_000),
+        headers: { Authorization: `Bearer ${credentials.accessToken}`, Accept: "application/json" },
+      });
+      if (response.status === 401) return { status: "reconnect_required" as const, accountHandle: connection.accountHandle, message: "X rejected this authorization. Reconnect the connection." };
+      if (!response.ok) return { status: "failed" as const, accountHandle: connection.accountHandle, message: "X could not verify the connection. Try again later." };
+      const me = await response.json() as { data?: { id?: unknown; username?: unknown } };
+      if (me.data?.id !== connection.accountId || me.data?.username !== connection.accountHandle)
+        return { status: "failed" as const, accountHandle: connection.accountHandle, message: "X returned an account that does not match this connection." };
+      return { status: "connected" as const, accountHandle: connection.accountHandle, message: "X connection verified." };
+    } catch {
+      return { status: "failed" as const, accountHandle: connection.accountHandle, message: "X could not verify the connection. Try again later." };
+    }
+  }
+  async replaceXConnectionCredentials(id: string, input: { clientId: string; clientSecret: string }) {
+    await this.authorizeOwnerSession("integrations:write");
+    if (!/^[A-Za-z0-9_-]{1,256}$/.test(input.clientId)) throw new ServiceError(400, "invalid_request", "Enter a valid X OAuth 2.0 client ID.");
+    if (!input.clientSecret.trim() || input.clientSecret.length > 4096 || /[\r\n]/.test(input.clientSecret)) throw new ServiceError(400, "invalid_request", "Enter a valid X OAuth client secret.");
+    const updated = await this.xConnections().replaceClientCredentials(id, { clientId: input.clientId.trim(), clientSecret: input.clientSecret });
+    if (!updated) throw new ServiceError(404, "not_found", "X connection not found.");
+    return updated;
+  }
   async authorizeXConnection(id: string) {
     await this.authorizeOwnerSession("integrations:write");
     const repository = this.xConnections(), connection = await repository.get(id);

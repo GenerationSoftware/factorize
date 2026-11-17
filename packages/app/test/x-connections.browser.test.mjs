@@ -87,3 +87,37 @@ test("X settings explains terminal authorization failures and offers an explicit
   assert.equal(authorizeCalls, 1);
   await context.close();
 });
+
+test("X owner can test safely and replace app credentials before same-account reauthorization", async () => {
+  const context = await browser.newContext(), page = await context.newPage();
+  const connectionId = "47d2f592-0f70-40a9-8cea-37b34d2a1573";
+  let replacement, tested = 0;
+  await page.route("**/api/v1/**", route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/v1/session") return route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: ["integrations:read", "integrations:write"] } });
+    if (path === "/api/v1/projects") return route.fulfill({ json: [] });
+    if (path === "/api/v1/integrations") return route.fulfill({ json: { exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] }, linear: null, clickup: null } });
+    if (path.includes("providers/github/installations")) return route.fulfill({ json: [] });
+    if (path === "/api/v1/model-accounts") return route.fulfill({ json: { accounts: [], revision: 0 } });
+    if (path === "/api/v1/integrations/bearer") return route.fulfill({ json: { integrations: [], revision: 0 } });
+    if (path === "/api/v1/integration-api-policies") return route.fulfill({ json: { integrations: [] } });
+    if (path === `/api/v1/x/connections/${connectionId}/test`) { tested++; return route.fulfill({ json: { status: "failed", accountHandle: "work_user", message: "X could not verify the connection. Try again later." } }); }
+    if (path === `/api/v1/x/connections/${connectionId}/credentials` && route.request().method() === "PUT") { replacement = route.request().postDataJSON(); return route.fulfill({ json: { id: connectionId, name: "Work account", clientId: replacement.clientId, scopes: ["tweet.read", "users.read", "offline.access"], accountId: "123", accountHandle: "work_user", grantedScopes: [], status: "reconnect_required", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }); }
+    if (path === `/api/v1/x/connections/${connectionId}/authorize`) return route.fulfill({ json: { authorizationUrl: "https://x.com/i/oauth2/authorize?state=replacement" } });
+    if (path === "/api/v1/x/connections") return route.fulfill({ json: { connections: [{ id: connectionId, name: "Work account", clientId: "client-123", scopes: ["tweet.read", "users.read", "offline.access"], accountId: "123", accountHandle: "work_user", grantedScopes: ["tweet.read", "users.read", "offline.access"], status: "connected", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.route("https://x.com/**", route => route.fulfill({ contentType: "text/html", body: "X consent" }));
+  await page.goto(origin + "/settings/integrations");
+  await page.getByRole("button", { name: "Test connection" }).click();
+  await page.getByRole("status").filter({ hasText: "X could not verify the connection" }).waitFor();
+  assert.equal(tested, 1);
+  await page.getByRole("button", { name: "Replace app credentials" }).click();
+  await page.getByLabel("Replacement OAuth 2.0 Client ID").fill("replacement-client");
+  await page.getByLabel("Replacement OAuth 2.0 Client Secret").fill("replacement-secret");
+  await page.getByRole("button", { name: "Replace credentials and reauthorize" }).click();
+  await page.waitForURL("https://x.com/i/oauth2/authorize**");
+  assert.deepEqual(replacement, { clientId: "replacement-client", clientSecret: "replacement-secret" });
+  assert.equal(await page.getByText("replacement-secret", { exact: true }).count(), 0);
+  await context.close();
+});

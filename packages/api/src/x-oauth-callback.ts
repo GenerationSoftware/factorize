@@ -1,7 +1,7 @@
 import { requestCookie, readSession } from "./session";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
-import { XConnectionRepository } from "./postgres/x-connection-repository";
+import { XAccountMismatchError, XConnectionRepository } from "./postgres/x-connection-repository";
 import { readXOAuthState } from "./x-oauth";
 import type { Env } from "./types";
 
@@ -36,7 +36,7 @@ export async function xOAuthCallback(request: Request, env: Env): Promise<Respon
 
   if (url.searchParams.has("error")) return fail(url.searchParams.get("error") === "access_denied" ? "denied" : "failed");
   const code = url.searchParams.get("code");
-  const credentials = await repository.clientCredentials(verified.connectionId);
+  const credentials = await repository.clientCredentialsForVersion(verified.connectionId, attempt.credentialVersion);
   if (!code || !credentials) { await repository.resetOAuthAttempt(verified.connectionId); return fail("failed"); }
 
   const redirectUri = `${env.APP_ORIGIN}/oauth/x/callback`;
@@ -62,10 +62,11 @@ export async function xOAuthCallback(request: Request, env: Env): Promise<Respon
       accessToken: token.access_token, refreshToken: token.refresh_token,
       expiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(), accountId: me.data.id,
       accountHandle: me.data.username, grantedScopes,
-    });
+    }, attempt.credentialVersion);
     return fail("connected");
-  } catch {
+  } catch (error) {
     await repository.resetOAuthAttempt(verified.connectionId);
+    if (error instanceof XAccountMismatchError) return fail("account_mismatch");
     return fail("failed");
   }
 }
