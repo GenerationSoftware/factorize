@@ -33,7 +33,10 @@ describe.skipIf(!url)("encrypted X app connections (PostgreSQL)", { timeout: 60_
       await expect(repository.consumeOAuthAttempt(nonce)).resolves.toMatchObject({ userId: f.userId, connectionId: id, scopes: input.scopes, verifier });
       await expect(repository.consumeOAuthAttempt(nonce)).resolves.toBeNull();
       expect(await repository.delete(id)).toBe(true);
-      expect(await repository.get(id)).toBeNull();
+      expect(await repository.get(id)).toMatchObject({ id, status: "revoked", accountId: null, accountHandle: null, grantedScopes: [] });
+      await expect(repository.clientCredentials(id)).rejects.toThrow();
+      expect(await repository.delete(id)).toBe(false);
+      await expect(repository.create({ ...input, name: "My X app" })).rejects.toMatchObject({ code: "23505" });
     } finally { await f.cleanup(); }
   });
 });

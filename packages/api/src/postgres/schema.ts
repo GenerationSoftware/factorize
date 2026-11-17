@@ -55,7 +55,7 @@ export const xConnections = app.table("x_connections", {
   accountId: text("account_id"), accountHandle: text("account_handle"), grantedScopes: text("granted_scopes").array().notNull().default(sql`'{}'::text[]`),
   status: text("status").$type<"pending" | "connected" | "reconnect_required">().notNull().default("pending"),
   createdAt: createdAt(), updatedAt: updatedAt(),
-}, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("x_connections_tenant_name").on(t.tenantId, sql`lower(${t.name})`), check("x_connections_status_check", sql`${t.status} IN ('pending','connected','reconnect_required')`)]);
+}, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("x_connections_tenant_name").on(t.tenantId, sql`lower(${t.name})`).where(sql`${t.status} <> 'revoked'`), check("x_connections_status_check", sql`${t.status} IN ('pending','connected','reconnect_required','revoked')`)]);
 export const xOAuthAttempts = app.table("x_oauth_attempts", {
   tenantId: uuid("tenant_id").notNull(), nonce: text("nonce").notNull(), userId: uuid("user_id").notNull(), sessionVersion: integer("session_version").notNull(),
   connectionId: uuid("connection_id").notNull(), scopes: text("scopes").array().notNull(), encryptedVerifier: text("encrypted_verifier").notNull(),

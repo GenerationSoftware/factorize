@@ -1711,6 +1711,13 @@ components:
             - type: string
               const: linear
             - type: "null"
+        xConnectionIds:
+          maxItems: 100
+          type: array
+          items:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
       required:
         - name
         - slug
@@ -1880,6 +1887,7 @@ paths:
                             - pending
                             - connected
                             - reconnect_required
+                            - revoked
                         createdAt:
                           type: string
                         updatedAt:
@@ -1968,6 +1976,7 @@ paths:
                       - pending
                       - connected
                       - reconnect_required
+                      - revoked
                   createdAt:
                     type: string
                   updatedAt:
@@ -2076,7 +2085,7 @@ paths:
     delete:
       summary: Delete an X connection
       description: |-
-        Requires an interactive owner session. Deletes the encrypted client credential and connection metadata.
+        Requires an interactive owner session. Immediately clears the encrypted credential and revokes the connection. A secret-free tombstone prevents old run snapshots from being revived if an identifier is reused.
 
         Requires the integrations:write scope.
 
@@ -8837,6 +8846,12 @@ paths:
                       - type: string
                         const: linear
                       - type: "null"
+                  xConnectionIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   executionConfigId:
                     type: string
                   agentKind:
@@ -9680,6 +9695,12 @@ paths:
                         - type: string
                           const: linear
                         - type: "null"
+                    xConnectionIds:
+                      type: array
+                      items:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                     executionConfigId:
                       type: string
                     agentKind:
@@ -10286,6 +10307,12 @@ paths:
                       - type: string
                         const: linear
                       - type: "null"
+                  xConnectionIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   executionConfigId:
                     type: string
                   agentKind:
@@ -11653,7 +11680,7 @@ paths:
     get:
       summary: Discover this run's selected integration endpoints
       description: |-
-        Requires vendor-verified run identity. Returns only snapshotted selections and current availability, without origins or credentials. Selection authorization is independent of the run's Factorize API scopes.
+        Requires vendor-verified run identity. Returns only snapshotted selections, safe connection metadata, X OAuth scopes, and current availability, without origins or credentials. X connections use /x/{connectionId}/ for supported API v2 resources; each resource is checked against selected and granted OAuth scopes. Selection authorization is independent of the run's Factorize API scopes.
 
         Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
@@ -11688,6 +11715,36 @@ paths:
                         - id
                         - name
                         - description
+                        - path
+                        - available
+                      additionalProperties: false
+                  xConnections:
+                    default: []
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        accountHandle:
+                          type:
+                            - string
+                            - "null"
+                        scopes:
+                          type: array
+                          items:
+                            type: string
+                        path:
+                          type: string
+                        available:
+                          type: boolean
+                      required:
+                        - id
+                        - name
+                        - accountHandle
+                        - scopes
                         - path
                         - available
                       additionalProperties: false
@@ -11746,6 +11803,7 @@ paths:
                 required:
                   - kind
                   - integrations
+                  - xConnections
                   - providers
                 additionalProperties: false
         "400":
@@ -12186,6 +12244,12 @@ paths:
                       - type: string
                         const: linear
                       - type: "null"
+                  xConnectionIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   executionConfigId:
                     type: string
                   agentKind:
@@ -12805,6 +12869,12 @@ paths:
                       - type: string
                         const: linear
                       - type: "null"
+                  xConnectionIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                   executionConfigId:
                     type: string
                   agentKind:
@@ -13707,6 +13777,13 @@ paths:
                     - type: string
                       const: linear
                     - type: "null"
+                xConnectionIds:
+                  maxItems: 100
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
                 expectedUpdatedAt:
                   type: string
                   format: date-time

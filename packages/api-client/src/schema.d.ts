@@ -44,7 +44,7 @@ export interface paths {
         post?: never;
         /**
          * Delete an X connection
-         * @description Requires an interactive owner session. Deletes the encrypted client credential and connection metadata.
+         * @description Requires an interactive owner session. Immediately clears the encrypted credential and revokes the connection. A secret-free tombstone prevents old run snapshots from being revived if an identifier is reused.
          *
          *     Requires the integrations:write scope.
          *
@@ -1901,7 +1901,7 @@ export interface paths {
         };
         /**
          * Discover this run's selected integration endpoints
-         * @description Requires vendor-verified run identity. Returns only snapshotted selections and current availability, without origins or credentials. Selection authorization is independent of the run's Factorize API scopes.
+         * @description Requires vendor-verified run identity. Returns only snapshotted selections, safe connection metadata, X OAuth scopes, and current availability, without origins or credentials. X connections use /x/{connectionId}/ for supported API v2 resources; each resource is checked against selected and granted OAuth scopes. Selection authorization is independent of the run's Factorize API scopes.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -2951,6 +2951,7 @@ export interface components {
             modelAccountId?: string;
             githubInstallationIds?: number[];
             linearConnectionId?: "linear" | null;
+            xConnectionIds?: string[];
         };
         ManualInvocation: {
             /** @default  */
@@ -3099,7 +3100,7 @@ export interface operations {
                             accountHandle: string | null;
                             grantedScopes: string[];
                             /** @enum {string} */
-                            status: "pending" | "connected" | "reconnect_required";
+                            status: "pending" | "connected" | "reconnect_required" | "revoked";
                             createdAt: string;
                             updatedAt: string;
                         }[];
@@ -3152,7 +3153,7 @@ export interface operations {
                         accountHandle: string | null;
                         grantedScopes: string[];
                         /** @enum {string} */
-                        status: "pending" | "connected" | "reconnect_required";
+                        status: "pending" | "connected" | "reconnect_required" | "revoked";
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -6696,6 +6697,7 @@ export interface operations {
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6995,6 +6997,7 @@ export interface operations {
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7206,6 +7209,7 @@ export interface operations {
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7817,6 +7821,15 @@ export interface operations {
                             path: string;
                             available: boolean;
                         }[];
+                        /** @default [] */
+                        xConnections: {
+                            id: string;
+                            name: string;
+                            accountHandle: string | null;
+                            scopes: string[];
+                            path: string;
+                            available: boolean;
+                        }[];
                         providers: {
                             githubInstallations: {
                                 installationId: number;
@@ -8066,6 +8079,7 @@ export interface operations {
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -8358,6 +8372,7 @@ export interface operations {
                     modelAccountId?: string;
                     githubInstallationIds?: number[];
                     linearConnectionId?: "linear" | null;
+                    xConnectionIds?: string[];
                     /** Format: date-time */
                     expectedUpdatedAt?: string;
                 };
@@ -8407,6 +8422,7 @@ export interface operations {
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;

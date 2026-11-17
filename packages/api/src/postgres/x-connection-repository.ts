@@ -9,7 +9,7 @@ export type XConnectionMetadata = {
   accountId: string | null;
   accountHandle: string | null;
   grantedScopes: string[];
-  status: "pending" | "connected" | "reconnect_required";
+  status: "pending" | "connected" | "reconnect_required" | "revoked";
   createdAt: string;
   updatedAt: string;
 };
@@ -72,6 +72,7 @@ export class XConnectionRepository {
   async consumeOAuthAttempt(nonce: string): Promise<{ userId: string; sessionVersion: number; connectionId: string; scopes: string[]; verifier: string } | null> {
     const { rows } = await this.database.pool.query<{ user_id: string; session_version: number; connection_id: string; scopes: string[]; encrypted_verifier: string }>(
       `UPDATE app.x_oauth_attempts SET consumed_at=now() WHERE tenant_id=$1 AND nonce=$2 AND consumed_at IS NULL AND expires_at>now()
+       AND EXISTS (SELECT 1 FROM app.x_connections c WHERE c.tenant_id=app.x_oauth_attempts.tenant_id AND c.id=app.x_oauth_attempts.connection_id AND c.status<>'revoked')
        RETURNING user_id,session_version,connection_id,scopes,encrypted_verifier`, [this.tenantId, nonce]);
     const row = rows[0];
     if (!row) return null;
@@ -82,7 +83,7 @@ export class XConnectionRepository {
     const credentials = await this.clientCredentials(id);
     if (!credentials) throw new Error("X connection not found");
     const encrypted = await encrypt(JSON.stringify({ clientSecret: credentials.clientSecret, accessToken: input.accessToken, refreshToken: input.refreshToken, expiresAt: input.expiresAt }), this.encryptionKey);
-    const result = await this.database.pool.query(`UPDATE app.x_connections SET encrypted_secret=$3,account_id=$4,account_handle=$5,granted_scopes=$6,status='connected',updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+    const result = await this.database.pool.query(`UPDATE app.x_connections SET encrypted_secret=$3,account_id=$4,account_handle=$5,granted_scopes=$6,status='connected',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status<>'revoked'`,
       [this.tenantId, id, encrypted, input.accountId, input.accountHandle, input.grantedScopes]);
     if (!result.rowCount) throw new Error("X connection not found");
   }
@@ -92,7 +93,8 @@ export class XConnectionRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const { rowCount } = await this.database.pool.query("DELETE FROM app.x_connections WHERE tenant_id=$1 AND id=$2", [this.tenantId, id]);
+    const tombstone = await encrypt(JSON.stringify({}), this.encryptionKey);
+    const { rowCount } = await this.database.pool.query("UPDATE app.x_connections SET status='revoked',encrypted_secret=$3,account_id=NULL,account_handle=NULL,granted_scopes='{}',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status<>'revoked'", [this.tenantId, id, tombstone]);
     return (rowCount ?? 0) > 0;
   }
 }

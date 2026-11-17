@@ -47,6 +47,7 @@ export const jobResponse = z.object({
   runScopes: z.array(scopeSchema),
   portableIntegrationIds: z.array(z.guid()).optional(), modelAccess: z.enum(["native", "portable"]).optional(), modelAccountId: z.guid().optional(),
   githubInstallationIds: z.array(z.number().int().positive()).optional(), linearConnectionId: z.literal("linear").nullable().optional(),
+  xConnectionIds: z.array(z.guid()).optional(),
   executionConfigId: z.string(), agentKind: z.string(), concurrencyLimit: z.number().int(),
   runningCount: z.number().int(), currentRuns: z.number().int(), maxConcurrency: z.number().int(), lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(),
   triggers: z.array(triggerResponse),

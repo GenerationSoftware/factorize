@@ -9,6 +9,7 @@ import { exeWifIntegrationNameFor, vmNameFor } from "../src/exe-vm-backend";
 import { CredentialRepository } from "../src/postgres/credential-repository";
 import { GitHubRepository } from "../src/postgres/github-repository";
 import { ConnectionRepository } from "../src/postgres/connection-repository";
+import { XConnectionRepository } from "../src/postgres/x-connection-repository";
 import worker from "../src/worker";
 import { RunRepository } from "../src/postgres/run-repository";
 import { decrypt, encrypt } from "../src/crypto";
@@ -215,6 +216,50 @@ describe.skipIf(!url)("vendor identity request admission (PostgreSQL and Worker 
     await f.db.pool.query("UPDATE app.job_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
     expect((await call()).status).toBe(403);
     expect(outbound).toHaveLength(1);
+  });
+
+  it("forwards only the selected tenant X connection to fixed API v2 paths under its granted scopes", async () => {
+    const id = crypto.randomUUID(), foreignId = crypto.randomUUID();
+    const selected = new XConnectionRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    await selected.create({ id, name: "Selected X", clientId: "public-client", clientSecret: "private-client-secret", scopes: ["tweet.read", "users.read", "tweet.write", "offline.access"] });
+    await selected.completeOAuth(id, { accessToken: "selected-x-access", refreshToken: "selected-x-refresh", expiresAt: new Date(Date.now()+3_600_000).toISOString(), accountId: "123", accountHandle: "selected_user", grantedScopes: ["tweet.read", "users.read", "tweet.write", "offline.access"] });
+    const foreign = new XConnectionRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY);
+    await foreign.create({ id: foreignId, name: "Foreign X", clientId: "foreign-client", clientSecret: "foreign-secret", scopes: ["tweet.read", "users.read", "offline.access"] });
+    await foreign.completeOAuth(foreignId, { accessToken: "foreign-x-access", refreshToken: "foreign-x-refresh", expiresAt: new Date(Date.now()+3_600_000).toISOString(), accountId: "456", accountHandle: "foreign_user", grantedScopes: ["tweet.read", "users.read", "offline.access"] });
+    await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config || $3::jsonb WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, JSON.stringify({xConnectionIds: [id]})]);
+    const vendorFetch = globalThis.fetch;
+    const sent: Array<{url: string; method: string; auth: string | null; body: string; guestHeader: string | null}> = []; let redirect = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const address = String(input);
+      if (address.startsWith(issuer)) return vendorFetch(input, init);
+      sent.push({url: address, method: init?.method ?? "GET", auth: (init!.headers as Headers).get("Authorization"), body: await new Response(init!.body).text(), guestHeader: (init!.headers as Headers).get("X-Guest-Marker")});
+      return redirect ? new Response(null, {status: 302, headers: {Location: "https://untrusted.example/escape"}}) : new Response("upstream response", {status: 201, headers: {"X-Rate-Limit-Remaining": "7", "Retry-After": "2", "Set-Cookie": "private=secret"}});
+    }));
+    const call = (connectionId = id, path = "/2/users/me?user.fields=id%2Cusername", method = "GET", body?: string) => worker.fetch(new Request(request(jwt, f.runId, `/internal/run-proxy/${f.runId}/x/${connectionId}${path}`), {method, body, headers: {"X-Guest-Marker": "preserved", Authorization: `Bearer ${jwt}`, "X-Factorize-Run-Id": f.runId}}), f.env, {waitUntil() {}} as any);
+    const read = await call();
+    expect(read.status).toBe(201); expect(await read.text()).toBe("upstream response");
+    expect(read.headers.get("X-Rate-Limit-Remaining")).toBe("7"); expect(read.headers.get("Retry-After")).toBe("2"); expect(read.headers.get("Set-Cookie")).toBeNull();
+    expect(sent[0]).toEqual({url: "https://api.x.com/2/users/me?user.fields=id%2Cusername", method: "GET", auth: "Bearer selected-x-access", body: "", guestHeader: "preserved"});
+    expect((await call(id, "/2/tweets", "POST", "{\"text\":\"hello\"}")).status).toBe(201);
+    expect(sent[1]).toMatchObject({url: "https://api.x.com/2/tweets", method: "POST", body: "{\"text\":\"hello\"}"});
+    await f.db.pool.query("UPDATE app.x_connections SET granted_scopes=array_remove(granted_scopes,'tweet.write') WHERE tenant_id=$1 AND id=$2", [f.tenantId, id]);
+    expect((await call(id, "/2/tweets", "POST", "{\"text\":\"denied\"}")).status).toBe(403);
+    await f.db.pool.query("UPDATE app.x_connections SET granted_scopes=array_append(granted_scopes,'tweet.write') WHERE tenant_id=$1 AND id=$2", [f.tenantId, id]);
+    redirect = true; expect((await call()).status).toBe(502); redirect = false;
+    expect((await call(id, "/2/oauth2/token", "POST", "grant_type=refresh_token")).status).toBe(403);
+    expect((await call(foreignId)).status).toBe(403);
+    await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config || $3::jsonb WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, JSON.stringify({xConnectionIds: [foreignId]})]);
+    expect((await call(foreignId)).status).toBe(403); // A corrupt cross-tenant snapshot still cannot resolve the other tenant's secret.
+    await f.db.pool.query("UPDATE app.runs SET execution_config=execution_config || $3::jsonb WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId, JSON.stringify({xConnectionIds: [id]})]);
+    await selected.delete(id);
+    expect((await call()).status).toBe(403);
+    const discovery = await worker.fetch(request(jwt, f.runId, "/api/v1/runtime-integrations"), f.env, {waitUntil() {}} as any);
+    const metadata = await discovery.json() as any;
+    expect(metadata.xConnections).toEqual([{id, name: "Selected X", accountHandle: null, scopes: [], path: `/x/${id}/`, available: false}]);
+    expect(JSON.stringify(metadata)).not.toMatch(/selected-x-access|selected-x-refresh|private-client-secret|api\.x\.com/);
+    await f.db.pool.query("UPDATE app.job_runs SET state='stopping' WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId]);
+    expect((await call()).status).toBe(403);
+    expect(sent).toHaveLength(3);
   });
 
   it("reuses selected GitHub and Linear connections for API and Git protocol requests", async () => {

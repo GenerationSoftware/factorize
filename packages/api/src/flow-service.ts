@@ -106,6 +106,7 @@ export class ApiService {
     const portableIntegrationIds = input.portableIntegrationIds ?? current?.portableIntegrationIds ?? current?.executionConfig.portableIntegrationIds ?? [];
     const githubInstallationIds = input.githubInstallationIds ?? current?.githubInstallationIds ?? current?.executionConfig.githubInstallationIds ?? [];
     const linearConnectionId = input.linearConnectionId !== undefined ? input.linearConnectionId : current?.linearConnectionId ?? current?.executionConfig.linearConnectionId;
+    const xConnectionIds = input.xConnectionIds ?? current?.xConnectionIds ?? current?.executionConfig.xConnectionIds ?? [];
     if (executionType === "code" && input.modelAccess === "portable") throw new ServiceError(400, "invalid_request", "Code jobs cannot select model access.");
     const modelAccess = executionType === "code" ? "native" : input.modelAccess ?? current?.modelAccess ?? current?.executionConfig.modelAccess ?? (config.executionProvider === "fly" ? "portable" : "native");
     if (modelAccess === "portable" && config.agentKind !== "codex") throw new ServiceError(400,"invalid_request","Managed model accounts support Codex jobs.");
@@ -120,11 +121,13 @@ export class ApiService {
     const activeInstallationIds = new Set(installations.filter(item => item.state === "active").map(item => Number(item.installationId)));
     if (new Set(githubInstallationIds).size !== githubInstallationIds.length || githubInstallationIds.some(id => !activeInstallationIds.has(id))) throw new ServiceError(400, "invalid_request", "One or more selected GitHub installations are unavailable.");
     if (linearConnectionId && (!await this.connections().get("linear"))) throw new ServiceError(400, "invalid_request", "The selected Linear connection is unavailable.");
+    const xConnections = await new XConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).list();
+    if (new Set(xConnectionIds).size !== xConnectionIds.length || xConnectionIds.some(id => !xConnections.some(connection => connection.id === id && connection.status === "connected"))) throw new ServiceError(400, "invalid_request", "One or more selected X connections are unavailable. Connect them or remove the selections.");
     if (modelAccountId && byId.get(modelAccountId)?.kind !== "model") throw new ServiceError(400, "invalid_request", "The selected model account is unavailable.");
     if (modelAccountId && !modelCredentialConfigured((await this.credentials().managedCredential(modelAccountId,"model"))?.payload??"")) throw new ServiceError(400,"invalid_request","Connect the selected model account before using it in a job.");
     for (const id of portableIntegrationIds) if (!await this.credentials().managedCredential(id,"bearer")) throw new ServiceError(400,"invalid_request","Re-enter the selected bearer credential before using it in a job.");
     if (modelAccess === "portable" && executionType !== "code" && !modelAccountId) throw new ServiceError(400, "invalid_request", "Portable model access requires a model account.");
-    return { portableIntegrationIds, githubInstallationIds, ...(linearConnectionId ? { linearConnectionId } : {}), modelAccess, ...(modelAccountId ? { modelAccountId } : {}) };
+    return { portableIntegrationIds, githubInstallationIds, ...(linearConnectionId ? { linearConnectionId } : {}), xConnectionIds, modelAccess, ...(modelAccountId ? { modelAccountId } : {}) };
   }
 
   private async validateExecutionOptions(id: string, model: string, effort: string, tags: string[]) {
@@ -233,17 +236,20 @@ export class ApiService {
     const config = active.execution_config;
     const ids = Array.isArray(config.portableIntegrationIds) ? config.portableIntegrationIds : [];
     const githubIds = Array.isArray(config.githubInstallationIds) ? config.githubInstallationIds : [];
-    const [records, installations, revoked, linear, model] = await Promise.all([
+    const xIds = Array.isArray(config.xConnectionIds) ? config.xConnectionIds : [];
+    const [records, installations, revoked, linear, model, xConnections] = await Promise.all([
       db.pool.query<{id: string; name: string; description: string | null}>("SELECT id,name,description FROM app.integration_records WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND kind='bearer' AND deleted_at IS NULL", [tenantId, ids]),
       db.pool.query<{installation_id: number; state: string}>("SELECT installation_id,state FROM app.github_installations WHERE tenant_id=$1 AND installation_id=ANY($2::bigint[])", [tenantId, githubIds]),
       db.pool.query<{kind: string; credential_id: string}>("SELECT kind,credential_id FROM app.run_credential_revocations WHERE tenant_id=$1 AND run_id=$2", [tenantId, runId]),
       config.linearConnectionId === "linear" ? db.pool.query("SELECT 1 FROM app.connections WHERE tenant_id=$1 AND kind='linear'", [tenantId]) : null,
       config.modelAccess === "portable" && typeof config.modelAccountId === "string" ? db.pool.query("SELECT 1 FROM app.integration_records WHERE tenant_id=$1 AND id=$2 AND kind='model' AND deleted_at IS NULL", [tenantId, config.modelAccountId]) : null,
+      db.pool.query<{id: string; name: string; account_handle: string | null; granted_scopes: string[]; status: string}>("SELECT id,name,account_handle,granted_scopes,status FROM app.x_connections WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [tenantId, xIds]),
     ]);
     const denied = new Set(revoked.rows.map(row => `${row.kind}:${row.credential_id}`));
     return publicValue(runtimeIntegrationsResponse, {
       kind: "factorize-run-integrations-v1",
       integrations: ids.map((id: string) => { const record = records.rows.find(row => row.id === id); return {id, name: record?.name ?? "Unavailable integration", description: record?.description ?? null, path: `/integrations/${id}/`, available: Boolean(record) && !denied.has(`bearer:${id}`)}; }),
+      xConnections: xIds.map((id: string) => { const connection = xConnections.rows.find(row => row.id === id); return { id, name: connection?.name ?? "Unavailable X connection", accountHandle: connection?.account_handle ?? null, scopes: connection?.granted_scopes ?? [], path: `/x/${id}/`, available: connection?.status === "connected" }; }),
       providers: {
         githubInstallations: githubIds.map((installationId: number) => ({installationId, path: `/providers/github/${installationId}/`, available: installations.rows.some(row => Number(row.installation_id) === installationId && row.state === "active") && !denied.has(`github:${installationId}`)})),
         linear: config.linearConnectionId === "linear" ? {path: "/providers/linear/", available: Boolean(linear?.rowCount) && !denied.has("linear:linear")} : null,
@@ -631,7 +637,9 @@ export class ApiService {
   }
   async authorizeXConnection(id: string) {
     await this.authorizeOwnerSession("integrations:write");
-    const repository = this.xConnections(), connection = await repository.get(id), credentials = await repository.clientCredentials(id);
+    const repository = this.xConnections(), connection = await repository.get(id);
+    if (connection?.status === "revoked") throw new ServiceError(404, "not_found", "X connection not found.");
+    const credentials = await repository.clientCredentials(id);
     if (!connection || !credentials) throw new ServiceError(404, "not_found", "X connection not found.");
     const scopes = validateXOAuthScopes(connection.scopes);
     const pkce = await createXPKCE(), nonce = crypto.randomUUID(), expires = Math.floor(Date.now() / 1000) + 600;

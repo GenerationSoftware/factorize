@@ -73,9 +73,9 @@ export function XConnections() {
     {notice && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-800 dark:bg-green-950 dark:text-green-200">{notice}</p>}
     {connections.error && <p role="alert">{connections.error.message}</p>}
     {connections.data?.map(connection => <Card key={connection.id} className="space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">{connection.name}</h3><p className="text-sm text-slate-600 dark:text-slate-400">{connection.accountHandle ? `@${connection.accountHandle} · ${connection.accountId}` : "No X account connected yet"}</p></div><span className="rounded-full border px-3 py-1 text-sm">{connection.status === "connected" ? "Connected" : connection.status === "reconnect_required" ? "Needs attention" : "Setup incomplete"}</span></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">{connection.name}</h3><p className="text-sm text-slate-600 dark:text-slate-400">{connection.accountHandle ? `@${connection.accountHandle} · ${connection.accountId}` : "No X account connected yet"}</p></div><span className="rounded-full border px-3 py-1 text-sm">{connection.status === "connected" ? "Connected" : connection.status === "reconnect_required" ? "Needs attention" : connection.status === "revoked" ? "Disconnected" : "Setup incomplete"}</span></div>
       {connection.grantedScopes.length > 0 && <p className="text-sm">Granted permissions: {connection.grantedScopes.join(", ")}</p>}
-      {connection.status !== "connected" && <Button disabled={authorize.isPending} onClick={() => { setError(null); authorize.mutate(connection.id); }}>Connect X</Button>}
+      {connection.status === "revoked" ? <p className="text-sm">Disconnected. Create a new connection to use X again.</p> : connection.status !== "connected" && <Button disabled={authorize.isPending} onClick={() => { setError(null); authorize.mutate(connection.id); }}>Connect X</Button>}
     </Card>)}
     <Card className="space-y-5">
       <div><h3 className="text-lg font-semibold">Set up your X developer app</h3><ol className="ml-5 list-decimal space-y-2 text-sm text-slate-700 dark:text-slate-300">

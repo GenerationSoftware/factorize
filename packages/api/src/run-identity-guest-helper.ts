@@ -54,7 +54,7 @@ export function createRunIdentityProxy(config, {getToken = () => vendorToken(con
       if (url.pathname === "/api/v1" || url.pathname.startsWith("/api/v1/") || url.pathname === "/mcp") path = url.pathname;
       else if (/^\/internal\/run-(?:artifacts|trace-chunks)\/[^/]+$/.test(url.pathname)) path = url.pathname;
       else if (url.pathname === "/integrations") path = "/api/v1/runtime-integrations";
-      else if (url.pathname.startsWith("/integrations/") || url.pathname.startsWith("/providers/")) path = "/internal/run-proxy/" + config.runId + url.pathname;
+      else if (url.pathname.startsWith("/integrations/") || url.pathname.startsWith("/providers/") || url.pathname.startsWith("/x/")) path = "/internal/run-proxy/" + config.runId + url.pathname;
       else { outgoing.writeHead(404).end(); return; }
       const token = requireToken(await getToken());
       const headers = new Headers();
