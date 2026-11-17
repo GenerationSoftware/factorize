@@ -10,7 +10,7 @@ const clearCookie = `${cookie}=; HttpOnly; Secure; SameSite=Lax; Path=/oauth/x/c
 const settings = (env: Env, result: string) => {
   const target = new URL("/settings/integrations", env.APP_ORIGIN);
   target.searchParams.set("x", result);
-  return Response.redirect(target.toString(), 303);
+  return target.toString();
 };
 
 /** X's registered redirect URI is fixed; all credentials and the PKCE verifier
@@ -18,9 +18,7 @@ const settings = (env: Env, result: string) => {
 export async function xOAuthCallback(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url), clear = { "Set-Cookie": clearCookie, "Cache-Control": "no-store" };
   const fail = (result: string) => {
-    const response = settings(env, result);
-    for (const [key, value] of Object.entries(clear)) response.headers.set(key, value);
-    return response;
+    return new Response(null, { status: 303, headers: { Location: settings(env, result), ...clear } });
   };
   const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
   if (!session) return fail("session_required");
