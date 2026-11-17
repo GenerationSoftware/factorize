@@ -41,3 +41,71 @@ exe.dev and Fly guests use a localhost helper that authenticates to Factorize
 with fresh vendor signatures bound to that exact VM/run. Selected upstream
 credentials stay in the backend. Canceling or terminating a run removes its API
 and outbound access, independently of external VM deletion retries.
+
+## MCP API proxy access
+
+External MCP clients continue to authenticate with OAuth; execution VMs continue
+to use vendor OIDC. These identities have separate grants. Run selections never
+inherit an external client's approvals.
+
+In Settings → Integrations → MCP API access, choose a policy for each custom
+bearer integration, GitHub installation, Linear connection, and model account:
+
+* **Baseline:** immediately available to all active MCP authorizations. Removing
+  baseline access immediately removes access derived from that policy.
+* **Requestable:** visible in reflection, but each separately authorized
+  connection must obtain consent before use.
+* **Disabled:** unavailable for requests and consent. Disabling or disconnecting
+  permanently invalidates existing integration approvals. Re-enabling as
+  requestable requires fresh consent. Replacing a credential without deleting
+  its integration preserves approvals.
+
+Start OAuth with only the Factorize resource scopes your client needs; do not
+request the complete integration catalog. `get_api_reflection` returns the
+current agent identity, effective Factorize scopes, integration references,
+readable names and descriptions, instructions, access state, connection
+availability, and the required integration scope. Availability describes stored
+connection state, not a guarantee that an upstream credential is healthy.
+
+Use `request_api` with `integration`, an HTTP `method`, a relative `path` including
+an optional query, optional safe `headers`, and optional `body`. `encoding` is
+`utf8` by default or `base64` for binary input. The origin and upstream
+credentials are selected by Factorize. A grant covers the whole integration,
+bounded by the credential's upstream permissions. Redirects are rejected.
+
+Missing requestable access produces an HTTP 403 response with a
+`WWW-Authenticate: Bearer` challenge containing `error="insufficient_scope"`,
+`scope`, and `resource_metadata`. Reauthorize with the union of your currently
+needed scopes and the challenged scope, approve the named integration in the
+browser, exchange the new code, then retry. The new authorization is independent
+of other connections, including copies of the same client. Refresh retains the
+authorization identity; a narrowed token uses only its presented scopes.
+Integration scopes have the form `integration:{reference UUID}:{revocation epoch}`;
+use the value returned by reflection rather than constructing or caching it.
+
+Responses preserve the upstream `status`, safe `headers`, byte `size`, and body.
+An upstream non-2xx status is distinct from a local authorization or proxy error.
+UTF-8 responses of up to 32 KiB return inline with `encoding: "utf8"`; binary
+responses use `base64`. Larger responses are consumed into R2 and return a
+`handle` and `expiresAt`. A supporting MCP client receives standard progress
+notifications when it supplies a progress token; these are not partial tool
+result bodies.
+
+Call `read_api_response` with the handle and a byte `offset` (initially zero).
+Chunks are always base64, up to 64 KiB; use `nextOffset` until `done` is true.
+Handles are tenant/identity bound, expire after 24 hours, and recheck access on
+every read. Revocation blocks subsequent calls and reads but cannot undo an
+upstream action already accepted. Existing VM proxy URLs retain true streaming.
+
+The same operations are documented under `/api/v1/agent/reflection`,
+`/api/v1/agent/requests`, and `/api/v1/agent/responses/read`. OAuth audiences remain
+bound to their registered resource: an MCP-bound token does not also authorize
+REST. Owner policy endpoints require an interactive browser session. Authorized
+clients settings revoke individual connections; the existing client-wide revoke
+endpoint remains available for compatibility.
+
+The scheduler maintenance heartbeat removes expired response objects and their
+PostgreSQL receipts. A receipt exists before any R2 block is written, including
+interrupted/unreturned responses. Object deletion failures retain receipts for
+retry. Operators must retain the scheduler and RUN_ARTIFACTS binding when
+rolling out migration `0054_agent_api_grants`.

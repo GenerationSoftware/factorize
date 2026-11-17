@@ -1,3 +1,4 @@
+import { cleanupAgentResponses } from "../agent-api";
 import { validateTraceSources, type TraceSource, type TraceSources } from "../trace-source";
 import { AmpBackend, type AmpConnection } from "../amp-backend";
 import { issueArtifactUploadGrant } from "../artifact-upload";
@@ -52,6 +53,7 @@ export class RunScheduler {
     const retention = new RunRetentionRepository(this.database);
     await this.reconcileProviderCleanup();
     await this.runRetentionMaintenance(retention);
+    await cleanupAgentResponses(this.env);
   }
 
   private async runRetentionMaintenance(retention = new RunRetentionRepository(this.database)): Promise<void> {

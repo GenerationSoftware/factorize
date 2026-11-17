@@ -1,3 +1,4 @@
+import { isIntegrationScope } from "./agent-api-contracts";
 import type { Env, OAuthProps } from "./types";
 import { databaseFor } from "./postgres/database";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
@@ -13,7 +14,7 @@ export function normalizeScopes(scopes: readonly string[]): string[] {
     if (scope === "flows:read") ["projects:read", "jobs:read", "integrations:read"].forEach(value => result.add(value));
     else if (scope === "flows:write") ["projects:write", "jobs:write", "integrations:write"].forEach(value => result.add(value));
     else if (scope === "runs:write") ["runs:read", "runs:invoke", "runs:cancel", "runs:write"].forEach(value => result.add(value));
-    else if (ACCESS_SCOPES.includes(scope as AccessScope)) result.add(scope);
+    else if (ACCESS_SCOPES.includes(scope as AccessScope) || isIntegrationScope(scope)) result.add(scope);
   }
   return [...result];
 }

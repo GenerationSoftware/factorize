@@ -33,7 +33,7 @@
     "build": "npm run build:app",
     "check:hosting": "node --test scripts/hosting-invariants.test.mjs scripts/deployment-gate.test.mjs scripts/trusted-app-release.test.mjs && python3 scripts/test-retain-app-assets.py",
     "test:hosting-runtime": "node --test scripts/hosting-runtime.test.mjs scripts/vendor-identity-runtime.test.mjs",
-    "test:oauth-runtime": "node --test scripts/oauth-runtime.test.mjs",
+    "test:oauth-runtime": "node --test scripts/oauth-runtime.test.mjs scripts/agent-api-runtime.test.mjs",
     "test:rollback-runtime": "node --test scripts/rollback-runtime.test.mjs",
     "test:conditions-runtime": "node --test scripts/webhook-conditions-runtime.test.mjs",
     "test:docker": "node scripts/docker-execution-e2e.mjs"

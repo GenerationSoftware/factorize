@@ -1,3 +1,4 @@
+import { integrationConsentLabels } from "./agent-api";
 import { ACCESS_SCOPES } from "./access-tokens";
 import { connectionFor, originalBrowser, startConnection, connectionDestination } from "./oauth-continuation";
 import { inspectDevice, decideDevice, deviceConsentSignature, safeEqual } from "./device-oauth";
@@ -117,7 +118,7 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
       const preview = await inspectDevice(env, String(input.userCode));
       if (!preview) return failure(400, "This device request is invalid, expired, or already completed. Start a new connection in your client.");
       const signature = await deviceConsentSignature(env, session, preview);
-      if (action === "device-preview") return authJson({ ...preview, signature });
+      if (action === "device-preview") return authJson({ ...preview, signature, integrationLabels: await integrationConsentLabels(env, session.tenantId, preview.scopes) });
       if (!safeEqual(String(input.signature), signature)) return failure(403, "Invalid device consent. Review the device request before approving it.");
       const result = await decideDevice(env, env.OAUTH_PROVIDER, session, preview.userCode, input.decision as "allow" | "deny");
       return result ? authJson(result) : failure(400, "This device request has expired or already completed. Start a new connection in your client.");

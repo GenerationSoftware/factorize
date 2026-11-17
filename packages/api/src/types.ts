@@ -53,6 +53,8 @@ export type OAuthProps = {
   /** Stable identifier for the OAuth authorization grant; never a bearer token. */
   oauthGrantId?: string;
   oauthClientId?: string;
+  /** Expiry of the presented, verified OAuth access token. */
+  oauthExpiresAt?: number;
   authMethod?: "session" | "oauth" | "access_token" | "vendor_identity";
 };
 

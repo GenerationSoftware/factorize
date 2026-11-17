@@ -1,3 +1,5 @@
+import { AgentApiService, listAgentPolicies } from "./agent-api";
+import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
 import { DEFAULT_RUN_SCOPES } from "./run-scopes";
 import { launchPayloadResponse } from "./launch-payload";
 import { searchResponse } from "./search-contracts";
@@ -205,6 +207,19 @@ export class ApiService {
     } finally { this.authorizationDuration += performance.now() - started; }
   }
   private async authorizeOwnerSession(scope: Scope): Promise<void> { await this.authorize(scope); if (this.auth.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required."); }
+
+  agentApi() { return new AgentApiService(this.env, this.auth); }
+  async getApiReflection() { return this.agentApi().reflection(); }
+  async requestApi(input: unknown, signal?: AbortSignal) { return this.agentApi().request(requestApiInput.parse(input), signal); }
+  async readApiResponse(input: unknown) { return this.agentApi().read(readApiResponseInput.parse(input)); }
+  async listApiPolicies() { await this.authorizeOwnerSession("integrations:read"); return listAgentPolicies(this.env, this.auth.tenantId); }
+  async updateApiPolicy(id: string, input: unknown) {
+    await this.authorizeOwnerSession("integrations:write");
+    integrationRef.parse(id); const parsed = apiPolicyInput.parse(input);
+    const updated = await databaseFor(this.env).pool.query("UPDATE app.agent_integrations SET policy=$3 WHERE tenant_id=$1 AND id=$2 AND revision=$4 RETURNING id", [this.auth.tenantId,id,parsed.policy,parsed.expectedRevision]);
+    if (!updated.rowCount) throw new ServiceError(409,"stale_policy","Integration policy changed or is unavailable. Reload before updating.");
+    return this.listApiPolicies();
+  }
 
   async getRuntimeIntegrations() {
     await this.authorizeIdentity();
@@ -705,12 +720,29 @@ export class ApiService {
     await this.authorizeOwnerSession("jobs:read");
     if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503, "operation_failed", "OAuth management unavailable");
     const grants: any[] = []; let cursor: string | undefined;
-    do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => !grant.expiresAt || grant.expiresAt > Math.floor(Date.now() / 1000))); cursor = page.cursor; } while (cursor);
+    do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => (grant.metadata as any)?.tenantId === this.auth.tenantId && (!grant.expiresAt || grant.expiresAt > Math.floor(Date.now() / 1000)))); cursor = page.cursor; } while (cursor);
     const clients = await Promise.all([...new Set(grants.map(grant => grant.clientId))].map(async clientId => [clientId, await this.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const));
     const byId = new Map(clients);
     return publicValue(z.array(authorizedClient), grants.map(grant => ({ grantId: grant.id, clientId: grant.clientId, clientName: byId.get(grant.clientId)?.clientName ?? grant.clientId, scopes: normalizeScopes(grant.scope), authorizationDate: new Date(grant.createdAt * 1000).toISOString(), expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null })));
   }
-  async revokeAuthorizedClient(clientId: string) { await this.authorizeOwnerSession("jobs:write"); if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503, "operation_failed", "OAuth management unavailable"); const grants: any[] = []; let cursor: string | undefined; do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => grant.clientId === clientId)); cursor = page.cursor; } while (cursor); await Promise.all(grants.map(grant => this.env.OAUTH_PROVIDER!.revokeGrant(grant.id, this.auth.userId))); return { revoked: grants.length }; }
+  async revokeOAuthAuthorization(grantId: string) {
+    await this.authorizeOwnerSession("jobs:write");
+    if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503,"operation_failed","OAuth management unavailable");
+    let cursor: string | undefined, found = false;
+    do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId,{limit:100,cursor}); found ||= page.items.some(grant=>grant.id===grantId && (grant.metadata as any)?.tenantId===this.auth.tenantId); cursor=page.cursor; } while(cursor && !found);
+    if(!found) throw new ServiceError(404,"not_found","Authorization not found");
+    await databaseFor(this.env).pool.query("INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,revoked_at) VALUES($1,'oauth',$2,$3,$4,now()) ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET revoked_at=now()",[this.auth.tenantId,grantId,this.auth.userId,this.auth.sessionVersion]);
+    await this.env.OAUTH_PROVIDER.revokeGrant(grantId,this.auth.userId);
+    return {revoked:1};
+  }
+  async revokeAuthorizedClient(clientId: string) {
+    await this.authorizeOwnerSession("jobs:write");
+    if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503,"operation_failed","OAuth management unavailable");
+    const grants: any[]=[]; let cursor: string | undefined;
+    do { const page=await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId,{limit:100,cursor});grants.push(...page.items.filter(grant=>grant.clientId===clientId && (grant.metadata as any)?.tenantId===this.auth.tenantId));cursor=page.cursor; } while(cursor);
+    for (const grant of grants) await this.revokeOAuthAuthorization(grant.id);
+    return {revoked:grants.length};
+  }
   async listAccessTokens() { await this.authorizeOwnerSession("jobs:read"); return publicValue(z.array(accessToken), (await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).list()).map(token => ({ ...token, created_at: new Date(token.created_at).toISOString(), expires_at: new Date(token.expires_at).toISOString(), last_used_at: token.last_used_at ? new Date(token.last_used_at).toISOString() : null, revoked_at: token.revoked_at ? new Date(token.revoked_at).toISOString() : null, scopes: normalizeScopes(token.scopes) }))); }
   async createAccessToken(input: any) { await this.authorizeOwnerSession("jobs:write"); const name = typeof input?.name === "string" ? input.name.trim() : "", requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], legacy = new Set(["flows:read", "flows:write"]), scopes = normalizeScopes(requested), expiryDays = Number(input?.expiryDays); if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any) && !legacy.has(scope)) || !scopes.length || ![7, 30, 90].includes(expiryDays)) throw new ServiceError(400, "invalid_request", "A name, supported scopes, and expiryDays of 7, 30, or 90 are required."); const token = issueAccessToken(this.auth.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString(); const metadata = await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).create({ name, scopes, expiresAt, digest: await accessTokenDigest(token), userId: this.auth.userId, sessionVersion: this.auth.sessionVersion }); if (!metadata) throw new ServiceError(401, "invalid_token", "The owner session is no longer active."); return publicValue(createdAccessToken, JSON.parse(JSON.stringify({ ...metadata, token }))); }
   async revokeAccessToken(id: string) { await this.authorizeOwnerSession("jobs:write"); if (!await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).revoke(id)) throw new ServiceError(404, "not_found", "Access token not found"); return { revoked: true }; }

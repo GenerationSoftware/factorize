@@ -35,23 +35,16 @@ function request(
   body?: unknown,
   options: { raw?: string; mediaType?: string; auth?: OAuthProps } = {},
 ) {
+  const identity=options.auth ?? auth;
   const worker = new ProtectedApiHandler(
-    { props: options.auth ?? auth } as ExecutionContext<OAuthProps>,
-    { APP_ORIGIN: "https://example.com" } as Env,
+    { props: identity } as ExecutionContext<OAuthProps>,
+    { APP_ORIGIN: "https://example.com", ...(identity.authMethod === "oauth" ? {OAUTH_PROVIDER:{unwrapToken:async()=>({userId:identity.userId,grantId:"boundary-grant",scope:identity.scopes,expiresAt:Math.floor(Date.now()/1000)+3600,grant:{clientId:"boundary-client"}})}} : {}) } as unknown as Env,
   );
   return worker.fetch(
     new Request("https://example.com" + path, {
       method,
-      headers: { Origin: "https://example.com" },
-      ...(body !== undefined || options.raw !== undefined
-        ? {
-            body: options.raw ?? JSON.stringify(body),
-            headers: {
-              Origin: "https://example.com",
-              "Content-Type": options.mediaType ?? "application/json",
-            },
-          }
-        : {}),
+      headers: { Origin: "https://example.com", ...(identity.authMethod === "oauth" ? {Authorization:"Bearer validated-boundary-fixture"} : {}), ...(body !== undefined || options.raw !== undefined ? {"Content-Type":options.mediaType ?? "application/json"} : {}) },
+      ...(body !== undefined || options.raw !== undefined ? {body: options.raw ?? JSON.stringify(body)} : {}),
     }),
   );
 }

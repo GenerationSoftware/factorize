@@ -1,0 +1,216 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import { randomUUID, randomBytes, createHmac, createHash, createCipheriv, generateKeyPairSync, sign } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
+import { chromium } from 'playwright';
+import pg from 'pg';
+const exec = promisify(execFile);
+
+// Real workerd/OAuth issuance, compiled browser consent, PostgreSQL and R2.
+// The harness replaces only the network destination: every upstream HTTP
+// request goes to a local deterministic fixture, never live service credentials.
+test('agent API OAuth, policy, connection isolation, run identity and response lifecycle', {skip:!process.env.AUTH_TEST_DATABASE_URL,timeout:180000}, async () => {
+  const address = new URL(process.env.AUTH_TEST_DATABASE_URL);
+  assert.ok(['localhost','127.0.0.1'].includes(address.hostname));
+  const admin=new pg.Client({connectionString:address.href});await admin.connect();
+  const name='agent_api_'+randomUUID().replaceAll('-',''),directory=await mkdtemp(tmpdir()+'/agent-api-');
+  let db,mf,browser,upstream,site,worker;
+  const tenant=randomUUID(),user=randomUUID(),key=randomBytes(32),secret=randomBytes(32).toString('hex');
+  let origin;
+  const encrypt=value=>{const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);return iv.toString('base64')+'.'+Buffer.concat([cipher.update(value,'utf8'),cipher.final(),cipher.getAuthTag()]).toString('base64');};
+  const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+  const jwk={...publicKey.export({format:'jwk'}),kid:'fixture',alg:'RS256',use:'sig'};
+  const jwt=claims=>{const head=Buffer.from(JSON.stringify({alg:'RS256',kid:'fixture'})).toString('base64url'),body=Buffer.from(JSON.stringify(claims)).toString('base64url');return head+'.'+body+'.'+sign('RSA-SHA256',Buffer.from(head+'.'+body),privateKey).toString('base64url');};
+  const observed=[];let releaseStream;
+  try {
+    await admin.query(`CREATE DATABASE "${name}"`);address.pathname='/'+name;db=new pg.Client({connectionString:address.href});await db.connect();
+    for(const file of (await readdir('packages/api/migrations')).filter(file=>/^\d+.*\.sql$/.test(file)).sort()) await db.query(await readFile('packages/api/migrations/'+file,'utf8'));
+    await db.query('INSERT INTO app.tenants(id,name) VALUES($1,$2)',[tenant,'Agent fixture']);
+    await db.query('INSERT INTO app.auth_users(id,email,email_verified) VALUES($1,$2,true)',[user,'agent@example.test']);
+    await db.query("INSERT INTO app.members(tenant_id,user_id,email,role) VALUES($1,$2,$3,'owner')",[tenant,user,'agent@example.test']);
+    await db.query('INSERT INTO app.integration_collections(tenant_id) VALUES($1)',[tenant]);
+    const createIntegration=async (name,kind='bearer',payload='upstream-private')=>{
+      const id=randomUUID();await db.query("INSERT INTO app.integration_records(tenant_id,id,kind,name,origin,description,revision,encrypted_payload) VALUES($1,$2,$3,$4,$5,'Fixture usage',1,$6)",[tenant,id,kind,name,kind==='bearer'?'https://fixture.upstream.com':null,encrypt((kind==='bearer'?'factorize-managed-bearer-v1:':'factorize-managed-model-cache-v1:')+payload)]);
+      return (await db.query('SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND credential_id=$2',[tenant,id])).rows[0];
+    };
+    const baseline=await createIntegration('Baseline API'),requestable=await createIntegration('Requestable API');
+    await db.query("UPDATE app.agent_integrations SET policy='baseline' WHERE tenant_id=$1 AND id=$2",[tenant,baseline.id]);
+    upstream=createServer(async(req,res)=>{
+      const chunks=[];for await(const chunk of req) chunks.push(chunk);
+      const target=new URL(req.headers['x-fixture-target']);
+      const body=Buffer.concat(chunks).toString();observed.push({target:target.href,method:req.method,headers:req.headers,body});
+      if(target.hostname==='oidc.fly.io') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify(target.pathname.endsWith('openid-configuration')?{issuer:'https://oidc.fly.io/fixture',jwks_uri:'https://oidc.fly.io/fixture/jwks'}:{keys:[jwk]}));return;}
+      if(target.pathname==='/app/installations/17/access_tokens') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({token:'github-private',expires_at:new Date(Date.now()+3600000).toISOString()}));return;}
+      if(target.pathname==='/oauth/token') {res.setHeader('Content-Type','application/json');res.end(JSON.stringify({access_token:target.hostname==='api.linear.app'?'linear-refreshed':'model-oauth-private',refresh_token:'refreshed-private',expires_in:3600}));return;}
+      if(target.pathname==='/large') {res.setHeader('Content-Type','application/octet-stream');res.end(Buffer.alloc(1140000,0xff));return;}
+      if(target.pathname==='/bom') {res.end(Buffer.from([0xef,0xbb,0xbf,0x61]));return;}
+      if(target.pathname==='/binary') {res.end(Buffer.from([0,255,254,1]));return;}
+      if(target.pathname==='/redirect') {res.writeHead(302,{Location:'https://evil.invalid/'});res.end();return;}
+      if(target.pathname==='/stream') {res.setHeader('Content-Type','text/event-stream');res.write('first\n');releaseStream=()=>res.end('last\n');return;}
+      if(target.pathname==='/failure') res.statusCode=422;
+      res.setHeader('Set-Cookie','private=hidden');res.setHeader('Authorization','Bearer should-not-escape');res.end('fixture response');
+    });
+    await new Promise(resolve=>upstream.listen(0,'127.0.0.1',resolve));
+    const config=JSON.parse(await readFile('packages/api/wrangler.jsonc','utf8'));
+    config.main=resolve('packages/api/test/fixtures/agent-api-runtime-worker.ts');config.assets.directory=resolve('packages/app/dist');
+    await writeFile(directory+'/wrangler.json',JSON.stringify(config));
+    await exec(process.execPath,[resolve('node_modules/wrangler/bin/wrangler.js'),'deploy','--dry-run','--config',directory+'/wrangler.json','--outdir',directory],{maxBuffer:2*1024*1024});
+    await exec('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',directory+'/key.pem','-out',directory+'/cert.pem','-days','1','-subj','/CN=localhost']);
+    site=createHttpsServer({key:await readFile(directory+'/key.pem'),cert:await readFile(directory+'/cert.pem')},async(req,res)=>{
+      try {
+        const parts=[];for await(const part of req) parts.push(part);
+        const response=await worker.fetch(origin+req.url,{redirect:'manual',method:req.method,headers:req.headers,...(parts.length?{body:Buffer.concat(parts)}:{})});
+        res.statusCode=response.status;response.headers.forEach((value,name)=>{if(name!=='set-cookie') res.setHeader(name,value);});
+        res.setHeader('Set-Cookie',response.headers.getSetCookie());
+        if(response.body) for await(const part of response.body) res.write(part);res.end();
+      }catch(error){res.statusCode=500;res.end(String(error));}
+    });
+    await new Promise(resolve=>site.listen(0,'127.0.0.1',resolve));origin='https://localhost:'+site.address().port;
+    mf=new Miniflare(convertV4MiniflareOptions({name:"factorize",modules:true,modulesRoot:directory,scriptPath:directory+'/agent-api-runtime-worker.js',compatibilityDate:'2026-09-10',compatibilityFlags:['nodejs_compat','global_fetch_strictly_public'],
+      bindings:{LINEAR_CLIENT_ID:'fixture-client',LINEAR_CLIENT_SECRET:'fixture-secret',APP_ORIGIN:origin,SESSION_SIGNING_SECRET:secret,CREDENTIAL_ENCRYPTION_KEY:key.toString('base64'),GITHUB_APP_ID:'1',GITHUB_APP_PRIVATE_KEY:privateKey.export({format:'pem',type:'pkcs8'}).toString()},
+      kvNamespaces:['OAUTH_KV'],r2Buckets:['RUN_ARTIFACTS'],hyperdrives:{HYPERDRIVE:address.href},
+      serviceBindings:{MAINTENANCE:{name:"factorize",entrypoint:"AgentApiMaintenance"},ASSETS:async request=>{
+        const path=new URL(request.url).pathname;
+        try {const data=await readFile(resolve('packages/app/dist','.'+path));return new Response(data,{headers:{'Content-Type':path.endsWith('.js')?'application/javascript':path.endsWith('.css')?'text/css':'text/html'}});}catch{return new Response('Not found',{status:404});}
+      }},
+      outboundService:async request=>{
+        const target=new URL(request.url);assert.ok(['fixture.upstream.com','api.github.com','github.com','raw.githubusercontent.com','codeload.github.com','api.linear.app','api.openai.com','oidc.fly.io','auth.openai.com','chatgpt.com'].includes(target.hostname),'Unexpected upstream '+target.hostname);
+        const headers=new Headers(request.headers);headers.set('x-fixture-target',target.href);
+        const response=await fetch('http://127.0.0.1:'+upstream.address().port+target.pathname+target.search,{method:request.method,headers,body:request.method==='GET'||request.method==='HEAD'?undefined:await request.arrayBuffer(),redirect:'manual'});
+        return new Response(response.body,{status:response.status,headers:response.headers});
+      }}));
+    await mf.ready;
+    worker = await mf.getWorker("factorize");
+    const session=Buffer.from(JSON.stringify({tenantId:tenant,userId:user,email:'agent@example.test',exp:Math.floor(Date.now()/1000)+3600,sessionVersion:1})).toString('base64url');
+    const cookieValue=encodeURIComponent(session+'.'+createHmac('sha256',secret).update(session).digest('base64'));
+    const owner={Cookie:'factorize_session='+cookieValue,Origin:origin};
+    const send=(path,method='GET',body,headers={})=>worker.fetch(origin+path,{redirect:"manual",method,headers:{Host:new URL(origin).host,...headers},...(body===undefined?{}:{body:typeof body==='string'?body:JSON.stringify(body)})});
+    const json=async(path,method,body,headers)=>{const response=await send(path,method,body,{'Content-Type':'application/json',...headers});return {status:response.status,headers:response.headers,body:await response.json()};};
+    const form=async(body)=>{const response=await send('/oauth/token','POST',new URLSearchParams(body).toString(),{'Content-Type':'application/x-www-form-urlencoded'});const result=await response.json();assert.equal(response.status,200,JSON.stringify(result));return result;};
+    const registration=await json('/oauth/register','POST',{client_name:'Agent fixture',redirect_uris:['http://127.0.0.1/callback'],token_endpoint_auth_method:'none',grant_types:['authorization_code','refresh_token'],response_types:['code']});assert.equal(registration.status,201);
+    const clientId=registration.body.client_id;
+    browser=await chromium.launch({headless:true});
+    const context=await browser.newContext({ignoreHTTPSErrors:true});await context.addCookies([{name:'factorize_session',value:cookieValue,domain:'localhost',path:'/',httpOnly:true,secure:true}]);
+    await context.route('http://127.0.0.1/callback**',route=>route.fulfill({body:'Done'}));
+    const authorize=async(scopes=[],decision='allow',narrow)=>{
+      const verifier=randomBytes(32).toString('base64url'),query=new URLSearchParams({response_type:'code',client_id:clientId,redirect_uri:'http://127.0.0.1/callback',scope:scopes.join(' '),state:randomUUID(),code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256',resource:origin+'/mcp'});
+      const page=await context.newPage();page.setDefaultTimeout(15000);
+      await page.goto(origin+'/authorize?'+query);await page.getByRole('heading',{name:'Authorize Agent fixture',exact:true}).waitFor();
+      if(scopes.some(scope=>scope.startsWith('integration:'))) assert.ok(await page.getByText('Requestable API',{exact:false}).count());
+      if(narrow) await page.getByLabel(narrow,{exact:true}).uncheck();
+      await page.getByRole('button',{name:decision==='allow'?'Allow':'Deny',exact:true}).click();await page.waitForURL('http://127.0.0.1/callback?**');
+      const destination=new URL(page.url());await page.close();
+      if(decision==='deny') {assert.equal(destination.searchParams.get('error'),'access_denied');return null;}
+      return form({grant_type:'authorization_code',client_id:clientId,code:destination.searchParams.get('code'),redirect_uri:'http://127.0.0.1/callback',code_verifier:verifier,resource:origin+'/mcp'});
+    };
+    let id=1;
+    const rpc=async(token,name,args={},meta)=>{
+      const response=await send('/mcp','POST',{jsonrpc:'2.0',id:id++,method:'tools/call',params:{name,arguments:args,...(meta?{_meta:meta}:{})}},{'Content-Type':'application/json',Accept:'application/json, text/event-stream','MCP-Protocol-Version':'2025-11-25',Authorization:'Bearer '+token.access_token});
+      const text=await response.text();let messages;
+      try {messages=[JSON.parse(text)];}catch{messages=text.split('\n').filter(line=>line.startsWith('data: ')).map(line=>JSON.parse(line.slice(6)));}
+      return {status:response.status,headers:response.headers,messages,text,result:messages.find(message=>message.id)?.result?.structuredContent};
+    };
+    const request=(token,integration,path='/',extra={})=>rpc(token,'request_api',{integration:integration.id,method:'GET',path,...extra});
+    const scopes=row=>'integration:'+row.id+':'+row.epoch;
+    const first=await authorize(['jobs:read']),second=await authorize(['jobs:read']);
+    const reflect=await rpc(first,'get_api_reflection');assert.equal(reflect.status,200,reflect.text);assert.equal(reflect.result.integrations.find(row=>row.id===baseline.id).access,'granted');assert.equal(reflect.result.integrations.find(row=>row.id===requestable.id).access,'requestable');
+    const before=observed.length;
+    const denied=await request(first,requestable,'/must-not-run',{method:'POST',body:'denied'});assert.equal(denied.status,403,denied.text);assert.match(denied.headers.get('WWW-Authenticate'),/error="insufficient_scope"/);assert.ok(denied.headers.get('WWW-Authenticate').includes(scopes(requestable)));assert.ok(denied.headers.get('WWW-Authenticate').includes('resource_metadata='));assert.equal(observed.length,before);
+    const baselineCall=await request(first,baseline,'/items?q=1',{method:'POST',body:'payload',headers:{Authorization:'caller-secret',Cookie:'caller-cookie','X-Forwarded-Host':'hidden','Content-Type':'text/plain'}});assert.equal(baselineCall.result.body,'fixture response');assert.equal(baselineCall.result.status,200);assert.equal(baselineCall.result.headers['set-cookie'],undefined);assert.equal(baselineCall.result.headers.authorization,undefined);assert.equal(observed.at(-1).headers.authorization,'Bearer upstream-private');assert.equal(observed.at(-1).body,'payload');assert.ok(observed.at(-1).target.endsWith('/items?q=1'));assert.equal(observed.at(-1).headers.cookie,undefined);assert.ok(!baselineCall.text.includes('upstream-private'));
+    await authorize(['jobs:read',scopes(requestable)],'deny');assert.equal((await request(first,requestable)).status,403);
+    const unapproved=await authorize(['jobs:read',scopes(requestable)],'allow',scopes(requestable));assert.equal((await request(unapproved,requestable)).status,403);
+    const stepped=await authorize(['jobs:read',scopes(requestable)]);assert.equal((await request(stepped,requestable)).result.status,200);assert.equal((await rpc(stepped,'list_jobs')).status,200);assert.equal((await request(second,requestable)).status,403);
+    assert.equal((await request(first,baseline)).result.status,200,'ordinary authorization preserves old connection');
+    const refreshed=await form({grant_type:'refresh_token',client_id:clientId,refresh_token:stepped.refresh_token,resource:origin+'/mcp'});assert.equal((await request(refreshed,requestable)).result.status,200);
+    assert.equal((await rpc(refreshed,'get_api_reflection')).result.identity.id,(await rpc(stepped,'get_api_reflection')).result.identity.id);
+    const narrowed=await form({grant_type:'refresh_token',client_id:clientId,refresh_token:refreshed.refresh_token,scope:'jobs:read',resource:origin+'/mcp'});assert.equal((await request(narrowed,requestable)).status,403,'presented token narrowing wins over consent props');
+    const policy=async(row,value)=>{const current=(await db.query('SELECT revision FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2',[tenant,row.id])).rows[0];const result=await json('/api/v1/integration-api-policies/'+row.id,'PUT',{policy:value,expectedRevision:current.revision},owner);assert.equal(result.status,200,JSON.stringify(result.body));return result;};
+    await policy(requestable,'baseline');assert.equal((await request(first,requestable)).result.status,200);assert.equal((await rpc(first,'get_api_reflection')).result.integrations.find(row=>row.id===requestable.id).access,'granted');
+    await policy(requestable,'requestable');assert.equal((await request(first,requestable)).status,403);assert.equal((await request(stepped,requestable)).result.status,200);
+    await policy(requestable,'disabled');assert.equal((await request(stepped,requestable)).status,403);await policy(requestable,'requestable');assert.equal((await request(stepped,requestable)).status,403,'disable revokes approvals permanently');
+    requestable.epoch=(await db.query('SELECT epoch FROM app.agent_integrations WHERE id=$1',[requestable.id])).rows[0].epoch;
+    const fresh=await authorize(['jobs:read',scopes(requestable)]);assert.equal((await request(fresh,requestable)).result.status,200);
+    const bom=await request(first,baseline,'/bom');assert.equal(bom.result.body,'\ufeffa');assert.equal(bom.result.size,4);
+    const binary=await request(first,baseline,'/binary');assert.equal(binary.result.encoding,'base64');assert.deepEqual(Buffer.from(binary.result.body,'base64'),Buffer.from([0,255,254,1]));
+    const failure=await request(first,baseline,'/failure');assert.equal(failure.result.status,422);
+    const redirectBefore=observed.length;assert.ok((await request(first,baseline,'/redirect')).text.includes('proxy_failed'));assert.equal(observed.length,redirectBefore+1);
+    const large=await request(first,baseline,'/large');assert.equal(large.result.size,1140000,large.text);assert.ok(large.result.handle);assert.equal(large.result.body,undefined);
+    const chunk=await rpc(first,'read_api_response',{handle:large.result.handle,offset:1040000});assert.equal(Buffer.from(chunk.result.body,'base64').length,65536);assert.ok(Buffer.from(chunk.result.body,'base64').every(value=>value===255));
+    assert.ok((await rpc(second,'read_api_response',{handle:large.result.handle,offset:0})).text.includes('not_found'));
+    const progress=await rpc(first,'request_api',{integration:baseline.id,method:'GET',path:'/'},{progressToken:'fixture-progress'});assert.equal(progress.messages.filter(message=>message.method==='notifications/progress').length,2,progress.text);
+    const policies=await json('/api/v1/integration-api-policies','GET',undefined,owner);assert.equal(policies.status,200);
+    const otherTenant=randomUUID();await db.query('INSERT INTO app.tenants(id) VALUES($1)',[otherTenant]);
+    const foreign=randomUUID();await db.query("INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available,policy) VALUES($1,$2,'bearer','foreign','Foreign',true,'baseline')",[otherTenant,foreign]);assert.equal((await request(first,{id:foreign})).status,403);
+    for(const path of ['https://evil.invalid/','//evil.invalid/','/\\evil','/x#fragment']) assert.equal((await request(first,baseline,path)).status,400);
+    await db.query("INSERT INTO app.members(tenant_id,user_id,email,role) VALUES($1,$2,'agent@example.test','owner')",[otherTenant,user]);
+    const foreignSession=Buffer.from(JSON.stringify({tenantId:otherTenant,userId:user,email:'agent@example.test',exp:Math.floor(Date.now()/1000)+3600,sessionVersion:1})).toString('base64url');
+    const foreignCookie=encodeURIComponent(foreignSession+'.'+createHmac('sha256',secret).update(foreignSession).digest('base64'));
+    await context.addCookies([{name:'factorize_session',value:foreignCookie,domain:'localhost',path:'/',httpOnly:true,secure:true}]);
+    const foreignToken=await authorize(['jobs:read']);
+    assert.ok((await rpc(foreignToken,'read_api_response',{handle:large.result.handle,offset:0})).text.includes('not_found'));
+    assert.equal((await json('/api/v1/access/authorizations/'+foreignToken.access_token.split(':')[1],'DELETE',undefined,owner)).status,404);
+    await context.addCookies([{name:'factorize_session',value:cookieValue,domain:'localhost',path:'/',httpOnly:true,secure:true}]);
+    // Cleanup executes inside workerd with actual R2 storage and PostgreSQL receipts.
+    const expired=await request(second,baseline,'/large'),interrupted=await request(second,baseline,'/large');
+    const prefixes=(await db.query('SELECT object_key FROM app.agent_proxy_responses WHERE tenant_id=$1 AND id=ANY($2::uuid[])',[tenant,[expired.result.handle,interrupted.result.handle]])).rows.map(row=>row.object_key);
+    await db.query("UPDATE app.agent_proxy_responses SET expires_at=now()-interval '1 second' WHERE tenant_id=$1 AND id=ANY($2::uuid[])",[tenant,[expired.result.handle,interrupted.result.handle]]);
+    await db.query('UPDATE app.agent_proxy_responses SET size=NULL WHERE tenant_id=$1 AND id=$2',[tenant,interrupted.result.handle]);
+    assert.ok((await rpc(second,'read_api_response',{handle:expired.result.handle,offset:0})).text.includes('not_found'));
+    const maintenance=(await mf.getBindings()).MAINTENANCE;assert.equal((await maintenance.fetch('https://maintenance/')).status,200);
+    assert.equal((await db.query('SELECT 1 FROM app.agent_proxy_responses WHERE tenant_id=$1 AND id=ANY($2::uuid[])',[tenant,[expired.result.handle,interrupted.result.handle]])).rowCount,0);
+    const bucket=await mf.getR2Bucket('RUN_ARTIFACTS');for(const prefix of prefixes) assert.equal((await bucket.list({prefix})).objects.length,0);
+    // All provider adapters use the same grants and forwarding boundary.
+    await db.query("INSERT INTO app.github_installations(installation_id,tenant_id,account_login,account_type,state) VALUES(17,$1,'fixture','Organization','active')",[tenant]);
+    await db.query("INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,'linear',$2)",[tenant,encrypt(JSON.stringify({accessToken:'linear-private',refreshToken:'linear-refresh',accessTokenExpiresAt:new Date(Date.now()-3600000).toISOString()}))]);
+    const model=await createIntegration('Model API','model',JSON.stringify({OPENAI_API_KEY:'model-private'}));
+    for(const [kind,path,expected,auth] of [['github','/repos/fixture/repo','https://api.github.com/repos/fixture/repo','github-private'],['linear','/graphql','https://api.linear.app/graphql','linear-refreshed'],['model','/responses','https://api.openai.com/v1/responses','model-private']]) {
+      const row=(await db.query('SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind=$2',[tenant,kind])).rows[0];await policy(row,'baseline');
+      const result=await request(first,row,path);assert.equal(result.result.status,200,result.text);assert.equal(observed.at(-1).target,expected);assert.equal(observed.at(-1).headers.authorization,'Bearer '+auth);
+    }
+    const github=(await db.query("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind='github'",[tenant])).rows[0];
+    for(const [path,target] of [['/owner/repo.git/info/refs','https://github.com/owner/repo.git/info/refs'],['/raw/owner/repo/main/file','https://raw.githubusercontent.com/owner/repo/main/file'],['/archive/owner/repo/zip/main','https://codeload.github.com/owner/repo/zip/main']]) {
+      assert.equal((await request(first,github,path)).result.status,200);assert.equal(observed.at(-1).target,target);
+      if(path.includes('info/refs')) assert.equal(observed.at(-1).headers.authorization,'Basic '+Buffer.from('x-access-token:github-private').toString('base64'));
+    }
+    const oauthModel=await createIntegration('OAuth Model','model',JSON.stringify({tokens:{access_token:'expired-model',refresh_token:'model-refresh'},last_refresh:'2000-01-01T00:00:00Z'}));
+    await policy(oauthModel,'baseline');assert.equal((await request(first,oauthModel,'/responses')).result.status,200);assert.equal(observed.at(-1).target,'https://chatgpt.com/backend-api/codex/responses');assert.equal(observed.at(-1).headers.authorization,'Bearer model-oauth-private');
+    assert.ok(observed.some(row=>row.target==='https://auth.openai.com/oauth/token'));assert.ok(observed.some(row=>row.target==='https://api.linear.app/oauth/token'));
+    // Verified Fly OIDC reaches the same service using an immutable run snapshot.
+    const runId=randomUUID(),jobId=randomUUID(),invocationId=randomUUID(),now=Math.floor(Date.now()/1000);
+    await db.query("INSERT INTO app.projects(tenant_id,id,name) VALUES($1,md5(($1::uuid)::text || ':default')::uuid,'Default')",[tenant]);
+    await db.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit) VALUES($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Fixture','fixture','cipher','{}',1)",[tenant,jobId]);
+    await db.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES($1,gen_random_uuid(),$2,'manual','manual')",[tenant,jobId]);
+    await db.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,context,trigger_id) VALUES($1,$2,$3,'manual','fixture','{}',(SELECT id FROM app.triggers WHERE tenant_id=$1 AND job_id=$3))",[tenant,invocationId,jobId]);
+    await db.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES($1,$2,$3,$4,'running','cipher')",[tenant,runId,jobId,invocationId]);
+    await db.query("INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,agent_name,state,execution_config,execution_handle) VALUES($1,$2,$3,$4,'manual','fixture','codex','running',$5,$6)",[tenant,runId,jobId,invocationId,{portableIntegrationIds:[baseline.credential_id]},{id:'fixture-app/machine'}]);
+    await db.query("INSERT INTO app.fly_connections(tenant_id,organization_slug,organization_name,encrypted_token) VALUES($1,'fixture','Fixture','cipher')",[tenant]);
+    await db.query("INSERT INTO app.run_authorizations(tenant_id,run_id,user_id,session_version,scopes) VALUES($1,$2,$3,1,'[]')",[tenant,runId,user]);
+    const subject='fixture:fixture-app:machine';
+    await db.query("INSERT INTO app.vendor_run_identity_bindings(tenant_id,run_id,provider,vm_id,issuer,subject,audience,issued_at,expires_at) VALUES($1,$2,'fly.io','machine','https://oidc.fly.io/fixture',$3,$4,now(),now()+interval '1 hour')",[tenant,runId,subject,origin]);
+    const runHeaders={'X-Factorize-Run-Id':runId,Authorization:'Bearer '+jwt({machine_id:'machine',iss:'https://oidc.fly.io/fixture',sub:subject,aud:origin,iat:now,exp:now+300})};
+    const runResponse=await send('/api/v1/agent/reflection','GET',undefined,runHeaders);assert.equal(runResponse.status,200,await runResponse.clone().text());assert.equal((await runResponse.json()).integrations.length,1);
+    const stream=await send('/internal/run-proxy/'+runId+'/integrations/'+baseline.credential_id+'/stream','GET',undefined,runHeaders);assert.equal(stream.status,200);
+    const streamReader=stream.body.getReader();assert.match(new TextDecoder().decode((await streamReader.read()).value),/first/);releaseStream();assert.match(new TextDecoder().decode((await streamReader.read()).value),/last/);
+    assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+requestable.credential_id+'/','GET',undefined,runHeaders)).status,403);
+    assert.equal((await send('/api/v1/agent/reflection','GET',undefined,{...runHeaders,Authorization:'Bearer '+first.access_token})).status,401,'invalid vendor identity cannot fall back to OAuth');
+    await db.query("UPDATE app.jobs SET execution_config=$3 WHERE tenant_id=$1 AND id=$2",[tenant,jobId,{portableIntegrationIds:[baseline.credential_id,requestable.credential_id]}]);
+    assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+requestable.credential_id+'/','GET',undefined,runHeaders)).status,403,'job edits cannot expand the run snapshot');
+    await db.query("UPDATE app.integration_records SET deleted_at=now(),encrypted_payload=NULL WHERE tenant_id=$1 AND id=$2",[tenant,baseline.credential_id]);
+    await db.query("UPDATE app.integration_records SET deleted_at=NULL,encrypted_payload=$3 WHERE tenant_id=$1 AND id=$2",[tenant,baseline.credential_id,encrypt('factorize-managed-bearer-v1:upstream-private')]);
+    assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+baseline.credential_id+'/','GET',undefined,runHeaders)).status,403,'run disconnect revocation survives reconnect');
+    assert.equal((await rpc(first,'read_api_response',{handle:large.result.handle,offset:0})).status,403,'retained responses cannot cross a disconnect epoch');
+    await db.query("UPDATE app.job_runs SET state='stopped' WHERE tenant_id=$1 AND id=$2",[tenant,runId]);assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+baseline.credential_id+'/','GET',undefined,runHeaders)).status,403);
+    await policy(baseline,'requestable');assert.equal((await request(first,baseline)).status,403);assert.equal((await rpc(first,'read_api_response',{handle:large.result.handle,offset:0})).status,403,'reads require current grants');await policy(baseline,'baseline');
+    const grantId=first.access_token.split(':')[1];assert.equal((await json('/api/v1/access/authorizations/'+grantId,'DELETE',undefined,owner)).status,200);assert.equal((await request(first,baseline)).status,401);assert.equal((await rpc(first,'read_api_response',{handle:large.result.handle,offset:0})).status,401);assert.equal((await request(second,baseline)).result.status,200);
+    await context.close();
+  } finally {
+    releaseStream?.();await browser?.close();if(site) await new Promise(resolve=>site.close(resolve));await mf?.dispose();if(upstream) await new Promise(resolve=>upstream.close(resolve));await db?.end();await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);await admin.end();await rm(directory,{recursive:true,force:true});
+  }
+});

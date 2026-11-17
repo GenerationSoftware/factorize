@@ -108,7 +108,7 @@ describe("report authenticated provenance and sanitization", () => {
   });
 
   it("uses the validated OAuth token summary for legacy grant reporter identity", async () => {
-    const credential = "never-persist-this-token-value", unwrapToken = vi.fn().mockResolvedValue({ userId: "owner", grantId: "real-grant-id", grant: { clientId: "real-client-id" } });
+    const credential = "never-persist-this-token-value", unwrapToken = vi.fn().mockResolvedValue({ userId: "owner", grantId: "real-grant-id", scope: ["runs:write"], expiresAt: Math.floor(Date.now()/1000)+3600, grant: { clientId: "real-client-id" } });
     const report = vi.spyOn(ApiService.prototype, "reportRunError").mockImplementation(async function(this: any) {
       expect(this.auth).toMatchObject({ oauthGrantId: "real-grant-id", oauthClientId: "real-client-id" });
       return { reported: true, reason: "safe", retry: false };

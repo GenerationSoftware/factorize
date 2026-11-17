@@ -1,3 +1,5 @@
+import { integrationConsentLabels } from "./agent-api";
+import { isIntegrationScope } from "./agent-api-contracts";
 import { staticApp } from "./static-app";
 import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { hmac } from "./crypto";
@@ -113,7 +115,7 @@ export async function deviceAuthorization(request: Request, env: Env, oauth: OAu
   if (!await authenticateDeviceClient(request, env, form, client)) return oauthError("invalid_client", "Client authentication failed.", 401);
   if (!client.redirectUris.length) return oauthError("unauthorized_client", "The client must have a registered redirect URI.");
   const requested = String(form.get("scope") ?? "").split(/\s+/).filter(Boolean);
-  const invalidScope = requested.find(value => !supportedScopes.includes(value));
+  const invalidScope = requested.find(value => !supportedScopes.includes(value) && !isIntegrationScope(value));
   if (invalidScope) return oauthError("invalid_scope", `Unsupported scope: ${invalidScope}`);
   const resource = String(form.get("resource") ?? `${env.APP_ORIGIN}/mcp`);
   if (resource !== `${env.APP_ORIGIN}/mcp`) return oauthError("invalid_target", "The resource must be the Factorize MCP endpoint.");
@@ -225,6 +227,7 @@ export async function decideDevice(env: Env, oauth: OAuthHelpers, session: { ten
   const authorize = async (record: DeviceRecord | null, write: (record: DeviceRecord) => Promise<void>) => {
     if (!record || record.status !== "pending" || record.expiresAt <= Math.floor(Date.now() / 1000)) return null;
     if (decision === "deny") { record.status = "denied"; await write(record); return { status: "denied" as const }; }
+  await integrationConsentLabels(env, session.tenantId, record.scope);
   const props: OAuthProps = { tenantId: session.tenantId, userId: session.userId, sessionVersion: session.sessionVersion, scopes: record.scope, authMethod: "oauth" };
     const authRequest: AuthRequest = { responseType: "code", clientId: record.clientId, redirectUri: record.redirectUri, scope: record.scope, state: "", codeChallenge: record.codeChallenge, codeChallengeMethod: "S256", resource: record.resource, issuer: env.APP_ORIGIN };
     const result = await oauth.completeAuthorization({ request: authRequest, userId: session.userId, metadata: { tenantId: session.tenantId }, scope: record.scope, props, revokeExistingGrants: false });

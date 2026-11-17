@@ -1,9 +1,12 @@
+import { Hono } from "hono";
+import { AgentApiError } from "./agent-api";
+import { requestApiInput, readApiResponseInput } from "./agent-api-contracts";
 import { ExeIntegrationError } from "./exe-vm-backend";
 import { queryOf } from "./query-params";
 import { jobUpdateInput } from "./job-contracts";
 import { InvocationError } from "./job-domain";
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import { createMcpHandler, McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
 import { ApiService, ServiceError } from "./flow-service";
@@ -13,7 +16,8 @@ import { executeAuth, validBrowserOrigin } from "./auth-api";
 import { matchApiOperation } from "./api-contract";
 import { normalizeScopes } from "./access-tokens";
 
-function errorResponse(error: unknown): Response {
+function errorResponse(error: unknown, origin?: string): Response {
+  if (error instanceof AgentApiError) return Response.json({error: {code: error.code, message: error.message}}, {status: error.status, headers: error.code === "insufficient_scope" ? {"WWW-Authenticate": `Bearer error="insufficient_scope", scope="${error.scope}", resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`} : undefined});
   if (error instanceof ExeIntegrationError) return Response.json({ error: { code: "invalid_request", message: error.message } }, { status: 400 });
   if (error instanceof URIError) return Response.json({ error: { code: "invalid_request", message: "Invalid path encoding" } }, { status: 400 });
   if (error instanceof InvocationError && error.code === "queue_full") return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
@@ -59,7 +63,24 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       const url = new URL(request.url), path = url.pathname;
       if (path === "/mcp") {
         if (!auth) throw new ServiceError(401, "invalid_token", "Unauthorized");
-        return mcp(request, new ApiService(env, auth), env, ctx);
+        const mcpService = new ApiService(env, auth);
+        // Authorization challenges must leave the HTTP boundary before the MCP
+        // SDK translates tool exceptions to JSON-RPC tool errors.
+        if (request.method === "POST") {
+          let mcpBytes=0;
+          const limited = request.body?.pipeThrough(new TransformStream<Uint8Array,Uint8Array>({
+            transform(chunk,controller) { mcpBytes+=chunk.byteLength; if(mcpBytes>45_000_000) throw new ServiceError(413,"request_too_large","MCP request exceeds the proxy limit."); controller.enqueue(chunk); }
+          }));
+          let body: any;
+          try { body = await new Response(limited).json(); } catch(error) { if(error instanceof ServiceError) throw error; throw new ServiceError(400,"invalid_request","Request body must be valid JSON."); }
+          mcpBodies.set(request,body);
+          if (body?.method === "tools/call" && body.params?.name === "request_api") {
+            const input = requestApiInput.parse(body.params.arguments);
+            await mcpService.agentApi().authorize(input.integration);
+          }
+          if (body?.method === "tools/call" && body.params?.name === "read_api_response") await mcpService.agentApi().authorizeRead(readApiResponseInput.parse(body.params.arguments));
+        }
+        return await mcp(request, mcpService, env, ctx);
       }
       const matched = matchApiOperation(request.method, path);
       if (!matched) return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
@@ -94,19 +115,32 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       if (route.authOperation) return timed(await executeAuth(route.authOperation, request, env, body as Record<string, unknown>));
       service = new ApiService(env, auth!, ctx);
       const query = route.query?.parse(queryInput(url));
-      const result = await route.execute(service, { params: route.parameters.parse(params) as Record<string, string>, body, query, url });
+      const result = await route.execute(service, { params: route.parameters.parse(params) as Record<string, string>, body, query, url, signal: request.signal });
       return timed(result instanceof Response ? result : Response.json(result, { status: route.status }));
-    } catch (error) { return timed(errorResponse(error)); }
+    } catch (error) { return timed(errorResponse(error, env.APP_ORIGIN)); }
 }
 
 const mcpServices = new WeakMap<Request, ApiService>();
+const mcpBodies = new WeakMap<Request, unknown>();
 
 function createMcpServer(service: ApiService): McpServer {
     const server = new McpServer({ name: "factorize", version: "1.0.0" });
-    const tool = <T>(name: string, description: string, schema: any, action: (input: T) => Promise<unknown>) => server.registerTool(name, { description, inputSchema: schema }, async (input: T) => {
-      try { return structured(await action(input)); }
+    const tool = <T>(name: string, description: string, schema: any, action: (input: T, context: ServerContext) => Promise<unknown>) => server.registerTool(name, { description, inputSchema: schema }, async (input: T, context: ServerContext) => {
+      try {
+        const progressToken = context.mcpReq._meta?.progressToken;
+        const notify = async (progress: number) => {
+          if ((typeof progressToken === "string" || typeof progressToken === "number") && name === "request_api") await context.mcpReq.notify({method:"notifications/progress",params:{progressToken,progress,total:1}});
+        };
+        await notify(0);
+        const result = await action(input, context);
+        await notify(1);
+        return structured(result);
+      }
       catch (error) { const response = errorResponse(error), detail = await response.json() as any; throw new Error(`${detail.error?.code ?? "operation_failed"}: ${detail.error?.message ?? "Operation failed"}`); }
     });
+    tool("get_api_reflection", "Discover this agent identity, effective Factorize scopes, and granted/requestable integration APIs. Availability describes connection state, not verified credential health.", z.object({}), () => service.getApiReflection());
+    tool("request_api", "Make an HTTP request to a selected integration. Supply a relative path/query, never an origin or upstream credential. Small bodies return inline; larger bodies return a handle retained for 24 hours. Upstream non-2xx status is preserved.", requestApiInput, (input: any, context) => service.requestApi(input, context.mcpReq.signal));
+    tool("read_api_response", "Read up to 64 KiB of a retained API response, base64 encoded. Reads recheck identity and integration authorization.", readApiResponseInput, (input: any) => service.readApiResponse(input));
     tool("list_exe_connections", "List safe metadata for saved exe.dev connections. API tokens are never returned.", z.object({}), () => service.listExeConnections());
     tool("get_runtime_context", "Inspect the verified invocation identity without exposing credentials.", z.object({}), () => service.getRuntimeContext());
     tool("list_github_installations", "List connected GitHub App installations, including the installation IDs needed by GitHub Job triggers. Credentials are never returned.", z.object({}), () => service.listGitHubInstallations());
@@ -158,12 +192,15 @@ const mcpHandler = createMcpHandler(({ requestInfo }) => {
     return createMcpServer(service);
 });
 
-const mcpApps = new Map<string, ReturnType<typeof createMcpHonoApp>>();
+const mcpApps = new Map<string, Hono>();
 function mcpAppFor(hostname: string) {
     let app = mcpApps.get(hostname);
     if (!app) {
-      app = createMcpHonoApp({ host: hostname, allowedHosts: [hostname], allowedOrigins: [hostname] });
-      app.all("/mcp", c => mcpHandler.fetch(c.req.raw, { parsedBody: (c as any).get("parsedBody") }));
+      const protocol = createMcpHonoApp({ host: hostname, allowedHosts: [hostname], allowedOrigins: [hostname] });
+      protocol.all("/mcp", c => mcpHandler.fetch(c.req.raw, { parsedBody: (c as any).get("parsedBody") }));
+      app = new Hono();
+      app.use("*",async(c,next)=> { if(mcpBodies.has(c.req.raw)) (c as any).set("parsedBody",mcpBodies.get(c.req.raw)); await next(); });
+      app.route("/",protocol);
       mcpApps.set(hostname, app);
     }
     return app;
@@ -177,16 +214,12 @@ async function mcp(request: Request, service: ApiService, env: Env, ctx: Executi
 export class ProtectedApiHandler extends WorkerEntrypoint<Env, OAuthProps> {
   async fetch(request: Request): Promise<Response> {
     let auth = this.ctx.props;
-    const isReportRequest = new URL(request.url).pathname.endsWith("/report-error")
-      || new URL(request.url).pathname === "/mcp" && await request.clone().json().then(body => (body as any)?.params?.name === "report_run_error").catch(() => false);
-    if (isReportRequest && auth.authMethod === "oauth" && (!auth.oauthGrantId || !auth.oauthClientId)) {
+    if (auth.authMethod === "oauth" || auth.authMethod === undefined) {
       const authorization = request.headers.get("Authorization"), credential = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
-      if (credential && this.env.OAUTH_PROVIDER) {
-        // The SDK validates the bearer before dispatch. Unwrap only for stable grant/client IDs;
-        // the credential itself is never logged, returned, or persisted.
-        const token = await this.env.OAUTH_PROVIDER.unwrapToken<OAuthProps>(credential);
-        if (token?.userId === auth.userId && token.grant?.clientId) auth = { ...auth, oauthGrantId: token.grantId, oauthClientId: token.grant.clientId };
-      }
+      const token = credential && this.env.OAUTH_PROVIDER ? await this.env.OAUTH_PROVIDER.unwrapToken<OAuthProps>(credential) : null;
+      if (!token || token.userId !== auth.userId || !token.grant?.clientId) return Response.json({error:{code:"invalid_token",message:"Invalid OAuth authorization"}}, {status:401});
+      // Props describe original consent. The presented token may be narrowed.
+      auth = {...auth, authMethod: "oauth", scopes: normalizeScopes(token.scope).filter(scope => normalizeScopes(auth.scopes).includes(scope)), oauthGrantId: token.grantId, oauthClientId: token.grant.clientId, oauthExpiresAt: token.expiresAt};
     }
     return protectedApiFetch(request, this.env, auth, this.ctx);
   }

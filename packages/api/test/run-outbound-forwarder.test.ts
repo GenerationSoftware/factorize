@@ -52,6 +52,19 @@ describe("backend streaming outbound protocol", () => {
     await expect(forwardRunOutbound(new Request("https://factorize.test/", {method: "POST", body: "oversized"}), credential, {requestBytes: 2, fetcher: async (_input, init) => new Response(await new Response(init!.body).text())})).rejects.toThrow("limit");
   });
 
+  it("propagates request cancellation and enforces the upstream deadline", async () => {
+    const selected={origin:"https://api.example.com",path:"/",credential:"secret"};
+    const fetcher: typeof fetch = async (_input,init) => new Promise((_resolve,reject)=> {
+      const signal=init!.signal!;
+      if(signal.aborted) reject(signal.reason);
+      else signal.addEventListener("abort",()=>reject(signal.reason),{once:true});
+    });
+    await expect(forwardRunOutbound(new Request("https://factorize.test/"),selected,{fetcher,timeoutMs:5})).rejects.toMatchObject({name:"TimeoutError"});
+    const abort=new AbortController();
+    const pending=forwardRunOutbound(new Request("https://factorize.test/",{signal:abort.signal}),selected,{fetcher,timeoutMs:1000});
+    abort.abort();await expect(pending).rejects.toMatchObject({name:"AbortError"});
+  });
+
   it.each(["127.0.0.1", "10.1.2.3", "169.254.169.254", "192.168.0.1", "100.64.0.1", "::1", "::ffff:127.0.0.1", "fc00::1", "2001:db8::1"])("rejects non-public address %s", address => {
     expect(isPublicAddress(address)).toBe(false);
   });
