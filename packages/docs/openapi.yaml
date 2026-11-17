@@ -1828,6 +1828,309 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
 paths:
+  /api/v1/x/connections:
+    get:
+      summary: List X connections
+      description: |-
+        Requires an interactive owner session. Returns named connection metadata, account identity, selected/granted scopes, and status. Client secrets and OAuth tokens are never returned.
+
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: X connection metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        name:
+                          type: string
+                        clientId:
+                          type: string
+                        scopes:
+                          type: array
+                          items:
+                            type: string
+                        accountId:
+                          type:
+                            - string
+                            - "null"
+                        accountHandle:
+                          type:
+                            - string
+                            - "null"
+                        grantedScopes:
+                          type: array
+                          items:
+                            type: string
+                        status:
+                          type: string
+                          enum:
+                            - pending
+                            - connected
+                            - reconnect_required
+                        createdAt:
+                          type: string
+                        updatedAt:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - clientId
+                        - scopes
+                        - accountId
+                        - accountHandle
+                        - grantedScopes
+                        - status
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
+                required:
+                  - connections
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_x_connections
+      tags:
+        - x
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+    post:
+      summary: Add a user-owned X app connection
+      description: |-
+        Requires an interactive owner session. Stores the X OAuth client secret in Factorize-managed encrypted storage and never returns it. Selected scopes are validated before saving.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "201":
+          description: X connection created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  clientId:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                  accountId:
+                    type:
+                      - string
+                      - "null"
+                  accountHandle:
+                    type:
+                      - string
+                      - "null"
+                  grantedScopes:
+                    type: array
+                    items:
+                      type: string
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - connected
+                      - reconnect_required
+                  createdAt:
+                    type: string
+                  updatedAt:
+                    type: string
+                required:
+                  - id
+                  - name
+                  - clientId
+                  - scopes
+                  - accountId
+                  - accountHandle
+                  - grantedScopes
+                  - status
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_x_connections
+      tags:
+        - x
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                clientId:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+                clientSecret:
+                  type: string
+                  minLength: 1
+                  maxLength: 4096
+                  pattern: ^[^\r\n]+$
+                  writeOnly: true
+                scopes:
+                  minItems: 1
+                  maxItems: 24
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - tweet.read
+                      - tweet.write
+                      - tweet.moderate.write
+                      - users.email
+                      - users.read
+                      - follows.read
+                      - follows.write
+                      - offline.access
+                      - space.read
+                      - mute.read
+                      - mute.write
+                      - like.read
+                      - like.write
+                      - list.read
+                      - list.write
+                      - block.read
+                      - block.write
+                      - bookmark.read
+                      - bookmark.write
+                      - dm.read
+                      - dm.write
+                      - media.write
+                      - broadcast.read
+                      - broadcast.write
+              required:
+                - id
+                - name
+                - clientId
+                - clientSecret
+                - scopes
+              additionalProperties: false
+  /api/v1/x/connections/{connectionId}:
+    delete:
+      summary: Delete an X connection
+      description: |-
+        Requires an interactive owner session. Deletes the encrypted client credential and connection metadata.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: X connection deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  deleted:
+                    type: boolean
+                    const: true
+                required:
+                  - id
+                  - deleted
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: delete_api_v1_x_connections_connectionId
+      tags:
+        - x
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/model-accounts:
     get:
       summary: List model accounts available to the owner

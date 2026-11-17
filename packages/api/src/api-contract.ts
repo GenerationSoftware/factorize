@@ -27,6 +27,7 @@ import {
 } from "./flow-schemas";
 import { traceReplaySchema } from "./trace-replay-schemas";
 import {modelAuthorizationState} from "./model-device-auth";
+import { X_OAUTH_SCOPES } from "./x-oauth";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
 import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput } from "./skills";
@@ -143,6 +144,13 @@ const modelAccountCreate = z.object({
 }).strict();
 const modelAccountDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
 const modelAccountList = z.object({ revision: z.number().int().nonnegative(), accounts: z.array(modelAccountMetadata) });
+const xConnectionMetadata = z.object({ id: z.uuid(), name: z.string(), clientId: z.string(), scopes: z.array(z.string()), accountId: z.string().nullable(), accountHandle: z.string().nullable(), grantedScopes: z.array(z.string()), status: z.enum(["pending", "connected", "reconnect_required"]), createdAt: z.string(), updatedAt: z.string() });
+const xConnectionCreate = z.object({
+  id: z.uuid(), name: z.string().trim().min(1).max(120), clientId: z.string().trim().min(1).max(256),
+  clientSecret: z.string().min(1).max(4096).regex(/^[^\r\n]+$/).meta({ writeOnly: true }),
+  scopes: z.array(z.enum(Object.keys(X_OAUTH_SCOPES) as [keyof typeof X_OAUTH_SCOPES, ...(keyof typeof X_OAUTH_SCOPES)[]])).min(1).max(Object.keys(X_OAUTH_SCOPES).length),
+}).strict();
+const xConnectionList = z.object({ connections: z.array(xConnectionMetadata) });
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 
@@ -223,6 +231,21 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 }
 
 export const API_ROUTES: RouteContract[] = [
+  route("GET", "/api/v1/x/connections", "integrations:read", {
+    summary: "List X connections",
+    description: "Requires an interactive owner session. Returns named connection metadata, account identity, selected/granted scopes, and status. Client secrets and OAuth tokens are never returned.",
+    responses: { "200": { description: "X connection metadata", content: { "application/json": { schema: jsonSchema(xConnectionList, "output") } } } },
+  }, service => service.listXConnections(), { ownerSession: true }),
+  route("POST", "/api/v1/x/connections", "integrations:write", {
+    summary: "Add a user-owned X app connection",
+    description: "Requires an interactive owner session. Stores the X OAuth client secret in Factorize-managed encrypted storage and never returns it. Selected scopes are validated before saving.",
+    responses: { "201": { description: "X connection created", content: { "application/json": { schema: jsonSchema(xConnectionMetadata, "output") } } } },
+  }, (service, { body }) => service.createXConnection(body), { body: xConnectionCreate, maxBodyBytes: 8192, ownerSession: true }),
+  route("DELETE", "/api/v1/x/connections/{connectionId}", "integrations:write", {
+    summary: "Delete an X connection",
+    description: "Requires an interactive owner session. Deletes the encrypted client credential and connection metadata.",
+    responses: { "200": { description: "X connection deleted", content: { "application/json": { schema: jsonSchema(z.object({ id: z.uuid(), deleted: z.literal(true) }), "output") } } } },
+  }, (service, { params }) => service.deleteXConnection(params.connectionId), { ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
   route("GET", "/api/v1/model-accounts", "integrations:read", {
     summary: "List model accounts available to the owner",
     description: "Requires an interactive owner browser session. Returns account metadata and the collection revision only; encrypted account caches and credentials are never returned.",

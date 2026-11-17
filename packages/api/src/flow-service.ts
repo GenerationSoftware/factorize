@@ -20,6 +20,8 @@ import type { JobPageQuery } from "./job-contracts";
 import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { CredentialRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./postgres/credential-repository";
+import { XConnectionRepository } from "./postgres/x-connection-repository";
+import { validateXOAuthScopes, type XOAuthScope } from "./x-oauth";
 import { decrypt, encrypt } from "./crypto";
 import { InvocationService, type Job, type Trigger } from "./job-domain";
 import { RunQueryRepository } from "./postgres/run-query-repository";
@@ -603,6 +605,30 @@ export class ApiService {
   async saveTailIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveTail(input); }
   async testTailIntegration(id: string) { await this.authorize("integrations:write"); const result = await this.integrations().testTail(id); if (!result) throw new ServiceError(404, "not_found", "Integration not found"); return result; }
   private credentials() { return new CredentialRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+  private xConnections() { return new XConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+  async listXConnections() {
+    await this.authorizeOwnerSession("integrations:read");
+    return { connections: await this.xConnections().list() };
+  }
+  async createXConnection(input: { id: string; name: string; clientId: string; clientSecret: string; scopes: string[] }) {
+    await this.authorizeOwnerSession("integrations:write");
+    let scopes: XOAuthScope[];
+    try { scopes = validateXOAuthScopes(input.scopes); }
+    catch (error) { throw new ServiceError(400, "invalid_request", error instanceof Error ? error.message : "Invalid X scopes."); }
+    if (!/^[A-Za-z0-9_-]{1,256}$/.test(input.clientId)) throw new ServiceError(400, "invalid_request", "Enter a valid X OAuth 2.0 client ID.");
+    if (!input.clientSecret.trim() || input.clientSecret.length > 4096 || /[\r\n]/.test(input.clientSecret)) throw new ServiceError(400, "invalid_request", "Enter a valid X OAuth client secret.");
+    if ((await this.xConnections().get(input.id)) !== null) throw new ServiceError(409, "conflict", "X connection already exists.");
+    try { return await this.xConnections().create({ ...input, name: input.name.trim(), clientId: input.clientId.trim(), scopes }); }
+    catch (error) {
+      if (error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "23505") throw new ServiceError(409, "conflict", "An X connection with this name already exists.");
+      throw error;
+    }
+  }
+  async deleteXConnection(id: string) {
+    await this.authorizeOwnerSession("integrations:write");
+    if (!await this.xConnections().delete(id)) throw new ServiceError(404, "not_found", "X connection not found.");
+    return { id, deleted: true as const };
+  }
   private async bearerWrite(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; token?: string; operation: "upsert" | "delete" }) {
     try { return await this.credentials().write({ ...input, managedSecret: input.token, kind: "bearer" }); }
     catch (error) {

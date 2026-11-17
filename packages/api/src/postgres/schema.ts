@@ -47,6 +47,15 @@ export const integrationCollections = app.table("integration_collections", {
 export const integrationRecords = app.table("integration_records", {
   tenantId: uuid("tenant_id").notNull().references(() => integrationCollections.tenantId, { onDelete: "cascade" }), id: uuid("id").notNull(), kind: text("kind").$type<"bearer" | "model">().notNull(), name: text("name").notNull(), origin: text("origin"), description: text("description"), revision: bigint("revision", { mode: "number" }).notNull(), encryptedPayload: text("encrypted_payload"), deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "date" }), createdAt: createdAt(), updatedAt: updatedAt(),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("integration_records_active_name").on(t.tenantId, t.kind, sql`lower(${t.name})`).where(sql`${t.deletedAt} is null`), index("integration_records_collection_order").on(t.tenantId, t.revision, t.id), check("integration_records_kind_check", sql`${t.kind} IN ('bearer','model')`), check("integration_records_origin_check", sql`(${t.kind} = 'bearer' AND ${t.origin} IS NOT NULL) OR (${t.kind} = 'model' AND ${t.origin} IS NULL)`), check("integration_records_payload_check", sql`(${t.deletedAt} IS NULL AND ${t.encryptedPayload} IS NOT NULL) OR (${t.deletedAt} IS NOT NULL AND ${t.encryptedPayload} IS NULL)`)]);
+
+export const xConnections = app.table("x_connections", {
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  id: uuid("id").notNull(), name: text("name").notNull(), clientId: text("client_id").notNull(),
+  scopes: text("scopes").array().notNull(), encryptedSecret: text("encrypted_secret").notNull(),
+  accountId: text("account_id"), accountHandle: text("account_handle"), grantedScopes: text("granted_scopes").array().notNull().default(sql`'{}'::text[]`),
+  status: text("status").$type<"pending" | "connected" | "reconnect_required">().notNull().default("pending"),
+  createdAt: createdAt(), updatedAt: updatedAt(),
+}, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("x_connections_tenant_name").on(t.tenantId, sql`lower(${t.name})`), check("x_connections_status_check", sql`${t.status} IN ('pending','connected','reconnect_required')`)]);
 export const agentIntegrations = app.table("agent_integrations", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, {onDelete:"cascade"}), id: uuid("id").notNull().defaultRandom(),
   kind: text("kind").$type<"bearer"|"github"|"linear"|"model">().notNull(), credentialId: text("credential_id").notNull(), name:text("name").notNull(), description:text("description"), available:boolean("available").notNull(),
