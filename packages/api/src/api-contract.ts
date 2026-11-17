@@ -151,6 +151,7 @@ const xConnectionCreate = z.object({
   scopes: z.array(z.enum(Object.keys(X_OAUTH_SCOPES) as [keyof typeof X_OAUTH_SCOPES, ...(keyof typeof X_OAUTH_SCOPES)[]])).min(1).max(Object.keys(X_OAUTH_SCOPES).length),
 }).strict();
 const xConnectionList = z.object({ connections: z.array(xConnectionMetadata) });
+const xAuthorizationStart = z.object({ authorizationUrl: z.url() });
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 
@@ -246,6 +247,14 @@ export const API_ROUTES: RouteContract[] = [
     description: "Requires an interactive owner session. Deletes the encrypted client credential and connection metadata.",
     responses: { "200": { description: "X connection deleted", content: { "application/json": { schema: jsonSchema(z.object({ id: z.uuid(), deleted: z.literal(true) }), "output") } } } },
   }, (service, { params }) => service.deleteXConnection(params.connectionId), { ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
+  route("POST", "/api/v1/x/connections/{connectionId}/authorize", "integrations:write", {
+    summary: "Start X OAuth authorization",
+    description: "Requires an interactive owner session. Starts a short-lived PKCE authorization bound to this owner, tenant, session, connection, and selected scopes. The one-time state is set in an HttpOnly cookie.",
+    responses: { "200": { description: "X authorization URL", content: { "application/json": { schema: jsonSchema(xAuthorizationStart, "output") } } } },
+  }, async (service, { params }) => {
+    const started = await service.authorizeXConnection(params.connectionId);
+    return Response.json({ authorizationUrl: started.authorizationUrl }, { headers: { "Set-Cookie": `factorize_x_oauth_state=${started.stateCookie}; HttpOnly; Secure; SameSite=Lax; Path=/oauth/x/callback; Max-Age=600` } });
+  }, { body: z.object({}).strict(), maxBodyBytes: 1024, ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
   route("GET", "/api/v1/model-accounts", "integrations:read", {
     summary: "List model accounts available to the owner",
     description: "Requires an interactive owner browser session. Returns account metadata and the collection revision only; encrypted account caches and credentials are never returned.",

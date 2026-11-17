@@ -51,14 +51,44 @@ export class XConnectionRepository {
     return rows.map(metadata);
   }
 
-  async clientCredentials(id: string): Promise<{ clientId: string; clientSecret: string; scopes: string[] } | null> {
+  async clientCredentials(id: string): Promise<{ clientId: string; clientSecret: string; scopes: string[]; accessToken?: string; refreshToken?: string; expiresAt?: string } | null> {
     const { rows } = await this.database.pool.query<{ client_id: string; encrypted_secret: string; scopes: string[] }>(
       "SELECT client_id,encrypted_secret,scopes FROM app.x_connections WHERE tenant_id=$1 AND id=$2", [this.tenantId, id]);
     const row = rows[0];
     if (!row) return null;
-    const secret = JSON.parse(await decrypt(row.encrypted_secret, this.encryptionKey)) as { clientSecret?: unknown };
+    const secret = JSON.parse(await decrypt(row.encrypted_secret, this.encryptionKey)) as { clientSecret?: unknown; accessToken?: unknown; refreshToken?: unknown; expiresAt?: unknown };
     if (typeof secret.clientSecret !== "string" || !secret.clientSecret) throw new Error("X connection requires credential replacement");
-    return { clientId: row.client_id, clientSecret: secret.clientSecret, scopes: row.scopes };
+    return { clientId: row.client_id, clientSecret: secret.clientSecret, scopes: row.scopes, accessToken: typeof secret.accessToken === "string" ? secret.accessToken : undefined, refreshToken: typeof secret.refreshToken === "string" ? secret.refreshToken : undefined, expiresAt: typeof secret.expiresAt === "string" ? secret.expiresAt : undefined };
+  }
+
+  async createOAuthAttempt(input: { nonce: string; userId: string; sessionVersion: number; connectionId: string; scopes: string[]; verifier: string; expiresAt: Date }): Promise<boolean> {
+    const encryptedVerifier = await encrypt(input.verifier, this.encryptionKey);
+    const result = await this.database.pool.query(`INSERT INTO app.x_oauth_attempts(tenant_id,nonce,user_id,session_version,connection_id,scopes,encrypted_verifier,expires_at)
+      SELECT $1,$2,$3,$4,$5,$6,$7,$8 WHERE EXISTS (SELECT 1 FROM app.x_connections WHERE tenant_id=$1 AND id=$5)`,
+      [this.tenantId, input.nonce, input.userId, input.sessionVersion, input.connectionId, input.scopes, encryptedVerifier, input.expiresAt]);
+    return Boolean(result.rowCount);
+  }
+
+  async consumeOAuthAttempt(nonce: string): Promise<{ userId: string; sessionVersion: number; connectionId: string; scopes: string[]; verifier: string } | null> {
+    const { rows } = await this.database.pool.query<{ user_id: string; session_version: number; connection_id: string; scopes: string[]; encrypted_verifier: string }>(
+      `UPDATE app.x_oauth_attempts SET consumed_at=now() WHERE tenant_id=$1 AND nonce=$2 AND consumed_at IS NULL AND expires_at>now()
+       RETURNING user_id,session_version,connection_id,scopes,encrypted_verifier`, [this.tenantId, nonce]);
+    const row = rows[0];
+    if (!row) return null;
+    return { userId: row.user_id, sessionVersion: row.session_version, connectionId: row.connection_id, scopes: row.scopes, verifier: await decrypt(row.encrypted_verifier, this.encryptionKey) };
+  }
+
+  async completeOAuth(id: string, input: { accessToken: string; refreshToken: string; expiresAt: string; accountId: string; accountHandle: string; grantedScopes: string[] }): Promise<void> {
+    const credentials = await this.clientCredentials(id);
+    if (!credentials) throw new Error("X connection not found");
+    const encrypted = await encrypt(JSON.stringify({ clientSecret: credentials.clientSecret, accessToken: input.accessToken, refreshToken: input.refreshToken, expiresAt: input.expiresAt }), this.encryptionKey);
+    const result = await this.database.pool.query(`UPDATE app.x_connections SET encrypted_secret=$3,account_id=$4,account_handle=$5,granted_scopes=$6,status='connected',updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+      [this.tenantId, id, encrypted, input.accountId, input.accountHandle, input.grantedScopes]);
+    if (!result.rowCount) throw new Error("X connection not found");
+  }
+
+  async resetOAuthAttempt(id: string): Promise<void> {
+    await this.database.pool.query("UPDATE app.x_connections SET status='pending',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND status<>'connected'", [this.tenantId, id]);
   }
 
   async delete(id: string): Promise<boolean> {

@@ -22,9 +22,16 @@ describe.skipIf(!url)("encrypted X app connections (PostgreSQL)", { timeout: 60_
       expect(stored).not.toContain(input.clientSecret);
       expect(JSON.parse(await decrypt(stored, f.env.CREDENTIAL_ENCRYPTION_KEY))).toEqual({ clientSecret: input.clientSecret });
       expect(JSON.stringify(await repository.list())).not.toContain(input.clientSecret);
-      expect(await repository.clientCredentials(id)).toEqual({ clientId: input.clientId, clientSecret: input.clientSecret, scopes: input.scopes });
+      expect(await repository.clientCredentials(id)).toMatchObject({ clientId: input.clientId, clientSecret: input.clientSecret, scopes: input.scopes });
       expect(await new XConnectionRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY).get(id)).toBeNull();
       expect(await new XConnectionRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY).clientCredentials(id)).toBeNull();
+      const nonce = crypto.randomUUID(), verifier = "one-time-pkce-verifier";
+      expect(await repository.createOAuthAttempt({ nonce, userId: f.userId, sessionVersion: 1, connectionId: id, scopes: input.scopes, verifier, expiresAt: new Date(Date.now() + 60_000) })).toBe(true);
+      const attempt = (await f.db.pool.query("SELECT encrypted_verifier FROM app.x_oauth_attempts WHERE tenant_id=$1 AND nonce=$2", [f.tenantId, nonce])).rows[0].encrypted_verifier;
+      expect(attempt).not.toContain(verifier);
+      expect(await new XConnectionRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY).consumeOAuthAttempt(nonce)).toBeNull();
+      await expect(repository.consumeOAuthAttempt(nonce)).resolves.toMatchObject({ userId: f.userId, connectionId: id, scopes: input.scopes, verifier });
+      await expect(repository.consumeOAuthAttempt(nonce)).resolves.toBeNull();
       expect(await repository.delete(id)).toBe(true);
       expect(await repository.get(id)).toBeNull();
     } finally { await f.cleanup(); }

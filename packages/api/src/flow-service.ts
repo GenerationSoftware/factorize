@@ -21,7 +21,7 @@ import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { CredentialRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./postgres/credential-repository";
 import { XConnectionRepository } from "./postgres/x-connection-repository";
-import { validateXOAuthScopes, type XOAuthScope } from "./x-oauth";
+import { createXPKCE, signXOAuthState, validateXOAuthScopes, type XOAuthScope } from "./x-oauth";
 import { decrypt, encrypt } from "./crypto";
 import { InvocationService, type Job, type Trigger } from "./job-domain";
 import { RunQueryRepository } from "./postgres/run-query-repository";
@@ -628,6 +628,19 @@ export class ApiService {
     await this.authorizeOwnerSession("integrations:write");
     if (!await this.xConnections().delete(id)) throw new ServiceError(404, "not_found", "X connection not found.");
     return { id, deleted: true as const };
+  }
+  async authorizeXConnection(id: string) {
+    await this.authorizeOwnerSession("integrations:write");
+    const repository = this.xConnections(), connection = await repository.get(id), credentials = await repository.clientCredentials(id);
+    if (!connection || !credentials) throw new ServiceError(404, "not_found", "X connection not found.");
+    const scopes = validateXOAuthScopes(connection.scopes);
+    const pkce = await createXPKCE(), nonce = crypto.randomUUID(), expires = Math.floor(Date.now() / 1000) + 600;
+    const state = await signXOAuthState({ tenantId: this.auth.tenantId, userId: this.auth.userId, sessionVersion: this.auth.sessionVersion, connectionId: id, scopes, nonce, exp: expires }, this.env.SESSION_SIGNING_SECRET);
+    const saved = await repository.createOAuthAttempt({ nonce, userId: this.auth.userId, sessionVersion: this.auth.sessionVersion, connectionId: id, scopes, verifier: pkce.verifier, expiresAt: new Date(expires * 1000) });
+    if (!saved) throw new ServiceError(404, "not_found", "X connection not found.");
+    const redirectUri = `${this.env.APP_ORIGIN}/oauth/x/callback`, authorize = new URL("https://x.com/i/oauth2/authorize");
+    authorize.search = new URLSearchParams({ response_type: "code", client_id: credentials.clientId, redirect_uri: redirectUri, scope: scopes.join(" "), state, code_challenge: pkce.challenge, code_challenge_method: "S256" }).toString();
+    return { authorizationUrl: authorize.toString(), stateCookie: state };
   }
   private async bearerWrite(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; token?: string; operation: "upsert" | "delete" }) {
     try { return await this.credentials().write({ ...input, managedSecret: input.token, kind: "bearer" }); }
