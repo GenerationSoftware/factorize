@@ -240,12 +240,15 @@ describe.skipIf(!url)("trace sources with PostgreSQL", () => {
     await owner.query("BEGIN");
     try {
       await owner.query("SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [f.tenantId, f.runId]);
-      const replay = replayTrace(f.env, f.tenantId, "owner", f.runId, { requestId: crypto.randomUUID(), source: "primary" });
+      // Observe rejection immediately: deleting the run can reject replay before
+      // the COMMIT promise resumes this test on a busy validation runner.
+      const replay = replayTrace(f.env, f.tenantId, "owner", f.runId, { requestId: crypto.randomUUID(), source: "primary" })
+        .then(value => ({ value }), error => ({ error }));
       await new Promise(resolve => setTimeout(resolve, 25));
       await owner.query("DELETE FROM app.invocations WHERE tenant_id=$1 AND id=$2", [f.tenantId, invocationId]);
       await owner.query("COMMIT");
 
-      await expect(replay).rejects.toMatchObject({ status: 404, code: "not_found" });
+      expect(await replay).toMatchObject({ error: { status: 404, code: "not_found" } });
       expect((await database.pool.query("SELECT 1 FROM app.trace_replay_operations WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId])).rowCount).toBe(0);
       expect((await database.pool.query("SELECT 1 FROM app.run_trace_events WHERE tenant_id=$1 AND run_id=$2", [f.tenantId, f.runId])).rowCount).toBe(0);
     } finally {

@@ -15,7 +15,7 @@ async function authorization(accountId:string,action:"authorize"|"status"|"cance
 }
 export function ModelAccounts() {
   const cache=useQueryClient();
-  const accounts=useQuery({queryKey,queryFn:async({signal})=>{const {data,error}=await api.GET("/api/v1/model-accounts",{signal}); if(!data || error) throw new Error(messageOf(error)); return data;}});
+  const accounts=useQuery({queryKey,queryFn:async({signal})=>{const {data,error}=await api.GET("/api/v1/model-accounts",{signal}); if(!data || error) throw new Error(messageOf(error)); if(!Array.isArray(data.accounts) || !Number.isSafeInteger(data.revision)) throw new Error("Model accounts could not be loaded. Reload the page to try again."); return data;}});
   const [active,setActive]=useState<string|null>(null),[states,setStates]=useState<Record<string,Authorization>>({}),[error,setError]=useState("");
   const [name,setName]=useState(""),[description,setDescription]=useState(""),[kind,setKind]=useState<"chatgpt"|"api-key">("chatgpt"),[key,setKey]=useState(""),[editId,setEditId]=useState<string|null>(null);
   const refresh=()=>cache.invalidateQueries({queryKey});

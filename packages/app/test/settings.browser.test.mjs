@@ -122,3 +122,23 @@ test("model account create/delete uses server-managed state without an unlock ke
   assert.equal(deleteBodies[1].expectedRevision, 2);
   await context.close();
 });
+
+for (const malformed of ["bearer integrations", "model accounts"]) test(`settings stays usable when ${malformed} returns an incomplete collection`, async () => {
+  const { context, page } = await setup();
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
+  await page.route("**/api/v1/fly/connection", route => route.fulfill({ json: { connection: null } }));
+  await page.route("**/api/v1/integrations/bearer", route => route.fulfill({ json: malformed === "bearer integrations" ? { revision: 0 } : { revision: 0, integrations: [] } }));
+  await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: malformed === "model accounts" ? { revision: 0 } : { revision: 0, accounts: [] } }));
+  try {
+    await page.goto(origin + "/settings");
+    await page.getByRole("heading", { name: "Integrations", exact: true }).waitFor();
+    await page.getByRole("alert").filter({ hasText: /could not be loaded\. Reload the page to try again\./ }).waitFor();
+    await page.getByRole("navigation", { name: "Settings", exact: true }).getByRole("link", { name: "API keys", exact: true }).waitFor();
+    assert.equal(await page.getByRole("heading", { name: "Could not load this page", exact: true }).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
