@@ -10,7 +10,8 @@ import { promisify } from 'node:util';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
+import { createRequire } from 'node:module';
+const { Miniflare, convertV4MiniflareOptions } = createRequire(new URL('../packages/api/package.json', import.meta.url))('miniflare');
 import { chromium } from 'playwright';
 import pg from 'pg';
 const exec = promisify(execFile);
@@ -116,13 +117,18 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     await new Promise(resolve=>site.listen(0,'127.0.0.1',resolve));origin='https://localhost:'+site.address().port;
     mf=new Miniflare(convertV4MiniflareOptions({name:"factorize",modules:true,modulesRoot:directory,scriptPath:directory+'/agent-api-runtime-worker.js',compatibilityDate:'2026-09-10',compatibilityFlags:['nodejs_compat','global_fetch_strictly_public'],
       bindings:{LINEAR_CLIENT_ID:'fixture-client',LINEAR_CLIENT_SECRET:'fixture-secret',APP_ORIGIN:origin,SESSION_SIGNING_SECRET:secret,CREDENTIAL_ENCRYPTION_KEY:key.toString('base64'),GITHUB_APP_ID:'1',GITHUB_APP_PRIVATE_KEY:privateKey.export({format:'pem',type:'pkcs8'}).toString()},
+      artifacts:{SKILL_ARTIFACTS:{namespace:'factorize-skills'}},
       kvNamespaces:['OAUTH_KV'],r2Buckets:['RUN_ARTIFACTS'],hyperdrives:{HYPERDRIVE:address.href},
       serviceBindings:{MAINTENANCE:{name:"factorize",entrypoint:"AgentApiMaintenance"},ASSETS:async request=>{
         const path=new URL(request.url).pathname;
         try {const data=await readFile(resolve('packages/app/dist','.'+path));return new Response(data,{headers:{'Content-Type':path.endsWith('.js')?'application/javascript':path.endsWith('.css')?'text/css':'text/html'}});}catch{return new Response('Not found',{status:404});}
       }},
       outboundService:async request=>{
-        const target=new URL(request.url);assert.ok(['fixture.upstream.com','api.github.com','github.com','raw.githubusercontent.com','codeload.github.com','api.linear.app','api.openai.com','oidc.fly.io','auth.openai.com','chatgpt.com','exe.dev','ampcode.com','api.clickup.com','api.machines.dev','custom.amp.upstream.com','api.x.com'].includes(target.hostname),'Unexpected upstream '+target.hostname);
+        const target=new URL(request.url);
+        if (target.protocol === 'http:' && target.hostname === '127.0.0.1' && target.pathname.startsWith('/git/factorize-skills/')) {
+          return fetch(target, {method:request.method, headers:request.headers, body:request.method === 'POST' ? await request.arrayBuffer() : undefined, redirect:'manual'});
+        }
+        assert.ok(['fixture.upstream.com','api.github.com','github.com','raw.githubusercontent.com','codeload.github.com','api.linear.app','api.openai.com','oidc.fly.io','auth.openai.com','chatgpt.com','exe.dev','ampcode.com','api.clickup.com','api.machines.dev','custom.amp.upstream.com','api.x.com'].includes(target.hostname),'Unexpected upstream '+target.hostname);
         const headers=new Headers(request.headers);headers.set('x-fixture-target',target.href);
         const response=await fetch('http://127.0.0.1:'+upstream.address().port+target.pathname+target.search,{method:request.method,headers,body:request.method==='GET'||request.method==='HEAD'?undefined:await request.arrayBuffer(),redirect:'manual'});
         return new Response(response.body,{status:response.status,headers:response.headers});

@@ -13,7 +13,14 @@ test("skills link to detail pages and edit from the detail page", async () => {
   const context = await browser.newContext(), page = await context.newPage();
   await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: ["skills:read", "skills:write"] } }));
   await page.route("**/api/v1/skills**", route => route.fulfill({ json: { items: [{ ...skill, body: undefined }], nextCursor: null } }));
-  await page.route(`**/api/v1/skills/${skill.id}`, async route => { if (route.request().method() === "PUT") { assert.deepEqual(route.request().postDataJSON(), { key: "review-updated", body: "Updated instructions", expectedRevision: 1 }); return route.fulfill({ json: { ...skill, key: "review-updated", body: "Updated instructions", revision: 2 } }); } return route.fulfill({ json: skill }); });
+  let current = skill;
+  await page.route(`**/api/v1/skills/${skill.id}`, async route => {
+    if (route.request().method() === "PUT") {
+      assert.deepEqual(route.request().postDataJSON(), { key: "review-updated", body: "Updated instructions", expectedRevision: 1 });
+      current = { ...skill, key: "review-updated", body: "Updated instructions", revision: 2 };
+    }
+    return route.fulfill({ json: current });
+  });
   await page.goto(origin + "/skills");
   await page.getByRole("link", { name: "review", exact: true }).click();
   await page.getByRole("heading", { name: "review", exact: true }).waitFor();
@@ -27,4 +34,37 @@ test("skills link to detail pages and edit from the detail page", async () => {
   await page.getByRole("button", { name: "Save skill", exact: true }).click();
   await page.getByText("Updated instructions", { exact: true }).waitFor();
   await context.close();
+});
+
+test("replacing native skills with a GitHub folder requires confirmation", async () => {
+  const context = await browser.newContext(), page = await context.newPage();
+  try {
+    let source = {kind:"managed"};
+    const writes = [];
+    await page.route("**/api/v1/session", route => route.fulfill({json:{authenticated:true,user:{id:"owner",email:"owner@example.test"},workspace:{id:"workspace",name:"Workspace",role:"owner"},capabilities:["skills:read","skills:write","integrations:write"]}}));
+    await page.route("**/api/v1/skills?**", route => route.fulfill({json:{items:[],nextCursor:null}}));
+    await page.route("**/api/v1/providers/github/installations", route => route.fulfill({json:[{installationId:7,state:"active",accountLogin:"org"}]}));
+    await page.route("**/api/v1/providers/github/installations/7/repositories", route => route.fulfill({json:[{id:42,fullName:"org/agents",defaultBranch:"main"}]}));
+    await page.route("**/api/v1/skill-library", route => {
+      if (route.request().method() === "PUT") {
+        const {confirmOverwrite,...selected} = route.request().postDataJSON();
+        writes.push({confirmOverwrite,...selected});
+        source = selected;
+      }
+      return route.fulfill({json:{source,remote:"https://fixture.test/library.git",commit:"aaaa",upstreamCommit:"bbbb",error:null}});
+    });
+    await page.goto(origin + "/skills");
+    await page.getByRole("button", {name:"Change repository"}).click();
+    await page.getByLabel("Source of truth").selectOption("github");
+    await page.getByRole("combobox", {name:/^Installation/}).selectOption("7");
+    await page.getByRole("combobox", {name:/^Repository/}).selectOption("42");
+    const save = page.getByRole("button", {name:"Save repository"});
+    page.once("dialog", dialog => dialog.dismiss());
+    await save.click();
+    assert.deepEqual(writes, []);
+    page.once("dialog", dialog => {assert.match(dialog.message(), /org\/agents.*main.*skills/); return dialog.accept();});
+    await save.click();
+    await page.getByRole("button", {name:"Change repository"}).waitFor();
+    assert.deepEqual(writes,[{kind:"github",installationId:7,repositoryId:42,branch:"main",folder:"skills",confirmOverwrite:true}]);
+  } finally { await context.close(); }
 });
