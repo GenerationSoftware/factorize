@@ -6,7 +6,7 @@ import type { Database, DatabaseClient } from "./database";
 import type { JobResult } from "../job-result";
 
 export interface PersistedRun {
-  tenantId: string; id: string; jobId: string; invocationId: string; state: ExecutionState;
+  tenantId: string; id: string; jobId: string | null; invocationId: string; state: ExecutionState;
   encryptedPrompt: string; executionConfig: Record<string, any>; executionHandle: RunHandle | null;
   traceSources?: TraceSources | null; executionDiagnostics?: ExecutionDiagnostics | null; finalizationAttempt?: number;
   failureCode?: string | null; failureReason?: string | null;
@@ -15,7 +15,7 @@ export interface PersistedRun {
 export interface RunFailure { source: "run" | "system"; code: string; reason: string }
 
 interface RunRow {
-  tenant_id: string; id: string; job_id: string; invocation_id: string; state: ExecutionState; encrypted_prompt: string;
+  tenant_id: string; id: string; job_id: string | null; invocation_id: string; state: ExecutionState; encrypted_prompt: string;
   execution_config: Record<string, any>; execution_handle: RunHandle | null; execution_backend_kind: string;
   failure_code?: string | null; failure_reason?: string | null;
   trace_sources: TraceSources | null; execution_diagnostics: ExecutionDiagnostics | null; vm_cleanup_attempt: number;
@@ -44,17 +44,25 @@ export class RunRepository {
     return this.database.transaction(async client => {
       // Retry expired launches in their existing active slot. Requeuing them
       // would compete with the single waiting run and could overflow the queue.
-      const result = await client.query<RunRow>(`WITH candidate AS (
-          SELECT r.tenant_id,r.id FROM app.job_runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id
-          WHERE j.enabled AND ((r.state='starting' AND r.launch_lease_expires_at<now())
+      // Lock the project first. Capacity must be counted in a fresh READ
+      // COMMITTED snapshot after acquiring the same lock used by admission.
+      const eligible = `FROM app.job_runs r JOIN app.runs x ON x.tenant_id=r.tenant_id AND x.id=r.id JOIN app.projects p ON p.tenant_id=x.tenant_id AND p.id=x.project_id LEFT JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id
+          WHERE coalesce(j.enabled,true) AND ((r.state='starting' AND r.launch_lease_expires_at<now())
             OR r.state='reserved'
-            OR (r.state='queued' AND (SELECT count(*) FROM app.job_runs active WHERE active.tenant_id=r.tenant_id AND active.job_id=r.job_id AND active.state IN ('reserved','starting','running','blocked','stopping')) < j.concurrency_limit))
-          ORDER BY r.created_at FOR UPDATE OF r SKIP LOCKED LIMIT 1
+            OR (r.state='queued' AND (p.run_defaults IS NULL OR
+              (SELECT count(*) FROM app.runs a JOIN app.job_runs ar ON ar.tenant_id=a.tenant_id AND ar.id=a.id WHERE a.tenant_id=p.tenant_id AND a.project_id=p.id AND ar.state IN ('reserved','starting','running','blocked','stopping')) < (p.run_defaults->>'capacity')::int)
+              AND (r.job_id IS NULL OR (SELECT count(*) FROM app.job_runs active WHERE active.tenant_id=r.tenant_id AND active.job_id=r.job_id AND active.state IN ('reserved','starting','running','blocked','stopping')) < j.concurrency_limit)))`;
+      const candidate = (await client.query(`SELECT p.tenant_id,p.id ${eligible}
+        ORDER BY r.created_at,r.id FOR UPDATE OF p SKIP LOCKED LIMIT 1`)).rows[0];
+      if (!candidate) return null;
+      const result = await client.query<RunRow>(`WITH candidate AS (
+          SELECT r.tenant_id,r.id ${eligible} AND p.tenant_id=$1 AND p.id=$2
+          ORDER BY r.created_at,r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1
         ), claimed AS (
           UPDATE app.job_runs r SET state='starting',launch_lease_expires_at=now()+interval '5 minutes',updated_at=now()
           FROM candidate c WHERE r.tenant_id=c.tenant_id AND r.id=c.id RETURNING r.*
         ) SELECT c.tenant_id,c.id,c.job_id,c.invocation_id,c.state,c.encrypted_prompt,x.execution_config,x.trace_sources,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.failure_code,x.failure_reason,x.vm_cleanup_attempt,x.artifact_state,x.result_protocol_version,c.created_at,c.updated_at
-          FROM claimed c JOIN app.jobs j ON j.tenant_id=c.tenant_id AND j.id=c.job_id JOIN app.runs x ON x.tenant_id=c.tenant_id AND x.id=c.id`, []);
+          FROM claimed c JOIN app.runs x ON x.tenant_id=c.tenant_id AND x.id=c.id`, [candidate.tenant_id,candidate.id]);
       const row = result.rows[0];
       if (!row) return null;
       await client.query("UPDATE app.runs SET state='starting',updated_at=now() WHERE tenant_id=$1 AND id=$2", [row.tenant_id, row.id]);
@@ -64,7 +72,7 @@ export class RunRepository {
 
   async dueForPoll(limit = 40): Promise<PersistedRun[]> {
     const result = await this.database.pool.query<RunRow>(`SELECT r.tenant_id,r.id,r.job_id,r.invocation_id,r.state,r.encrypted_prompt,x.execution_config,x.trace_sources,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.failure_code,x.failure_reason,x.vm_cleanup_attempt,x.artifact_state,x.result_protocol_version,r.created_at,r.updated_at
-      FROM app.job_runs r JOIN app.jobs j ON j.tenant_id=r.tenant_id AND j.id=r.job_id JOIN app.runs x ON x.tenant_id=r.tenant_id AND x.id=r.id
+      FROM app.job_runs r JOIN app.runs x ON x.tenant_id=r.tenant_id AND x.id=r.id
       WHERE r.state IN ('running','blocked','stopping') AND x.execution_handle IS NOT NULL AND (r.next_poll_at IS NULL OR r.next_poll_at<=now()) ORDER BY r.next_poll_at NULLS FIRST,r.updated_at LIMIT $1`, [limit]);
     return result.rows.map(mapped);
   }

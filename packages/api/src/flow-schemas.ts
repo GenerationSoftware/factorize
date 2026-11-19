@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { conditionsSchema, preparedWebhookSchema } from "./webhook-conditions";
 
-export const scopeSchema = z.enum(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:cancel", "runs:write", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
+export const scopeSchema = z.enum(["projects:read", "projects:write", "jobs:read", "jobs:write", "runs:read", "runs:invoke", "runs:start", "runs:cancel", "runs:write", "integrations:read", "integrations:write", "skills:read", "skills:write"]);
 export const runStateSchema = z.enum(["queued", "reserved", "starting", "running", "done", "blocked", "failed", "ignored", "succeeded", "stopping", "stopped"]);
 export const matchRuleSchema = z.object({
   type: z.enum(["owner", "creator", "status", "label", "assignee"]),
@@ -9,6 +9,7 @@ export const matchRuleSchema = z.object({
 });
 export const listRunsSchema = z.object({
   projectId: z.union([z.guid(), z.array(z.guid()).min(1).max(100)]).optional(), jobId: z.union([z.guid(), z.array(z.guid()).min(1).max(100)]).optional(), state: z.union([runStateSchema, z.array(runStateSchema).min(1).max(10)]).optional(),
+  launchSkillId: z.union([z.guid(), z.literal("none")]).optional(),
   contextQuery: z.string().min(1).max(50_000).optional(),
   sort: z.enum(["job", "run", "status", "created", "agent"]).optional(),
   direction: z.enum(["asc", "desc"]).optional(),
@@ -75,6 +76,7 @@ export const jobInputSchema = z.object({
   model: z.string().trim().max(120).optional(),
   effort: z.string().trim().max(40).optional(),
   triggers: z.array(triggerSchema).max(50).default([]),
+  launchSkillId: z.guid().nullable().optional(),
   skillIds: z.array(z.guid()).max(50).optional(),
   portableIntegrationIds: z.array(z.guid()).max(100).refine(ids => new Set(ids).size === ids.length, "Portable integrations must be unique").optional(),
   modelAccess: z.enum(["native", "portable"]).optional(),
@@ -112,3 +114,23 @@ export const jobConditionsTestSchema = z.object({
 
 export type JobInput = z.infer<typeof jobInputSchema>;
 export type ManualInvocationInput = z.infer<typeof manualInvocationSchema>;
+
+export const startRunInput = z.object({
+  projectId: z.guid().optional(),
+  prompt: z.string().min(1).max(50_000).refine(value => !!value.trim()),
+  skill: z.string().min(1).max(64).optional(),
+  name: z.string().trim().min(1).max(120).optional(),
+  inputs: z.record(z.string(), z.unknown()).refine(value => new TextEncoder().encode(JSON.stringify(value)).length <= 200_000, "Inputs exceed 200,000 bytes").optional(),
+  idempotencyKey: z.string().trim().min(1).max(200).optional(),
+}).strict();
+export const startRunReceipt = z.object({runId:z.guid(), url:z.url(), outcomeUri:z.string(), duplicate:z.boolean()});
+export const projectRunDefaults = z.object({
+  executionConfigId: jobInputSchema.shape.executionConfigId,
+  model: jobInputSchema.shape.model, effort: jobInputSchema.shape.effort, vmImage: jobInputSchema.shape.vmImage,
+  tags: jobInputSchema.shape.tags, modelAccountId: jobInputSchema.shape.modelAccountId,
+  portableIntegrationIds: jobInputSchema.shape.portableIntegrationIds, githubInstallationIds: jobInputSchema.shape.githubInstallationIds,
+  linearConnectionId: jobInputSchema.shape.linearConnectionId, xConnectionIds: jobInputSchema.shape.xConnectionIds,
+  runScopes: jobInputSchema.shape.runScopes, capacity: z.number().int().min(1).max(50).default(4),
+}).strict();
+
+export const storedRunDefaults = projectRunDefaults.extend({vmImage:z.string().optional()});

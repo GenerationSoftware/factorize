@@ -1,3 +1,4 @@
+import {backgroundRunAcceptance} from './background-run-acceptance.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -16,7 +17,7 @@ const exec = promisify(execFile);
 // Real workerd/OAuth issuance, compiled browser consent, PostgreSQL and R2.
 // The harness replaces only the network destination: every upstream HTTP
 // request goes to a local deterministic fixture, never live service credentials.
-test('agent API OAuth, policy, connection isolation, run identity and response lifecycle', {skip:!process.env.AUTH_TEST_DATABASE_URL,timeout:180000}, async () => {
+test('agent API OAuth, policy, connection isolation, run identity and response lifecycle', {skip:!process.env.AUTH_TEST_DATABASE_URL,timeout:180000}, async t => {
   const address = new URL(process.env.AUTH_TEST_DATABASE_URL);
   assert.ok(['localhost','127.0.0.1'].includes(address.hostname));
   const admin=new pg.Client({connectionString:address.href});await admin.connect();
@@ -225,7 +226,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     const foreignSession=Buffer.from(JSON.stringify({tenantId:otherTenant,userId:user,email:'agent@example.test',exp:Math.floor(Date.now()/1000)+3600,sessionVersion:1})).toString('base64url');
     const foreignCookie=encodeURIComponent(foreignSession+'.'+createHmac('sha256',secret).update(foreignSession).digest('base64'));
     await context.addCookies([{name:'factorize_session',value:foreignCookie,domain:'localhost',path:'/',httpOnly:true,secure:true}]);
-    const foreignToken=await authorize(['jobs:read']);
+    const foreignToken=await authorize(['jobs:read','runs:read','runs:start']);
     assert.ok((await read(foreignToken,{handle:large.result.handle,offset:0})).text.includes('not_found'));
     assert.equal((await json('/api/v1/access/authorizations/'+foreignToken.access_token.split(':')[1],'DELETE',undefined,owner)).status,404);
     await context.addCookies([{name:'factorize_session',value:cookieValue,domain:'localhost',path:'/',httpOnly:true,secure:true}]);
@@ -379,6 +380,19 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     await db.query("INSERT INTO app.vendor_run_identity_bindings(tenant_id,run_id,provider,vm_id,issuer,subject,audience,issued_at,expires_at) VALUES($1,$2,'fly.io','machine','https://oidc.fly.io/fixture',$3,$4,now(),now()+interval '1 hour')",[tenant,runId,subject,origin]);
     const runHeaders={'X-Factorize-Run-Id':runId,Authorization:'Bearer '+jwt({machine_id:'machine',iss:'https://oidc.fly.io/fixture',sub:subject,aud:origin,iat:now,exp:now+300})};
     const runResponse=await send('/api/v1/agent/reflection','GET',undefined,runHeaders);assert.equal(runResponse.status,200,await runResponse.clone().text());assert.equal((await runResponse.json()).integrations.length,1);
+    const nestedRequest={prompt:'Background review'};
+    assert.equal((await json('/api/v1/runs','POST',nestedRequest,runHeaders)).status,403);
+    await db.query("UPDATE app.run_authorizations SET scopes=$3 WHERE tenant_id=$1 AND run_id=$2",[tenant,runId,JSON.stringify(['runs:start'])]);
+    const parentProject=(await db.query('SELECT project_id FROM app.runs WHERE tenant_id=$1 AND id=$2',[tenant,runId])).rows[0].project_id;
+    const nestedTarget=randomUUID();
+    await db.query('INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,$2,$3)',[tenant,'exe:'+nestedTarget,encrypt(JSON.stringify({agentKind:'codex',connectionId:nestedTarget}))]);
+    assert.equal((await json('/api/v1/projects/'+parentProject+'/run-defaults','PUT',{executionConfigId:nestedTarget},owner)).status,200);
+    assert.equal((await json('/api/v1/runs','POST',{...nestedRequest,projectId:randomUUID()},runHeaders)).status,403);
+    const child=await json('/api/v1/runs','POST',nestedRequest,runHeaders);
+    assert.ok(child.body.runId,JSON.stringify(child.body));
+    const childRow=(await db.query('SELECT r.project_id,i.source_run_id,a.scopes FROM app.runs r JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id JOIN app.run_authorizations a ON a.tenant_id=r.tenant_id AND a.run_id=r.id WHERE r.tenant_id=$1 AND r.id=$2',[tenant,child.body.runId])).rows[0];
+    assert.deepEqual(childRow,{project_id:parentProject,source_run_id:runId,scopes:[]});
+    assert.equal((await json('/api/v1/runs/'+child.body.runId+'/stop','POST',{},owner)).status,200);
     const stream=await send('/internal/run-proxy/'+runId+'/integrations/'+baseline.credential_id+'/stream','GET',undefined,runHeaders);assert.equal(stream.status,200);
     const streamReader=stream.body.getReader();assert.match(new TextDecoder().decode((await streamReader.read()).value),/first/);releaseStream();assert.match(new TextDecoder().decode((await streamReader.read()).value),/last/);
     assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+requestable.credential_id+'/','GET',undefined,runHeaders)).status,403);
@@ -392,6 +406,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     await db.query("UPDATE app.job_runs SET state='stopped' WHERE tenant_id=$1 AND id=$2",[tenant,runId]);assert.equal((await send('/internal/run-proxy/'+runId+'/integrations/'+baseline.credential_id+'/','GET',undefined,runHeaders)).status,403);
     await policy(baseline,'requestable');assert.equal((await request(first,baseline)).status,403);assert.equal((await read(first,{handle:large.result.handle,offset:0})).status,403,'reads require current grants');await policy(baseline,'baseline');
     const grantId=first.access_token.split(':')[1];assert.equal((await json('/api/v1/access/authorizations/'+grantId,'DELETE',undefined,owner)).status,200);assert.equal((await request(first,baseline)).status,401);assert.equal((await read(first,{handle:large.result.handle,offset:0})).status,401);assert.equal((await request(second,baseline)).result.status,200);
+    await t.test("background a skill and deliver its outcome to the originating idle session",()=>backgroundRunAcceptance({db,tenant,encrypt,json,owner,rpc,authorize,worker,origin,maintenance,foreignToken,readOnly:second}));
     await context.close();
   } finally {
     releaseStream?.();await browser?.close();if(site) await new Promise(resolve=>site.close(resolve));await mf?.dispose();if(upstream) await new Promise(resolve=>upstream.close(resolve));await db?.end();await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);await admin.end();await rm(directory,{recursive:true,force:true});

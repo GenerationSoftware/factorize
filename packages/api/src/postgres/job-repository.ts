@@ -1,5 +1,6 @@
 import { DEFAULT_RUN_SCOPES } from "../run-scopes";
-import { lockJobQueue, reserveExecutionSlot } from "./queue-admission";
+import { submitRun } from "./run-submission";
+import { lockJobQueue } from "./queue-admission";
 import type { Invocation, Job, JobRepository, JobRun, Trigger } from "../job-domain";
 import type { Database, DatabaseClient } from "./database";
 import { nextOccurrence, validateScheduleConfig } from "../schedule";
@@ -28,13 +29,17 @@ export class PostgresJobRepository implements JobRepository {
     if (db === this.database.orm) {
       [triggerRows, skillRows] = await Promise.all([
         loadedTriggers ?? db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id),
-        loadedSkills?.filter(skill => skill.job_id === row.id) ?? this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.job_id=$2 ORDER BY js.position", [this.tenantId, row.id]).then(result => result.rows),
+        loadedSkills?.filter(skill => skill.job_id === row.id) ?? this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,js.position,js.context_skill FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.job_id=$2 ORDER BY js.position", [this.tenantId, row.id]).then(result => result.rows),
       ]);
     } else {
       triggerRows = loadedTriggers ?? await db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
-      skillRows = loadedSkills?.filter(skill => skill.job_id === row.id) ?? (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,js.position FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.job_id=${row.id}::uuid ORDER BY js.position`)).rows;
+      skillRows = loadedSkills?.filter(skill => skill.job_id === row.id) ?? (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,js.position,js.context_skill FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.job_id=${row.id}::uuid ORDER BY js.position`)).rows;
     }
-    return { id: row.id, runScopes: row.runScopes ?? [...DEFAULT_RUN_SCOPES], projectId: row.projectId, name: row.name, description: row.description ?? "", slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), executionType: row.executionConfig.executionType ?? "agent", script: row.executionConfig.script, runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, portableIntegrationIds: row.executionConfig.portableIntegrationIds ?? [], modelAccess: row.executionConfig.modelAccess ?? "native", modelAccountId: row.executionConfig.modelAccountId, githubInstallationIds: row.executionConfig.githubInstallationIds ?? [], linearConnectionId: row.executionConfig.linearConnectionId, xConnectionIds: row.executionConfig.xConnectionIds ?? [], concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), selectedSkills: await Promise.all(skillRows.map(async (skill: any) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: await this.decrypt(skill.encrypted_body), position: skill.position }))), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
+    const skills = await Promise.all(skillRows.map(async skill => ({
+      id:skill.id, key:skill.key, revision:skill.revision, position:skill.position, body:await this.decrypt(skill.encrypted_body),
+    })));
+    const launchSkill = skills.find(skill=>skill.id === row.executionConfig.launchSkillId);
+    return { id: row.id, runScopes: row.runScopes ?? [...DEFAULT_RUN_SCOPES], projectId: row.projectId, name: row.name, description: row.description ?? "", slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), executionType: row.executionConfig.executionType ?? "agent", script: row.executionConfig.script, runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, portableIntegrationIds: row.executionConfig.portableIntegrationIds ?? [], modelAccess: row.executionConfig.modelAccess ?? "native", modelAccountId: row.executionConfig.modelAccountId, githubInstallationIds: row.executionConfig.githubInstallationIds ?? [], linearConnectionId: row.executionConfig.linearConnectionId, xConnectionIds: row.executionConfig.xConnectionIds ?? [], concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), launchSkill, selectedSkills: skills.filter((_,index)=>skillRows[index].context_skill !== false), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
   async getJob(id: string): Promise<Job | null> {
@@ -140,7 +145,8 @@ export class PostgresJobRepository implements JobRepository {
     }
   }
   private async reconcileSkills(tx: any, job: Job, _existing: unknown[]): Promise<void> {
-    const selected = job.selectedSkills ?? [];
+    const context = job.selectedSkills ?? [];
+    const selected = job.launchSkill && !context.some(skill => skill.id === job.launchSkill!.id) ? [...context,job.launchSkill] : context;
     const ids = selected.map(skill => skill.id);
     if (new Set(ids).size !== ids.length) throw new Error("A skill may only be selected once per job");
     if (ids.length) {
@@ -148,19 +154,11 @@ export class PostgresJobRepository implements JobRepository {
       if (found.rows.length !== ids.length) throw new Error("One or more selected skills are unavailable");
     }
     await tx.execute(sql`DELETE FROM app.job_skills WHERE tenant_id=${this.tenantId}::uuid AND job_id=${job.id}::uuid`);
-    for (const [position, skill] of selected.entries()) await tx.execute(sql`INSERT INTO app.job_skills(tenant_id,job_id,skill_id,position) VALUES(${this.tenantId}::uuid,${job.id}::uuid,${skill.id}::uuid,${position})`);
+    for (const [position, skill] of selected.entries()) await tx.execute(sql`INSERT INTO app.job_skills(tenant_id,job_id,skill_id,position,context_skill) VALUES(${this.tenantId}::uuid,${job.id}::uuid,${skill.id}::uuid,${position},${position < context.length})`);
   }
 
   async delete(id: string): Promise<boolean> {
     return this.database.transaction(async client => {
-      // Preserve provider cleanup ownership before job deletion cascades through
-      // runs. This durable queue has no FK to the job or tenant by design.
-      await client.query(`INSERT INTO app.deleted_job_provider_cleanup
-        (tenant_id,run_id,execution_config,execution_backend_kind,execution_handle,started_at)
-        SELECT x.tenant_id,x.id,x.execution_config,x.execution_backend_kind,x.execution_handle,jr.started_at
-        FROM app.runs x JOIN app.job_runs jr ON jr.tenant_id=x.tenant_id AND jr.id=x.id
-        WHERE x.tenant_id=$1 AND x.job_id=$2 AND NOT x.vm_cleanup_complete
-        ON CONFLICT (tenant_id,run_id) DO NOTHING`, [this.tenantId, id]);
       const result = await client.query("DELETE FROM app.jobs WHERE tenant_id=$1 AND id=$2 RETURNING id", [this.tenantId, id]);
       return result.rowCount === 1;
     });
@@ -176,16 +174,13 @@ export class PostgresJobRepository implements JobRepository {
       const concurrencyLimit = await lockJobQueue(client, this.tenantId, invocation.jobId);
       const inserted = await client.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context,occurrence,source_job_id,source_run_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (tenant_id,job_id,claim_key) DO NOTHING", [this.tenantId, invocation.id, invocation.jobId, invocation.source, invocation.claimKey, invocation.triggerId, invocation.context, invocation.occurrence ?? null, invocation.sourceJobId ?? null, invocation.sourceRunId ?? null, invocation.createdAt]);
       if (!inserted.rowCount) return false;
-      await reserveExecutionSlot(client, this.tenantId, invocation.jobId, run, concurrencyLimit);
-      await client.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt,encrypted_skill_snapshot,run_name,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [this.tenantId, run.id, run.jobId, run.invocationId, run.state, run.encryptedPrompt, run.encryptedSkillSnapshot ?? null, run.runName ?? "", run.createdAt, run.updatedAt]);
-      await client.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,run_name,agent_name,workspace_name,agent_kind,state,execution_backend_kind,execution_config,execution_capabilities,result_protocol_version,created_at,updated_at)
-        SELECT $1,$2,$3,$4,$5,$6,$8,'',j.slug,j.execution_config->>'agentKind',$7,
-          CASE WHEN j.execution_config->>'executionProvider'='docker' THEN 'docker' WHEN j.execution_config->>'agentKind'='Amp' THEN 'amp' ELSE 'exe-vm' END,
-          j.execution_config || jsonb_build_object('model',j.model,'effort',j.effort,'tags',j.tags,'inputContext',i.context,'runScopes',j.run_scopes),
-          CASE WHEN j.execution_config->>'agentKind'='Amp' THEN '["stop"]'::jsonb ELSE '["recovery","stop"]'::jsonb END,1,$9,$10
-        FROM app.jobs j JOIN app.invocations i ON i.tenant_id=j.tenant_id AND i.id=$4
-        WHERE j.tenant_id=$1 AND j.id=$3`, [this.tenantId, run.id, run.jobId, run.invocationId, invocation.source, invocation.claimKey, run.state, run.runName ?? "", run.createdAt, run.updatedAt]);
-      await client.query("INSERT INTO app.wake_hints(key,not_before) VALUES ('global',now()) ON CONFLICT (key) DO UPDATE SET not_before=least(app.wake_hints.not_before,excluded.not_before),updated_at=now()");
+      const job = (await client.query("SELECT project_id, slug, execution_config, model, effort, tags, run_scopes FROM app.jobs WHERE tenant_id=$1 AND id=$2", [this.tenantId, invocation.jobId])).rows[0];
+      run.state = await submitRun(client, this.tenantId, {
+        id: run.id, jobId: invocation.jobId, projectId: job.project_id, invocationId: invocation.id, name: run.runName ?? "",
+        source: invocation.source, claim: invocation.claimKey, encryptedPrompt: run.encryptedPrompt, encryptedSkills: run.encryptedSkillSnapshot,
+        skill: run.launchSkill, workspaceName: job.slug, jobLimit: concurrencyLimit, createdAt: run.createdAt,
+        config: {...job.execution_config, model: job.model, effort: job.effort, tags: job.tags, inputContext: invocation.context, runScopes: job.run_scopes},
+      });
       return true;
     });
   }

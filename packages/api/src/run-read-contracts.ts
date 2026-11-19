@@ -18,9 +18,9 @@ export const executionState = z.enum(["queued", "reserved", "starting", "running
 export const agentErrorResponse = z.object({ reason: z.string(), reported_at: z.string(), reporter: z.object({ user_id: z.string(), kind: z.enum(["api_key", "oauth", "session", "run_token"]), id: z.string() }) });
 export const runFailureResponse = z.object({ source: z.enum(["run", "system"]), code: z.string(), reason: z.string() });
 export const runStatusResponse = z.object({
-  id: z.string(), job_id: z.string(), project_id: z.string().optional(), project_name: z.string().optional(), state: executionState,
+  id: z.string(), job_id: z.string().nullable(), launch_skill_id: z.guid().nullable().optional(), launch_skill_key: z.string().nullable().optional(), launch_skill_revision: z.number().int().nullable().optional(), project_id: z.string().optional(), project_name: z.string().optional(), state: executionState,
   execution_type: z.enum(["agent", "code"]).default("agent"),
-  run_name: z.string(), job_name: z.string(), destination_url: z.string().nullable(),
+  run_name: z.string(), job_name: z.string().nullable(), destination_url: z.string().nullable(),
   created_at: z.string(), updated_at: z.string(), started_at: z.string().nullable(),
   artifact_state: z.enum(["pending", "collecting", "stored", "partial", "failed"]),
   finalizing: z.boolean(), trace_revision: z.string(), failure_source: z.enum(["system", "agent"]).nullable(), failure: runFailureResponse.nullable().optional(), agent_error: agentErrorResponse.nullable(),
@@ -35,7 +35,7 @@ export const revisionTracePage = z.object({ items: z.array(traceEventResponse), 
 // A statement snapshot binds metadata and events, even during canonical replacement.
 export const traceRevisionSql = "jsonb_build_array(c.generation,p.source_kind,p.artifact_sha256,p.parser_version,p.updated_at)::text";
 export const runSummaryResponse = z.object({
-  id: z.string(), job_id: z.string(), project_id: z.string().optional(), project_name: z.string().optional(), job_name: z.string(), issue_id: z.string(), issue_url: z.string().nullable(), issue_title: z.string(), run_name: z.string(), agent_name: z.string(), workspace_name: z.string(), agent_kind: z.string(), execution_type: z.enum(["agent", "code"]), state: z.enum([...executionState.options, "done", "ignored"]), provider: z.string(), backend_kind: z.string(), capabilities: z.array(z.string()), destination_url: z.string().nullable(), artifact_state: z.enum(["pending", "collecting", "stored", "partial", "failed"]), artifact_error: z.string().nullable(), created_at: z.string(), updated_at: z.string(), started_at: z.string().nullable(),
+  id: z.string(), job_id: z.string().nullable(), launch_skill_id: z.guid().nullable().optional(), launch_skill_key: z.string().nullable().optional(), launch_skill_revision: z.number().int().nullable().optional(), project_id: z.string().optional(), project_name: z.string().optional(), job_name: z.string().nullable(), issue_id: z.string(), issue_url: z.string().nullable(), issue_title: z.string(), run_name: z.string(), agent_name: z.string(), workspace_name: z.string(), agent_kind: z.string(), execution_type: z.enum(["agent", "code"]), state: z.enum([...executionState.options, "done", "ignored"]), provider: z.string(), backend_kind: z.string(), capabilities: z.array(z.string()), destination_url: z.string().nullable(), artifact_state: z.enum(["pending", "collecting", "stored", "partial", "failed"]), artifact_error: z.string().nullable(), created_at: z.string(), updated_at: z.string(), started_at: z.string().nullable(),
   failure_source: z.enum(["system", "agent"]).nullable(), failure: runFailureResponse.nullable().optional(), agent_error: agentErrorResponse.nullable(),
   elapsed_time: z.union([
     z.object({ duration: z.number() }),
@@ -54,8 +54,8 @@ export const fullRunResponse = runSummaryResponse.extend({
   execution_handle: z.object({ backendKind: z.string(), id: z.string() }).nullable(),
   execution_backend_kind: z.string(), execution_capabilities: z.array(z.string()),
   claim_released: z.boolean(), vm_cleanup_attempt: z.number().int(), cleanup_next_at: z.string().nullable(), vm_cleanup_complete: z.boolean(), execution_type: z.enum(["agent", "code"]).default("agent"), execution_script: z.string().nullable().default(null), execution_configuration: record,
-  job_name: z.string(), prompt: z.string(), context: record, occurrence: record.nullable(),
-  invocation: z.object({ id: z.string(), source: z.string(), claim_key: z.string(), trigger_id: z.string().nullable(), context: record, occurrence: record.nullable(), source_job_id: z.string().nullable(), source_run_id: z.string().nullable(), created_at: z.string() }),
+  job_name: z.string().nullable(), prompt: z.string(), context: record, occurrence: record.nullable(),
+  invocation: z.object({ id: z.string(), source: z.string(), claim_key: z.string(), template_job_id:z.guid().nullable().optional(), trigger_id: z.string().nullable(), context: record, occurrence: record.nullable(), source_job_id: z.string().nullable(), source_run_id: z.string().nullable(), created_at: z.string() }),
   invocation_source: z.string(), invocation_claim_key: z.string(), invocation_trigger_id: z.string().nullable(), invocation_created_at: z.string(),
   activity: z.array(z.object({ action: z.string(), detail: z.string(), created_at: z.string() })),
   execution_diagnostics: record.nullable(), trace_sources: z.object({ primary: traceSource, nativeSession: traceSource.optional() }).nullable(), trace_projection: record.nullable(), trace_generation: z.string().nullable(), harness_log: record.nullable(),

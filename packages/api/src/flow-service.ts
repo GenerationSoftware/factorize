@@ -1,3 +1,6 @@
+import { submitRun } from "./postgres/run-submission";
+import type { DatabaseClient } from "./postgres/database";
+import { startRunInput,projectRunDefaults } from "./flow-schemas";
 import { grantVm, revokeVmGrant } from "./vm-grants";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
 import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
@@ -69,7 +72,7 @@ export function publicValue<T extends z.ZodType>(schema: T, value: unknown): z.o
   return result.data;
 }
 
-type Scope = "projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
+type Scope = "runs:start" | "projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
 
 export class ApiService {
   authorizationDuration = 0;
@@ -102,33 +105,147 @@ export class ApiService {
     return { targetId: id, connectionId: id, workspace: "", cwd: "", agentKind: "codex", tags: [], image: fly.image, region: fly.region, size: fly.size, executionProvider: "fly" as const };
   }
 
-  private async portableSelections(config: Awaited<ReturnType<ApiService["executionConfig"]>>, executionType: "agent" | "code", input: JobInput, current?: Job) {
-    if (config.executionProvider === "docker" && executionType !== "code") throw new ServiceError(400, "invalid_request", "Docker test execution supports code jobs only.");
-    const portableIntegrationIds = input.portableIntegrationIds ?? current?.portableIntegrationIds ?? current?.executionConfig.portableIntegrationIds ?? [];
-    const githubInstallationIds = input.githubInstallationIds ?? current?.githubInstallationIds ?? current?.executionConfig.githubInstallationIds ?? [];
-    const linearConnectionId = input.linearConnectionId !== undefined ? input.linearConnectionId : current?.linearConnectionId ?? current?.executionConfig.linearConnectionId;
-    const xConnectionIds = input.xConnectionIds ?? current?.xConnectionIds ?? current?.executionConfig.xConnectionIds ?? [];
-    if (executionType === "code" && input.modelAccess === "portable") throw new ServiceError(400, "invalid_request", "Code jobs cannot select model access.");
-    const modelAccess = executionType === "code" ? "native" : input.modelAccess ?? current?.modelAccess ?? current?.executionConfig.modelAccess ?? (config.executionProvider === "fly" ? "portable" : "native");
-    if (modelAccess === "portable" && config.agentKind !== "codex") throw new ServiceError(400,"invalid_request","Managed model accounts support Codex jobs.");
-    if (modelAccess === "native" && input.modelAccountId) throw new ServiceError(400, "invalid_request", "Native model access cannot select a portable model account.");
-    const modelAccountId = modelAccess === "portable" ? input.modelAccountId ?? current?.modelAccountId ?? current?.executionConfig.modelAccountId : undefined;
-    if (executionType === "code" && modelAccountId) throw new ServiceError(400, "invalid_request", "Code jobs cannot select a model account.");
-    if (config.executionProvider === "fly" && executionType === "agent" && config.agentKind === "codex" && (!modelAccountId || modelAccess !== "portable")) throw new ServiceError(400, "invalid_request", "Fly Codex jobs require a portable model account.");
-    const records = await new CredentialRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).metadata();
-    const byId = new Map(records.map(record => [record.id, record]));
-    if (new Set(portableIntegrationIds).size !== portableIntegrationIds.length || portableIntegrationIds.some(id => byId.get(id)?.kind !== "bearer")) throw new ServiceError(400, "invalid_request", "One or more selected portable integrations are unavailable.");
-    const installations = await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).installations();
-    const activeInstallationIds = new Set(installations.filter(item => item.state === "active").map(item => Number(item.installationId)));
-    if (new Set(githubInstallationIds).size !== githubInstallationIds.length || githubInstallationIds.some(id => !activeInstallationIds.has(id))) throw new ServiceError(400, "invalid_request", "One or more selected GitHub installations are unavailable.");
-    if (linearConnectionId && (!await this.connections().get("linear"))) throw new ServiceError(400, "invalid_request", "The selected Linear connection is unavailable.");
-    const xConnections = await new XConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).list();
-    if (new Set(xConnectionIds).size !== xConnectionIds.length || xConnectionIds.some(id => !xConnections.some(connection => connection.id === id && connection.status === "connected"))) throw new ServiceError(400, "invalid_request", "One or more selected X connections are unavailable. Connect them or remove the selections.");
-    if (modelAccountId && byId.get(modelAccountId)?.kind !== "model") throw new ServiceError(400, "invalid_request", "The selected model account is unavailable.");
-    if (modelAccountId && !modelCredentialConfigured((await this.credentials().managedCredential(modelAccountId,"model"))?.payload??"")) throw new ServiceError(400,"invalid_request","Connect the selected model account before using it in a job.");
-    for (const id of portableIntegrationIds) if (!await this.credentials().managedCredential(id,"bearer")) throw new ServiceError(400,"invalid_request","Re-enter the selected bearer credential before using it in a job.");
-    if (modelAccess === "portable" && executionType !== "code" && !modelAccountId) throw new ServiceError(400, "invalid_request", "Portable model access requires a model account.");
-    return { portableIntegrationIds, githubInstallationIds, ...(linearConnectionId ? { linearConnectionId } : {}), xConnectionIds, modelAccess, ...(modelAccountId ? { modelAccountId } : {}) };
+  private async portableSelections(
+    config: Awaited<ReturnType<ApiService["executionConfig"]>>,
+    executionType: "agent" | "code",
+    input: Pick<
+      JobInput,
+      | "portableIntegrationIds"
+      | "githubInstallationIds"
+      | "linearConnectionId"
+      | "xConnectionIds"
+      | "modelAccess"
+      | "modelAccountId"
+    >,
+    current?: Job,
+  ) {
+    if (config.executionProvider === "docker" && executionType !== "code")
+      throw new ServiceError(400, "invalid_request", "Docker test execution supports code jobs only.");
+    const portableIntegrationIds =
+      input.portableIntegrationIds ??
+      current?.portableIntegrationIds ??
+      current?.executionConfig.portableIntegrationIds ??
+      [];
+    const githubInstallationIds =
+      input.githubInstallationIds ??
+      current?.githubInstallationIds ??
+      current?.executionConfig.githubInstallationIds ??
+      [];
+    const linearConnectionId =
+      input.linearConnectionId !== undefined
+        ? input.linearConnectionId
+        : (current?.linearConnectionId ?? current?.executionConfig.linearConnectionId);
+    const xConnectionIds =
+      input.xConnectionIds ?? current?.xConnectionIds ?? current?.executionConfig.xConnectionIds ?? [];
+    if (executionType === "code" && input.modelAccess === "portable")
+      throw new ServiceError(400, "invalid_request", "Code jobs cannot select model access.");
+    const modelAccess =
+      executionType === "code"
+        ? "native"
+        : (input.modelAccess ??
+          current?.modelAccess ??
+          current?.executionConfig.modelAccess ??
+          (config.executionProvider === "fly" ? "portable" : "native"));
+    if (modelAccess === "portable" && config.agentKind !== "codex")
+      throw new ServiceError(400, "invalid_request", "Managed model accounts support Codex jobs.");
+    if (modelAccess === "native" && input.modelAccountId)
+      throw new ServiceError(
+        400,
+        "invalid_request",
+        "Native model access cannot select a portable model account.",
+      );
+    const modelAccountId =
+      modelAccess === "portable"
+        ? (input.modelAccountId ?? current?.modelAccountId ?? current?.executionConfig.modelAccountId)
+        : undefined;
+    if (executionType === "code" && modelAccountId)
+      throw new ServiceError(400, "invalid_request", "Code jobs cannot select a model account.");
+    if (
+      config.executionProvider === "fly" &&
+      executionType === "agent" &&
+      config.agentKind === "codex" &&
+      (!modelAccountId || modelAccess !== "portable")
+    )
+      throw new ServiceError(400, "invalid_request", "Fly Codex jobs require a portable model account.");
+    const records = await new CredentialRepository(
+      databaseFor(this.env),
+      this.auth.tenantId,
+      this.env.CREDENTIAL_ENCRYPTION_KEY,
+    ).metadata();
+    const byId = new Map(records.map((record) => [record.id, record]));
+    if (
+      new Set(portableIntegrationIds).size !== portableIntegrationIds.length ||
+      portableIntegrationIds.some((id) => byId.get(id)?.kind !== "bearer")
+    )
+      throw new ServiceError(
+        400,
+        "invalid_request",
+        "One or more selected portable integrations are unavailable.",
+      );
+    const installations = await new GitHubRepository(
+      databaseFor(this.env),
+      this.auth.tenantId,
+    ).installations();
+    const activeInstallationIds = new Set(
+      installations.filter((item) => item.state === "active").map((item) => Number(item.installationId)),
+    );
+    if (
+      new Set(githubInstallationIds).size !== githubInstallationIds.length ||
+      githubInstallationIds.some((id) => !activeInstallationIds.has(id))
+    )
+      throw new ServiceError(
+        400,
+        "invalid_request",
+        "One or more selected GitHub installations are unavailable.",
+      );
+    if (linearConnectionId && !(await this.connections().get("linear")))
+      throw new ServiceError(400, "invalid_request", "The selected Linear connection is unavailable.");
+    const xConnections = await new XConnectionRepository(
+      databaseFor(this.env),
+      this.auth.tenantId,
+      this.env.CREDENTIAL_ENCRYPTION_KEY,
+    ).list();
+    if (
+      new Set(xConnectionIds).size !== xConnectionIds.length ||
+      xConnectionIds.some(
+        (id) => !xConnections.some((connection) => connection.id === id && connection.status === "connected"),
+      )
+    )
+      throw new ServiceError(
+        400,
+        "invalid_request",
+        "One or more selected X connections are unavailable. Connect them or remove the selections.",
+      );
+    if (modelAccountId && byId.get(modelAccountId)?.kind !== "model")
+      throw new ServiceError(400, "invalid_request", "The selected model account is unavailable.");
+    if (
+      modelAccountId &&
+      !modelCredentialConfigured(
+        (await this.credentials().managedCredential(modelAccountId, "model"))?.payload ?? "",
+      )
+    )
+      throw new ServiceError(
+        400,
+        "invalid_request",
+        "Connect the selected model account before using it in a job.",
+      );
+    for (const id of portableIntegrationIds)
+      if (!(await this.credentials().managedCredential(id, "bearer")))
+        throw new ServiceError(
+          400,
+          "invalid_request",
+          "Re-enter the selected bearer credential before using it in a job.",
+        );
+    if (modelAccess === "portable" && executionType !== "code" && !modelAccountId)
+      throw new ServiceError(400, "invalid_request", "Portable model access requires a model account.");
+    return {
+      portableIntegrationIds,
+      githubInstallationIds,
+      ...(linearConnectionId ? { linearConnectionId } : {}),
+      xConnectionIds,
+      modelAccess,
+      ...(modelAccountId ? { modelAccountId } : {}),
+    };
   }
 
   private async validateExecutionOptions(id: string, model: string, effort: string, tags: string[]) {
@@ -189,7 +306,42 @@ export class ApiService {
   private async presentJob(job: Job, loadedStats?: { running_count: string; last_run_state: string | null }) {
     const stats = loadedStats ?? (await this.jobStatistics([job.id])).get(job.id);
     const runningCount = Number(stats?.running_count ?? 0);
-    return publicValue(jobResponse, { ...job, runScopes: job.runScopes ?? [...DEFAULT_RUN_SCOPES], executionType: job.executionType ?? "agent", skills: (job.selectedSkills ?? []).map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision, position: skill.position })), triggers: job.triggers.map(trigger => ({ ...trigger, config: trigger.kind === "webhook" ? { ...trigger.config, ...(trigger.config.signingSecret || trigger.config.secret ? { secretConfigured: true } : {}), ...(trigger.config.provider === "cloudflareTail" ? { destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(job.id)}` } : {}) } : trigger.config })), runNameTemplate: job.runNameTemplate ?? "", executionConfigId: job.executionConfig.targetId ?? `${job.executionConfig.agentKind === "Amp" ? "amp:" : ""}${job.executionConfig.connectionId}`, agentKind: job.executionConfig.agentKind, runningCount, currentRuns: runningCount, maxConcurrency: job.concurrencyLimit, lastRunState: stats?.last_run_state ?? null });
+    return publicValue(jobResponse, {
+      ...job,
+      launchSkillId: job.executionConfig.launchSkillId ?? null,
+      runScopes: job.runScopes ?? [...DEFAULT_RUN_SCOPES],
+      executionType: job.executionType ?? "agent",
+      skills: (job.selectedSkills ?? []).map((skill) => ({
+        id: skill.id,
+        key: skill.key,
+        revision: skill.revision,
+        position: skill.position,
+      })),
+      triggers: job.triggers.map((trigger) => ({
+        ...trigger,
+        config:
+          trigger.kind === "webhook"
+            ? {
+                ...trigger.config,
+                ...(trigger.config.signingSecret || trigger.config.secret ? { secretConfigured: true } : {}),
+                ...(trigger.config.provider === "cloudflareTail"
+                  ? {
+                      destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(job.id)}`,
+                    }
+                  : {}),
+              }
+            : trigger.config,
+      })),
+      runNameTemplate: job.runNameTemplate ?? "",
+      executionConfigId:
+        job.executionConfig.targetId ??
+        `${job.executionConfig.agentKind === "Amp" ? "amp:" : ""}${job.executionConfig.connectionId}`,
+      agentKind: job.executionConfig.agentKind,
+      runningCount,
+      currentRuns: runningCount,
+      maxConcurrency: job.concurrencyLimit,
+      lastRunState: stats?.last_run_state ?? null,
+    });
   }
   async listSkills(query: { q: string; limit: number; cursor?: string }) { await this.authorize("skills:read"); return publicValue(skillPage, await this.skills().list(query.q, query.limit, query.cursor)); }
   async getSkill(id: string) { await this.authorize("skills:read"); const value = await this.skills().get(id); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); }
@@ -343,33 +495,139 @@ export class ApiService {
     const run = await repository.get(runId);
     if (!run) throw new ServiceError(404, "not_found", "Run not found");
     const prompt = await decrypt(run.encrypted_prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
-    delete run.encrypted_prompt; run.prompt = prompt; run.capabilities = run.execution_capabilities; run.backend_kind = run.execution_backend_kind; run.invocation = { id: run.invocation_id, source: run.invocation_source, claim_key: run.invocation_claim_key, trigger_id: run.invocation_trigger_id, context: run.context, occurrence: run.occurrence, source_job_id: run.invocation_source_job_id ?? null, source_run_id: run.invocation_source_run_id ?? null, created_at: run.invocation_created_at };
+    delete run.encrypted_prompt;
+    run.prompt = prompt;
+    run.capabilities = run.execution_capabilities;
+    run.backend_kind = run.execution_backend_kind;
+    run.invocation = {
+      id: run.invocation_id,
+      source: run.invocation_source,
+      claim_key: run.invocation_claim_key,
+      trigger_id: run.invocation_trigger_id,
+      template_job_id: run.template_job_id,
+      context: run.context,
+      occurrence: run.occurrence,
+      source_job_id: run.invocation_source_job_id ?? null,
+      source_run_id: run.invocation_source_run_id ?? null,
+      created_at: run.invocation_created_at,
+    };
     const [activity, projection, cursor, artifacts] = await Promise.all([
       repository.activity(runId),
-      databaseFor(this.env).pool.query("SELECT source_kind,artifact_sha256,parser_version,updated_at FROM app.run_trace_projections WHERE tenant_id=$1 AND run_id=$2", [this.auth.tenantId, runId]),
-      databaseFor(this.env).pool.query("SELECT generation FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2", [this.auth.tenantId, runId]),
+      databaseFor(this.env).pool.query(
+        "SELECT source_kind,artifact_sha256,parser_version,updated_at FROM app.run_trace_projections WHERE tenant_id=$1 AND run_id=$2",
+        [this.auth.tenantId, runId],
+      ),
+      databaseFor(this.env).pool.query(
+        "SELECT generation FROM app.run_trace_cursors WHERE tenant_id=$1 AND run_id=$2",
+        [this.auth.tenantId, runId],
+      ),
       new ArtifactRepository(databaseFor(this.env), this.auth.tenantId).list(runId),
     ]);
-    run.activity = activity; run.execution_diagnostics ??= null; run.trace_sources ??= null;
-    run.trace_projection = projection.rows[0] ?? null; run.trace_generation = cursor.rows[0]?.generation ?? null;
-    run.harness_log = artifacts.find(item => item.kind === "terminal_log") ?? null;
+    run.activity = activity;
+    run.execution_diagnostics ??= null;
+    run.trace_sources ??= null;
+    run.trace_projection = projection.rows[0] ?? null;
+    run.trace_generation = cursor.rows[0]?.generation ?? null;
+    run.harness_log = artifacts.find((item) => item.kind === "terminal_log") ?? null;
     // Enumerate public fields rather than publishing future database columns.
-    const agentError = run.agent_error_reason ? { reason: run.agent_error_reason, reported_at: run.agent_error_reported_at, reporter: { user_id: run.agent_error_reporter_user_id, kind: run.agent_error_reporter_kind, id: run.agent_error_reporter_id } } : null;
-    return publicValue(fullRunResponse, JSON.parse(JSON.stringify({ id: run.id, tenant_id: run.tenant_id, job_id: run.job_id, invocation_id: run.invocation_id,
-      execution_handle: run.execution_handle ? { backendKind: run.execution_handle.backendKind, id: run.execution_handle.id } : null,
-      provider: run.provider, issue_id: run.issue_id, issue_url: run.issue_url, issue_title: run.issue_title,
-      run_name: run.run_name, agent_name: run.agent_name, workspace_name: run.workspace_name, agent_kind: run.agent_kind, execution_type: run.execution_type ?? run.execution_config?.executionType ?? "agent",
-      state: run.state, failure_source: run.failure_source ?? null, failure: run.failure_code && run.failure_reason ? { source: run.failure_source === "agent" ? "run" : "system", code: run.failure_code, reason: run.failure_reason } : null, agent_error: agentError, execution_backend_kind: run.execution_backend_kind, backend_kind: run.backend_kind,
-      execution_capabilities: run.execution_capabilities, capabilities: run.capabilities, destination_url: run.destination_url,
-      artifact_state: run.artifact_state, artifact_error: run.artifact_error,
-      claim_released: run.claim_released, vm_cleanup_attempt: run.vm_cleanup_attempt, cleanup_next_at: run.cleanup_next_at, vm_cleanup_complete: run.vm_cleanup_complete, execution_script: typeof run.execution_config?.script === "string" ? run.execution_config.script : null, execution_configuration: run.execution_config,
-      created_at: run.created_at, updated_at: run.updated_at, started_at: run.started_at,
-      job_name: run.job_name, prompt: run.prompt, context: run.context, occurrence: run.occurrence, invocation: run.invocation,
-      invocation_source: run.invocation_source, invocation_claim_key: run.invocation_claim_key, invocation_trigger_id: run.invocation_trigger_id, invocation_created_at: run.invocation_created_at,
-      activity: run.activity, execution_diagnostics: run.execution_diagnostics, trace_sources: run.trace_sources,
-      trace_projection: run.trace_projection, trace_generation: run.trace_generation, harness_log: run.harness_log,
-      job_result: run.job_result ?? null,
-      run_artifacts: artifacts.filter(item => !["execution_stream", "native_session"].includes(item.kind)).map(item => ({ id: item.id, kind: item.kind, provider: String(item.provider ?? ""), format: String(item.format ?? ""), byte_size: Number(item.byte_size), sha256: String(item.sha256 ?? ""), state: String(item.state ?? ""), media_type: item.media_type ?? null, created_at: item.created_at instanceof Date ? item.created_at.toISOString() : String(item.created_at ?? "") })), })));
+    const agentError = run.agent_error_reason
+      ? {
+          reason: run.agent_error_reason,
+          reported_at: run.agent_error_reported_at,
+          reporter: {
+            user_id: run.agent_error_reporter_user_id,
+            kind: run.agent_error_reporter_kind,
+            id: run.agent_error_reporter_id,
+          },
+        }
+      : null;
+    return publicValue(
+      fullRunResponse,
+      JSON.parse(
+        JSON.stringify({
+          id: run.id,
+          tenant_id: run.tenant_id,
+          job_id: run.job_id,
+          project_id: run.project_id,
+          launch_skill_id: run.launch_skill_id,
+          launch_skill_key: run.launch_skill_key,
+          launch_skill_revision: run.launch_skill_revision,
+          invocation_id: run.invocation_id,
+          execution_handle: run.execution_handle
+            ? { backendKind: run.execution_handle.backendKind, id: run.execution_handle.id }
+            : null,
+          provider: run.provider,
+          issue_id: run.issue_id,
+          issue_url: run.issue_url,
+          issue_title: run.issue_title,
+          run_name: run.run_name,
+          agent_name: run.agent_name,
+          workspace_name: run.workspace_name,
+          agent_kind: run.agent_kind,
+          execution_type: run.execution_type ?? run.execution_config?.executionType ?? "agent",
+          state: run.state,
+          failure_source: run.failure_source ?? null,
+          failure:
+            run.failure_code && run.failure_reason
+              ? {
+                  source: run.failure_source === "agent" ? "run" : "system",
+                  code: run.failure_code,
+                  reason: run.failure_reason,
+                }
+              : null,
+          agent_error: agentError,
+          execution_backend_kind: run.execution_backend_kind,
+          backend_kind: run.backend_kind,
+          execution_capabilities: run.execution_capabilities,
+          capabilities: run.capabilities,
+          destination_url: run.destination_url,
+          artifact_state: run.artifact_state,
+          artifact_error: run.artifact_error,
+          claim_released: run.claim_released,
+          vm_cleanup_attempt: run.vm_cleanup_attempt,
+          cleanup_next_at: run.cleanup_next_at,
+          vm_cleanup_complete: run.vm_cleanup_complete,
+          execution_script:
+            typeof run.execution_config?.script === "string" ? run.execution_config.script : null,
+          execution_configuration: run.execution_config,
+          created_at: run.created_at,
+          updated_at: run.updated_at,
+          started_at: run.started_at,
+          job_name: run.job_name,
+          prompt: run.prompt,
+          context: run.context,
+          occurrence: run.occurrence,
+          invocation: run.invocation,
+          invocation_source: run.invocation_source,
+          invocation_claim_key: run.invocation_claim_key,
+          invocation_trigger_id: run.invocation_trigger_id,
+          invocation_created_at: run.invocation_created_at,
+          activity: run.activity,
+          execution_diagnostics: run.execution_diagnostics,
+          trace_sources: run.trace_sources,
+          trace_projection: run.trace_projection,
+          trace_generation: run.trace_generation,
+          harness_log: run.harness_log,
+          job_result: run.job_result ?? null,
+          run_artifacts: artifacts
+            .filter((item) => !["execution_stream", "native_session"].includes(item.kind))
+            .map((item) => ({
+              id: item.id,
+              kind: item.kind,
+              provider: String(item.provider ?? ""),
+              format: String(item.format ?? ""),
+              byte_size: Number(item.byte_size),
+              sha256: String(item.sha256 ?? ""),
+              state: String(item.state ?? ""),
+              media_type: item.media_type ?? null,
+              created_at:
+                item.created_at instanceof Date
+                  ? item.created_at.toISOString()
+                  : String(item.created_at ?? ""),
+            })),
+        }),
+      ),
+    );
   }
   async getRunTrace(runId: string, after: number, limit: number) { await this.authorize("runs:read"); return new TraceRepository(databaseFor(this.env), this.auth.tenantId).page(runId, after, limit); }
   async downloadRunArtifact(runId: string, artifactId: string): Promise<Response> {
@@ -457,36 +715,152 @@ export class ApiService {
   }
   async createProject(input: { name: string; description?: string }) { await this.authorize("projects:write"); try { return await this.projects().create(input.name, input.description); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "A project with this name already exists"); throw error; } }
   async updateProject(projectId: string, input: { name: string; description?: string }) { await this.authorize("projects:write"); const result = await this.projects().update(projectId, input.name, input.description); if (!result) throw new ServiceError(404, "not_found", "Project not found"); return result; }
-  async deleteProject(projectId: string) { await this.authorize("projects:write"); const result = await this.projects().remove(projectId); if (result === "missing") throw new ServiceError(404, "not_found", "Project not found"); if (result === "nonempty") throw new ServiceError(409, "conflict", "Move or delete the project's jobs before deleting it"); return { id: projectId, deleted: true }; }
+  async deleteProject(projectId: string) {
+    await this.authorize("projects:write");
+    const result = await this.projects().remove(projectId);
+    if (result === "missing") throw new ServiceError(404, "not_found", "Project not found");
+    if (result === "nonempty")
+      throw new ServiceError(409, "conflict", "The project contains jobs or retained runs");
+    return { id: projectId, deleted: true };
+  }
   async listJobEvents(jobId: string, limit = 50) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).jobEvents(jobId, limit); }
   async listWebhookDeliveries(query: URLSearchParams) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).deliveries(query); }
   async getWebhookDelivery(deliveryId: string) { await this.authorize("runs:read"); const value = await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).delivery(deliveryId); if (!value) throw new ServiceError(404,"not_found","Webhook delivery not found"); return value; }
   async testJobConditions(input: unknown) { await this.authorize("jobs:write"); const parsed = jobConditionsTestSchema.parse(input); return evaluateWebhookConditions(parsed.conditions, parsed.webhook); }
   async createJob(input: JobInput) {
-    await this.authorize("jobs:write"); const timestamp = new Date().toISOString(), id = crypto.randomUUID();
+    await this.authorize("jobs:write");
+    const timestamp = new Date().toISOString(),
+      id = crypto.randomUUID();
     const vmImage = input.vmImage ? canonicalizeVmImage(input.vmImage) : input.vmImage;
     const executionType = input.executionType ?? "agent";
-    if (executionType === "code" && input.executionConfigId.startsWith("amp:")) throw new ServiceError(400, "invalid_request", "Code jobs require an exe.dev integration.");
-    if (executionType !== "code") await this.validateExecutionOptions(input.executionConfigId, input.model ?? "", input.effort ?? "", input.tags ?? []);
+    if (executionType === "code" && input.executionConfigId.startsWith("amp:"))
+      throw new ServiceError(400, "invalid_request", "Code jobs require an exe.dev integration.");
+    if (executionType !== "code")
+      await this.validateExecutionOptions(
+        input.executionConfigId,
+        input.model ?? "",
+        input.effort ?? "",
+        input.tags ?? [],
+      );
     const executionConfig = await this.executionConfig(input.executionConfigId);
     const portable = await this.portableSelections(executionConfig, executionType, input);
-    const triggers = this.normalizedTriggers(input.triggers).map(trigger => ({ ...trigger, jobId: id }));
-    const projectId = input.projectId ?? await this.projects().defaultProjectId();
-    const selectedSkills = executionType === "code" ? [] : input.skillIds ? await this.skillSelections(input.skillIds) : [];
-    const job: Job = { id, projectId, runScopes: input.runScopes ?? [...DEFAULT_RUN_SCOPES], name: input.name, description: input.description ?? "", slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", ...portable, ...(input.effort ? { effort: input.effort } : {}), executionConfig: { ...executionConfig, ...portable, executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, enabled: true, triggers, selectedSkills, createdAt: timestamp, updatedAt: timestamp };
-    try { return this.presentJob(await this.jobs().create(job)); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "Job slug is already in use"); throw error; }
+    const triggers = this.normalizedTriggers(input.triggers).map((trigger) => ({ ...trigger, jobId: id }));
+    const projectId = input.projectId ?? (await this.projects().defaultProjectId());
+    const selectedSkills = executionType === "code" ? [] : await this.skillSelections(input.skillIds ?? []);
+    const launchSkill =
+      executionType === "agent" && input.launchSkillId
+        ? (await this.skillSelections([input.launchSkillId]))[0]
+        : undefined;
+    const job: Job = {
+      id,
+      projectId,
+      runScopes: input.runScopes ?? [...DEFAULT_RUN_SCOPES],
+      name: input.name,
+      description: input.description ?? "",
+      slug: input.slug,
+      promptTemplate: input.promptTemplate ?? "",
+      executionType,
+      script: executionType === "code" ? input.script : undefined,
+      runNameTemplate: input.runNameTemplate ?? "",
+      tags: input.tags ?? [],
+      model: input.model ?? "",
+      ...portable,
+      ...(input.effort ? { effort: input.effort } : {}),
+      executionConfig: {
+        ...executionConfig,
+        launchSkillId: executionType === "agent" ? (input.launchSkillId ?? undefined) : undefined,
+        ...portable,
+        executionType,
+        ...(input.script ? { script: input.script } : {}),
+        ...(vmImage ? { image: vmImage } : {}),
+      },
+      concurrencyLimit: input.concurrencyLimit,
+      enabled: true,
+      triggers,
+      launchSkill,
+      selectedSkills,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    try {
+      return this.presentJob(await this.jobs().create(job));
+    } catch (error: any) {
+      if (error?.code === "23505") throw new ServiceError(409, "conflict", "Job slug is already in use");
+      throw error;
+    }
   }
   async updateJob(jobId: string, input: JobInput & { expectedUpdatedAt?: string }) {
-    await this.authorize("jobs:write"); const repository = this.jobs(), current = await repository.getJob(jobId); if (!current) throw new ServiceError(404, "not_found", "Job not found");
+    await this.authorize("jobs:write");
+    const repository = this.jobs(),
+      current = await repository.getJob(jobId);
+    if (!current) throw new ServiceError(404, "not_found", "Job not found");
     const vmImage = input.vmImage ? canonicalizeVmImage(input.vmImage) : input.vmImage;
     const executionType = input.executionType ?? current.executionType ?? "agent";
-    if (executionType === "code" && input.executionConfigId.startsWith("amp:")) throw new ServiceError(400, "invalid_request", "Code jobs require an exe.dev integration.");
-    if (executionType !== "code") await this.validateExecutionOptions(input.executionConfigId, input.model ?? "", input.effort ?? "", input.tags ?? []);
+    if (executionType === "code" && input.executionConfigId.startsWith("amp:"))
+      throw new ServiceError(400, "invalid_request", "Code jobs require an exe.dev integration.");
+    if (executionType !== "code")
+      await this.validateExecutionOptions(
+        input.executionConfigId,
+        input.model ?? "",
+        input.effort ?? "",
+        input.tags ?? [],
+      );
     const executionConfig = await this.executionConfig(input.executionConfigId);
     const portable = await this.portableSelections(executionConfig, executionType, input, current);
-    const triggers = this.normalizedTriggers(input.triggers, current.triggers).map(trigger => ({ ...trigger, jobId }));
-    const selectedSkills = executionType === "code" ? [] : input.skillIds === undefined ? current.selectedSkills : await this.skillSelections(input.skillIds);
-    const updated = await repository.update({ ...current, ...portable, runScopes: input.runScopes ?? current.runScopes ?? [...DEFAULT_RUN_SCOPES], projectId: input.projectId ?? current.projectId, name: input.name, description: input.description ?? current.description ?? "", slug: input.slug, promptTemplate: input.promptTemplate ?? "", executionType, script: executionType === "code" ? input.script : undefined, runNameTemplate: input.runNameTemplate ?? "", tags: input.tags ?? [], model: input.model ?? "", effort: input.effort, executionConfig: { ...executionConfig, ...portable, executionType, ...(input.script ? { script: input.script } : {}), ...(vmImage ? { image: vmImage } : {}) }, concurrencyLimit: input.concurrencyLimit, triggers, selectedSkills, updatedAt: new Date().toISOString() }, input.expectedUpdatedAt).catch(error => { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload its configuration before saving."); throw error; });
+    const triggers = this.normalizedTriggers(input.triggers, current.triggers).map((trigger) => ({
+      ...trigger,
+      jobId,
+    }));
+    const launchSkillId =
+      input.launchSkillId === undefined ? current.executionConfig.launchSkillId : input.launchSkillId;
+    const skillIds = input.skillIds ?? (current.selectedSkills ?? []).map((skill) => skill.id);
+    const selectedSkills = executionType === "code" ? [] : await this.skillSelections(skillIds);
+    const launchSkill =
+      executionType === "agent" && launchSkillId
+        ? (await this.skillSelections([launchSkillId]))[0]
+        : undefined;
+    const updated = await repository
+      .update(
+        {
+          ...current,
+          ...portable,
+          runScopes: input.runScopes ?? current.runScopes ?? [...DEFAULT_RUN_SCOPES],
+          projectId: input.projectId ?? current.projectId,
+          name: input.name,
+          description: input.description ?? current.description ?? "",
+          slug: input.slug,
+          promptTemplate: input.promptTemplate ?? "",
+          executionType,
+          script: executionType === "code" ? input.script : undefined,
+          runNameTemplate: input.runNameTemplate ?? "",
+          tags: input.tags ?? [],
+          model: input.model ?? "",
+          effort: input.effort,
+          executionConfig: {
+            ...executionConfig,
+            launchSkillId: executionType === "agent" ? (launchSkillId ?? undefined) : undefined,
+            ...portable,
+            executionType,
+            ...(input.script ? { script: input.script } : {}),
+            ...(vmImage ? { image: vmImage } : {}),
+          },
+          concurrencyLimit: input.concurrencyLimit,
+          triggers,
+          launchSkill,
+          selectedSkills,
+          updatedAt: new Date().toISOString(),
+        },
+        input.expectedUpdatedAt,
+      )
+      .catch((error) => {
+        if (error instanceof StaleJobEdit)
+          throw new ServiceError(
+            409,
+            "stale_job",
+            "This job changed. Reload its configuration before saving.",
+          );
+        throw error;
+      });
     await this.wakeScheduler();
     return this.presentJob(updated);
   }
@@ -527,21 +901,210 @@ export class ApiService {
   async moveJob(jobId: string, projectId: string, expectedUpdatedAt?: string) { await this.authorize("projects:write"); try { return this.presentJob(await this.jobs().move(jobId, projectId, expectedUpdatedAt)); } catch (error) { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload it before moving it."); if (error instanceof Error && error.message === "Project not found") throw new ServiceError(404, "not_found", "Project not found"); if (error instanceof Error && error.message === "Job not found") throw new ServiceError(404, "not_found", "Job not found"); throw error; } }
   async deleteJob(jobId: string) {
     await this.authorize("jobs:write");
-    const database = databaseFor(this.env), repository = this.jobs();
-    if (!await repository.getJob(jobId)) throw new ServiceError(404, "not_found", "Job not found");
-    const objectKeys = await new ArtifactRepository(database, this.auth.tenantId).keysForJob(jobId);
-    if (objectKeys.length && !this.env.RUN_ARTIFACTS) throw new ServiceError(503, "operation_failed", "Artifact storage is unavailable");
-    // R2 is outside the PostgreSQL transaction. Delete the objects first and
-    // retain the database aggregate if object deletion fails so the operation
-    // can be retried without losing the authoritative object-key inventory.
-    for (let offset = 0; offset < objectKeys.length; offset += 1_000) await this.env.RUN_ARTIFACTS!.delete(objectKeys.slice(offset, offset + 1_000));
-    if (!await repository.delete(jobId)) throw new ServiceError(404, "not_found", "Job not found");
+    if (!(await this.jobs().delete(jobId))) throw new ServiceError(404, "not_found", "Job not found");
     return { id: jobId, deleted: true };
   }
   private async wakeScheduler() {
     if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" });
   }
   async setJobEnabled(jobId: string, enabled: boolean) { await this.authorize("jobs:write"); const repository = this.jobs(); if (!await repository.setEnabled(jobId, enabled, new Date().toISOString())) throw new ServiceError(404, "not_found", "Job not found"); await this.wakeScheduler(); return { id: jobId, enabled }; }
+  async setRunDefaults(projectId: string, input: z.infer<typeof projectRunDefaults>) {
+    await this.authorizeOwnerSession("projects:write");
+    await this.resolveRunDefaults(input);
+    const result = await databaseFor(this.env).pool.query(
+      "UPDATE app.projects SET run_defaults=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING id",
+      [this.auth.tenantId, projectId, input],
+    );
+    if (!result.rowCount) throw new ServiceError(404, "not_found", "Project not found");
+    return input;
+  }
+
+  private async resolveRunDefaults(input: z.infer<typeof projectRunDefaults>) {
+    await this.validateExecutionOptions(
+      input.executionConfigId,
+      input.model ?? "",
+      input.effort ?? "",
+      input.tags ?? [],
+    );
+    const config = await this.executionConfig(input.executionConfigId);
+    if (config.agentKind === "Amp")
+      throw new ServiceError(400, "invalid_request", "Select a VM agent configuration.");
+    const portable = await this.portableSelections(config, "agent", {
+      ...input,
+      modelAccess: input.modelAccountId ? "portable" : undefined,
+    });
+    return {
+      ...config,
+      ...portable,
+      executionType: "agent",
+      model: input.model ?? "",
+      effort: input.effort,
+      tags: input.tags ?? [],
+      ...(input.vmImage ? { image: input.vmImage } : {}),
+      runScopes: input.runScopes ?? [],
+    };
+  }
+
+  async startRun(input: z.infer<typeof startRunInput>) {
+    await this.authorize("runs:start");
+    const db = databaseFor(this.env),
+      auth = this.auth;
+    let projectId = input.projectId;
+    if (auth.runId) {
+      const parent = (
+        await db.pool.query(
+          "SELECT project_id FROM app.runs WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked')",
+          [auth.tenantId, auth.runId],
+        )
+      ).rows[0];
+      if (!parent || (projectId && projectId !== parent.project_id))
+        throw new ServiceError(403, "forbidden", "Delegation requires an active parent in the same project.");
+      projectId = parent.project_id;
+    }
+    if (!projectId) {
+      const projects = await this.projects().list({ limit: 2 });
+      if (projects.length !== 1)
+        throw new ServiceError(400, "project_required", "Select a project to start this run.");
+      projectId = projects[0].id;
+    }
+    const caller = [
+      auth.authMethod ?? "oauth",
+      auth.runId ?? auth.vmGrantId ?? auth.accessTokenId ?? auth.oauthGrantId ?? auth.userId,
+    ].join(":");
+    const claim = projectId + ":" + (input.idempotencyKey ?? crypto.randomUUID());
+    const digest = (
+      await db.pool.query("SELECT encode(sha256(convert_to($1::jsonb::text,'UTF8')),'hex') hash", [
+        JSON.stringify({ ...input, projectId }),
+      ])
+    ).rows[0].hash;
+    const receipt = (runId: string, duplicate: boolean) => ({
+      runId,
+      url: new URL("/job-runs/" + runId, this.env.APP_ORIGIN).href,
+      outcomeUri: `factorize://runs/${runId}/outcome`,
+      duplicate,
+    });
+    const existing = async (client: DatabaseClient) => {
+      const row = (
+        await client.query(
+          `SELECT r.id,i.request_hash FROM app.invocations i JOIN app.runs r ON r.tenant_id=i.tenant_id AND r.invocation_id=i.id
+        WHERE i.tenant_id=$1 AND i.source='direct' AND i.caller=$2 AND i.claim_key=$3`,
+          [auth.tenantId, caller, claim],
+        )
+      ).rows[0];
+      if (!row) return null;
+      if (row.request_hash !== digest)
+        throw new ServiceError(
+          409,
+          "idempotency_conflict",
+          "This key already identifies a different launch request.",
+        );
+      return receipt(row.id, true);
+    };
+    const prior = await existing(db.pool);
+    if (prior) return prior;
+    const project = await this.projects().get(projectId);
+    if (!project) throw new ServiceError(404, "not_found", "Project not found");
+    if (!project.runDefaults)
+      throw new ServiceError(409, "run_defaults_required", "Configure this project's VM run defaults first.");
+    const config = await this.resolveRunDefaults(project.runDefaults);
+    const skill = input.skill ? await this.skills().get(input.skill) : null;
+    if (input.skill && !skill) throw new ServiceError(404, "not_found", "Launch skill not found");
+    const text =
+      input.inputs && Object.keys(input.inputs).length
+        ? input.prompt + "\n\nInputs (JSON)\n" + JSON.stringify(input.inputs)
+        : input.prompt;
+    const prompt = composePrompt(skill ? [{ body: skill.body! }] : [], text);
+    const encryptedPrompt = await encrypt(prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    const encryptedSkills = skill
+      ? await encrypt(
+          JSON.stringify([
+            { id: skill.id, key: skill.key, revision: skill.revision, body: skill.body, order: 0 },
+          ]),
+          this.env.CREDENTIAL_ENCRYPTION_KEY,
+        )
+      : undefined;
+    const result = await db.transaction(async (client) => {
+      const locked = await client.query(
+        "SELECT run_defaults=$3::jsonb matches FROM app.projects WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+        [auth.tenantId, projectId, project.runDefaults],
+      );
+      const duplicate = await existing(client);
+      if (duplicate) return duplicate;
+      if (!locked.rows[0]?.matches)
+        throw new ServiceError(
+          409,
+          "configuration_changed",
+          "Project configuration changed. Retry this request.",
+        );
+      if (auth.runId) {
+        const active = await client.query(
+          "SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2 AND project_id=$3 AND state IN ('starting','running','blocked') FOR SHARE",
+          [auth.tenantId, auth.runId, projectId],
+        );
+        if (!active.rowCount) throw new ServiceError(403, "forbidden", "The parent run is no longer active.");
+      }
+      const id = crypto.randomUUID(),
+        invocationId = crypto.randomUUID(),
+        inputs = input.inputs ?? {};
+      await client.query(
+        `INSERT INTO app.invocations(tenant_id,id,source,claim_key,caller,request_hash,context,source_run_id,source_job_id)
+        VALUES ($1,$2,'direct',$3,$4,$5,$6,$7,$8)`,
+        [auth.tenantId, invocationId, claim, caller, digest, inputs, auth.runId, auth.runJobId],
+      );
+      await submitRun(client, auth.tenantId, {
+        id,
+        invocationId,
+        projectId: project.id,
+        jobId: null,
+        name: input.name ?? (skill ? `/${skill.key} run` : "Direct run"),
+        source: "direct",
+        claim,
+        encryptedPrompt,
+        encryptedSkills,
+        skill: skill ?? undefined,
+        config: { ...config, inputContext: inputs },
+        workspaceName: "",
+        createdAt: new Date().toISOString(),
+      });
+      await client.query(
+        "INSERT INTO app.run_authorizations(tenant_id,run_id,user_id,session_version,scopes) VALUES ($1,$2,$3,$4,$5::jsonb)",
+        [auth.tenantId, id, auth.userId, auth.sessionVersion, JSON.stringify(config.runScopes)],
+      );
+      return receipt(id, false);
+    });
+    await this.wakeScheduler();
+    return result;
+  }
+
+  async outcomeStates(ids: string[]) {
+    await this.authorize("runs:read");
+    const { rows } = await databaseFor(this.env).pool.query<{ id: string; outcome_id: string | null }>(
+      "SELECT id,outcome_id FROM app.runs WHERE tenant_id=$1 AND id=ANY($2::uuid[])",
+      [this.auth.tenantId, ids],
+    );
+    if (rows.length !== ids.length) throw new ServiceError(404, "not_found", "Run not found");
+    return rows;
+  }
+  async runOutcome(runId: string) {
+    await this.authorize("runs:read");
+    const db = databaseFor(this.env);
+    const result = await db.pool.query(
+      `SELECT id AS "runId",state,outcome_id AS "eventId",job_result AS result,
+      CASE WHEN failure_code IS NOT NULL THEN json_build_object('code',failure_code,'reason',failure_reason,'source',CASE WHEN failure_source='agent' THEN 'run' ELSE 'system' END) END failure
+      FROM app.runs WHERE tenant_id=$1 AND id=$2`,
+      [this.auth.tenantId, runId],
+    );
+    if (!result.rowCount) throw new ServiceError(404, "not_found", "Run not found");
+    const outcome = result.rows[0];
+    const artifacts = outcome.eventId ? await new ArtifactRepository(db, this.auth.tenantId).list(runId) : [];
+    return {
+      ...outcome,
+      url: new URL("/job-runs/" + runId, this.env.APP_ORIGIN).href,
+      artifacts: artifacts
+        .filter((item) => item.kind === "job_file")
+        .map((item) => ({ id: item.id, format: item.format })),
+    };
+  }
   async invokeJob(jobId: string, input: ManualInvocationInput) {
     await this.authorize("runs:invoke"); const repository = this.jobs(), job = await repository.getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found");
     if (this.auth.authMethod === "vendor_identity") {

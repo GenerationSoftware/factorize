@@ -35,3 +35,11 @@ WHERE state='failed' AND failure_source='system'
 ```
 
 Roll forward with the additive migration before serving the new UI/API. Roll back application code separately and leave repaired outcome data intact; the old API ignores the new columns. Do not reverse the repair by changing every `agent` source back to `system`; unknown historical rows remain unknown.
+
+## Background runs
+
+Set the project's direct-run VM defaults with an owner session using `PUT /api/v1/projects/{projectId}/run-defaults`. Supply an execution configuration ID and optional model, permissions and capacity. Direct launches require the separate `runs:start` scope. A verified parent run can launch in its own project. The child's permissions come from the project's configured defaults. Finishing the parent leaves the child running.
+
+Call `start_run` with a literal prompt, optional skill key or ID, and a client-generated idempotency key. Supply `projectId` when an external client has multiple projects. Retrying the same request returns the same run. A launch skill is captured by ID, key and revision. Filter `list_runs` by `launchSkillId`, using `none` for unclassified runs.
+
+Save the receipt's `outcomeUri` with the originating conversation ID. With MCP revision 2026-07-28, request `subscriptions/listen` with that URI in `notifications.resourceSubscriptions`. On acknowledgment and on each resource update, call `resources/read`. A terminal outcome has a stable `eventId`, state, available result, failure and artifact references. Append it to the originating conversation once per event ID. Reopen the listen stream on close or reconnect. Older clients can read the resource directly. Reading or watching requires `runs:read`. Outcomes share the run's history retention period.

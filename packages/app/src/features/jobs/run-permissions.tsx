@@ -9,7 +9,7 @@ const scopes: Record<Scope, string> = {
   "jobs:read": "View jobs and their configuration",
   "jobs:write": "Create, edit, and delete jobs, including their run permissions",
   "runs:read": "View runs, traces, and diagnostics",
-  "runs:invoke": "Invoke explicitly authorized destination jobs",
+  "runs:start": "Start direct runs with project VM defaults", "runs:invoke": "Invoke explicitly authorized destination jobs",
   "runs:cancel": "Stop runs",
   "runs:write": "Report errors and rename runs; includes run read, invoke, and cancel access",
   "integrations:read": "View integrations and provider resources",

@@ -767,7 +767,7 @@
             "type": "string"
           },
           "jobId": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "state": {
             "type": "string"

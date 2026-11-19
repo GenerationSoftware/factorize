@@ -69,7 +69,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("every page E2E smoke", () 
     "job context": { path: () => job() + "/settings/context", ready: label("Prompt template") },
     "job permissions": { path: () => job() + "/settings/permissions", ready: heading("Manual invocation permissions") },
     "job triggers": { path: () => job() + "/settings/triggers", ready: heading("Triggers") },
-    "runs": { path: () => "/job-runs", ready: heading("Job Runs") },
+    "runs": { path: () => "/job-runs", ready: heading("Runs") },
     "run": { path: run, ready: heading("Trace") },
     "full trace": { path: () => run() + "/trace", ready: heading("Full trace") },
     "run info": { path: () => run() + "/info", ready: info },

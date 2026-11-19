@@ -2159,6 +2159,34 @@ export interface paths {
          */
         get: operations["get_api_v1_runs"];
         put?: never;
+        /**
+         * Start a project VM run with a literal prompt and optional launch skill
+         * @description Requires the runs:start scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_runs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{projectId}/run-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the VM configuration, permissions and capacity for direct launches
+         * @description Requires the projects:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_projects_projectId_run_defaults"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2506,10 +2534,13 @@ export interface components {
         };
         Run: {
             id: string;
-            job_id: string;
+            job_id: string | null;
+            launch_skill_id?: string | null;
+            launch_skill_key?: string | null;
+            launch_skill_revision?: number | null;
             project_id?: string;
             project_name?: string;
-            job_name: string;
+            job_name: string | null;
             issue_id: string;
             issue_url: string | null;
             issue_title: string;
@@ -2560,10 +2591,13 @@ export interface components {
         RunPage: {
             items: {
                 id: string;
-                job_id: string;
+                job_id: string | null;
+                launch_skill_id?: string | null;
+                launch_skill_key?: string | null;
+                launch_skill_revision?: number | null;
                 project_id?: string;
                 project_name?: string;
-                job_name: string;
+                job_name: string | null;
                 issue_id: string;
                 issue_url: string | null;
                 issue_title: string;
@@ -2742,10 +2776,13 @@ export interface components {
         };
         RunDetail: {
             id: string;
-            job_id: string;
+            job_id: string | null;
+            launch_skill_id?: string | null;
+            launch_skill_key?: string | null;
+            launch_skill_revision?: number | null;
             project_id?: string;
             project_name?: string;
-            job_name: string;
+            job_name: string | null;
             issue_id: string;
             issue_url: string | null;
             issue_title: string;
@@ -2841,6 +2878,7 @@ export interface components {
                 id: string;
                 source: string;
                 claim_key: string;
+                template_job_id?: string | null;
                 trigger_id: string | null;
                 context: {
                     [key: string]: unknown;
@@ -2902,7 +2940,7 @@ export interface components {
         };
         RunDiagnostics: {
             runId: string;
-            jobId: string;
+            jobId: string | null;
             state: string;
             provider?: string;
             backendKind?: string;
@@ -2936,7 +2974,7 @@ export interface components {
             /** @default 1 */
             concurrencyLimit: number;
             /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
             executionConfigId: string;
             tags?: string[];
             vmImage?: string;
@@ -3039,6 +3077,7 @@ export interface components {
                     sourceJobIds: string[];
                 };
             })[];
+            launchSkillId?: string | null;
             skillIds?: string[];
             portableIntegrationIds?: string[];
             /** @enum {string} */
@@ -4040,7 +4079,7 @@ export interface operations {
                             /** @constant */
                             role: "owner";
                         };
-                        capabilities: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        capabilities: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         /** Format: date-time */
                         expiresAt: string;
                     };
@@ -5716,7 +5755,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -5745,7 +5784,7 @@ export interface operations {
             content: {
                 "application/json": {
                     name: string;
-                    scopes: (("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write") | ("flows:read" | "flows:write"))[];
+                    scopes: (("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write") | ("flows:read" | "flows:write"))[];
                     expiryDays: 7 | 30 | 90;
                 };
             };
@@ -5760,7 +5799,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -6310,6 +6349,23 @@ export interface operations {
                         description?: string;
                         createdAt: string;
                         updatedAt: string;
+                        runDefaults?: {
+                            executionConfigId: string;
+                            model?: string;
+                            effort?: string;
+                            vmImage?: string;
+                            tags?: string[];
+                            /** Format: uuid */
+                            modelAccountId?: string;
+                            portableIntegrationIds?: string[];
+                            githubInstallationIds?: number[];
+                            linearConnectionId?: "linear" | null;
+                            xConnectionIds?: string[];
+                            /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                            /** @default 4 */
+                            capacity: number;
+                        };
                         jobCount: number;
                     }[];
                 };
@@ -6353,6 +6409,23 @@ export interface operations {
                         description?: string;
                         createdAt: string;
                         updatedAt: string;
+                        runDefaults?: {
+                            executionConfigId: string;
+                            model?: string;
+                            effort?: string;
+                            vmImage?: string;
+                            tags?: string[];
+                            /** Format: uuid */
+                            modelAccountId?: string;
+                            portableIntegrationIds?: string[];
+                            githubInstallationIds?: number[];
+                            linearConnectionId?: "linear" | null;
+                            xConnectionIds?: string[];
+                            /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                            /** @default 4 */
+                            capacity: number;
+                        };
                         jobCount: number;
                     };
                 };
@@ -6392,6 +6465,23 @@ export interface operations {
                         description?: string;
                         createdAt: string;
                         updatedAt: string;
+                        runDefaults?: {
+                            executionConfigId: string;
+                            model?: string;
+                            effort?: string;
+                            vmImage?: string;
+                            tags?: string[];
+                            /** Format: uuid */
+                            modelAccountId?: string;
+                            portableIntegrationIds?: string[];
+                            githubInstallationIds?: number[];
+                            linearConnectionId?: "linear" | null;
+                            xConnectionIds?: string[];
+                            /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                            /** @default 4 */
+                            capacity: number;
+                        };
                         jobCount: number;
                     };
                 };
@@ -6437,6 +6527,23 @@ export interface operations {
                         description?: string;
                         createdAt: string;
                         updatedAt: string;
+                        runDefaults?: {
+                            executionConfigId: string;
+                            model?: string;
+                            effort?: string;
+                            vmImage?: string;
+                            tags?: string[];
+                            /** Format: uuid */
+                            modelAccountId?: string;
+                            portableIntegrationIds?: string[];
+                            githubInstallationIds?: number[];
+                            linearConnectionId?: "linear" | null;
+                            xConnectionIds?: string[];
+                            /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                            /** @default 4 */
+                            capacity: number;
+                        };
                         jobCount: number;
                     };
                 };
@@ -6879,7 +6986,7 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
-                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         portableIntegrationIds?: string[];
                         /** @enum {string} */
                         modelAccess?: "native" | "portable";
@@ -6888,6 +6995,7 @@ export interface operations {
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
                         xConnectionIds?: string[];
+                        launchSkillId?: string | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7179,7 +7287,7 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
-                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         portableIntegrationIds?: string[];
                         /** @enum {string} */
                         modelAccess?: "native" | "portable";
@@ -7188,6 +7296,7 @@ export interface operations {
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
                         xConnectionIds?: string[];
+                        launchSkillId?: string | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7391,7 +7500,7 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
-                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         portableIntegrationIds?: string[];
                         /** @enum {string} */
                         modelAccess?: "native" | "portable";
@@ -7400,6 +7509,7 @@ export interface operations {
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
                         xConnectionIds?: string[];
+                        launchSkillId?: string | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -8358,7 +8468,7 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
-                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         portableIntegrationIds?: string[];
                         /** @enum {string} */
                         modelAccess?: "native" | "portable";
@@ -8367,6 +8477,7 @@ export interface operations {
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
                         xConnectionIds?: string[];
+                        launchSkillId?: string | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -8548,7 +8659,7 @@ export interface operations {
                     /** @default 1 */
                     concurrencyLimit?: number;
                     /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                    runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                    runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                     executionConfigId: string;
                     tags?: string[];
                     vmImage?: string;
@@ -8651,6 +8762,7 @@ export interface operations {
                             sourceJobIds: string[];
                         };
                     })[];
+                    launchSkillId?: string | null;
                     skillIds?: string[];
                     portableIntegrationIds?: string[];
                     /** @enum {string} */
@@ -8701,7 +8813,7 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
-                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         portableIntegrationIds?: string[];
                         /** @enum {string} */
                         modelAccess?: "native" | "portable";
@@ -8710,6 +8822,7 @@ export interface operations {
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
                         xConnectionIds?: string[];
+                        launchSkillId?: string | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -8903,6 +9016,7 @@ export interface operations {
                 projectId?: string | string[];
                 jobId?: string | string[];
                 state?: ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped") | ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped")[];
+                launchSkillId?: string | "none";
                 contextQuery?: string;
                 sort?: "job" | "run" | "status" | "created" | "agent";
                 direction?: "asc" | "desc";
@@ -8929,6 +9043,123 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    projectId?: string;
+                    prompt: string;
+                    skill?: string;
+                    name?: string;
+                    inputs?: {
+                        [key: string]: unknown;
+                    };
+                    idempotencyKey?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Accepted run */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        runId: string;
+                        /** Format: uri */
+                        url: string;
+                        outcomeUri: string;
+                        duplicate: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_projects_projectId_run_defaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    executionConfigId: string;
+                    model?: string;
+                    effort?: string;
+                    vmImage?: string;
+                    tags?: string[];
+                    /** Format: uuid */
+                    modelAccountId?: string;
+                    portableIntegrationIds?: string[];
+                    githubInstallationIds?: number[];
+                    linearConnectionId?: "linear" | null;
+                    xConnectionIds?: string[];
+                    /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                    runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                    /** @default 4 */
+                    capacity?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Project run defaults */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        executionConfigId: string;
+                        model?: string;
+                        effort?: string;
+                        vmImage?: string;
+                        tags?: string[];
+                        /** Format: uuid */
+                        modelAccountId?: string;
+                        portableIntegrationIds?: string[];
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
+                        /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
+                        runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        /** @default 4 */
+                        capacity: number;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
@@ -9073,7 +9304,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         id: string;
-                        job_id: string;
+                        job_id: string | null;
+                        launch_skill_id?: string | null;
+                        launch_skill_key?: string | null;
+                        launch_skill_revision?: number | null;
                         project_id?: string;
                         project_name?: string;
                         /** @enum {string} */
@@ -9084,7 +9318,7 @@ export interface operations {
                          */
                         execution_type: "agent" | "code";
                         run_name: string;
-                        job_name: string;
+                        job_name: string | null;
                         destination_url: string | null;
                         created_at: string;
                         updated_at: string;

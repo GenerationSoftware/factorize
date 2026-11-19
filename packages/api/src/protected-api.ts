@@ -1,3 +1,5 @@
+import { listenForOutcomes, outcomeRunId } from "./run-outcome-subscription";
+import { authenticateVendorRunRequest } from "./vendor-run-auth";
 import { Hono } from "hono";
 import { AgentApiError } from "./agent-api";
 import { grantVmInput, revokeVmInput } from "./agent-api-contracts";
@@ -6,11 +8,11 @@ import { queryOf } from "./query-params";
 import { jobUpdateInput } from "./job-contracts";
 import { InvocationError } from "./job-domain";
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import { createMcpHandler, McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
 import { ApiService, ServiceError } from "./flow-service";
-import { jobConditionsTestSchema, jobIdSchema, jobInputSchema, listRunsSchema, manualInvocationSchema, renameRunSchema, reportRunErrorSchema, runIdSchema } from "./flow-schemas";
+import { startRunInput,jobConditionsTestSchema, jobIdSchema, jobInputSchema, listRunsSchema, manualInvocationSchema, renameRunSchema, reportRunErrorSchema, runIdSchema } from "./flow-schemas";
 import type { Env, OAuthProps } from "./types";
 import { executeAuth, validBrowserOrigin } from "./auth-api";
 import { matchApiOperation } from "./api-contract";
@@ -72,6 +74,17 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
           let body: any;
           try { body = await new Response(limited).json(); } catch(error) { if(error instanceof ServiceError) throw error; throw new ServiceError(400,"invalid_request","Request body must be valid JSON."); }
           mcpBodies.set(request,body);
+          if (body?.method === "subscriptions/listen" && body.params?.notifications?.resourceSubscriptions) {
+            const credentialActive = async () => {
+              if (auth.authMethod === "vendor_identity") return !!await authenticateVendorRunRequest(request,env);
+              if (auth.oauthGrantId) {
+                const token = await env.OAUTH_PROVIDER?.unwrapToken<OAuthProps>(request.headers.get("Authorization")?.slice(7) ?? "");
+                return token?.grantId === auth.oauthGrantId && token.expiresAt > Date.now()/1000 && normalizeScopes(token.scope).includes("runs:read");
+              }
+              return true; // outcomeStates rechecks API key and owner membership.
+            };
+            listeners.set(request,() => listenForOutcomes(request,body,mcpService,()=>createMcpServer(mcpService),credentialActive,ctx).catch(error => errorResponse(error,env.APP_ORIGIN)));
+          }
         }
         return await mcp(request, mcpService, env, ctx);
       }
@@ -113,12 +126,17 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
     } catch (error) { return timed(errorResponse(error, env.APP_ORIGIN)); }
 }
 
+const listeners = new WeakMap<Request,()=>Promise<Response>>();
 const mcpBodies = new WeakMap<Request, unknown>();
 const mcpServices = new WeakMap<Request, ApiService>();
 
 
-function createMcpServer(service: ApiService): McpServer {
-    const server = new McpServer({ name: "factorize", version: "1.0.0" });
+function createMcpServer(service: ApiService, subscriptions = true): McpServer {
+    const server = new McpServer({ name: "factorize", version: "1.0.0" }, {capabilities:{resources:{subscribe:subscriptions}}});
+    server.registerResource("run-outcome",new ResourceTemplate("factorize://runs/{runId}/outcome",{list:undefined}),
+      {mimeType:"application/json",description:"Pending or terminal outcome of an authorized run"},async uri=>({
+        contents:[{uri:uri.href,mimeType:"application/json",text:JSON.stringify(await service.runOutcome(outcomeRunId(uri.href)))}],
+      }));
     const tool = <T>(name: string, description: string, schema: any, action: (input: T) => Promise<unknown>) => server.registerTool(name, { description, inputSchema: schema }, async (input: T) => {
       try { return structured(await action(input)); }
       catch (error) { const response = errorResponse(error), detail = await response.json() as any; throw new Error(`${detail.error?.code ?? "operation_failed"}: ${detail.error?.message ?? "Operation failed"}`); }
@@ -153,9 +171,10 @@ function createMcpServer(service: ApiService): McpServer {
     tool("create_job", "Create a job using a saved execution integration ID. Credentials are never accepted or returned.", jobInputSchema, (input: any) => service.createJob(input));
     tool("update_job", "Replace a job configuration. Credentials are never accepted or returned.", jobUpdateInput.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.updateJob(jobId, input));
     tool("move_job", "Move a job between tenant projects without changing its execution configuration", z.object({ jobId: z.string().min(1), projectId: z.string().min(1), expectedUpdatedAt: z.string().optional() }), ({ jobId, projectId, expectedUpdatedAt }: any) => service.moveJob(jobId, projectId, expectedUpdatedAt));
-    tool("delete_job", "Delete a job and its queued invocation history", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));
+    tool("delete_job", "Delete a saved job and its triggers, retaining its runs", jobIdSchema, ({ jobId }: any) => service.deleteJob(jobId));
     tool("enable_job", "Enable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, true));
     tool("disable_job", "Disable a job", jobIdSchema, ({ jobId }: any) => service.setJobEnabled(jobId, false));
+    tool("start_run","Start a detached project VM run. Supply a literal prompt and optionally a launch skill. Subscribe to the returned outcome URI.",startRunInput,(input:any)=>service.startRun(input));
     tool("invoke_job", "Invoke a job's manual trigger with an optional display name, prompt, and JSON data exposed beneath that trigger's stable slug. Manual invocations are never coalesced; a full job queue returns queue_full. idempotencyKey is a client value and must not include the internal manual: claim-key prefix; reuse invocation.idempotency_key from get_run.", manualInvocationSchema.extend({ jobId: z.string().min(1) }), ({ jobId, ...input }: any) => service.invokeJob(jobId, input));
     tool("get_job_invocation_permissions", "List the destinations a source job may manually invoke.", jobIdSchema, ({ jobId }: any) => service.getInvocationPermissions(jobId));
     tool("set_job_invocation_permissions", "Replace manual invocation destinations for a source job. Requires an owner session, scoped API key, or authorized OAuth client with jobs:write; destination IDs must belong to the same tenant.", z.object({ jobId: z.string().min(1), destinationJobIds: z.array(z.string().uuid()).max(1000) }).strict(), ({ jobId, destinationJobIds }: any) => service.setInvocationPermissions(jobId, destinationJobIds));
@@ -171,10 +190,10 @@ function createMcpServer(service: ApiService): McpServer {
 // The SDK owns the request-scoped transport/server lifecycle. The factory only
 // resolves the service for the request being served, so tenant context cannot
 // leak between concurrent MCP calls.
-const mcpHandler = createMcpHandler(({ requestInfo }) => {
+const mcpHandler = createMcpHandler(({ requestInfo, era }) => {
     const service = requestInfo && mcpServices.get(requestInfo);
     if (!service) throw new Error("MCP request context is unavailable");
-    return createMcpServer(service);
+    return createMcpServer(service,era === "modern");
 });
 
 const mcpApps = new Map<string, Hono>();
@@ -182,7 +201,7 @@ function mcpAppFor(hostname: string) {
     let app = mcpApps.get(hostname);
     if (!app) {
       const protocol = createMcpHonoApp({ host: hostname, allowedHosts: [hostname], allowedOrigins: [hostname] });
-      protocol.all("/mcp", c => mcpHandler.fetch(c.req.raw, { parsedBody: (c as any).get("parsedBody") }));
+      protocol.all("/mcp", c => listeners.get(c.req.raw)?.() ?? mcpHandler.fetch(c.req.raw, { parsedBody: (c as any).get("parsedBody") }));
       app = new Hono();
       app.use("*",async(c,next)=> { if(mcpBodies.has(c.req.raw)) (c as any).set("parsedBody",mcpBodies.get(c.req.raw)); await next(); });
       app.route("/",protocol);
