@@ -51,11 +51,12 @@ export type OAuthProps = {
   runJobId?: string;
   runIdentityProvider?: "exe.dev" | "fly.io";
   /** Stable identifier for the OAuth authorization grant; never a bearer token. */
+  vmGrantId?: string;
   oauthGrantId?: string;
   oauthClientId?: string;
   /** Expiry of the presented, verified OAuth access token. */
   oauthExpiresAt?: number;
-  authMethod?: "session" | "oauth" | "access_token" | "vendor_identity";
+  authMethod?: "session" | "oauth" | "access_token" | "vendor_identity" | "vm_grant";
 };
 
 export interface WorkItem {

@@ -7,7 +7,7 @@ export type OutboundCredential = {
   headers?: Record<string, string>;
 };
 const hop = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"]);
-const privateHeaders = new Set(["host", "authorization", "cookie", "content-length", "expect", "forwarded", "x-factorize-run-id"]);
+const privateHeaders = new Set(["host", "authorization", "cookie", "content-length", "expect", "forwarded", "x-factorize-run-id", "x-factorize-vm-grant", "x-factorize-vm-proof"]);
 
 function filteredHeaders(input: Headers, request: boolean): Headers {
   const result = new Headers();

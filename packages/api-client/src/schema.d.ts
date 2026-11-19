@@ -1806,6 +1806,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent/vm-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delegate selected proxy integrations to an exe.dev VM
+         * @description Requires an OAuth agent with proxy:use, vm:grant and access to the provider and each selected integration. Expires with the issuing access token.
+         *
+         *     Requires the vm:grant and proxy:use scopes.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_agent_vm_grants"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/vm-grants/{grantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an external VM grant
+         * @description Only the issuing OAuth grant can revoke. Access stops before provider cleanup.
+         *
+         *     Requires the vm:grant scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        delete: operations["delete_api_v1_agent_vm_grants_grantId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent/reflection": {
         parameters: {
             query?: never;
@@ -1839,7 +1887,7 @@ export interface paths {
         put?: never;
         /**
          * Make an authorized credential-injected API request
-         * @description Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
+         * @description OAuth requires proxy:use. An external VM sends its short-lived exe.dev WIF bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -1861,7 +1909,7 @@ export interface paths {
         put?: never;
         /**
          * Read up to 64 KiB of an identity-bound retained response
-         * @description Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.
+         * @description Accepts the same OAuth, run or external VM authentication as the request endpoint. Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -7647,6 +7695,91 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    post_api_v1_agent_vm_grants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    providerIntegrationId: string;
+                    vm: string;
+                    integrationIds: string[];
+                    idempotencyKey: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Verified VM grant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        grantId: string;
+                        vm: string;
+                        integrationIds: string[];
+                        expiresAt: string;
+                        /** Format: uri */
+                        tokenUrl: string;
+                        proofFile: string;
+                        /** Format: uri */
+                        requestUrl: string;
+                        instructions: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_agent_vm_grants_grantId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked grant */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        grantId: string;
+                        revoked: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_agent_reflection: {
         parameters: {
             query?: never;
@@ -7670,6 +7803,13 @@ export interface operations {
                             kind: "oauth" | "run";
                         };
                         scopes: string[];
+                        proxy: {
+                            /** Format: uri */
+                            requestUrl: string;
+                            /** Format: uri */
+                            readResponseUrl: string;
+                            authentication: string;
+                        };
                         integrations: {
                             /** Format: uuid */
                             id: string;
@@ -7686,6 +7826,8 @@ export interface operations {
                             /** @enum {string} */
                             access: "granted" | "requestable" | "unavailable";
                             instructions: string;
+                            /** @constant */
+                            vmGrantProvider?: "exe.dev";
                         }[];
                     };
                 };

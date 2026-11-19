@@ -1,12 +1,12 @@
 import { Hono } from "hono";
 import { AgentApiError } from "./agent-api";
-import { requestApiInput, readApiResponseInput } from "./agent-api-contracts";
+import { grantVmInput, revokeVmInput } from "./agent-api-contracts";
 import { ExeIntegrationError } from "./exe-vm-backend";
 import { queryOf } from "./query-params";
 import { jobUpdateInput } from "./job-contracts";
 import { InvocationError } from "./job-domain";
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { createMcpHandler, McpServer, type ServerContext } from "@modelcontextprotocol/server";
+import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { createMcpHonoApp } from "@modelcontextprotocol/hono";
 import { z } from "zod";
 import { ApiService, ServiceError } from "./flow-service";
@@ -64,8 +64,6 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
       if (path === "/mcp") {
         if (!auth) throw new ServiceError(401, "invalid_token", "Unauthorized");
         const mcpService = new ApiService(env, auth);
-        // Authorization challenges must leave the HTTP boundary before the MCP
-        // SDK translates tool exceptions to JSON-RPC tool errors.
         if (request.method === "POST") {
           let mcpBytes=0;
           const limited = request.body?.pipeThrough(new TransformStream<Uint8Array,Uint8Array>({
@@ -74,11 +72,6 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
           let body: any;
           try { body = await new Response(limited).json(); } catch(error) { if(error instanceof ServiceError) throw error; throw new ServiceError(400,"invalid_request","Request body must be valid JSON."); }
           mcpBodies.set(request,body);
-          if (body?.method === "tools/call" && body.params?.name === "request_api") {
-            const input = requestApiInput.parse(body.params.arguments);
-            await mcpService.agentApi().authorize(input.integration);
-          }
-          if (body?.method === "tools/call" && body.params?.name === "read_api_response") await mcpService.agentApi().authorizeRead(readApiResponseInput.parse(body.params.arguments));
         }
         return await mcp(request, mcpService, env, ctx);
       }
@@ -120,27 +113,19 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
     } catch (error) { return timed(errorResponse(error, env.APP_ORIGIN)); }
 }
 
-const mcpServices = new WeakMap<Request, ApiService>();
 const mcpBodies = new WeakMap<Request, unknown>();
+const mcpServices = new WeakMap<Request, ApiService>();
+
 
 function createMcpServer(service: ApiService): McpServer {
     const server = new McpServer({ name: "factorize", version: "1.0.0" });
-    const tool = <T>(name: string, description: string, schema: any, action: (input: T, context: ServerContext) => Promise<unknown>) => server.registerTool(name, { description, inputSchema: schema }, async (input: T, context: ServerContext) => {
-      try {
-        const progressToken = context.mcpReq._meta?.progressToken;
-        const notify = async (progress: number) => {
-          if ((typeof progressToken === "string" || typeof progressToken === "number") && name === "request_api") await context.mcpReq.notify({method:"notifications/progress",params:{progressToken,progress,total:1}});
-        };
-        await notify(0);
-        const result = await action(input, context);
-        await notify(1);
-        return structured(result);
-      }
+    const tool = <T>(name: string, description: string, schema: any, action: (input: T) => Promise<unknown>) => server.registerTool(name, { description, inputSchema: schema }, async (input: T) => {
+      try { return structured(await action(input)); }
       catch (error) { const response = errorResponse(error), detail = await response.json() as any; throw new Error(`${detail.error?.code ?? "operation_failed"}: ${detail.error?.message ?? "Operation failed"}`); }
     });
     tool("get_api_reflection", "Discover this agent identity, effective Factorize scopes, and granted/requestable integration APIs. Availability describes connection state, not verified credential health.", z.object({}), () => service.getApiReflection());
-    tool("request_api", "Make an HTTP request to a selected integration. Supply a relative path/query, never an origin or upstream credential. Small bodies return inline; larger bodies return a handle retained for 24 hours. Upstream non-2xx status is preserved.", requestApiInput, (input: any, context) => service.requestApi(input, context.mcpReq.signal));
-    tool("read_api_response", "Read up to 64 KiB of a retained API response, base64 encoded. Reads recheck identity and integration authorization.", readApiResponseInput, (input: any) => service.readApiResponse(input));
+    tool("grant_vm", "Delegate selected proxy integrations to a VM on a supported provider connection.", grantVmInput, (input) => service.grantVm(input));
+    tool("revoke_vm_grant", "Revoke proxy access for an externally managed VM.", revokeVmInput, ({grantId}: any) => service.revokeVmGrant(grantId));
     tool("list_exe_connections", "List safe metadata for saved exe.dev connections. API tokens are never returned.", z.object({}), () => service.listExeConnections());
     tool("get_runtime_context", "Inspect the verified invocation identity without exposing credentials.", z.object({}), () => service.getRuntimeContext());
     tool("list_github_installations", "List connected GitHub App installations, including the installation IDs needed by GitHub Job triggers. Credentials are never returned.", z.object({}), () => service.listGitHubInstallations());

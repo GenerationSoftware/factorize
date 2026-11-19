@@ -1,3 +1,4 @@
+import { cleanupVmGrants } from "../vm-grants";
 import { cleanupAgentResponses } from "../agent-api";
 import { validateTraceSources, type TraceSource, type TraceSources } from "../trace-source";
 import { AmpBackend, type AmpConnection } from "../amp-backend";
@@ -54,6 +55,7 @@ export class RunScheduler {
     await this.reconcileProviderCleanup();
     await this.runRetentionMaintenance(retention);
     await cleanupAgentResponses(this.env);
+    await cleanupVmGrants(this.env);
   }
 
   private async runRetentionMaintenance(retention = new RunRetentionRepository(this.database)): Promise<void> {

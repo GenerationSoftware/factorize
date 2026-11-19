@@ -1,3 +1,4 @@
+import { authenticateVmGrant, VM_GRANT_HEADER } from "./vm-grants";
 import { staticApp, securityHeaders } from "./static-app";
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import app from "./index";
@@ -8,7 +9,7 @@ import { startConnection, connectionFor } from "./oauth-continuation";
 import { consentDecision } from "./consent-api";
 import { addDeviceMetadata, DEVICE_GRANT, deviceAuthorization, deviceClientRegistration, deviceToken, deviceVerification } from "./device-oauth";
 import type { Env, OAuthProps } from "./types";
-import { ACCESS_SCOPES, authenticateAccessToken } from "./access-tokens";
+import { AGENT_SCOPES, ACCESS_SCOPES, authenticateAccessToken, normalizeScopes } from "./access-tokens";
 import { authenticateVendorRunRequest, RUN_IDENTITY_HEADER } from "./vendor-run-auth";
 import { artifactUpload, readArtifactUploadGrant } from "./artifact-upload";
 import { traceChunkUpload } from "./trace-chunk-upload";
@@ -20,7 +21,7 @@ import { xOAuthCallback } from "./x-oauth-callback";
 const scopes = [...ACCESS_SCOPES];
 // Keep accepting grants issued by the pre-resource-scope protocol. New
 // consent screens and metadata advertise only the canonical scopes above.
-const oauthScopes = [...new Set([...scopes, "flows:read", "flows:write", "runs:write"])];
+const oauthScopes = [...new Set([...AGENT_SCOPES, "flows:read", "flows:write", "runs:write"])];
 async function currentOwner(request: Request, env: Env) {
   const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
   if (!session) return null;
@@ -81,7 +82,7 @@ function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
   scopesSupported: oauthScopes, allowImplicitFlow: false, allowPlainPKCE: false,
   accessTokenTTL: 3600, refreshTokenTTL: 2_592_000,
   clientIdMetadataDocumentEnabled: true,
-  resourceMetadata: { resource: `${env.APP_ORIGIN}/mcp`, authorization_servers: [env.APP_ORIGIN], scopes_supported: scopes, bearer_methods_supported: ["header"], resource_name: "Factorize jobs" },
+  resourceMetadata: { resource: `${env.APP_ORIGIN}/mcp`, authorization_servers: [env.APP_ORIGIN], scopes_supported: [...AGENT_SCOPES], bearer_methods_supported: ["header"], resource_name: "Factorize jobs" },
 }; }
 function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)); }
 
@@ -107,6 +108,27 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     const auth = await authenticateVendorRunRequest(request, env);
     if (!auth) return Response.json({ error: { code: "invalid_token", message: "The vendor identity is invalid or the run is no longer authorized." } }, { status: 401, headers: { "WWW-Authenticate": 'Bearer error="invalid_token"' } });
     return protectedApiFetch(request, apiEnv, auth, ctx);
+  }
+  const proxyEndpoint = request.method === "POST" && ["/api/v1/agent/requests","/api/v1/agent/responses/read"].includes(url.pathname);
+  if (request.headers.has(VM_GRANT_HEADER)) {
+    if (!proxyEndpoint) return Response.json({error:{code:"forbidden"}},{status:403});
+    const auth = await authenticateVmGrant(apiEnv,request);
+    if (!auth) return Response.json({error:{code:"invalid_token"}},{status:401});
+    return protectedApiFetch(request,apiEnv,auth,ctx);
+  }
+  const grantEndpoint = (url.pathname === "/api/v1/agent/vm-grants" && request.method === "POST")
+    || (request.method === "DELETE" && /^\/api\/v1\/agent\/vm-grants\/[a-f0-9-]+$/.test(url.pathname));
+  const reflectionEndpoint = request.method === "GET" && url.pathname === "/api/v1/agent/reflection";
+  if ((proxyEndpoint || grantEndpoint || reflectionEndpoint) && request.headers.get("Authorization")?.startsWith("Bearer ")) {
+    // These HTTP operations are part of the agent resource only with explicit
+    // proxy consent. Other REST operations retain their normal audience check.
+    const token = await apiEnv.OAUTH_PROVIDER.unwrapToken<OAuthProps>(request.headers.get("Authorization")!.slice(7));
+    const props = token?.grant.props;
+    if (!token || token.audience !== env.APP_ORIGIN+"/mcp" || !props || props.userId !== token.userId || token.expiresAt <= Date.now()/1000)
+      return Response.json({error:{code:"invalid_token"}},{status:401});
+    const effective = normalizeScopes(token.scope).filter(scope => normalizeScopes(props.scopes).includes(scope));
+    if (!effective.includes("proxy:use")) return Response.json({error:{code:"insufficient_scope"}},{status:403, headers:{"WWW-Authenticate":'Bearer error="insufficient_scope", scope="proxy:use"'}});
+    return protectedApiFetch(request,apiEnv,{...props,authMethod:"oauth",scopes:effective,oauthGrantId:token.grantId,oauthClientId:token.grant.clientId,oauthExpiresAt:token.expiresAt},ctx);
   }
   if (isBrowserAuthOperation(request.method, url.pathname)) return protectedApiFetch(request, apiEnv, null, ctx);
   if (url.pathname.startsWith("/api/v1") && !request.headers.has("Authorization")) {

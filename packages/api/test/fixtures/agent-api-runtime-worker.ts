@@ -1,3 +1,4 @@
+import { cleanupVmGrants } from "../../src/vm-grants";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import worker from "../../src/worker";
 import { cleanupAgentResponses } from "../../src/agent-api";
@@ -17,5 +18,5 @@ export default {
 // A test-only entrypoint drives the exact production heartbeat cleanup against
 // real PostgreSQL/R2, without adding a deployment endpoint or waiting 24 hours.
 export class AgentApiMaintenance extends WorkerEntrypoint<Env> {
-  async fetch() { await cleanupAgentResponses(this.env); return new Response("done"); }
+  async fetch() { await cleanupAgentResponses(this.env); await cleanupVmGrants(this.env); return new Response("done"); }
 }
