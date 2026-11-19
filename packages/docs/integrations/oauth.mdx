@@ -67,7 +67,7 @@ readable names and descriptions, instructions, access state, connection
 availability, and the required integration scope. Availability describes stored
 connection state, not a guarantee that an upstream credential is healthy.
 
-Use `request_api` with `integration`, an HTTP `method`, a relative `path` including
+POST JSON to the reflected `proxy.requestUrl` with `integration`, an HTTP `method`, a relative `path` including
 an optional query, optional safe `headers`, and optional `body`. `encoding` is
 `utf8` by default or `base64` for binary input. The origin and upstream
 credentials are selected by Factorize. A grant covers the whole integration,
@@ -87,20 +87,16 @@ Responses preserve the upstream `status`, safe `headers`, byte `size`, and body.
 An upstream non-2xx status is distinct from a local authorization or proxy error.
 UTF-8 responses of up to 32 KiB return inline with `encoding: "utf8"`; binary
 responses use `base64`. Larger responses are consumed into R2 and return a
-`handle` and `expiresAt`. A supporting MCP client receives standard progress
-notifications when it supplies a progress token; these are not partial tool
-result bodies.
+`handle` and `expiresAt`.
 
-Call `read_api_response` with the handle and a byte `offset` (initially zero).
+POST JSON to `proxy.readResponseUrl` with the handle and a byte `offset` (initially zero).
 Chunks are always base64, up to 64 KiB; use `nextOffset` until `done` is true.
 Handles are tenant/identity bound, expire after 24 hours, and recheck access on
 every read. Revocation blocks subsequent calls and reads but cannot undo an
 upstream action already accepted. Existing VM proxy URLs retain true streaming.
 
 The same operations are documented under `/api/v1/agent/reflection`,
-`/api/v1/agent/requests`, and `/api/v1/agent/responses/read`. OAuth audiences remain
-bound to their registered resource: an MCP-bound token does not also authorize
-REST. Owner policy endpoints require an interactive browser session. Authorized
+`/api/v1/agent/requests`, and `/api/v1/agent/responses/read`. Authorize `proxy:use` to use the HTTP proxy with the agent credential. Existing MCP authorizations without this scope require renewed consent. Other REST operations retain their own authentication requirements. Clients migrating from `request_api` and `read_api_response` send the same JSON arguments to the reflected HTTP endpoints with the Factorize bearer token. Owner policy endpoints require an interactive browser session. Authorized
 clients settings revoke individual connections; the existing client-wide revoke
 endpoint remains available for compatibility.
 
@@ -109,3 +105,15 @@ PostgreSQL receipts. A receipt exists before any R2 block is written, including
 interrupted/unreturned responses. Object deletion failures retain receipts for
 retry. Operators must retain the scheduler and RUN_ARTIFACTS binding when
 rolling out migration `0054_agent_api_grants`.
+
+## External VM access
+
+Start Codex with the device login helper from the Factorize checkout:
+
+```sh
+node scripts/agent-login.mjs codex
+```
+
+Approve the displayed code. The helper sets the short-lived Factorize credential for the child process and configures the Factorize MCP connection to use it. Supply additional integration scopes from reflection in the space-separated `FACTORIZE_SCOPES` environment variable on a subsequent login. In a shell with this environment, send JSON to the reflected request URL using `curl -H "@$FACTORIZE_AGENT_AUTH_FILE" --json ...`. The file is private to your OS user and the helper removes it when the child exits. For exe.dev, send method `POST`, path `/exec`, headers `{"Content-Type":"text/plain"}` and a command in `body`.
+
+After creating a VM, call `grant_vm` with the provider integration ID, VM name, selected integration IDs and an idempotency key. The guest reads its WIF token and local proof using the receipt instructions. Both authenticate only the reflected HTTP proxy operations. Grants expire with the issuing access token. Access through independent provider-native integrations is outside this grant. Revocation removes the Factorize identity integration and leaves the VM running.

@@ -57,7 +57,7 @@ export class AgentApiService {
     const auth = this.auth;
     const member = await new IdentityRepository(this.database, auth.tenantId).member(auth.userId);
     if (member?.role !== "owner" || member.sessionVersion !== auth.sessionVersion) throw invalidIdentity();
-    let kind: "run" | "oauth", subject: string, config: Record<string, any> | null = null;
+    let kind: "run" | "oauth" | "vm", subject: string, config: Record<string, any> | null = null;
     if (auth.authMethod === "vendor_identity" && auth.runId) {
       kind = "run"; subject = auth.runId;
       const row = (await this.database.pool.query<{execution_config: Record<string, any>}>(`SELECT r.execution_config FROM app.runs r
@@ -69,6 +69,18 @@ export class AgentApiService {
         AND r.state IN ('starting','running','blocked') AND j.state IN ('starting','running','blocked')`, [auth.tenantId, auth.runId, auth.runIdentityProvider, auth.userId, auth.sessionVersion])).rows[0];
       if (!row) throw invalidIdentity();
       config = row.execution_config;
+    } else if (auth.authMethod === "vm_grant" && auth.vmGrantId) {
+      kind = "vm"; subject = auth.vmGrantId;
+      const grant = (await this.database.pool.query(`SELECT g.permissions, g.parent_scopes FROM app.vm_grants g
+        JOIN app.agent_identities parent ON parent.tenant_id=g.tenant_id AND parent.id=g.parent_id
+        JOIN app.agent_integrations provider ON provider.tenant_id=g.tenant_id AND provider.id=g.provider_id
+        WHERE g.tenant_id=$1 AND g.id=$2 AND parent.user_id=$3 AND parent.session_version=$4
+        AND parent.revoked_at IS NULL AND g.issuer IS NOT NULL AND g.revoked_at IS NULL AND g.expires_at>now()
+        AND provider.available AND provider.epoch=g.provider_epoch AND (provider.policy='baseline' OR
+        (provider.policy='requestable' AND g.parent_scopes @> to_jsonb(ARRAY['integration:' || provider.id::text || ':' || provider.epoch::text])))`,
+        [auth.tenantId, subject, auth.userId, auth.sessionVersion])).rows[0];
+      if (!grant) throw invalidIdentity();
+      config = grant;
     } else if (auth.authMethod === "oauth" && auth.oauthGrantId && auth.oauthClientId && auth.oauthExpiresAt && auth.oauthExpiresAt > Date.now()/1000) {
       kind = "oauth"; subject = auth.oauthGrantId;
     } else throw invalidIdentity();
@@ -93,7 +105,11 @@ export class AgentApiService {
     const identity = await this.identity();
     const row = (await this.database.pool.query<AgentIntegration>("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, integration])).rows[0];
     if (!row) throw forbidden();
-    if (identity.kind === "run") {
+    if (identity.kind === "vm") {
+      const grant = identity.config!;
+      if (grant.permissions[row.id] !== row.epoch || !row.available || row.policy === "disabled"
+        || (row.policy !== "baseline" && !grant.parent_scopes.includes(requiredIntegrationScope(row)))) throw forbidden();
+    } else if (identity.kind === "run") {
       if (!this.selected(row, identity.config!)) throw forbidden();
       const revoked = await this.database.pool.query("SELECT 1 FROM app.run_credential_revocations WHERE tenant_id=$1 AND run_id=$2 AND kind=$3 AND credential_id=$4", [this.auth.tenantId, this.auth.runId, row.kind, row.credential_id]);
       if (revoked.rowCount || !row.available) throw forbidden();
@@ -114,9 +130,13 @@ export class AgentApiService {
         if (!(error instanceof AgentApiError) || error.status === 401) throw error;
         access = error.code === "insufficient_scope" ? "requestable" : "unavailable";
       }
-      result.push({...publicIntegration(row), access, instructions: row.kind === "x" ? "Use request_api with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use request_api with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use request_api with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use request_api with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use request_api with a path relative to /api/v2." : row.kind === "fly" ? "Use request_api with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use request_api with an OpenAI-compatible path relative to /v1." : "Use request_api with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions."});
+      result.push({...publicIntegration(row), access, ...(row.kind === "exe" && identity.kind === "oauth" && access === "granted" ? {vmGrantProvider: "exe.dev" as const} : {}), instructions: row.kind === "x" ? "Use the HTTP request endpoint with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use the HTTP request endpoint with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use the HTTP request endpoint with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use the HTTP request endpoint with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use the HTTP request endpoint with a path relative to /api/v2." : row.kind === "fly" ? "Use the HTTP request endpoint with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use the HTTP request endpoint with an OpenAI-compatible path relative to /v1." : "Use the HTTP request endpoint with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions."});
     }
-    return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(this.auth.scopes), integrations: result};
+    return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(this.auth.scopes), proxy: {
+      requestUrl: this.env.APP_ORIGIN + "/api/v1/agent/requests",
+      readResponseUrl: this.env.APP_ORIGIN + "/api/v1/agent/responses/read",
+      authentication: identity.kind === "run" ? "Use your run identity helper." : "POST JSON with integration, method, and path. Use the agent OAuth credential with proxy:use. With the Factorize device launcher, curl -H @\"$FACTORIZE_AGENT_AUTH_FILE\" reads the authorization header.",
+    }, integrations: result};
   }
   async forward(integration: string, path: string, request: Request) {
     const grant = await this.authorize(integration);

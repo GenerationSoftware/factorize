@@ -35,8 +35,8 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
 | `get_api_reflection` | Authenticated OAuth/run identity | `{}`. Discover the authorization identity, effective scopes, and granted/requestable integration APIs, including instructions, required OAuth scope, and connection availability. |
-| `request_api` | Baseline or integration scope; selected run grant | Required `integration`, `method`, relative `path`; optional safe `headers`, `body`, `encoding`. Send an integration-wide authorized request to a fixed upstream origin with server-injected credentials. Missing requestable access returns an HTTP OAuth insufficient-scope challenge before upstream side effects. Returns upstream status, safe headers, and UTF-8/base64 body or a 24-hour response handle. |
-| `read_api_response` | Same identity and current integration grant | Required `handle`; optional byte `offset`. Read up to 64 KiB from a tenant/identity-bound retained response. Chunks are base64; every read rechecks authorization, revocation and expiry. |
+| `grant_vm` | vm:grant and proxy:use | OAuth agent delegates explicit integration IDs to a VM on an eligible exe.dev connection. Requires providerIntegrationId, vm, integrationIds and idempotencyKey. |
+| `revoke_vm_grant` | vm:grant | Requires grantId. Invalidates guest access and schedules identity integration cleanup. |
 | `get_runtime_context` | Authenticated identity | `{}`; verified authentication kind, effective scopes, and source run/job IDs, without credentials |
 | `get_job_invocation_permissions` | jobs:read | Required string `jobId` |
 | `set_job_invocation_permissions` | jobs:write | Required `jobId` and `destinationJobIds` UUID array; owner session, scoped API key, or authorized OAuth client |
@@ -197,7 +197,7 @@ disabling or disconnecting revokes approvals, and re-enabling requires fresh con
 Job runs retain their independent, explicit credential selections.
 
 `get_api_reflection` lists integration references and access instructions.
-`request_api` forwards a relative path using the selected integration's stored
+The reflected HTTP proxy forwards a relative path using the selected integration's stored
 credential. The same policy applies to Bearer APIs, GitHub, Linear, model accounts,
 Fly.io, exe.dev, Amp, ClickUp, and X. Credentials stay on the server.
 

@@ -5,7 +5,7 @@ export const integrationRef = z.uuid();
 export const apiPolicyInput = z.object({ policy: z.enum(["baseline", "requestable", "disabled"]), expectedRevision: z.number().int().positive() }).strict();
 export const apiPolicy = z.object({ id: integrationRef, credentialId: z.string(), name: z.string(), description: z.string().nullable(), kind: z.enum(["bearer", "github", "linear", "model", "fly", "exe", "amp", "clickup", "x"]), policy: z.enum(["baseline", "requestable", "disabled"]), available: z.boolean(), revision: z.number().int(), requiredScope: z.string() });
 export const apiPolicyList = z.object({ integrations: z.array(apiPolicy) });
-export const apiReflection = z.object({ identity: z.object({ id: z.uuid(), kind: z.enum(["oauth", "run"]) }), scopes: z.array(z.string()), integrations: z.array(apiPolicy.extend({ access: z.enum(["granted", "requestable", "unavailable"]), instructions: z.string() })) });
+export const apiReflection = z.object({ identity: z.object({ id: z.uuid(), kind: z.enum(["oauth", "run"]) }), scopes: z.array(z.string()), proxy: z.object({ requestUrl: z.url(), readResponseUrl: z.url(), authentication: z.string() }), integrations: z.array(apiPolicy.extend({ access: z.enum(["granted", "requestable", "unavailable"]), instructions: z.string(), vmGrantProvider: z.literal("exe.dev").optional() })) });
 export const requestApiInput = z.object({
  integration: integrationRef,
  method: z.enum(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]),
@@ -16,3 +16,12 @@ export const requestApiInput = z.object({
 export const readApiResponseInput = z.object({ handle: z.uuid(), offset: z.number().int().nonnegative().default(0) }).strict();
 export const apiResponseChunk = z.object({ handle: z.uuid(), offset: z.number().int().nonnegative(), nextOffset: z.number().int().nonnegative(), size: z.number().int().nonnegative(), encoding: z.literal("base64"), body: z.string(), done: z.boolean() });
 export const requestApiResponse = z.object({ status: z.number().int(), headers: z.record(z.string(), z.string()), size: z.number().int().nonnegative(), encoding: z.enum(["utf8", "base64"]), body: z.string().optional(), handle: z.uuid().optional(), expiresAt: z.string().optional() });
+
+export const grantVmInput = z.object({
+  providerIntegrationId: integrationRef,
+  vm: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+  integrationIds: z.array(integrationRef).min(1).max(64).refine(ids => new Set(ids).size === ids.length),
+  idempotencyKey: z.string().min(1).max(160),
+}).strict();
+export const revokeVmInput = z.object({ grantId: z.uuid() }).strict();
+export const vmGrantReceipt = z.object({ grantId: z.uuid(), vm: z.string(), integrationIds: z.array(integrationRef), expiresAt: z.string(), tokenUrl: z.url(), proofFile: z.string(), requestUrl: z.url(), instructions: z.string() });

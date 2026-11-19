@@ -15,6 +15,18 @@ components:
       type: http
       scheme: bearer
       bearerFormat: OAuth2
+    vmWif:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    vmGrantHeader:
+      type: apiKey
+      in: header
+      name: X-Factorize-VM-Grant
+    vmProofHeader:
+      type: apiKey
+      in: header
+      name: X-Factorize-VM-Proof
     cookieAuth:
       type: apiKey
       in: cookie
@@ -11270,6 +11282,178 @@ paths:
           runIdentityHeader: []
       x-required-scope: []
       x-owner-session-required: false
+  /api/v1/agent/vm-grants:
+    post:
+      summary: Delegate selected proxy integrations to an exe.dev VM
+      description: |-
+        Requires an OAuth agent with proxy:use, vm:grant and access to the provider and each selected integration. Expires with the issuing access token.
+
+        Requires the vm:grant and proxy:use scopes.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Verified VM grant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  grantId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  vm:
+                    type: string
+                  integrationIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  expiresAt:
+                    type: string
+                  tokenUrl:
+                    type: string
+                    format: uri
+                  proofFile:
+                    type: string
+                  requestUrl:
+                    type: string
+                    format: uri
+                  instructions:
+                    type: string
+                required:
+                  - grantId
+                  - vm
+                  - integrationIds
+                  - expiresAt
+                  - tokenUrl
+                  - proofFile
+                  - requestUrl
+                  - instructions
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_agent_vm_grants
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: vm:grant+proxy:use
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                providerIntegrationId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                vm:
+                  type: string
+                  pattern: ^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$
+                integrationIds:
+                  minItems: 1
+                  maxItems: 64
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                idempotencyKey:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+              required:
+                - providerIntegrationId
+                - vm
+                - integrationIds
+                - idempotencyKey
+              additionalProperties: false
+  /api/v1/agent/vm-grants/{grantId}:
+    delete:
+      summary: Revoke an external VM grant
+      description: |-
+        Only the issuing OAuth grant can revoke. Access stops before provider cleanup.
+
+        Requires the vm:grant scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Revoked grant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  grantId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  revoked:
+                    type: boolean
+                required:
+                  - grantId
+                  - revoked
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: delete_api_v1_agent_vm_grants_grantId
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: vm:grant
+      x-owner-session-required: false
+      parameters:
+        - name: grantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/agent/reflection:
     get:
       summary: Discover agent identity and granted or requestable integration APIs
@@ -11305,6 +11489,22 @@ paths:
                     type: array
                     items:
                       type: string
+                  proxy:
+                    type: object
+                    properties:
+                      requestUrl:
+                        type: string
+                        format: uri
+                      readResponseUrl:
+                        type: string
+                        format: uri
+                      authentication:
+                        type: string
+                    required:
+                      - requestUrl
+                      - readResponseUrl
+                      - authentication
+                    additionalProperties: false
                   integrations:
                     type: array
                     items:
@@ -11356,6 +11556,9 @@ paths:
                             - unavailable
                         instructions:
                           type: string
+                        vmGrantProvider:
+                          type: string
+                          const: exe.dev
                       required:
                         - id
                         - credentialId
@@ -11372,6 +11575,7 @@ paths:
                 required:
                   - identity
                   - scopes
+                  - proxy
                   - integrations
                 additionalProperties: false
         "400":
@@ -11404,7 +11608,7 @@ paths:
     post:
       summary: Make an authorized credential-injected API request
       description: |-
-        Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
+        OAuth requires proxy:use. An external VM sends its short-lived exe.dev WIF bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
 
         Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
@@ -11473,7 +11677,9 @@ paths:
         - bearerAuth: []
         - vendorRunIdentity: []
           runIdentityHeader: []
-        - cookieAuth: []
+        - vmWif: []
+          vmGrantHeader: []
+          vmProofHeader: []
       x-required-scope: []
       x-owner-session-required: false
       requestBody:
@@ -11528,7 +11734,7 @@ paths:
     post:
       summary: Read up to 64 KiB of an identity-bound retained response
       description: |-
-        Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.
+        Accepts the same OAuth, run or external VM authentication as the request endpoint. Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.
 
         Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
@@ -11596,7 +11802,9 @@ paths:
         - bearerAuth: []
         - vendorRunIdentity: []
           runIdentityHeader: []
-        - cookieAuth: []
+        - vmWif: []
+          vmGrantHeader: []
+          vmProofHeader: []
       x-required-scope: []
       x-owner-session-required: false
       requestBody:

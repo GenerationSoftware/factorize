@@ -1,3 +1,4 @@
+import { grantVm, revokeVmGrant } from "./vm-grants";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
 import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
 import { DEFAULT_RUN_SCOPES } from "./run-scopes";
@@ -214,6 +215,8 @@ export class ApiService {
   private async authorizeOwnerSession(scope: Scope): Promise<void> { await this.authorize(scope); if (this.auth.authMethod !== "session") throw new ServiceError(403, "session_required", "An interactive owner session is required."); }
 
   agentApi() { return new AgentApiService(this.env, this.auth); }
+  grantVm(input: unknown) { return grantVm(this.env,this.auth,input); }
+  revokeVmGrant(id: string) { return revokeVmGrant(this.env,this.auth,id); }
   async getApiReflection() { return this.agentApi().reflection(); }
   async requestApi(input: unknown, signal?: AbortSignal) { return this.agentApi().request(requestApiInput.parse(input), signal); }
   async readApiResponse(input: unknown) { return this.agentApi().read(readApiResponseInput.parse(input)); }

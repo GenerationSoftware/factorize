@@ -69,8 +69,21 @@ export const agentIntegrations = app.table("agent_integrations", {
   policy:text("policy").$type<"baseline"|"requestable"|"disabled">().notNull().default("requestable"),epoch:integer("epoch").notNull().default(1),revision:integer("revision").notNull().default(1),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.kind,t.credentialId)]);
 export const agentIdentities = app.table("agent_identities", {
-  tenantId:uuid("tenant_id").notNull().references(()=>tenants.id,{onDelete:"cascade"}),id:uuid("id").notNull().defaultRandom(),kind:text("kind").$type<"oauth"|"run">().notNull(),subject:text("subject").notNull(),userId:uuid("user_id").notNull(),sessionVersion:integer("session_version").notNull(),revokedAt:timestamp("revoked_at",{withTimezone:true}),createdAt:createdAt(),
+  tenantId:uuid("tenant_id").notNull().references(()=>tenants.id,{onDelete:"cascade"}),id:uuid("id").notNull().defaultRandom(),kind:text("kind").$type<"oauth"|"run"|"vm">().notNull(),subject:text("subject").notNull(),userId:uuid("user_id").notNull(),sessionVersion:integer("session_version").notNull(),revokedAt:timestamp("revoked_at",{withTimezone:true}),createdAt:createdAt(),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.kind,t.subject)]);
+export const vmGrants = app.table("vm_grants", {
+  tenantId: uuid("tenant_id").notNull(), id: uuid("id").primaryKey().defaultRandom(),
+  parentId: uuid("parent_id").notNull(), providerId: uuid("provider_id").notNull(),
+  providerEpoch: integer("provider_epoch").notNull(), vm: text("vm").notNull(),
+  permissions: jsonb("permissions").notNull(), parentScopes: jsonb("parent_scopes").notNull(),
+  requestKey: text("request_key").notNull(), issuer: text("issuer"), subject: text("subject"), proofHash: text("proof_hash"),
+  expiresAt: timestamp("expires_at", {withTimezone:true}).notNull(),
+  cleanupAfter: timestamp("cleanup_after",{withTimezone:true}).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", {withTimezone:true}), cleanedAt: timestamp("cleaned_at", {withTimezone:true}),
+}, t => [unique().on(t.tenantId,t.parentId,t.requestKey),
+  foreignKey({columns:[t.tenantId,t.parentId],foreignColumns:[agentIdentities.tenantId,agentIdentities.id]}).onDelete("cascade"),
+  foreignKey({columns:[t.tenantId,t.providerId],foreignColumns:[agentIntegrations.tenantId,agentIntegrations.id]}),
+  index("vm_grant_cleanup").on(t.expiresAt).where(sql`${t.cleanedAt} IS NULL`)]);
 export const agentProxyResponses = app.table("agent_proxy_responses", {
   tenantId:uuid("tenant_id").notNull(),id:uuid("id").notNull(),identityId:uuid("identity_id").notNull(),integrationId:uuid("integration_id").notNull(),integrationEpoch:integer("integration_epoch").notNull(),objectKey:text("object_key").notNull().unique(),size:integer("size"),expiresAt:timestamp("expires_at",{withTimezone:true}).notNull(),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),foreignKey({columns:[t.tenantId,t.identityId],foreignColumns:[agentIdentities.tenantId,agentIdentities.id]}),foreignKey({columns:[t.tenantId,t.integrationId],foreignColumns:[agentIntegrations.tenantId,agentIntegrations.id]}),index("agent_proxy_response_expiry").on(t.expiresAt)]);
@@ -182,7 +195,7 @@ export const runRelations = relations(runs, ({ one, many }) => ({
 
 export const databaseSchema = {
   schemaMigrations, tenants, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
-  connections, agentIntegrations, agentIdentities, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, modelDeviceAuthorizations, linearWorkspaces, githubInstallations, githubSetupStates, projects, jobs, vmImageVerifications, skills, jobSkills, triggers, webhookConditionsCutover, invocations, manualInvocationPermissions, jobRuns, runAuthorizations, runs, runArtifacts, runRetentionCleanup,
+  connections, agentIntegrations, agentIdentities, vmGrants, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, modelDeviceAuthorizations, linearWorkspaces, githubInstallations, githubSetupStates, projects, jobs, vmImageVerifications, skills, jobSkills, triggers, webhookConditionsCutover, invocations, manualInvocationPermissions, jobRuns, runAuthorizations, runs, runArtifacts, runRetentionCleanup,
   runTraceEvents, runActivity, activeClaims, scheduleState, automaticWakes, lifecycleDeliveries, lifecycleEvents, jobEditDeliveries, jobEvents,
   webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints, runTraceCursors, runTraceChunks,
   runTraceProjections, traceReplayLimits, traceReplayOperations,

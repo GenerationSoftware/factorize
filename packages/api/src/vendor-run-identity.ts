@@ -59,7 +59,7 @@ function audiences(value: unknown): string[] {
   return [];
 }
 
-function providerVmId(provider: VendorIdentityProvider, claims: JwtClaims, binding: VendorRunBinding): string | null {
+function providerVmId(provider: VendorIdentityProvider, claims: JwtClaims, binding: Omit<VendorRunBinding, "runId" | "activeRunId">): string | null {
   if (provider === "fly.io") return typeof claims.machine_id === "string" ? claims.machine_id : null;
   const attachment = binding.exeAttachment;
   if (!attachment || attachment.mode !== "vm" || !attachment.integrationName || attachment.attachedVmId !== binding.vmId) return null;
@@ -88,6 +88,14 @@ export async function verifyVendorRunIdentity(options: {
   nowSeconds?: number;
   clockSkewSeconds?: number;
 }): Promise<VendorIdentity> {
+  if (!options.binding.runId || options.binding.runId !== options.binding.activeRunId) throw new Error("Vendor identity is not bound to an active run");
+  return { ...await verifyVendorMachineIdentity(options), runId: options.binding.runId };
+}
+
+export async function verifyVendorMachineIdentity(options: {
+  token: string; binding: Omit<VendorRunBinding, "runId" | "activeRunId">; resolveKey: JwksResolver;
+  nowSeconds?: number; clockSkewSeconds?: number;
+}) {
   const { token, binding } = options;
   const parts = token.split(".");
   if (parts.length !== 3 || parts.some(part => !part)) throw new Error("Invalid vendor identity token");
@@ -105,11 +113,10 @@ export async function verifyVendorRunIdentity(options: {
   if (typeof claims.exp !== "number" || !Number.isFinite(claims.exp) || claims.exp <= now) throw new Error("Vendor identity has expired");
   if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat > now + skew || claims.exp - claims.iat > maxAge + skew) throw new Error("Vendor identity lifetime is invalid");
   if (claims.nbf !== undefined && (typeof claims.nbf !== "number" || !Number.isFinite(claims.nbf) || claims.nbf > now + skew)) throw new Error("Vendor identity is not yet valid");
-  if (!binding.runId || binding.runId !== binding.activeRunId) throw new Error("Vendor identity is not bound to an active run");
   const vmId = providerVmId(binding.provider, claims, binding);
   if (!vmId || vmId !== binding.vmId) throw new Error("Vendor identity VM mismatch");
 
-  return { provider: binding.provider, issuer: binding.issuer, subject: claims.sub, audience: binding.audience, runId: binding.runId, vmId, issuedAt: claims.iat, expiresAt: claims.exp, keyId: header.kid };
+  return { provider: binding.provider, issuer: binding.issuer, subject: claims.sub, audience: binding.audience, vmId, issuedAt: claims.iat, expiresAt: claims.exp, keyId: header.kid };
 }
 
 /** A bounded JWKS cache. Unknown kids force one refresh so key rotation fails closed. */

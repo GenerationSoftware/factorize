@@ -75,8 +75,22 @@ export class ExeVmBackend implements ExecutionBackend {
     return result.body.trim();
   }
 
+  /** Pin a guest-generated random value as well as the provider attachment.
+   * Recreating a VM under the same name does not recreate this file. */
+  async enrollGuest(vm: string, grantId: string, integrationName: string) {
+    const file = `.factorize-vm-grants/${grantId}`;
+    const command = `set -eu; umask 077; cd "$HOME"; mkdir -p .factorize-vm-grants; if [ ! -f ${file} ]; then openssl rand -hex 32 > ${file}; fi; sha256sum ${file}`;
+    const result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(command)}`);
+    const hash = result.body.trim().split(/\s+/)[0];
+    if (!result.ok || !hash || !/^[a-f0-9]{64}$/.test(hash)) throw new Error("VM enrollment failed");
+    return { proofHash: hash, token: await this.exeWifToken(vm, integrationName) };
+  }
+
   private async ensureExeWif(vm: string, runId: string, create = true): Promise<ExeWifConfiguration> {
-    const name = exeWifIntegrationNameFor(runId), audience = `factorize://runs/${runId}`;
+    return this.identityIntegration(vm, exeWifIntegrationNameFor(runId), `factorize://runs/${runId}`, create);
+  }
+
+  async identityIntegration(vm: string, name: string, audience: string, create: boolean): Promise<ExeWifConfiguration> {
     if (create) {
       const created = await this.api(`integrations add wif --name=${shellAtom(name)} --audience=${shellAtom(audience)} --consumer=gcp --attach=${shellAtom(`vm:${vm}`)}`);
       if (!created.ok) throw new Error(`exe.dev WIF integration setup failed (${created.status})`);
@@ -102,6 +116,10 @@ export class ExeVmBackend implements ExecutionBackend {
 
   private async removeExeWif(vm: string, runId: string, name: string): Promise<void> {
     if (name !== exeWifIntegrationNameFor(runId)) throw new Error("Refusing to remove an unrelated exe.dev WIF integration");
+    return this.removeIdentityIntegration(vm, name, `factorize://runs/${runId}`);
+  }
+
+  async removeIdentityIntegration(vm: string, name: string, audience: string, expected?: {issuer: string; subject: string}): Promise<void> {
     const listed = await this.api("integrations list --json");
     if (!listed.ok) throw new Error("exe.dev WIF cleanup could not verify integration ownership");
     let integrations: any[];
@@ -112,10 +130,12 @@ export class ExeVmBackend implements ExecutionBackend {
     } catch { throw new Error("exe.dev WIF cleanup inventory is invalid"); }
     const matches = integrations.filter(item => item?.name === name);
     if (!matches.length) return;
-    const audience = `factorize://runs/${runId}`;
     if (matches.length !== 1 || matches[0]?.type !== "wif" || matches[0]?.config?.audience !== audience
       || !Array.isArray(matches[0]?.attachments) || matches[0].attachments.length !== 1 || matches[0].attachments[0] !== `vm:${vm}`) {
       throw new Error("exe.dev WIF ownership or attachment does not match");
+    }
+    if (expected && (matches[0].config.subject !== expected.subject || `https://exe.dev/issuer/${matches[0].config.issuer_id}` !== expected.issuer)) {
+      throw new Error("Refusing to remove a replacement WIF integration");
     }
     const removed = await this.api(`integrations remove ${shellAtom(name)}`);
     if (!removed.ok && removed.status !== 404) throw new Error("exe.dev WIF removal failed");
