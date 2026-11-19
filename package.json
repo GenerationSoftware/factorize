@@ -50,6 +50,7 @@
     "esbuild@0.28.1": true,
     "sharp@0.33.5": true,
     "workerd@1.20251118.0": true,
-    "workerd@1.20260910.1": true
+    "workerd@1.20260910.1": true,
+    "workerd@1.20261116.1": true
   }
 }

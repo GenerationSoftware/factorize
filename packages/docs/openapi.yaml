@@ -8771,6 +8771,413 @@ paths:
           schema:
             type: string
             minLength: 1
+  /api/v1/skill-library:
+    get:
+      summary: Read skill repository settings
+      responses:
+        "200":
+          description: Read skill repository settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    anyOf:
+                      - oneOf:
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: managed
+                            required:
+                              - kind
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: github
+                              installationId:
+                                type: integer
+                                exclusiveMinimum: 0
+                                maximum: 9007199254740991
+                              repositoryId:
+                                type: integer
+                                exclusiveMinimum: 0
+                                maximum: 9007199254740991
+                              branch:
+                                type: string
+                                minLength: 1
+                                maxLength: 255
+                                pattern: ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$
+                              folder:
+                                type: string
+                                maxLength: 512
+                            required:
+                              - kind
+                              - installationId
+                              - repositoryId
+                              - branch
+                              - folder
+                            additionalProperties: false
+                      - type: "null"
+                  remote:
+                    type:
+                      - string
+                      - "null"
+                  commit:
+                    type:
+                      - string
+                      - "null"
+                  upstreamCommit:
+                    type:
+                      - string
+                      - "null"
+                  error:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - source
+                  - remote
+                  - commit
+                  - upstreamCommit
+                  - error
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_skill_library
+      tags:
+        - skill-library
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: skills:read
+      x-owner-session-required: false
+    put:
+      summary: Select the authoritative skills repository
+      responses:
+        "200":
+          description: Select the authoritative skills repository
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    anyOf:
+                      - oneOf:
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: managed
+                            required:
+                              - kind
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: github
+                              installationId:
+                                type: integer
+                                exclusiveMinimum: 0
+                                maximum: 9007199254740991
+                              repositoryId:
+                                type: integer
+                                exclusiveMinimum: 0
+                                maximum: 9007199254740991
+                              branch:
+                                type: string
+                                minLength: 1
+                                maxLength: 255
+                                pattern: ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$
+                              folder:
+                                type: string
+                                maxLength: 512
+                            required:
+                              - kind
+                              - installationId
+                              - repositoryId
+                              - branch
+                              - folder
+                            additionalProperties: false
+                      - type: "null"
+                  remote:
+                    type:
+                      - string
+                      - "null"
+                  commit:
+                    type:
+                      - string
+                      - "null"
+                  upstreamCommit:
+                    type:
+                      - string
+                      - "null"
+                  error:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - source
+                  - remote
+                  - commit
+                  - upstreamCommit
+                  - error
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:write scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: put_api_v1_skill_library
+      tags:
+        - skill-library
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: skills:write
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  properties:
+                    kind:
+                      type: string
+                      const: managed
+                  required:
+                    - kind
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    kind:
+                      type: string
+                      const: github
+                    installationId:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    repositoryId:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    branch:
+                      type: string
+                      minLength: 1
+                      maxLength: 255
+                      pattern: ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$
+                    folder:
+                      type: string
+                      maxLength: 512
+                  required:
+                    - kind
+                    - installationId
+                    - repositoryId
+                    - branch
+                    - folder
+                  additionalProperties: false
+  /api/v1/skill-library/token:
+    post:
+      summary: Issue a one-hour repository write credential
+      responses:
+        "200":
+          description: Issue a one-hour repository write credential
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  remote:
+                    type: string
+                  token:
+                    type: string
+                  expiresAt:
+                    type: string
+                required:
+                  - remote
+                  - token
+                  - expiresAt
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:write scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: post_api_v1_skill_library_token
+      tags:
+        - skill-library
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: skills:write
+      x-owner-session-required: false
+  /api/v1/skill-library/sync:
+    post:
+      summary: Synchronize the tracked branch
+      responses:
+        "200":
+          description: Synchronize the tracked branch
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    anyOf:
+                      - oneOf:
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: managed
+                            required:
+                              - kind
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: github
+                              installationId:
+                                type: integer
+                                exclusiveMinimum: 0
+                                maximum: 9007199254740991
+                              repositoryId:
+                                type: integer
+                                exclusiveMinimum: 0
+                                maximum: 9007199254740991
+                              branch:
+                                type: string
+                                minLength: 1
+                                maxLength: 255
+                                pattern: ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$
+                              folder:
+                                type: string
+                                maxLength: 512
+                            required:
+                              - kind
+                              - installationId
+                              - repositoryId
+                              - branch
+                              - folder
+                            additionalProperties: false
+                      - type: "null"
+                  remote:
+                    type:
+                      - string
+                      - "null"
+                  commit:
+                    type:
+                      - string
+                      - "null"
+                  upstreamCommit:
+                    type:
+                      - string
+                      - "null"
+                  error:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - source
+                  - remote
+                  - commit
+                  - upstreamCommit
+                  - error
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:write scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: post_api_v1_skill_library_sync
+      tags:
+        - skill-library
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: skills:write
+      x-owner-session-required: false
   /api/v1/skills:
     get:
       summary: Search global skills
@@ -11614,6 +12021,24 @@ paths:
                         additionalProperties: {}
                       prompt:
                         type: string
+                      skillFiles:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            path:
+                              type: string
+                              minLength: 1
+                              maxLength: 1024
+                            content:
+                              type: string
+                            executable:
+                              type: boolean
+                          required:
+                            - path
+                            - content
+                            - executable
+                          additionalProperties: false
                       harness:
                         type: object
                         properties:

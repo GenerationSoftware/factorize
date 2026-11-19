@@ -1536,6 +1536,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/skill-library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read skill repository settings
+         * @description Requires the skills:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_skill_library"];
+        /**
+         * Select the authoritative skills repository
+         * @description Requires the skills:write scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        put: operations["put_api_v1_skill_library"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skill-library/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a one-hour repository write credential
+         * @description Requires the skills:write scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_skill_library_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skill-library/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Synchronize the tracked branch
+         * @description Requires the skills:write scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_skill_library_sync"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/skills": {
         parameters: {
             query?: never;
@@ -6643,6 +6715,185 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_skill_library: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read skill repository settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        source: ({
+                            /** @constant */
+                            kind: "managed";
+                        } | {
+                            /** @constant */
+                            kind: "github";
+                            installationId: number;
+                            repositoryId: number;
+                            branch: string;
+                            folder: string;
+                        }) | null;
+                        remote: string | null;
+                        commit: string | null;
+                        upstreamCommit: string | null;
+                        error: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_skill_library: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @constant */
+                    kind: "managed";
+                } | {
+                    /** @constant */
+                    kind: "github";
+                    installationId: number;
+                    repositoryId: number;
+                    branch: string;
+                    folder: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Select the authoritative skills repository */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        source: ({
+                            /** @constant */
+                            kind: "managed";
+                        } | {
+                            /** @constant */
+                            kind: "github";
+                            installationId: number;
+                            repositoryId: number;
+                            branch: string;
+                            folder: string;
+                        }) | null;
+                        remote: string | null;
+                        commit: string | null;
+                        upstreamCommit: string | null;
+                        error: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_skill_library_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Issue a one-hour repository write credential */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        remote: string;
+                        token: string;
+                        expiresAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_skill_library_sync: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Synchronize the tracked branch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        source: ({
+                            /** @constant */
+                            kind: "managed";
+                        } | {
+                            /** @constant */
+                            kind: "github";
+                            installationId: number;
+                            repositoryId: number;
+                            branch: string;
+                            folder: string;
+                        }) | null;
+                        remote: string | null;
+                        commit: string | null;
+                        upstreamCommit: string | null;
+                        error: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_skills: {
         parameters: {
             query?: {
@@ -7771,6 +8022,11 @@ export interface operations {
                             [key: string]: unknown;
                         };
                         prompt: string;
+                        skillFiles?: {
+                            path: string;
+                            content: string;
+                            executable: boolean;
+                        }[];
                         harness: {
                             executable: string;
                             args: string[];

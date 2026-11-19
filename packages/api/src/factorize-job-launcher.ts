@@ -1,5 +1,6 @@
 /** Small guest-side supervisor shared by Fly and exe.dev execution backends. */
 export const FACTORIZE_JOB_LAUNCHER = String.raw`#!/usr/bin/env python3
+import base64
 import json
 import os
 import pathlib
@@ -117,7 +118,19 @@ def launch(foreground=False, run_id=None):
         pathlib.Path(trace).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         pathlib.Path(trace).touch(mode=0o600, exist_ok=True)
     command, stdin, env = child_command(payload)
-    PAYLOAD.write_text(json.dumps({key: value for key, value in payload.items() if key != 'prompt'}), encoding='utf-8')
+    if payload.get('skillFiles'):
+        skills = pathlib.Path(tempfile.mkdtemp(prefix='skills-', dir=ROOT))
+        for file in payload['skillFiles']:
+            parts = file['path'].split('/')
+            if len(parts) < 2 or any(not part or part in ('.', '..') or part.lower() == '.git' or '\\' in part for part in parts):
+                raise ValueError('invalid skill file path')
+            destination = skills.joinpath(*parts)
+            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            with destination.open('xb') as stream:
+                stream.write(base64.b64decode(file['content'], validate=True))
+            destination.chmod(0o700 if file['executable'] else 0o600)
+        env['FACTORIZE_SKILLS_DIR'] = str(skills)
+    PAYLOAD.write_text(json.dumps({key: value for key, value in payload.items() if key not in ('prompt', 'skillFiles')}), encoding='utf-8')
     input_path = ROOT / 'prompt.txt'
     input_path.write_bytes(stdin)
     save(STATE, {'state': 'starting'})
