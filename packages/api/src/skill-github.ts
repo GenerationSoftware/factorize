@@ -14,6 +14,17 @@ type Entry = { path: string; type: string; mode: string; sha: string; size?: num
 type Tree = { tree: Entry[]; truncated: boolean };
 type Change = { path: string; mode: string; type: "blob"; sha: string | null };
 
+async function blobId(content: string) {
+  const bytes = Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
+  const header = new TextEncoder().encode("blob " + bytes.length + "\0");
+  const object = new Uint8Array(header.length + bytes.length);
+  object.set(header);
+  object.set(bytes, header.length);
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", object)), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 /** Git Data reads pin every tree and blob to the observed commit. A large project
  * can share its skills folder without cloning the rest of its working tree. */
 export class GitHubSkills {
@@ -46,7 +57,11 @@ export class GitHubSkills {
     );
     this.head = ref.object.sha;
   }
-  private async entries(folder: string) {
+  folderTree: string | null = null;
+  private resolvedFolder?: string;
+  async resolveFolder(folder: string) {
+    if (this.resolvedFolder === folder) return this.folderTree;
+
     const commit = await this.request<{ tree: { sha: string } }>("/git/commits/" + this.head);
     this.root = commit.tree.sha;
     let oid = this.root;
@@ -54,10 +69,21 @@ export class GitHubSkills {
       const tree = await this.request<Tree>("/git/trees/" + oid);
       if (tree.truncated) throw new SkillConflict("GitHub truncated the directory listing");
       const dir = tree.tree.find((entry) => entry.path === part);
-      if (!dir) return [];
+      if (!dir) {
+        this.resolvedFolder = folder;
+        this.folderTree = null;
+        return null;
+      }
       if (dir.type !== "tree") throw new SkillConflict("The tracked GitHub skills folder does not exist");
       oid = dir.sha;
     }
+    this.resolvedFolder = folder;
+    this.folderTree = oid;
+    return oid;
+  }
+  private async entries(folder: string) {
+    const oid = await this.resolveFolder(folder);
+    if (!oid) return [];
     const tree = await this.request<Tree>("/git/trees/" + oid + "?recursive=1");
     if (tree.truncated || tree.tree.length > SKILL_LIBRARY_ENTRIES)
       throw new SkillConflict("The GitHub skills folder exceeds 2000 entries");
@@ -84,22 +110,29 @@ export class GitHubSkills {
       throw new SkillConflict("The GitHub skills folder exceeds 8 MiB");
     return entries;
   }
-  async directories(folder: string) {
+  async directories(folder: string, previous: Directory[] = []) {
+    const cached = new Map<string, string>();
+    for (const dir of previous)
+      for (const file of dir.files) cached.set(await blobId(file.content), file.content);
     const entries = await this.entries(folder);
     const dirs = new Map<string, Directory>();
     for (let i = 0; i < entries.length; i += 6) {
       const files = await Promise.all(
         entries.slice(i, i + 6).map(async (entry) => {
-          const blob = await this.request<{ encoding: string; content: string }>("/git/blobs/" + entry.sha);
-          if (blob.encoding !== "base64")
-            throw new SkillConflict("GitHub returned an unsupported blob encoding");
+          let content = cached.get(entry.sha);
+          if (content === undefined) {
+            const blob = await this.request<{ encoding: string; content: string }>("/git/blobs/" + entry.sha);
+            if (blob.encoding !== "base64")
+              throw new SkillConflict("GitHub returned an unsupported blob encoding");
+            content = blob.content.replace(/\s/g, "");
+          }
           const [key, ...path] = entry.path.split("/");
           return {
             key,
             file: {
               path: path.join("/"),
               executable: entry.mode === "100755",
-              content: blob.content.replace(/\s/g, ""),
+              content,
             },
           };
         }),
@@ -123,14 +156,7 @@ export class GitHubSkills {
         const path = dir.key + "/" + file.path;
         const old = existing.get(path);
         existing.delete(path);
-        const bytes = Uint8Array.from(atob(file.content), (c) => c.charCodeAt(0));
-        const header = new TextEncoder().encode("blob " + bytes.length + "\0");
-        const object = new Uint8Array(header.length + bytes.length);
-        object.set(header);
-        object.set(bytes, header.length);
-        const oid = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", object)), (b) =>
-          b.toString(16).padStart(2, "0"),
-        ).join("");
+        const oid = await blobId(file.content);
         const mode = file.executable ? "100755" : "100644";
         if (old?.sha === oid && old.mode === mode) continue;
         const blob = await this.request<{ sha: string }>("/git/blobs", "POST", {

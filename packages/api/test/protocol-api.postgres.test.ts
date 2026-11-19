@@ -1,9 +1,12 @@
+import { installSkillArtifacts } from "./helpers/memory-skill-git";
+import { SkillContent } from "../src/skill-content";
 import { SkillRepository } from "../src/postgres/skill-repository";
 import worker from "../src/worker";
 import { describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { protectedApiFetch } from "../src/protected-api";
 import { deviceAuthorization } from "../src/device-oauth";
+vi.mock("../src/skill-git", () => ({withSkillGit: vi.fn()}));
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
 const url = process.env.AUTH_TEST_DATABASE_URL;
@@ -11,6 +14,7 @@ const url = process.env.AUTH_TEST_DATABASE_URL;
 describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", { timeout: 30_000 }, () => {
   it("lists skills and their usage through an existing browser session", async () => {
     const f = await loadingFixture(url!);
+    installSkillArtifacts(f.env);
     try {
       const request = (body?: unknown) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1/skills", {
         method: body ? "POST" : "GET",
@@ -39,6 +43,7 @@ describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", { timeout: 30_0
 
   it("reads, previews and attaches persisted skills through the API", async () => {
     const f = await loadingFixture(url!);
+    installSkillArtifacts(f.env);
     try {
       const request = (path: string, method = "GET", body?: unknown) => worker.fetch(new Request(f.env.APP_ORIGIN + "/api/v1" + path, {
         method, headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" },
@@ -51,7 +56,7 @@ describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", { timeout: 30_0
       const read = await request(`/skills/${skill.id}`);
       expect(read.status).toBe(200);
       expect(await read.json()).toMatchObject({ id: skill.id, body });
-      const repository = new SkillRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY);
+      const repository = new SkillRepository(f.db, f.tenantId, f.env.CREDENTIAL_ENCRYPTION_KEY, undefined, new SkillContent(f.env.SKILL_ARTIFACTS));
       expect(await repository.get("integration-context")).toMatchObject({ id: skill.id, body });
       expect(await repository.get("missing-key")).toBeNull();
       expect(await repository.get(crypto.randomUUID())).toBeNull();

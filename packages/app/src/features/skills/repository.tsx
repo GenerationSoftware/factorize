@@ -38,7 +38,14 @@ export function SkillsRepository() {
         body:
           kind === "managed"
             ? { kind: "managed" }
-            : { kind: "github", installationId: installation, repositoryId: repository, branch, folder },
+            : {
+                kind: "github",
+                confirmOverwrite: true,
+                installationId: installation,
+                repositoryId: repository,
+                branch,
+                folder,
+              },
       });
       if (!result.data) throw failure(result.error);
     },
@@ -66,7 +73,7 @@ export function SkillsRepository() {
   return (
     <Card className="mb-6 grid gap-3">
       <h2>Git repository</h2>
-      {active?.source?.kind === "managed" && (
+      {active?.remote && (
         <Label>
           Factorize remote
           <Input readOnly value={active.remote ?? ""} />
@@ -114,7 +121,7 @@ export function SkillsRepository() {
               Sync now
             </Button>
           )}
-          {active?.source?.kind === "managed" && (
+          {active?.remote && (
             <Button disabled={token.isPending} onClick={() => token.mutate()}>
               Get Git credential
             </Button>
@@ -123,7 +130,8 @@ export function SkillsRepository() {
       )}
       {token.data && (
         <Label>
-          Git bearer token · expires {new Date(token.data.expiresAt).toLocaleTimeString()}
+          {active?.source?.kind === "github" ? "Read-only Git bearer token" : "Git bearer token"} · expires{" "}
+          {new Date(token.data.expiresAt).toLocaleTimeString()}
           <Input
             readOnly
             spellCheck={false}
@@ -138,11 +146,18 @@ export function SkillsRepository() {
           className="grid gap-3"
           onSubmit={(event) => {
             event.preventDefault();
+            if (
+              kind === "github" &&
+              !window.confirm(
+                `Replace all current skills with ${repositories.data?.find((r) => r.id === repository)?.fullName ?? repository} on ${branch} in ${folder || "/"}? An empty folder removes all skills.`,
+              )
+            )
+              return;
             configure.mutate();
           }}
         >
           <Label>
-            Push skills to
+            Source of truth
             <Select value={kind} onChange={(e) => setKind(e.target.value)}>
               <option value="managed">Factorize</option>
               <option value="github">GitHub</option>
@@ -198,9 +213,8 @@ export function SkillsRepository() {
                 <Input value={folder} onChange={(e) => setFolder(e.target.value)} />
               </Label>
               <p>
-                Choose an existing branch. Each skill lives in its own folder with a SKILL.md file. Connecting
-                publishes the branch’s skills to future runs and commits any missing Factorize skills to this
-                folder.
+                Each skill needs its own folder with a SKILL.md file. The selected folder replaces your active
+                library. Future edits commit to this GitHub branch.
               </p>
             </>
           )}

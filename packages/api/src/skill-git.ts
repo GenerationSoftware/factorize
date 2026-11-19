@@ -15,7 +15,7 @@ import {
 } from "./skill-files";
 import { SKILL_KEY } from "./skills";
 
-export type GitRemote = { url: string; branch: string; headers: Record<string, string> };
+export type GitRemote = { url: string; branch: string; commit?: string; headers: Record<string, string> };
 const author = { name: "Factorize", email: "skills@factorize.sh" };
 
 // Bound the shallow pack as well as the uncompressed skills copied into the launch payload.
@@ -37,7 +37,10 @@ const transport: typeof http = {
   },
 };
 
-export async function withSkillGit<T>(remote: GitRemote, work: (repo: SkillGit) => Promise<T>) {
+export async function withSkillGit<T>(
+  remote: GitRemote,
+  work: (repo: Pick<SkillGit, "head" | "directories" | "write">) => Promise<T>,
+) {
   const root = await fs.promises.mkdtemp("/tmp/factorize-skills-");
   try {
     const repo = new SkillGit(root, remote);
@@ -51,10 +54,12 @@ export async function withSkillGit<T>(remote: GitRemote, work: (repo: SkillGit) 
 export class SkillGit {
   private options;
   private network;
+  private pinned?: string;
   head: string | null = null;
   private tree: string | null = null;
   constructor(dir: string, remote: GitRemote) {
     this.options = { fs, dir };
+    this.pinned = remote.commit;
     this.network = {
       ...this.options,
       http: transport,
@@ -64,6 +69,10 @@ export class SkillGit {
     };
   }
   async open() {
+    if (this.pinned) {
+      this.head = this.pinned;
+      return;
+    }
     const refs = await git.listServerRefs({
       ...this.network,
       headers: { ...this.network.headers },
@@ -85,6 +94,7 @@ export class SkillGit {
     const result = await git.fetch({
       ...this.network,
       headers: { ...this.network.headers },
+      remoteRef: this.pinned ?? this.network.ref,
       singleBranch: true,
       depth: 1,
       tags: false,

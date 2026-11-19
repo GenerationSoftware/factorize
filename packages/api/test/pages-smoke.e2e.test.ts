@@ -1,3 +1,4 @@
+import { installSkillArtifacts } from "./helpers/memory-skill-git";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { chromium, type Browser, type Page } from "playwright";
 import { loadingFixture } from "./helpers/loading-fixture";
@@ -7,6 +8,7 @@ import { ACCESS_SCOPES } from "../src/access-tokens";
 import { deviceAuthorization } from "../src/device-oauth";
 import { startConnection } from "../src/oauth-continuation";
 
+vi.mock("../src/skill-git", () => ({withSkillGit: vi.fn()}));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {
   constructor(private options: any) {}
   fetch(request: Request, env: any, ctx: any) { return this.options.defaultHandler.fetch(request, env, ctx); }
@@ -20,6 +22,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("every page E2E smoke", () 
   let f: Awaited<ReturnType<typeof loadingFixture>>, browser: Browser, skillId: string, deviceCode: string, authorizationPath: string, authorizationCookie: { name: string; value: string };
   beforeAll(async () => {
     f = await loadingFixture(process.env.AUTH_TEST_DATABASE_URL!);
+    installSkillArtifacts(f.env);
     browser = await chromium.launch({ headless: true });
     const service = new ApiService(f.env, { ...f.auth, scopes: [...ACCESS_SCOPES] });
     skillId = (await service.createSkill({ key: "smoke_skill", body: "Smoke test instructions" })).id;

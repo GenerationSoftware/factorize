@@ -105,10 +105,14 @@ export const vmImageVerifications = app.table("vm_image_verifications", {
 export const skillLibraries = app.table("skill_libraries", {
   tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, {onDelete:"cascade"}),
   repo: text("repo").notNull().unique(), remote: text("remote").notNull(), source: jsonb("source").notNull(),
-  commitSha: text("commit_sha"), upstreamSha: text("upstream_sha"), error: text("error"), checkedAt: timestamp("checked_at",{withTimezone:true}),
+  githubTree: text("github_tree"), commitSha: text("commit_sha"), upstreamSha: text("upstream_sha"), error: text("error"), checkedAt: timestamp("checked_at",{withTimezone:true}),
+});
+export const skillLibraryBackfill = app.table("skill_library_backfill", {
+  tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, {onDelete:"cascade"}),
+  attemptedAt: timestamp("attempted_at", {withTimezone:true}), error: text("error"),
 });
 export const skills = app.table("skills", {
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), key: text("key").notNull(), encryptedBody: text("encrypted_body").notNull(), encryptedDirectory: text("encrypted_directory"), revision: integer("revision").notNull().default(1), createdAt: createdAt(), updatedAt: updatedAt(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), key: text("key").notNull(), encryptedBody: text("encrypted_body"), artifactVersion: jsonb("artifact_version"), encryptedDirectory: text("encrypted_directory"), revision: integer("revision").notNull().default(1), createdAt: createdAt(), updatedAt: updatedAt(),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.key)]);
 export const jobSkills = app.table("job_skills", { contextSkill:boolean("context_skill").notNull().default(true), tenantId: uuid("tenant_id").notNull(), jobId: uuid("job_id").notNull(), skillId: uuid("skill_id").notNull(), position: integer("position").notNull() }, t => [primaryKey({ columns: [t.tenantId, t.jobId, t.skillId] }), unique().on(t.tenantId, t.jobId, t.position), foreignKey({ columns: [t.tenantId, t.jobId], foreignColumns: [jobs.tenantId, jobs.id] }).onDelete("cascade"), foreignKey({ columns: [t.tenantId, t.skillId], foreignColumns: [skills.tenantId, skills.id] }).onDelete("restrict")]);
 export const triggers = app.table("triggers", {
@@ -202,7 +206,7 @@ export const runRelations = relations(runs, ({ one, many }) => ({
 
 export const databaseSchema = {
   schemaMigrations, tenants, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
-  connections, agentIntegrations, agentIdentities, vmGrants, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, modelDeviceAuthorizations, linearWorkspaces, githubInstallations, githubSetupStates, projects, jobs, vmImageVerifications, skillLibraries, skills, jobSkills, triggers, webhookConditionsCutover, invocations, manualInvocationPermissions, jobRuns, runAuthorizations, runs, runArtifacts, runRetentionCleanup,
+  connections, agentIntegrations, agentIdentities, vmGrants, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, modelDeviceAuthorizations, linearWorkspaces, githubInstallations, githubSetupStates, projects, jobs, vmImageVerifications, skillLibraries, skillLibraryBackfill, skills, jobSkills, triggers, webhookConditionsCutover, invocations, manualInvocationPermissions, jobRuns, runAuthorizations, runs, runArtifacts, runRetentionCleanup,
   runTraceEvents, runActivity, activeClaims, scheduleState, automaticWakes, lifecycleDeliveries, lifecycleEvents, jobEditDeliveries, jobEvents,
   webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints, runTraceCursors, runTraceChunks,
   runTraceProjections, traceReplayLimits, traceReplayOperations,

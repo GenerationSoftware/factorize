@@ -1,3 +1,4 @@
+import { SkillContent } from "../skill-content";
 import { DEFAULT_RUN_SCOPES } from "../run-scopes";
 import { submitRun } from "./run-submission";
 import { lockJobQueue } from "./queue-admission";
@@ -14,7 +15,7 @@ type JobRow = typeof jobs.$inferSelect;
 type TriggerRow = typeof triggers.$inferSelect;
 
 export class PostgresJobRepository implements JobRepository {
-  constructor(private database: Database, private tenantId: string, private encrypt: Crypt, private decrypt: Crypt) {
+  constructor(private database: Database, private tenantId: string, private encrypt: Crypt, private decrypt: Crypt, private content = new SkillContent()) {
     if (!tenantId) throw new Error("tenantId is required");
   }
 
@@ -29,14 +30,14 @@ export class PostgresJobRepository implements JobRepository {
     if (db === this.database.orm) {
       [triggerRows, skillRows] = await Promise.all([
         loadedTriggers ?? db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id),
-        loadedSkills?.filter(skill => skill.job_id === row.id) ?? this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,js.position,js.context_skill FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.job_id=$2 ORDER BY js.position", [this.tenantId, row.id]).then(result => result.rows),
+        loadedSkills?.filter(skill => skill.job_id === row.id) ?? this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,js.position,js.context_skill FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.job_id=$2 ORDER BY js.position", [this.tenantId, row.id]).then(result => result.rows),
       ]);
     } else {
       triggerRows = loadedTriggers ?? await db.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.jobId, row.id), isNull(triggers.removedAt))).orderBy(triggers.position, triggers.createdAt, triggers.id);
-      skillRows = loadedSkills?.filter(skill => skill.job_id === row.id) ?? (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,js.position,js.context_skill FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.job_id=${row.id}::uuid ORDER BY js.position`)).rows;
+      skillRows = loadedSkills?.filter(skill => skill.job_id === row.id) ?? (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,js.position,js.context_skill FROM app.job_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.job_id=${row.id}::uuid ORDER BY js.position`)).rows;
     }
     const skills = await Promise.all(skillRows.map(async skill => ({
-      id:skill.id, key:skill.key, revision:skill.revision, position:skill.position, version:skill.encrypted_directory ? JSON.parse(await this.decrypt(skill.encrypted_directory)) : undefined, body:await this.decrypt(skill.encrypted_body),
+      id:skill.id, key:skill.key, revision:skill.revision, position:skill.position, ...await this.content.read(skill, this.decrypt),
     })));
     const launchSkill = skills.find(skill=>skill.id === row.executionConfig.launchSkillId);
     return { id: row.id, runScopes: row.runScopes ?? [...DEFAULT_RUN_SCOPES], projectId: row.projectId, name: row.name, description: row.description ?? "", slug: row.slug, promptTemplate: await this.decrypt(row.encryptedPromptTemplate), executionType: row.executionConfig.executionType ?? "agent", script: row.executionConfig.script, runNameTemplate: row.encryptedRunNameTemplate ? await this.decrypt(row.encryptedRunNameTemplate) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, portableIntegrationIds: row.executionConfig.portableIntegrationIds ?? [], modelAccess: row.executionConfig.modelAccess ?? "native", modelAccountId: row.executionConfig.modelAccountId, githubInstallationIds: row.executionConfig.githubInstallationIds ?? [], linearConnectionId: row.executionConfig.linearConnectionId, xConnectionIds: row.executionConfig.xConnectionIds ?? [], concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, triggers: triggerRows.map(value => this.trigger(value)), launchSkill, selectedSkills: skills.filter((_,index)=>skillRows[index].context_skill !== false), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };

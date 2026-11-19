@@ -1,5 +1,6 @@
+import { SkillContent } from "./skill-content";
 import { SkillLibrary } from "./skill-library";
-import { librarySource } from "./skill-library-contract";
+import { configureLibrary } from "./skill-library-contract";
 import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
 import { startRunInput,projectRunDefaults } from "./flow-schemas";
@@ -80,11 +81,11 @@ export class ApiService {
   authorizationDuration = 0;
   constructor(private env: Env, private auth: OAuthProps, private ctx?: ExecutionContext, private flyMetadata: FlyExecutionMetadataLoader = getFlyExecutionMetadata) {}
 
-  private jobs() { return new PostgresJobRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
+  private jobs() { return new PostgresJobRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS)); }
   private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private flyConnections() { return new FlyConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private projects() { return new ProjectRepository(databaseFor(this.env), this.auth.tenantId); }
-  private skills() { return new SkillRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+  private skills() { return new SkillRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY, undefined, new SkillContent(this.env.SKILL_ARTIFACTS)); }
   private async executionConfig(id: string) {
     // Target IDs created by the migration are deterministic md5-derived UUIDs,
     // so they do not necessarily have RFC 4122 version/variant bits. Any
@@ -282,7 +283,8 @@ export class ApiService {
   }
   private async skillSelections(ids: string[]) {
     if (new Set(ids).size !== ids.length) throw new ServiceError(400, "invalid_request", "A skill may only be selected once per job.");
-    const values = await Promise.all(ids.map(id => this.skills().get(id)));
+    const repository = this.skills();
+    const values = await Promise.all(ids.map(id => repository.get(id)));
     if (values.some(value => !value)) throw new ServiceError(400, "invalid_request", "One or more selected skills are unavailable.");
     return values.map((value, position) => ({ id: value!.id, key: value!.key, revision: value!.revision, body: value!.body ?? "", position }));
   }
@@ -349,9 +351,13 @@ export class ApiService {
   async skillLibraryStatus() { await this.authorize("skills:read"); return this.library().status(); }
   async configureSkillLibrary(input: unknown) {
     await this.authorize("skills:write");
-    const source = librarySource.parse(input);
-    if (source.kind === "github") await this.authorize("integrations:write");
-    try { return await this.library().configure(source); }
+    const parsed = configureLibrary.parse(input);
+    if (parsed.kind === "github") await this.authorize("integrations:write");
+    try {
+      if (parsed.kind === "managed") return await this.library().configure(parsed);
+      const { confirmOverwrite, ...source } = parsed;
+      return await this.library().configure(source, confirmOverwrite);
+    }
     catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; }
   }
   async skillLibraryToken() {
@@ -366,7 +372,7 @@ export class ApiService {
   async updateSkill(id: string, input: unknown) { await this.authorize("skills:write"); try { const value = await this.library().edit(store => store.update(id, skillUpdateInput.parse(input))); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
   async deleteSkill(id: string, expectedRevision: number) { await this.authorize("skills:write"); try { if (!await this.library().edit(store => store.remove(id, expectedRevision))) throw new ServiceError(404, "not_found", "Skill not found"); return { id, deleted: true }; } catch (e) { if (e instanceof SkillReferenced) throw new ServiceError(409, "skill_referenced", `${e.message} Jobs: ${e.jobs.map(job => job.name).join(", ")}`); if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
   async listSkillJobs(id: string) { await this.authorize("skills:read"); return publicValue(skillJobsResponse, { skillId: id, jobs: await this.skills().jobs(id) }); }
-  async previewJobPrompt(input: unknown) { await this.authorize("skills:read"); const parsed = previewSkillInput.parse(input); const skills = await Promise.all(parsed.skillIds.map(async id => { const skill = await this.skills().get(id); if (!skill) throw new ServiceError(400, "invalid_request", "A selected skill is unavailable."); return skill; })); return { prompt: composePrompt(skills.map(skill => ({ body: skill.body ?? "" })), parsed.jobContext), skills: skills.map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision })) }; }
+  async previewJobPrompt(input: unknown) { await this.authorize("skills:read"); const parsed = previewSkillInput.parse(input); const repository = this.skills(); const skills = await Promise.all(parsed.skillIds.map(async id => { const skill = await repository.get(id); if (!skill) throw new ServiceError(400, "invalid_request", "A selected skill is unavailable."); return skill; })); return { prompt: composePrompt(skills.map(skill => ({ body: skill.body ?? "" })), parsed.jobContext), skills: skills.map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision })) }; }
 
   private async authorize(scope: Scope): Promise<void> {
     if (!normalizeScopes(this.auth.scopes).includes(scope)) throw new ServiceError(403, "insufficient_scope", `The ${scope} scope is required.`);

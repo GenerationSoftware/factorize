@@ -1574,7 +1574,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Issue a one-hour repository write credential
+         * Issue a one-hour repository credential (read-only for GitHub mirrors)
          * @description Requires the skills:write scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
@@ -6778,6 +6778,11 @@ export interface operations {
                     repositoryId: number;
                     branch: string;
                     folder: string;
+                    /**
+                     * @description Required when changing to a GitHub source. Replaces the active library, including deletions.
+                     * @constant
+                     */
+                    confirmOverwrite?: true;
                 };
             };
         };
@@ -6827,7 +6832,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Issue a one-hour repository write credential */
+            /** @description Issue a one-hour repository credential (read-only for GitHub mirrors) */
             200: {
                 headers: {
                     [name: string]: unknown;

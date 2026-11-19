@@ -9015,6 +9015,10 @@ paths:
                     folder:
                       type: string
                       maxLength: 512
+                    confirmOverwrite:
+                      description: Required when changing to a GitHub source. Replaces the active library, including deletions.
+                      type: boolean
+                      const: true
                   required:
                     - kind
                     - installationId
@@ -9024,10 +9028,10 @@ paths:
                   additionalProperties: false
   /api/v1/skill-library/token:
     post:
-      summary: Issue a one-hour repository write credential
+      summary: Issue a one-hour repository credential (read-only for GitHub mirrors)
       responses:
         "200":
-          description: Issue a one-hour repository write credential
+          description: Issue a one-hour repository credential (read-only for GitHub mirrors)
           content:
             application/json:
               schema:

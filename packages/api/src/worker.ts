@@ -160,7 +160,16 @@ export default {
   async scheduled(_event: ScheduledController, env: Env) {
     // Retry missed deliveries and refresh managed remotes in oldest-checked order.
     const db = databaseFor(env);
-    const rows = await db.pool.query("SELECT tenant_id FROM app.skill_libraries WHERE checked_at IS NULL OR checked_at < now()-interval '5 minutes' ORDER BY checked_at NULLS FIRST LIMIT 10");
+    if (env.SKILL_ARTIFACTS) {
+      const pending = await db.pool.query("SELECT tenant_id FROM app.skill_library_backfill ORDER BY attempted_at NULLS FIRST,tenant_id LIMIT 5");
+      for (const row of pending.rows) {
+        try { await new SkillLibrary(env, row.tenant_id).migrate(); }
+        catch {
+          await db.pool.query("UPDATE app.skill_library_backfill SET attempted_at=now(),error='Migration failed. Verify Artifacts access and published skill contents.' WHERE tenant_id=$1", [row.tenant_id]);
+        }
+      }
+    }
+    const rows = await db.pool.query("SELECT tenant_id FROM app.skill_libraries WHERE (checked_at IS NULL OR checked_at < now()-interval '5 minutes') AND NOT EXISTS (SELECT 1 FROM app.skill_library_backfill pending WHERE pending.tenant_id=skill_libraries.tenant_id) ORDER BY checked_at NULLS FIRST LIMIT 10");
     for (const row of rows.rows) await new SkillLibrary(env,row.tenant_id).sync();
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext) { return securityHeaders(request, await backend.fetch(request, env, ctx)); } } satisfies ExportedHandler<Env>;

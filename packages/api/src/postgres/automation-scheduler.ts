@@ -1,3 +1,4 @@
+import { SkillContent } from "../skill-content";
 import { decrypt, encrypt } from "../crypto";
 import { InvocationError, InvocationService } from "../job-domain";
 import { catchUpOccurrence, nextOccurrence, validateScheduleConfig } from "../schedule";
@@ -20,7 +21,7 @@ export class AutomationScheduler {
     if (!Number.isSafeInteger(lifecycleBatchSize) || lifecycleBatchSize < 1) throw new RangeError("Lifecycle batch size must be a positive integer");
   }
   async process(): Promise<void> { await this.githubVerifications(); await this.schedules(); await this.jobEdits(); await this.lifecycle(); await this.jobIdle(); }
-  private repository(tenantId: string) { return new PostgresJobRepository(this.database, tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)); }
+  private repository(tenantId: string) { return new PostgresJobRepository(this.database, tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS)); }
   private async schedules() {
     for (let count = 0; count < 50; count++) {
       const due = await this.database.transaction(async client => {

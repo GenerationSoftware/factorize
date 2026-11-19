@@ -1,3 +1,4 @@
+import { SkillContent } from "../skill-content";
 import { clickUpJson, matchingClickUpTask } from "../clickup";
 import { verifyTailDelivery, sanitizeTailEvent, suppressTailEvent } from "../cloudflare-tail";
 import { decrypt, equalHmac, encrypt } from "../crypto";
@@ -14,7 +15,7 @@ export class WebhookService {
   private jobs: PostgresJobRepository;
   constructor(private database: Database, private env: Env, private tenantId: string) {
     this.connections = new ConnectionRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY);
-    this.jobs = new PostgresJobRepository(database, tenantId, value => encrypt(value, env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, env.CREDENTIAL_ENCRYPTION_KEY));
+    this.jobs = new PostgresJobRepository(database, tenantId, value => encrypt(value, env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(env.SKILL_ARTIFACTS));
   }
   private async candidates(provider: WebhookProvider): Promise<Array<{ job: Job; triggerId: string; triggerSlug: string; config: WebhookTriggerConfig }>> {
     const rows = await this.database.pool.query<any>(`SELECT j.*,t.id trigger_id,t.slug trigger_slug,t.config trigger_config FROM app.jobs j JOIN app.triggers t ON t.tenant_id=j.tenant_id AND t.job_id=j.id WHERE j.tenant_id=$1 AND j.enabled AND t.enabled AND t.removed_at IS NULL AND t.kind='webhook' AND t.config->>'provider'=$2`, [this.tenantId, provider]);

@@ -1,4 +1,5 @@
-import { decrypt, encrypt } from "./crypto";
+import { SkillContent, repositoryToken, type ArtifactVersion } from "./skill-content";
+import { decrypt } from "./crypto";
 import { githubHeaders, installationToken } from "./github";
 import { databaseFor, type DatabaseClient } from "./postgres/database";
 import { SkillConflict, SkillRepository } from "./postgres/skill-repository";
@@ -15,8 +16,20 @@ type LibraryRow = {
   commit_sha: string | null;
   upstream_sha: string | null;
   error: string | null;
+  github_tree: string | null;
 };
-type Current = Directory & { id: string; body: string; version?: SkillVersion };
+type Current = Directory & { id: string; body: string; version?: SkillVersion; ref?: ArtifactVersion };
+function fingerprint(dir: Directory) {
+  return JSON.stringify(
+    dir.files
+      .map((f) => [f.path, f.content, f.executable])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  );
+}
+function sameLibrary(left: Directory[], right: Directory[]) {
+  const files = new Map(right.map((dir) => [dir.key, fingerprint(dir)]));
+  return left.length === right.length && left.every((dir) => files.get(dir.key) === fingerprint(dir));
+}
 const managedFolder = "skills";
 
 export class SkillLibrary {
@@ -38,11 +51,18 @@ export class SkillLibrary {
       await client.query<LibraryRow>("SELECT * FROM app.skill_libraries WHERE tenant_id=$1", [this.tenant])
     ).rows[0];
   }
+  private async ensureMigrated() {
+    const pending = await this.db.pool.query("SELECT 1 FROM app.skill_library_backfill WHERE tenant_id=$1", [
+      this.tenant,
+    ]);
+    if (pending.rowCount) await this.migrate();
+  }
   async status() {
+    if (this.env.SKILL_ARTIFACTS) await this.ensureMigrated();
     const row = await this.row(this.db.pool);
     return {
       source: row?.source ?? null,
-      remote: row?.source.kind === "managed" ? row.remote : null,
+      remote: row?.remote ?? null,
       commit: row?.commit_sha ?? null,
       upstreamCommit: row?.upstream_sha ?? null,
       error: row?.error ?? null,
@@ -53,19 +73,15 @@ export class SkillLibrary {
     return this.env.SKILL_ARTIFACTS;
   }
   private async credentials(row: LibraryRow, scope: "read" | "write") {
-    const handle = await this.artifacts().get(row.repo);
-    try {
-      return await handle.createToken(scope, 3600);
-    } finally {
-      (handle as unknown as Partial<Disposable>)[Symbol.dispose]?.();
-    }
+    return repositoryToken(this.artifacts(), row.repo, scope);
   }
   async token() {
-    const row = await this.row(this.db.pool);
-    if (row?.source.kind !== "managed")
-      throw new SkillConflict("Select the Factorize-managed Git remote first");
-    const token = await this.credentials(row, "write");
-    return { remote: row.remote, token: token.plaintext, expiresAt: token.expiresAt };
+    await this.ensureMigrated();
+    return this.locked(async (_client, row) => {
+      if (!row) throw new SkillConflict("Skill repository is unavailable");
+      const token = await this.credentials(row, row.source.kind === "managed" ? "write" : "read");
+      return { remote: row.remote, token: token.plaintext, expiresAt: token.expiresAt };
+    });
   }
   private async managed(row: LibraryRow, scope: "read" | "write"): Promise<GitRemote> {
     const token = await this.credentials(row, scope);
@@ -93,42 +109,58 @@ export class SkillLibrary {
     await repoClient.open();
     return repoClient;
   }
-  private async current(client: DatabaseClient): Promise<Current[]> {
+  private async current(client: DatabaseClient, edits?: Map<string, string>): Promise<Current[]> {
     const { rows } = await client.query(
-      "SELECT id,key,encrypted_body,encrypted_directory FROM app.skills WHERE tenant_id=$1 ORDER BY key FOR UPDATE",
+      "SELECT id,key,encrypted_body,encrypted_directory,artifact_version FROM app.skills WHERE tenant_id=$1 ORDER BY key FOR UPDATE",
       [this.tenant],
     );
+    const content = new SkillContent(this.env.SKILL_ARTIFACTS);
     return Promise.all(
       rows.map(async (row) => {
-        const version: SkillVersion | undefined = row.encrypted_directory
-          ? JSON.parse(await decrypt(row.encrypted_directory, this.env.CREDENTIAL_ENCRYPTION_KEY))
-          : undefined;
-        const body = await decrypt(row.encrypted_body, this.env.CREDENTIAL_ENCRYPTION_KEY);
-        return { id: row.id, key: row.key, body, version, files: version?.files ?? [markdown(body)] };
+        const { body, version } = await content.read(
+          row,
+          (value) => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY),
+          edits?.get(row.id),
+        );
+        if (
+          !row.artifact_version &&
+          version &&
+          !edits?.has(row.id) &&
+          bodyOf({ key: row.key, files: version.files }) !== body
+        )
+          throw new SkillConflict("Legacy skill body differs from its saved directory");
+        return {
+          id: row.id,
+          key: row.key,
+          body,
+          version,
+          files: version?.files ?? [markdown(body)],
+          ref: row.artifact_version,
+        };
       }),
     );
   }
-  async configure(source: LibrarySource) {
-    await this.locked((client, previous) => this.initialize(client, source, previous));
+  async configure(source: LibrarySource, confirmed = false) {
+    if (source.kind === "managed" || confirmed) await this.ensureMigrated();
+    await this.locked(async (client, previous) => {
+      if (previous && JSON.stringify(librarySource.parse(previous.source)) === JSON.stringify(source)) return;
+      if (source.kind === "github" && !confirmed)
+        throw new SkillConflict("Confirm replacement of the active skill library.");
+      await this.initialize(client, source);
+    });
     return this.status();
   }
-  private async initialize(client: DatabaseClient, source: LibrarySource, previous?: LibraryRow) {
-    if (previous && JSON.stringify(librarySource.parse(previous.source)) === JSON.stringify(source)) return;
-    // Independent repos prevent an outstanding managed write token from changing a GitHub mirror.
+  private async initialize(client: DatabaseClient, source: LibrarySource) {
     const name = "skills-" + crypto.randomUUID();
     const current = await this.current(client);
     let directories: Directory[] = current;
     let upstreamCommit: string | null = null;
+    let tree: string | null = null;
     if (source.kind === "github") {
-      const repo = await this.github(client, source);
-      const imported = await repo.directories(source.folder);
-      const keys = new Set(imported.map((dir) => dir.key));
-      const missing = current.filter((dir) => !keys.has(dir.key));
-      directories = [...imported, ...missing];
-      // The selected branch supplies existing keys. Seed only absent skills, in one fast-forward commit.
-      upstreamCommit = missing.length
-        ? await repo.write(source.folder, directories, "Import existing Factorize skills")
-        : repo.head;
+      const github = await this.github(client, source);
+      directories = await github.directories(source.folder);
+      upstreamCommit = github.head;
+      tree = github.folderTree;
     }
     const created = await this.artifacts().create(name, { setDefaultBranch: "main" });
     const remote: GitRemote = {
@@ -141,16 +173,18 @@ export class SkillLibrary {
       commit = await withSkillGit(remote, (repo) =>
         repo.write(managedFolder, directories, "Initialize Factorize skills"),
       );
+      const checked = await withSkillGit({ ...remote, commit }, (repo) => repo.directories(managedFolder));
+      if (!sameLibrary(directories, checked)) throw new SkillConflict("Artifacts verification failed");
+      await client.query(
+        `INSERT INTO app.skill_libraries(tenant_id,repo,remote,source) VALUES($1,$2,$3,$4)
+        ON CONFLICT(tenant_id) DO UPDATE SET repo=excluded.repo,remote=excluded.remote,source=excluded.source`,
+        [this.tenant, name, created.remote, source],
+      );
+      await this.publish(client, current, directories, commit, upstreamCommit ?? commit, tree);
     } catch (error) {
       await this.artifacts().delete(name);
       throw error;
     }
-    await client.query(
-      `INSERT INTO app.skill_libraries(tenant_id,repo,remote,source) VALUES($1,$2,$3,$4)
-        ON CONFLICT(tenant_id) DO UPDATE SET repo=excluded.repo,remote=excluded.remote,source=excluded.source`,
-      [this.tenant, name, created.remote, source],
-    );
-    await this.publish(client, current, directories, commit, upstreamCommit ?? commit);
   }
   private async publish(
     client: DatabaseClient,
@@ -158,18 +192,12 @@ export class SkillLibrary {
     dirs: Directory[],
     revision: string | (() => Promise<string>),
     upstream: string,
+    tree: string | null = null,
   ) {
     const keys = new Set(dirs.map((dir) => dir.key));
     const previousByKey = new Map(current.map((item) => [item.key, item]));
     const added = dirs.filter((dir) => !previousByKey.has(dir.key));
     const removed = current.filter((item) => !keys.has(item.key));
-    // Git has no rename identity. Preserve an ID only for an unambiguous move of the exact directory.
-    const fingerprint = (dir: Directory) =>
-      JSON.stringify(
-        dir.files
-          .map((f) => [f.path, f.content, f.executable])
-          .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
-      );
     const addedPrints = added.map((dir) => ({ dir, print: fingerprint(dir) }));
     const removedPrints = removed.map((dir) => ({ dir, print: fingerprint(dir) }));
     for (const { dir: item, print } of removedPrints) {
@@ -187,44 +215,72 @@ export class SkillLibrary {
         previousByKey.set(key, item);
         continue;
       }
-      if (
-        (
-          await client.query("SELECT 1 FROM app.job_skills WHERE tenant_id=$1 AND skill_id=$2 LIMIT 1", [
-            this.tenant,
-            item.id,
-          ])
-        ).rowCount
-      )
-        throw new SkillConflict("Cannot remove referenced skill " + item.key);
+      await client.query("DELETE FROM app.job_skills WHERE tenant_id=$1 AND skill_id=$2", [
+        this.tenant,
+        item.id,
+      ]);
+      await client.query(
+        "UPDATE app.jobs SET execution_config=execution_config-'launchSkillId',updated_at=now() WHERE tenant_id=$1 AND execution_config->>'launchSkillId'=$2",
+        [this.tenant, item.id],
+      );
       await client.query("DELETE FROM app.skills WHERE tenant_id=$1 AND id=$2", [this.tenant, item.id]);
     }
     const commit = typeof revision === "string" ? revision : await revision();
+    const row = (await this.row(client))!;
     for (const dir of dirs) {
       const previous = previousByKey.get(dir.key);
-      const files = [...dir.files].sort((a, b) => a.path.localeCompare(b.path));
       const same = previous && fingerprint(dir) === fingerprint(previous);
-      if (same && previous.version?.commit === commit) continue;
-      const encrypted = await encrypt(JSON.stringify({ commit, files }), this.env.CREDENTIAL_ENCRYPTION_KEY);
+      if (
+        same &&
+        previous.ref?.commit === commit &&
+        previous.ref.repo === row.repo &&
+        previous.ref.key === dir.key
+      )
+        continue;
+      const pointer: ArtifactVersion = { repo: row.repo, remote: row.remote, commit, key: dir.key };
       await client.query(
-        `INSERT INTO app.skills(tenant_id,id,key,encrypted_body,encrypted_directory) VALUES($1,$2,$3,$4,$5)
-        ON CONFLICT(tenant_id,key) DO UPDATE SET encrypted_body=excluded.encrypted_body,encrypted_directory=excluded.encrypted_directory,
-        revision=app.skills.revision+$6,updated_at=now()`,
-        [
-          this.tenant,
-          previous?.id ?? crypto.randomUUID(),
-          dir.key,
-          await encrypt(bodyOf(dir), this.env.CREDENTIAL_ENCRYPTION_KEY),
-          encrypted,
-          same ? 0 : 1,
-        ],
+        `INSERT INTO app.skills(tenant_id,id,key,artifact_version) VALUES($1,$2,$3,$4)
+         ON CONFLICT(tenant_id,key) DO UPDATE SET encrypted_body=NULL,encrypted_directory=NULL,artifact_version=excluded.artifact_version,
+         revision=app.skills.revision+$5,updated_at=CASE WHEN $5=0 THEN app.skills.updated_at ELSE now() END`,
+        [this.tenant, previous?.id ?? crypto.randomUUID(), dir.key, pointer, same ? 0 : 1],
       );
     }
     await client.query(
-      "UPDATE app.skill_libraries SET commit_sha=$2,upstream_sha=$3,error=NULL,checked_at=now() WHERE tenant_id=$1",
-      [this.tenant, commit, upstream],
+      "UPDATE app.skill_libraries SET commit_sha=$2,upstream_sha=$3,github_tree=$4,error=NULL,checked_at=now() WHERE tenant_id=$1",
+      [this.tenant, commit, upstream, tree],
     );
   }
+
+  async migrate() {
+    await this.locked(async (client, row) => {
+      const pending = await client.query("SELECT 1 FROM app.skill_library_backfill WHERE tenant_id=$1", [
+        this.tenant,
+      ]);
+      if (!pending.rowCount) return;
+      if (!row) await this.initialize(client, { kind: "managed" });
+      else {
+        const legacy = await this.current(client);
+        const remote = await this.managed(row, "read");
+        if (!row.commit_sha) throw new SkillConflict("Library has no published commit");
+        const stored = await withSkillGit({ ...remote, commit: row.commit_sha }, (repo) =>
+          repo.directories(managedFolder),
+        );
+        if (!sameLibrary(legacy, stored))
+          throw new SkillConflict("Stored skills differ from published Artifacts commit");
+        await this.publish(
+          client,
+          legacy,
+          stored,
+          row.commit_sha,
+          row.upstream_sha ?? row.commit_sha,
+          row.github_tree,
+        );
+      }
+      await client.query("DELETE FROM app.skill_library_backfill WHERE tenant_id=$1", [this.tenant]);
+    });
+  }
   async sync(match?: { repo?: string; installationId?: number; repositoryId?: number; ref?: string }) {
+    if (this.env.SKILL_ARTIFACTS) await this.ensureMigrated();
     await this.locked(async (client, row) => {
       if (!row) return;
       const source = row.source;
@@ -248,14 +304,28 @@ export class SkillLibrary {
             );
             return;
           }
+          let tree: string | null = null;
+          if (repo instanceof GitHubSkills && source.kind === "github") {
+            tree = await repo.resolveFolder(source.folder);
+            if (tree === row.github_tree && row.github_tree !== null) {
+              await client.query(
+                "UPDATE app.skill_libraries SET upstream_sha=$2,checked_at=now(),error=NULL WHERE tenant_id=$1",
+                [this.tenant, repo.head],
+              );
+              return;
+            }
+          }
           const current = await this.current(client);
-          const dirs = await repo.directories(source.kind === "managed" ? managedFolder : source.folder);
+          const dirs = await repo.directories(
+            source.kind === "managed" ? managedFolder : source.folder,
+            current,
+          );
           const head = repo.head;
           const mirror = () =>
             this.managed(row, "write").then((remote) =>
               withSkillGit(remote, (repo) => repo.write(managedFolder, dirs, "Sync GitHub " + head)),
             );
-          await this.publish(client, current, dirs, source.kind === "managed" ? head : mirror, head);
+          await this.publish(client, current, dirs, source.kind === "managed" ? head : mirror, head, tree);
         };
         if (source.kind === "managed") await withSkillGit(await this.managed(row, "read"), reconcile);
         else await reconcile(await this.github(client, source));
@@ -276,15 +346,22 @@ export class SkillLibrary {
 
   async edit<T>(work: (repository: SkillRepository) => Promise<T>) {
     // Commit the migration separately. Even a rejected first edit leaves a valid baseline.
-    if (this.env.SKILL_ARTIFACTS && !(await this.row(this.db.pool)))
-      await this.locked(async (client, existing) => {
-        if (!existing) await this.initialize(client, { kind: "managed" });
-      });
+    this.artifacts();
+    await this.ensureMigrated();
     return this.locked(async (client, row) => {
-      const store = new SkillRepository(this.db, this.tenant, this.env.CREDENTIAL_ENCRYPTION_KEY, client);
+      if (!row) throw new Error("Missing native skill library");
+      const edits = new Map<string, string>();
+      const store = new SkillRepository(
+        this.db,
+        this.tenant,
+        this.env.CREDENTIAL_ENCRYPTION_KEY,
+        client,
+        new SkillContent(this.env.SKILL_ARTIFACTS),
+        edits,
+      );
       const result = await work(store);
-      if (!row || !result) return result;
-      const after = await this.current(client);
+      if (!result) return result;
+      const after = await this.current(client, edits);
       for (const dir of after) {
         dir.files = dir.files.map((file) =>
           file.path === "SKILL.md" ? { ...markdown(dir.body), executable: file.executable } : file,
@@ -311,15 +388,14 @@ export class SkillLibrary {
               repo.write(managedFolder, after, "Sync GitHub " + upstream),
             );
       for (const dir of after) {
-        if (dir.version?.commit === commit) continue;
-        await client.query("UPDATE app.skills SET encrypted_directory=$3 WHERE tenant_id=$1 AND id=$2", [
-          this.tenant,
-          dir.id,
-          await encrypt(JSON.stringify({ commit, files: dir.files }), this.env.CREDENTIAL_ENCRYPTION_KEY),
-        ]);
+        const pointer: ArtifactVersion = { repo: row.repo, remote: row.remote, commit, key: dir.key };
+        await client.query(
+          "UPDATE app.skills SET artifact_version=$3,encrypted_directory=NULL,encrypted_body=NULL WHERE tenant_id=$1 AND id=$2",
+          [this.tenant, dir.id, pointer],
+        );
       }
       await client.query(
-        "UPDATE app.skill_libraries SET commit_sha=$2,upstream_sha=$3,error=NULL,checked_at=now() WHERE tenant_id=$1",
+        "UPDATE app.skill_libraries SET commit_sha=$2,upstream_sha=$3,github_tree=NULL,error=NULL,checked_at=now() WHERE tenant_id=$1",
         [this.tenant, commit, upstream],
       );
       return result;

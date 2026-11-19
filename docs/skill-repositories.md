@@ -1,48 +1,40 @@
 # Skill repositories
 
-Open **Skills → Connect Git repository**. Factorize-managed libraries use the
-`main` branch and `skills/<key>/SKILL.md`. A first skill edit with Artifacts
-enabled also creates a managed library and seeds the current skills. Existing
-job links, literal prompt bodies and revision checks continue to work.
+Every workspace has a native Cloudflare Artifacts repository. Factorize reads skill files from the published Artifacts commit. Open **Skills → Git repository** to find the active remote. Each skill lives in `skills/<key>/SKILL.md` and can have supporting files alongside it.
 
-**Get Git credential** issues a one-hour write token for the selected managed
-repository. Copy the remote and token from the Skills page. For example:
+## Native storage
+
+Factorize edits commit to the native repository's `main` branch. **Get Git credential** issues a one-hour, repository-scoped write token. You can clone, pull, or push using the remote URL and token from the Skills page.
 
 ```sh
 git -c http.extraHeader="Authorization: Bearer $ARTIFACTS_TOKEN" clone "$ARTIFACTS_REMOTE" my-skills
 cd my-skills
-# Edit skills/<key>/SKILL.md and its supporting files, then commit.
+# Edit files, commit, then push.
 git -c http.extraHeader="Authorization: Bearer $ARTIFACTS_TOKEN" push origin main
 ```
 
-For GitHub, select an active installation, repository, branch and dedicated
-skills folder. Each immediate subdirectory must contain a UTF-8 SKILL.md.
-Choose a branch with at least one commit. The initial connection publishes
-its skills and commits any existing Factorize skills missing from that folder
-to GitHub. A protected or read-only branch can be seeded through a PR before
-connecting. Repo pushes and merges update the published library.
-Factorize editor, REST and MCP changes commit to the selected branch; a
-protected branch can require users to make changes through a PR on GitHub.
-Switching sources creates a fresh Artifacts repo. The previous repo retains
-its history and no longer publishes to this library.
+## GitHub storage
 
-A library accepts regular files, including executable scripts and binary
-assets, up to 8 MiB total and 2,000 entries. Managed synchronization uses
-a shallow fetch limited to 16 MiB. The existing 100,000-character limit
-applies to each SKILL.md. A move of an entire, uniquely identifiable skill
-directory preserves job references. Use the Factorize editor to rename a
-referenced skill and change its instructions together. Invalid commits leave
-the last accepted version active. Fix the branch and push again or use
-**Sync now**. Queued runs retain their selected file bytes and commit.
-Agents can read `$FACTORIZE_SKILLS_DIR/<key>/` at launch.
+Choose **Change repository → GitHub**, an active installation, a repository, an existing branch, and a skills folder. Confirm the replacement. Factorize publishes exactly that folder's skill directories to a fresh Artifacts mirror. An empty folder clears the active library. Skills absent from the replacement lose their saved job associations. Runs already queued keep their own file snapshots. Connecting makes no GitHub commit.
 
-## Deployment
+Edits through the browser, REST, and MCP commit to GitHub first. Pushes and merges update the Artifacts mirror. A protected branch can require changes through a GitHub pull request. Use **Sync now** to reconcile a missed push. If a GitHub commit succeeded but mirroring failed, reconciliation reads the GitHub head and retries publication. A failed import leaves the last published library available.
 
-Apply migration 0062 before deploying the Worker. Provision the Artifacts
-namespace `factorize-skills` before deployment. The Wrangler configuration registers the
-`factorize-skill-push` Workflow for pushes in that namespace. The Workflow
-publishes the managed repository’s main branch.
-The scheduled reconciliation retries missed events. Configure the existing
-GitHub App to subscribe to push events with Contents read access, and grant
-Contents write access for editor commits. Existing installations may need
-to approve the permission change. Deploy the additive v1 API before the UI.
+In GitHub mode **Get Git credential** issues a read-only Artifacts token for clone or pull. Push edits to GitHub. Switching back to Factorize starts a writable native repo with the currently published files. Previously issued write tokens remain scoped to their original repositories.
+
+Each immediate subdirectory of the selected folder must have a UTF-8 `SKILL.md`. The library supports regular files, executable scripts, and binary assets, up to 8 MiB and 2,000 entries. The limit per `SKILL.md` is 100,000 characters. Agents can read the selected directories at `$FACTORIZE_SKILLS_DIR/<key>/`.
+
+## Deployment and existing data
+
+Apply migrations through 0063 before deploying the API, then deploy the UI. Provision the `factorize-skills` Artifacts namespace and its push Workflow. The GitHub App needs push events and Contents read access for sync, plus Contents write for edits. Installations may need to approve the permission change.
+
+Migration 0063 queues every workspace for backfill, including workspaces that have never edited a skill. The scheduled Worker processes five workspaces per invocation and retries failures. A new workspace also enters the queue. Opening a native library or editing a skill provisions it on demand. Body-only records migrate to `SKILL.md`; existing directory records retain file bytes and executable flags. Published directories are read back and verified before replacing legacy ciphertext with Artifacts references. Existing libraries keep their repo; a verification mismatch leaves the legacy content intact for investigation.
+
+The following read-only queries show remaining work and verification failures:
+
+```sql
+SELECT count(*) AS remaining FROM app.skill_library_backfill;
+SELECT tenant_id, attempted_at, error FROM app.skill_library_backfill WHERE error IS NOT NULL;
+SELECT count(*) AS skills_without_artifacts FROM app.skills WHERE artifact_version IS NULL;
+```
+
+Keep a pre-cutover database backup and retain the existing repositories through the rollback window. After migration starts, use a Worker that understands Artifacts references. An older database-only Worker needs its skill ciphertext restored before it can serve migrated records. PostgreSQL retains metadata and commit pointers for active skills, and existing immutable run snapshots continue to serve queued runs.
