@@ -8,7 +8,7 @@ import {
   isDeclaredApiOperation,
   matchApiOperation,
 } from "../src/api-contract";
-import { listRunsSchema, jobInputSchema, vmImageVerificationInput } from "../src/flow-schemas";
+import { listRunsSchema, jobInputSchema, vmImageVerificationInput, startRunInput } from "../src/flow-schemas";
 
 export const openapi = parse(
   readFileSync(new URL("../../docs/openapi.yaml", import.meta.url), "utf8"),
@@ -25,6 +25,15 @@ const methods = new Set([
 ]);
 
 describe("versioned API contract", () => {
+  it("accepts direct prompt and script launches with bounded overrides and permission subsets", () => {
+    expect(startRunInput.safeParse({ prompt: "hello" }).success).toBe(true);
+    expect(startRunInput.safeParse({ script: "#!/bin/sh\necho ok", vmImage: "ghcr.io/org/image@sha256:" + "a".repeat(64), executionConfigId: "config", model: "gpt-test", runScopes: [] }).success).toBe(true);
+    expect(startRunInput.safeParse({}).success).toBe(false);
+    expect(startRunInput.safeParse({ prompt: "hello", script: "echo ok" }).success).toBe(false);
+    expect(startRunInput.safeParse({ prompt: " " }).success).toBe(false);
+    expect(startRunInput.safeParse({ script: " " }).success).toBe(false);
+    expect(startRunInput.safeParse({ script: "echo ok", runScopes: ["integration:private"] }).success).toBe(false);
+  });
   it("validates run sorting fields and directions", () => {
     expect(listRunsSchema.safeParse({ sort: "job", direction: "asc" }).success).toBe(true);
     expect(listRunsSchema.safeParse({ sort: "agent", direction: "desc" }).success).toBe(true);

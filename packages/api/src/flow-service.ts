@@ -5,7 +5,7 @@ import { SkillLibrary } from "./skill-library";
 import { configureLibrary } from "./skill-library-contract";
 import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
-import { startRunInput,projectRunDefaults } from "./flow-schemas";
+import { startRunInput,projectRunDefaults,scopeSchema } from "./flow-schemas";
 import { grantVm, revokeVmGrant } from "./vm-grants";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
 import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
@@ -1066,13 +1066,28 @@ export class ApiService {
     if (!project) throw new ServiceError(404, "not_found", "Project not found");
     if (!project.runDefaults)
       throw new ServiceError(409, "run_defaults_required", "Configure this project's VM run defaults first.");
-    const config = await this.resolveRunDefaults(project.runDefaults);
+    const defaults = project.runDefaults;
+    const selectedConfigId = input.executionConfigId ?? defaults.executionConfigId;
+    const model = input.model ?? defaults.model ?? "";
+    const config = await this.resolveRunDefaults({ ...defaults, executionConfigId: selectedConfigId, model });
+    if (input.vmImage) config.image = input.vmImage;
+    if (input.script) {
+      if (config.agentKind === "Amp") throw new ServiceError(400, "invalid_request", "Script runs require a VM execution provider.");
+      config.executionType = "code";
+      (config as Record<string, any>).script = input.script;
+    }
+    const callerScopes = this.auth.scopes.filter(scope => scopeSchema.safeParse(scope).success) as z.infer<typeof scopeSchema>[];
+    const requestedScopes = input.runScopes ?? callerScopes;
+    if (requestedScopes.some(scope => !this.auth.scopes.includes(scope)))
+      throw new ServiceError(403, "forbidden", "Requested run permissions exceed this client's effective Factorize access.");
+    config.runScopes = requestedScopes;
     const skill = input.skill ? await this.skills().get(input.skill) : null;
+    if (input.script && skill) throw new ServiceError(400, "invalid_request", "Script runs cannot include an agent skill.");
     if (input.skill && !skill) throw new ServiceError(404, "not_found", "Launch skill not found");
-    const text =
+    const text = input.prompt ?
       input.inputs && Object.keys(input.inputs).length
         ? input.prompt + "\n\nInputs (JSON)\n" + JSON.stringify(input.inputs)
-        : input.prompt;
+        : input.prompt : "";
     const prompt = composePrompt(skill ? [{ body: skill.body! }] : [], text);
     const encryptedPrompt = await encrypt(prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const encryptedSkills = skill

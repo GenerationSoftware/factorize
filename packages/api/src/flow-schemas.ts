@@ -117,12 +117,20 @@ export type ManualInvocationInput = z.infer<typeof manualInvocationSchema>;
 
 export const startRunInput = z.object({
   projectId: z.guid().optional(),
-  prompt: z.string().min(1).max(50_000).refine(value => !!value.trim()),
+  prompt: z.string().min(1).max(50_000).refine(value => !!value.trim()).optional(),
+  script: z.string().min(1).max(200_000).refine(value => !!value.trim()).optional(),
   skill: z.string().min(1).max(64).optional(),
   name: z.string().trim().min(1).max(120).optional(),
+  executionConfigId: z.string().min(1).optional(),
+  vmImage: jobInputSchema.shape.vmImage,
+  model: jobInputSchema.shape.model,
+  runScopes: jobInputSchema.shape.runScopes,
   inputs: z.record(z.string(), z.unknown()).refine(value => new TextEncoder().encode(JSON.stringify(value)).length <= 200_000, "Inputs exceed 200,000 bytes").optional(),
   idempotencyKey: z.string().trim().min(1).max(200).optional(),
-}).strict();
+}).strict().refine(value => Number(Boolean(value.prompt)) + Number(Boolean(value.script)) === 1, {
+  message: "Supply exactly one of prompt or script.",
+  path: ["prompt"],
+});
 export const startRunReceipt = z.object({runId:z.guid(), url:z.url(), outcomeUri:z.string(), duplicate:z.boolean()});
 export const projectRunDefaults = z.object({
   executionConfigId: jobInputSchema.shape.executionConfigId,

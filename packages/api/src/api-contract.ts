@@ -1001,7 +1001,8 @@ export const API_ROUTES: RouteContract[] = [
     (service, { params }) => service.deleteJob(params.jobId),
   ),
   route("POST","/api/v1/runs","runs:start",{
-    summary:"Start a project VM run with a literal prompt and optional launch skill",
+    summary:"Start a project VM run with a prompt or script and per-run execution overrides",
+    description:"Supply exactly one of prompt or script. Omitted execution settings use project run defaults. Optional executionConfigId, vmImage, model and runScopes override those defaults; runScopes is limited to the caller's effective permissions.",
     responses:{"202":{description:"Accepted run",content:{"application/json":{schema:jsonSchema(startRunReceipt,"output")}}}},
   },(service,{body})=>service.startRun(body),{body:startRunInput,maxBodyBytes:256_000}),
   route("PUT","/api/v1/projects/{projectId}/run-defaults","projects:write",{

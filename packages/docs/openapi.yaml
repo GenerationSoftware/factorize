@@ -15803,7 +15803,13 @@ paths:
             minLength: 1
   /api/v1/runs:
     post:
-      summary: Start a project VM run with a literal prompt and optional launch skill
+      summary: Start a project VM run with a prompt or script and per-run execution overrides
+      description: |-
+        Supply exactly one of prompt or script. Omitted execution settings use project run defaults. Optional executionConfigId, vmImage, model and runScopes override those defaults; runScopes is limited to the caller's effective permissions.
+
+        Requires the runs:start scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
         "202":
           description: Accepted run
@@ -15847,10 +15853,6 @@ paths:
           $ref: "#/components/responses/Error500"
         "503":
           $ref: "#/components/responses/Error503"
-      description: |-
-        Requires the runs:start scope.
-
-        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       operationId: post_api_v1_runs
       tags:
         - runs
@@ -15876,6 +15878,10 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 50000
+                script:
+                  type: string
+                  minLength: 1
+                  maxLength: 200000
                 skill:
                   type: string
                   minLength: 1
@@ -15884,6 +15890,36 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 120
+                executionConfigId:
+                  type: string
+                  minLength: 1
+                vmImage:
+                  type: string
+                  maxLength: 512
+                  pattern: ^(?:(?:(?:[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\/)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?))?$
+                model:
+                  type: string
+                  maxLength: 120
+                runScopes:
+                  description: Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes.
+                  maxItems: 13
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - projects:read
+                      - projects:write
+                      - jobs:read
+                      - jobs:write
+                      - runs:read
+                      - runs:invoke
+                      - runs:start
+                      - runs:cancel
+                      - runs:write
+                      - integrations:read
+                      - integrations:write
+                      - skills:read
+                      - skills:write
                 inputs:
                   type: object
                   propertyNames:
@@ -15893,8 +15929,6 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 200
-              required:
-                - prompt
               additionalProperties: false
     get:
       summary: List runs
