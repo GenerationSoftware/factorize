@@ -73,7 +73,7 @@ test("loading, search, error and no-result states are actionable", async ({ page
   const input = page.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true });
   await expect(input).toBeFocused();
   await input.fill("release");
-  await expect(page.getByRole("option")).toBeVisible();
+  await expect(page.getByRole("listbox", { name: "Search results" }).getByRole("option")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
