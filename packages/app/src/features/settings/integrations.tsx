@@ -8,6 +8,7 @@ import { IntegrationForm } from "./integration-form";
 import { messageOf } from "../auth/session";
 import { useBearerIntegrations } from "./bearer-integrations";
 import { useFlyIntegration } from "./fly";
+import { useXConnections } from "./x-connections";
 import { useModelAccounts } from "./model-accounts";
 import { IntegrationPoliciesProvider } from "./api-policies";
 import { IntegrationRow, ProviderTile, type IntegrationAction } from "./integration-ui";
@@ -20,7 +21,7 @@ export function Integrations() {
 }
 function IntegrationsContent() {
   const cache = useQueryClient(), status = useQuery(integrationsQuery), github = useQuery(installationsQuery);
-  const fly = useFlyIntegration(), bearer = useBearerIntegrations(), models = useModelAccounts();
+  const fly = useFlyIntegration(), bearer = useBearerIntegrations(), models = useModelAccounts(), x = useXConnections();
   const [setup, setSetup] = useState<{title: string; form: ReactNode} | null>(null);
   const [feedback, setFeedback] = useState<{key: string; message: string; error: boolean} | null>(null);
   const action = useMutation({retry: false, mutationFn: async ({kind, id, test}: {kind: Kind; id: string; test?: boolean}) => {
@@ -47,8 +48,8 @@ function IntegrationsContent() {
   const result = (key: string) => feedback?.key === key && <p className="mt-2 text-sm" role={feedback.error ? "alert" : "status"}>{feedback.message}</p>;
   const open = (title: string, form: ReactNode) => setSetup({title, form});
   const data = status.data;
-  const count = (data?.linear ? 1 : 0) + (data?.clickup ? 1 : 0) + (github.data?.length ?? 0) + (data?.exeConnections.length ?? 0) + (data?.ampConnections.length ?? 0) + (data?.cloudflareTail.installations.length ?? 0) + fly.count + bearer.count + models.count;
-  const pending = status.isPending || github.isPending || fly.pending || bearer.pending || models.pending;
+  const count = (data?.linear ? 1 : 0) + (data?.clickup ? 1 : 0) + (github.data?.length ?? 0) + (data?.exeConnections.length ?? 0) + (data?.ampConnections.length ?? 0) + (data?.cloudflareTail.installations.length ?? 0) + fly.count + bearer.count + models.count + x.count;
+  const pending = status.isPending || github.isPending || fly.pending || bearer.pending || models.pending || x.pending;
   return <>
     {[status.error, github.error].filter(Boolean).map((error, i) => <p role="alert" key={i}>{error?.message}</p>)}
     <section aria-labelledby="your-integrations-heading"><h2 id="your-integrations-heading" className="text-xl font-bold">Your integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Manage workspace connections. Default API access applies to connected MCP clients; other access requires approval.</p>
@@ -60,11 +61,11 @@ function IntegrationsContent() {
         {github.data?.map(i => <IntegrationRow key={i.installationId} kind="github" credentialId={String(i.installationId)} name={`GitHub · ${i.accountLogin}`} detail={i.accountType} connected={i.state === "active"} status={i.state === "active" ? "Connected" : `Needs attention · ${i.state}`} actions={[{label: "Manage on GitHub", href: "https://github.com/settings/installations", external: true}, ...actions("github", String(i.installationId))]}>{result(`github:${i.installationId}`)}</IntegrationRow>)}
         {data?.exeConnections.map(c => <IntegrationRow key={c.connectionId} kind="exe" credentialId={c.connectionId} name={`exe.dev · ${c.connectionId}`} detail={(c.accountTags ?? []).join(", ") || "Account connection"} actions={actions("exe", c.connectionId, () => open("Edit exe.dev integration", <IntegrationForm kind="exe" connectionId={c.connectionId} initialAgent={c.agentKind} initialTags={c.tags} />))}>{result(`exe:${c.connectionId}`)}</IntegrationRow>)}
         {data?.ampConnections.map(c => <IntegrationRow key={c.connectionId} kind="amp" credentialId={c.connectionId} name={`Amp · ${c.project}`} detail="Project connection" actions={actions("amp", c.connectionId, () => open("Edit Amp integration", <IntegrationForm kind="amp" connectionId={c.connectionId} initialName={c.project} initialApiBaseUrl={c.apiBaseUrl} />))}>{result(`amp:${c.connectionId}`)}</IntegrationRow>)}
-        {fly.rows}{bearer.rows}{models.rows}
+        {fly.rows}{bearer.rows}{models.rows}{x.rows}
         {data?.cloudflareTail.installations.map(c => <IntegrationRow key={c.integrationId} kind="tail" credentialId={c.integrationId} name={`Cloudflare Tail · ${c.name}`} detail={`Referenced by ${c.referencedJobCount} ${c.referencedJobCount === 1 ? "job" : "jobs"}`} actions={actions("cloudflareTail", c.integrationId, () => open("Edit Tail integration", <IntegrationForm kind="cloudflareTail" connectionId={c.integrationId} initialName={c.name} />))}>{result(`cloudflareTail:${c.integrationId}`)}</IntegrationRow>)}
       </div>}
       {feedback && !feedback.error && feedback.message === "Integration disconnected." && <p role="status">Integration disconnected.</p>}
-      {fly.feedback}{bearer.feedback}{models.feedback}
+      {fly.feedback}{bearer.feedback}{models.feedback}{x.feedback}
     </section>
     <section aria-labelledby="available-integrations-heading" className="mt-10"><h2 id="available-integrations-heading" className="text-xl font-bold">Available integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Choose a provider to connect or configure an integration.</p><div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
       <ProviderTile kind="linear" name="Linear" description="Create and update issues." count={data?.linear ? 1 : 0} href="/auth/linear" />
@@ -72,9 +73,9 @@ function IntegrationsContent() {
       <ProviderTile kind="github" name="GitHub" description="Connect repositories and pull requests." count={github.data?.length ?? 0} href="/auth/github/install" />
       <ProviderTile kind="exe" name="exe.dev" description="Run jobs on your VMs." count={data?.exeConnections.length ?? 0} onAdd={() => open("Add exe.dev integration", <IntegrationForm kind="exe" />)} />
       <ProviderTile kind="amp" name="Amp" description="Run workflows against an Amp project." count={data?.ampConnections.length ?? 0} onAdd={() => open("Add Amp integration", <IntegrationForm kind="amp" />)} />
-      {fly.tile}{bearer.tile}{models.tile}
+      {fly.tile}{bearer.tile}{models.tile}{x.tile}
       <ProviderTile kind="tail" name="Cloudflare Tail" description="Capture Worker logs through webhooks." count={data?.cloudflareTail.installations.length ?? 0} onAdd={() => open("Add Tail integration", <IntegrationForm kind="cloudflareTail" />)} />
     </div></section>
-    {setup && <Dialog title={setup.title} close={() => setSetup(null)}>{setup.form}</Dialog>}{fly.dialog}{bearer.dialog}{models.dialog}
+    {setup && <Dialog title={setup.title} close={() => setSetup(null)}>{setup.form}</Dialog>}{fly.dialog}{bearer.dialog}{models.dialog}{x.dialog}
   </>;
 }

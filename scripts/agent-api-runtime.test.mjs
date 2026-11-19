@@ -34,14 +34,16 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     const backfillTenant=randomUUID();
     for(const file of (await readdir('packages/api/migrations')).filter(file=>/^\d+.*\.sql$/.test(file)).sort()) {
       await db.query(await readFile('packages/api/migrations/'+file,'utf8'));
-      if(file==='0054_agent_api_grants.sql') {
+      if(file==='0058_x_credential_versions.sql') {
         await db.query("INSERT INTO app.tenants(id,name) VALUES($1,'Migration fixture')",[backfillTenant]);
         for(const kind of ['exe:existing','amp:existing','clickup','cloudflare-tail:existing']) await db.query("INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,$2,'cipher')",[backfillTenant,kind]);
         await db.query("INSERT INTO app.fly_connections(tenant_id,organization_slug,organization_name,encrypted_token) VALUES($1,'existing','Existing','cipher')",[backfillTenant]);
+        for (const status of ['connected','pending']) await db.query("INSERT INTO app.x_connections(tenant_id,id,name,client_id,scopes,encrypted_secret,status) VALUES($1,$2,$3,'fixture',ARRAY['users.read'],'cipher',$3)",[backfillTenant,randomUUID(),status]);
       }
     }
-    const backfilled=(await db.query('SELECT kind,policy FROM app.agent_integrations WHERE tenant_id=$1 ORDER BY kind',[backfillTenant])).rows;
-    assert.deepEqual(backfilled.map(row=>row.kind),['amp','clickup','exe','fly']);
+    const backfilled=(await db.query('SELECT kind,policy,available FROM app.agent_integrations WHERE tenant_id=$1 ORDER BY kind,available',[backfillTenant])).rows;
+    assert.deepEqual(backfilled.map(row=>row.kind),['amp','clickup','exe','fly','x','x']);
+    assert.deepEqual(backfilled.filter(row=>row.kind==='x').map(row=>row.available),[false,true]);
     assert.ok(backfilled.every(row=>row.policy==='requestable'),'migration preserves explicit consent by default');
     await db.query('INSERT INTO app.tenants(id,name) VALUES($1,$2)',[tenant,'Agent fixture']);
     await db.query('INSERT INTO app.auth_users(id,email,email_verified) VALUES($1,$2,true)',[user,'agent@example.test']);
@@ -92,7 +94,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
         try {const data=await readFile(resolve('packages/app/dist','.'+path));return new Response(data,{headers:{'Content-Type':path.endsWith('.js')?'application/javascript':path.endsWith('.css')?'text/css':'text/html'}});}catch{return new Response('Not found',{status:404});}
       }},
       outboundService:async request=>{
-        const target=new URL(request.url);assert.ok(['fixture.upstream.com','api.github.com','github.com','raw.githubusercontent.com','codeload.github.com','api.linear.app','api.openai.com','oidc.fly.io','auth.openai.com','chatgpt.com','exe.dev','ampcode.com','api.clickup.com','api.machines.dev','custom.amp.upstream.com'].includes(target.hostname),'Unexpected upstream '+target.hostname);
+        const target=new URL(request.url);assert.ok(['fixture.upstream.com','api.github.com','github.com','raw.githubusercontent.com','codeload.github.com','api.linear.app','api.openai.com','oidc.fly.io','auth.openai.com','chatgpt.com','exe.dev','ampcode.com','api.clickup.com','api.machines.dev','custom.amp.upstream.com','api.x.com'].includes(target.hostname),'Unexpected upstream '+target.hostname);
         const headers=new Headers(request.headers);headers.set('x-fixture-target',target.href);
         const response=await fetch('http://127.0.0.1:'+upstream.address().port+target.pathname+target.search,{method:request.method,headers,body:request.method==='GET'||request.method==='HEAD'?undefined:await request.arrayBuffer(),redirect:'manual'});
         return new Response(response.body,{status:response.status,headers:response.headers});
@@ -234,6 +236,29 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     // Inbound webhook signing secrets are never registered as outbound APIs.
     await db.query("INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,'cloudflare-tail:fixture',$2)",[tenant,encrypt(JSON.stringify({signingSecret:'tail-private'}))]);
     assert.equal((await db.query("SELECT 1 FROM app.agent_integrations WHERE tenant_id=$1 AND credential_id='fixture'",[tenant])).rowCount,0);
+    // X uses the same client policies while retaining upstream OAuth scope restrictions.
+    const xId=randomUUID();
+    const xCredential={clientSecret:'x-client-private',accessToken:'x-private',refreshToken:'x-refresh',expiresAt:new Date(Date.now()+3600000).toISOString()};
+    await db.query("INSERT INTO app.x_connections(tenant_id,id,name,client_id,scopes,encrypted_secret,status,account_id,account_handle,granted_scopes) VALUES($1,$2,'Social account','fixture',ARRAY['users.read','tweet.read','offline.access'],$3,'connected','123','fixture',ARRAY['users.read','tweet.read','offline.access'])",[tenant,xId,encrypt(JSON.stringify(xCredential))]);
+    const xRow=(await db.query("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind='x' AND credential_id=$2",[tenant,xId])).rows[0];
+    assert.equal(xRow.available,true);assert.equal((await request(first,xRow,'/2/users/me')).status,403);
+    const xApproved=await authorize(['jobs:read',scopes(xRow)]);
+    assert.equal((await request(xApproved,xRow,'/2/users/me')).result.status,200);assert.equal(observed.at(-1).target,'https://api.x.com/2/users/me');assert.equal(observed.at(-1).headers.authorization,'Bearer x-private');
+    const xCount=observed.length;
+    const xWrite=await request(xApproved,xRow,'/2/tweets',{method:'POST',body:'{}'});
+    assert.equal(xWrite.result,undefined,'MCP consent cannot expand X OAuth scopes');assert.match(xWrite.text,/This X connection does not grant tweet.write/);
+    const xManagement=await request(xApproved,xRow,'/2/oauth2/token',{method:'POST',body:'{}'});
+    assert.equal(xManagement.result,undefined,'credential management is not proxyable');assert.match(xManagement.text,/not authorized/);assert.equal(observed.length,xCount);
+    await policy(xRow,'baseline');assert.equal((await request(first,xRow,'/2/users/me')).result.status,200);
+    await policy(xRow,'disabled');assert.equal((await request(xApproved,xRow,'/2/users/me')).status,403);
+    await policy(xRow,'requestable');assert.equal((await request(xApproved,xRow,'/2/users/me')).status,403);
+    const oldEpoch=(await db.query('SELECT epoch FROM app.agent_integrations WHERE id=$1',[xRow.id])).rows[0].epoch;
+    await db.query("UPDATE app.x_connections SET status='reconnect_required',credential_version=credential_version+1 WHERE tenant_id=$1 AND id=$2",[tenant,xId]);
+    assert.equal((await db.query('SELECT epoch FROM app.agent_integrations WHERE id=$1',[xRow.id])).rows[0].epoch,oldEpoch+1);
+    await db.query("UPDATE app.x_connections SET status='connected' WHERE tenant_id=$1 AND id=$2",[tenant,xId]);
+    assert.equal((await request(xApproved,xRow,'/2/users/me')).status,403,'replacing X credentials invalidates old MCP approval');
+    // Restore a baseline entry for run-selection isolation checks below.
+    await policy(xRow,'baseline');
     const github=(await db.query("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind='github'",[tenant])).rows[0];
     for(const [path,target] of [['/owner/repo.git/info/refs','https://github.com/owner/repo.git/info/refs'],['/raw/owner/repo/main/file','https://raw.githubusercontent.com/owner/repo/main/file'],['/archive/owner/repo/zip/main','https://codeload.github.com/owner/repo/zip/main']]) {
       assert.equal((await request(first,github,path)).result.status,200);assert.equal(observed.at(-1).target,target);

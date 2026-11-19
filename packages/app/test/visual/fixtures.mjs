@@ -49,6 +49,7 @@ export async function mockApi(page, { legacy = false, authenticated = true, empt
     else if (path === "/api/v1/execution-integrations") json = targets;
     else if (path === "/api/v1/trigger-contexts") json = { manual: [{ path: "prompt", type: "string", description: "Manual prompt" }] };
     else if (path === "/api/v1/job-trigger-availability") json = { manual: true, schedule: true, jobLifecycle: true, linear: false, github: false, clickup: false, cloudflareTail: false };
+    else if (path === "/api/v1/x/connections") json = {connections:[]};
     else if (path === "/api/v1/fly/connection") json = {connection:null};
     else if (path === "/api/v1/integrations/bearer") json = {revision:0,integrations:[]};
     else if (path === "/api/v1/model-accounts") json = {revision:0,accounts:[]};

@@ -18,9 +18,11 @@ export async function runOutboundProxyFetch(request: Request, env: Env): Promise
   const github = /^\/providers\/github\/([1-9][0-9]*)(\/.*)?$/.exec(path);
   const linear = /^\/providers\/linear(\/.*)?$/.exec(path);
   const model = /^\/providers\/model\/v1(\/.*)?$/.exec(path);
-  const kind = bearer ? "bearer" : github ? "github" : linear ? "linear" : model ? "model" : null;
+  const x = /^\/x\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/.*)$/i.exec(path);
+  const kind = bearer ? "bearer" : github ? "github" : linear ? "linear" : model ? "model" : x ? "x" : null;
   if (!kind) return unavailable();
   try {
+    if (x) return await new AgentApiService(env, auth).forwardX(x[1]!, `${x[2]}${url.search}`, request);
     let id = bearer?.[1] ?? github?.[1] ?? "linear";
     if (model) {
       const row = (await databaseFor(env).pool.query<{execution_config: {modelAccountId?: string}}>("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [auth.tenantId,auth.runId])).rows[0];

@@ -2,7 +2,7 @@
 -- Tail signing secrets authenticate inbound webhooks and are deliberately excluded.
 ALTER TABLE app.agent_integrations DROP CONSTRAINT agent_integrations_kind_check;
 ALTER TABLE app.agent_integrations ADD CONSTRAINT agent_integrations_kind_check
- CHECK(kind IN ('bearer','github','linear','model','fly','exe','amp','clickup'));
+ CHECK(kind IN ('bearer','github','linear','model','fly','exe','amp','clickup','x'));
 
 CREATE FUNCTION app.agent_connection_changed() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -54,4 +54,18 @@ INSERT INTO app.agent_integrations(tenant_id,kind,credential_id,name,description
  FROM app.connections WHERE kind='clickup' OR kind LIKE 'exe:%' OR kind LIKE 'amp:%';
 INSERT INTO app.agent_integrations(tenant_id,kind,credential_id,name,description,available)
  SELECT tenant_id,'fly','fly','Fly.io · '||organization_name,'Fly Machines API',true FROM app.fly_connections;
-INSERT INTO app.schema_migrations(version) VALUES ('0055_all_proxy_integration_policies') ON CONFLICT DO NOTHING;
+CREATE FUNCTION app.agent_x_changed() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF TG_OP='DELETE' THEN
+  PERFORM app.sync_agent_integration(OLD.tenant_id,'x',OLD.id::text,'X · '||OLD.name,'X API v2',false);
+ ELSE
+  PERFORM app.sync_agent_integration(NEW.tenant_id,'x',NEW.id::text,'X · '||NEW.name,'X API v2',NEW.status='connected');
+ END IF;
+ RETURN NULL;
+END;
+$$;
+CREATE TRIGGER agent_x_sync AFTER INSERT OR UPDATE OR DELETE ON app.x_connections
+ FOR EACH ROW EXECUTE FUNCTION app.agent_x_changed();
+INSERT INTO app.agent_integrations(tenant_id,kind,credential_id,name,description,available)
+ SELECT tenant_id,'x',id::text,'X · '||name,'X API v2',status='connected' FROM app.x_connections;
+INSERT INTO app.schema_migrations(version) VALUES ('0059_all_proxy_integration_policies') ON CONFLICT DO NOTHING;

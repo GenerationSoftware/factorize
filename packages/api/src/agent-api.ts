@@ -6,17 +6,36 @@ import { normalizeScopes } from "./access-tokens";
 import { integrationScopePattern, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
 import { resolveAgentCredential } from "./agent-credentials";
 import { forwardRunOutbound } from "./run-outbound-forwarder";
+import { XConnectionRepository, XReconnectRequiredError } from "./postgres/x-connection-repository";
 import type { z } from "zod";
 
 export class AgentApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly scope?: string) { super(message); }
 }
-export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear" | "fly" | "exe" | "amp" | "clickup"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; revision: number};
+export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear" | "fly" | "exe" | "amp" | "clickup" | "x"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; revision: number};
 export const requiredIntegrationScope = (row: AgentIntegration) => `integration:${row.id}:${row.epoch}`;
 const STORAGE_BLOCK_BYTES = 1024 * 1024;
 const forbidden = () => new AgentApiError(403, "forbidden", "This integration is not authorized.");
 const invalidIdentity = () => new AgentApiError(401, "invalid_token", "The agent authorization is no longer active.");
 const publicIntegration = (row: AgentIntegration) => ({ id: row.id, kind: row.kind, credentialId: row.credential_id, name: row.name, description: row.description, available: row.available, policy: row.policy, revision: row.revision, requiredScope: requiredIntegrationScope(row) });
+
+/** Restrict the generic X v2 proxy to resources with an explicit OAuth-scope
+ * mapping. Unsupported resources and credential-management routes fail closed. */
+function xRequiredScope(path: string, method: string): string | null {
+  const pathname = path.split("?", 1)[0] ?? "";
+  const verb = method.toUpperCase();
+  if (/^\/2\/users\/(?:me|[0-9]+)$/.test(pathname) && verb === "GET") return "users.read";
+  if (/^\/2\/tweets$/.test(pathname)) return verb === "GET" ? "tweet.read" : verb === "POST" ? "tweet.write" : null;
+  if (/^\/2\/tweets\/[0-9]+$/.test(pathname)) return verb === "GET" ? "tweet.read" : verb === "DELETE" ? "tweet.write" : null;
+  if (/^\/2\/users\/[0-9]+\/(?:tweets|mentions)$/.test(pathname) && verb === "GET") return "tweet.read";
+  if (/^\/2\/users\/[0-9]+\/followers$/.test(pathname) && verb === "GET") return "follows.read";
+  if (/^\/2\/users\/[0-9]+\/following$/.test(pathname)) return verb === "GET" ? "follows.read" : verb === "POST" ? "follows.write" : null;
+  if (/^\/2\/users\/[0-9]+\/following\/[0-9]+$/.test(pathname) && verb === "DELETE") return "follows.write";
+  if (/^\/2\/users\/[0-9]+\/liked_tweets$/.test(pathname) && verb === "GET") return "like.read";
+  if (/^\/2\/users\/[0-9]+\/likes$/.test(pathname)) return verb === "GET" ? "like.read" : verb === "POST" ? "like.write" : null;
+  if (/^\/2\/users\/[0-9]+\/likes\/[0-9]+$/.test(pathname) && verb === "DELETE") return "like.write";
+  return null;
+}
 
 /** These are structural checks only: reflection never refreshes/decrypts secrets. */
 export async function integrationConsentLabels(env: Env, tenantId: string, scopes: string[]) {
@@ -64,6 +83,7 @@ export class AgentApiService {
       case "bearer": return Array.isArray(config.portableIntegrationIds) && config.portableIntegrationIds.includes(row.credential_id);
       case "github": return Array.isArray(config.githubInstallationIds) && config.githubInstallationIds.includes(Number(row.credential_id));
       case "linear": return config.linearConnectionId === "linear";
+      case "x": return Array.isArray(config.xConnectionIds) && config.xConnectionIds.includes(row.credential_id);
       case "model": return config.modelAccess === "portable" && config.modelAccountId === row.credential_id;
     }
     // Execution-provider credentials are not implicitly selected by a run.
@@ -94,12 +114,13 @@ export class AgentApiService {
         if (!(error instanceof AgentApiError) || error.status === 401) throw error;
         access = error.code === "insufficient_scope" ? "requestable" : "unavailable";
       }
-      result.push({...publicIntegration(row), access, instructions: row.kind === "linear" ? "Use request_api with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use request_api with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use request_api with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use request_api with a path relative to /api/v2." : row.kind === "fly" ? "Use request_api with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use request_api with an OpenAI-compatible path relative to /v1." : "Use request_api with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions."});
+      result.push({...publicIntegration(row), access, instructions: row.kind === "x" ? "Use request_api with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use request_api with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use request_api with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use request_api with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use request_api with a path relative to /api/v2." : row.kind === "fly" ? "Use request_api with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use request_api with an OpenAI-compatible path relative to /v1." : "Use request_api with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions."});
     }
     return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(this.auth.scopes), integrations: result};
   }
   async forward(integration: string, path: string, request: Request) {
     const grant = await this.authorize(integration);
+    if (grant.integration.kind === "x") return this.forwardX(grant.integration.credential_id, path, request);
     let credential;
     try { credential = await resolveAgentCredential(this.env, this.auth.tenantId, grant.integration.kind, grant.integration.credential_id, path); }
     catch { throw new AgentApiError(502, "credential_unavailable", "The upstream credential could not be resolved."); }
@@ -109,6 +130,53 @@ export class AgentApiService {
     if (current.integration.epoch !== grant.integration.epoch) throw forbidden();
     try { return await forwardRunOutbound(request, credential); }
     catch { throw new AgentApiError(502, "proxy_failed", "The upstream request failed."); }
+  }
+  async forwardX(connectionId: string, path: string, request: Request) {
+    const identity = await this.identity();
+    let apiGrant: {integration: AgentIntegration} | undefined;
+    if (identity.kind === "run") {
+      if (!Array.isArray(identity.config?.xConnectionIds) || !identity.config.xConnectionIds.includes(connectionId)) throw forbidden();
+    } else {
+      const row = (await this.database.pool.query<{id: string}>("SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND kind='x' AND credential_id=$2", [this.auth.tenantId, connectionId])).rows[0];
+      if (!row) throw forbidden();
+      apiGrant = await this.authorize(row.id);
+    }
+    const required = xRequiredScope(path, request.method);
+    if (!required) throw forbidden();
+    const repository = new XConnectionRepository(this.database, this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY);
+    const connection = await repository.get(connectionId);
+    if (!connection || connection.status !== "connected") throw forbidden();
+    if (!connection.scopes.includes(required) || !connection.grantedScopes.includes(required)) throw new AgentApiError(403, "insufficient_scope", `This X connection does not grant ${required}.`);
+    let accessToken: string | null;
+    try {
+      accessToken = await repository.accessToken(connectionId, async credentials => {
+        const response = await fetch("https://api.x.com/2/oauth2/token", {
+          method: "POST", redirect: "error", signal: AbortSignal.timeout(15_000),
+          headers: { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+          body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: credentials.refreshToken }),
+        });
+        const body = await response.json().catch(() => null) as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown; error?: unknown } | null;
+        if (!response.ok) {
+          if (response.status === 401 || body?.error === "invalid_grant") throw new XReconnectRequiredError();
+          throw new Error("X token refresh temporarily failed");
+        }
+        if (typeof body?.access_token !== "string" || typeof body.refresh_token !== "string" || typeof body.expires_in !== "number" || !Number.isFinite(body.expires_in) || body.expires_in <= 0) throw new Error("X token refresh response was invalid");
+        return { accessToken: body.access_token, refreshToken: body.refresh_token, expiresAt: new Date(Date.now() + body.expires_in * 1000).toISOString() };
+      });
+    } catch (error) {
+      if (error instanceof XReconnectRequiredError) throw new AgentApiError(401, "reconnect_required", "X authorization expired or was revoked. Reconnect this connection in Settings.");
+      throw new AgentApiError(502, "refresh_unavailable", "X authorization could not be refreshed temporarily. Retry the request later.");
+    }
+    if (!accessToken) throw forbidden();
+    const currentIdentity = await this.identity();
+    const current = await repository.get(connectionId);
+    if (apiGrant) {
+      const currentGrant = await this.authorize(apiGrant.integration.id);
+      if (currentGrant.integration.epoch !== apiGrant.integration.epoch) throw forbidden();
+    } else if (currentIdentity.kind !== "run" || !Array.isArray(currentIdentity.config?.xConnectionIds) || !currentIdentity.config.xConnectionIds.includes(connectionId)) throw forbidden();
+    if (current?.status !== "connected" || !current.scopes.includes(required) || !current.grantedScopes.includes(required)) throw forbidden();
+    try { return await forwardRunOutbound(request, { origin: "https://api.x.com", path: path, credential: accessToken }); }
+    catch { throw new AgentApiError(502, "proxy_failed", "The X API request failed. Check X API access, credits, and rate limits, then retry if safe."); }
   }
   async request(input: z.infer<typeof requestApiInput>, signal?: AbortSignal) {
     const parsed = requestApiInput.parse(input);

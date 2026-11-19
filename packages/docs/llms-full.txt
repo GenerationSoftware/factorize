@@ -767,7 +767,7 @@ Job runs retain their independent, explicit credential selections.
 `get_api_reflection` lists integration references and access instructions.
 `request_api` forwards a relative path using the selected integration's stored
 credential. The same policy applies to Bearer APIs, GitHub, Linear, model accounts,
-Fly.io, exe.dev, Amp, and ClickUp. Credentials stay on the server.
+Fly.io, exe.dev, Amp, ClickUp, and X. Credentials stay on the server.
 
 | Integration | Path convention |
 | --- | --- |
@@ -779,6 +779,7 @@ Fly.io, exe.dev, Amp, and ClickUp. Credentials stay on the server.
 | exe.dev | `POST /exec` with a `text/plain` command body |
 | Amp | Relative to the configured API base, defaulting to `/api/cloud/v1` |
 | ClickUp | Relative to `/api/v2`, such as `/team` |
+| X | Supported API v2 paths, such as `/2/users/me`, bounded by the connected account’s granted OAuth scopes |
 
 Cloudflare Tail connections contain inbound webhook signing secrets, not
 Cloudflare API credentials, so they do not expose an outbound API.

@@ -4,7 +4,7 @@ import type { TraceSources } from "./trace-source";
 import { JOB_RESULT_PATH } from "./job-result";
 export type AgentKind = "codex" | "claude" | "pi";
 
-export interface AgentConfiguration { model?: string; effort?: string; codexModel?: { baseUrl: string; providerName?: string }; providerEndpoints?: { githubInstallationIds?: number[]; linear?: boolean; model?: boolean }; }
+export interface AgentConfiguration { model?: string; effort?: string; codexModel?: { baseUrl: string; providerName?: string }; providerEndpoints?: { githubInstallationIds?: number[]; linear?: boolean; model?: boolean; xConnectionIds?: string[] }; }
 export interface ArtifactLocator {
   /** Paths are interpreted inside the guest; the compute backend only transports files. */
   roots: string[];
@@ -82,6 +82,7 @@ function providerEndpointEnv(config: AgentConfiguration): Record<string, string>
     ...(installations.length ? { FACTORIZE_GITHUB_INSTALLATIONS: JSON.stringify(installations) } : {}),
     ...(config.providerEndpoints?.linear ? { FACTORIZE_LINEAR_API_URL: `${proxy}/providers/linear/` } : {}),
     ...(config.providerEndpoints?.model ? { FACTORIZE_MODEL_API_URL: `${proxy}/providers/model/v1` } : {}),
+    ...(config.providerEndpoints?.xConnectionIds?.length ? { FACTORIZE_X_CONNECTIONS: JSON.stringify([...new Set(config.providerEndpoints.xConnectionIds)].filter(id => /^[0-9a-f-]{36}$/i.test(id)).map(id => ({ id, apiUrl: `${proxy}/x/${id}/` }))) } : {}),
   };
 }
 export function agentDriver(kind: AgentKind): AgentDriver {

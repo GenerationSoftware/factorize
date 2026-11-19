@@ -27,6 +27,7 @@ import {
 } from "./flow-schemas";
 import { traceReplaySchema } from "./trace-replay-schemas";
 import {modelAuthorizationState} from "./model-device-auth";
+import { X_OAUTH_SCOPES } from "./x-oauth";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
 import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput } from "./skills";
@@ -143,6 +144,16 @@ const modelAccountCreate = z.object({
 }).strict();
 const modelAccountDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
 const modelAccountList = z.object({ revision: z.number().int().nonnegative(), accounts: z.array(modelAccountMetadata) });
+const xConnectionMetadata = z.object({ id: z.uuid(), name: z.string(), clientId: z.string(), scopes: z.array(z.string()), accountId: z.string().nullable(), accountHandle: z.string().nullable(), grantedScopes: z.array(z.string()), status: z.enum(["pending", "connected", "reconnect_required", "revoked"]), createdAt: z.string(), updatedAt: z.string() });
+const xConnectionCreate = z.object({
+  id: z.uuid(), name: z.string().trim().min(1).max(120), clientId: z.string().trim().min(1).max(256),
+  clientSecret: z.string().min(1).max(4096).regex(/^[^\r\n]+$/).meta({ writeOnly: true }),
+  scopes: z.array(z.enum(Object.keys(X_OAUTH_SCOPES) as [keyof typeof X_OAUTH_SCOPES, ...(keyof typeof X_OAUTH_SCOPES)[]])).min(1).max(Object.keys(X_OAUTH_SCOPES).length),
+}).strict();
+const xConnectionList = z.object({ connections: z.array(xConnectionMetadata) });
+const xAuthorizationStart = z.object({ authorizationUrl: z.url() });
+const xConnectionTest = z.object({ status: z.enum(["connected", "failed", "reconnect_required"]), accountHandle: z.string().nullable(), message: z.string() });
+const xConnectionCredentialReplacement = z.object({ clientId: z.string().trim().min(1).max(256), clientSecret: z.string().min(1).max(4096).regex(/^[^\r\n]+$/).meta({ writeOnly: true }) }).strict();
 const bearerIntegrationWriteResult = z.object({ revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.literal(true), revision: z.number().int().nonnegative(), duplicate: z.boolean() });
 
@@ -223,6 +234,39 @@ function authRoute(method: string, path: string, action: AuthAction, summary: st
 }
 
 export const API_ROUTES: RouteContract[] = [
+  route("GET", "/api/v1/x/connections", "integrations:read", {
+    summary: "List X connections",
+    description: "Requires an interactive owner session. Returns named connection metadata, account identity, selected/granted scopes, and status. Client secrets and OAuth tokens are never returned.",
+    responses: { "200": { description: "X connection metadata", content: { "application/json": { schema: jsonSchema(xConnectionList, "output") } } } },
+  }, service => service.listXConnections(), { ownerSession: true }),
+  route("POST", "/api/v1/x/connections", "integrations:write", {
+    summary: "Add a user-owned X app connection",
+    description: "Requires an interactive owner session. Stores the X OAuth client secret in Factorize-managed encrypted storage and never returns it. Selected scopes are validated before saving.",
+    responses: { "201": { description: "X connection created", content: { "application/json": { schema: jsonSchema(xConnectionMetadata, "output") } } } },
+  }, (service, { body }) => service.createXConnection(body), { body: xConnectionCreate, maxBodyBytes: 8192, ownerSession: true }),
+  route("DELETE", "/api/v1/x/connections/{connectionId}", "integrations:write", {
+    summary: "Delete an X connection",
+    description: "Requires an interactive owner session. Immediately clears the encrypted credential and revokes the connection. A secret-free tombstone prevents old run snapshots from being revived if an identifier is reused.",
+    responses: { "200": { description: "X connection deleted", content: { "application/json": { schema: jsonSchema(z.object({ id: z.uuid(), deleted: z.literal(true) }), "output") } } } },
+  }, (service, { params }) => service.deleteXConnection(params.connectionId), { ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
+  route("POST", "/api/v1/x/connections/{connectionId}/authorize", "integrations:write", {
+    summary: "Start X OAuth authorization",
+    description: "Requires an interactive owner session. Starts a short-lived PKCE authorization bound to this owner, tenant, session, connection, and selected scopes. The one-time state is set in an HttpOnly cookie.",
+    responses: { "200": { description: "X authorization URL", content: { "application/json": { schema: jsonSchema(xAuthorizationStart, "output") } } } },
+  }, async (service, { params }) => {
+    const started = await service.authorizeXConnection(params.connectionId);
+    return Response.json({ authorizationUrl: started.authorizationUrl }, { headers: { "Set-Cookie": `factorize_x_oauth_state=${started.stateCookie}; HttpOnly; Secure; SameSite=Lax; Path=/oauth/x/callback; Max-Age=600` } });
+  }, { body: z.object({}).strict(), maxBodyBytes: 1024, ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
+  route("POST", "/api/v1/x/connections/{connectionId}/test", "integrations:read", {
+    summary: "Test an X connection",
+    description: "Requires an interactive owner session. Performs a non-mutating GET to X /2/users/me using the saved access token. Returns only a safe status and the already stored account handle; it never returns tokens, credentials, or upstream error bodies. The verification read may incur X API usage charges.",
+    responses: { "200": { description: "Safe connection test result", content: { "application/json": { schema: jsonSchema(xConnectionTest, "output") } } } },
+  }, (service, { params }) => service.testXConnection(params.connectionId), { body: z.object({}).strict(), maxBodyBytes: 1024, ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
+  route("PUT", "/api/v1/x/connections/{connectionId}/credentials", "integrations:write", {
+    summary: "Replace X app credentials",
+    description: "Requires an interactive owner session. Replaces the encrypted client credentials, invalidates saved access and refresh tokens and pending OAuth attempts, preserves the existing account identity binding, and requires reauthorization. Reauthorization cannot switch the connection to a different X account; create a new connection for another account. Existing run selections remain unavailable until authorization succeeds.",
+    responses: { "200": { description: "Updated safe connection metadata", content: { "application/json": { schema: jsonSchema(xConnectionMetadata, "output") } } } },
+  }, (service, { params, body }) => service.replaceXConnectionCredentials(params.connectionId, body), { body: xConnectionCredentialReplacement, maxBodyBytes: 8192, ownerSession: true, parameters: z.object({ connectionId: z.uuid() }) }),
   route("GET", "/api/v1/model-accounts", "integrations:read", {
     summary: "List model accounts available to the owner",
     description: "Requires an interactive owner browser session. Returns account metadata and the collection revision only; encrypted account caches and credentials are never returned.",
@@ -865,7 +909,7 @@ export const API_ROUTES: RouteContract[] = [
     description: "Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.",
     responses: { "200": { description: "Verified runtime identity", content: { "application/json": { schema: jsonSchema(runtimeContextResponse, "output") } } } } },
   service => service.getRuntimeContext()),
-  route("GET", "/api/v1/runtime-integrations", "integrations:read", { summary: "Discover this run's selected integration endpoints", description: "Requires vendor-verified run identity. Returns only snapshotted selections and current availability, without origins or credentials. Selection authorization is independent of the run's Factorize API scopes.", responses: { "200": { description: "Selected run integrations", content: { "application/json": { schema: jsonSchema(runtimeIntegrationsResponse, "output") } } } } }, service => service.getRuntimeIntegrations()),
+  route("GET", "/api/v1/runtime-integrations", "integrations:read", { summary: "Discover this run's selected integration endpoints", description: "Requires vendor-verified run identity. Returns only snapshotted selections, safe connection metadata, X OAuth scopes, and current availability, without origins or credentials. X connections use /x/{connectionId}/ for supported API v2 resources; each resource is checked against selected and granted OAuth scopes. Selection authorization is independent of the run's Factorize API scopes.", responses: { "200": { description: "Selected run integrations", content: { "application/json": { schema: jsonSchema(runtimeIntegrationsResponse, "output") } } } } }, service => service.getRuntimeIntegrations()),
   route("GET", "/api/v1/jobs/{jobId}/invocation-permissions", "jobs:read", { summary: "List a source job's manual invocation destinations", responses: { "200": { description: "Configured destination jobs in the same project", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params }) => service.getInvocationPermissions(params.jobId)),
   route("PUT", "/api/v1/jobs/{jobId}/invocation-permissions", "jobs:write", { summary: "Replace a source job's manual invocation destinations", description: "Requires an owner session, scoped API key, or authorized OAuth client with jobs:write. Destinations must belong to the source job's project; self-invocation is allowed. A run token may invoke a configured destination only while both jobs remain in the same project. Lifecycle subscriptions do not create permissions.", responses: { "200": { description: "Saved manual invocation permissions", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params, body }) => service.setInvocationPermissions(params.jobId, body.destinationJobIds), { body: invocationPermissionsInput }),
   route(

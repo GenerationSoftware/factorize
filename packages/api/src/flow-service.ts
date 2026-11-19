@@ -20,6 +20,8 @@ import type { JobPageQuery } from "./job-contracts";
 import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { CredentialRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./postgres/credential-repository";
+import { XConnectionRepository } from "./postgres/x-connection-repository";
+import { createXPKCE, signXOAuthState, validateXOAuthScopes, type XOAuthScope } from "./x-oauth";
 import { decrypt, encrypt } from "./crypto";
 import { InvocationService, type Job, type Trigger } from "./job-domain";
 import { RunQueryRepository } from "./postgres/run-query-repository";
@@ -104,6 +106,7 @@ export class ApiService {
     const portableIntegrationIds = input.portableIntegrationIds ?? current?.portableIntegrationIds ?? current?.executionConfig.portableIntegrationIds ?? [];
     const githubInstallationIds = input.githubInstallationIds ?? current?.githubInstallationIds ?? current?.executionConfig.githubInstallationIds ?? [];
     const linearConnectionId = input.linearConnectionId !== undefined ? input.linearConnectionId : current?.linearConnectionId ?? current?.executionConfig.linearConnectionId;
+    const xConnectionIds = input.xConnectionIds ?? current?.xConnectionIds ?? current?.executionConfig.xConnectionIds ?? [];
     if (executionType === "code" && input.modelAccess === "portable") throw new ServiceError(400, "invalid_request", "Code jobs cannot select model access.");
     const modelAccess = executionType === "code" ? "native" : input.modelAccess ?? current?.modelAccess ?? current?.executionConfig.modelAccess ?? (config.executionProvider === "fly" ? "portable" : "native");
     if (modelAccess === "portable" && config.agentKind !== "codex") throw new ServiceError(400,"invalid_request","Managed model accounts support Codex jobs.");
@@ -118,11 +121,13 @@ export class ApiService {
     const activeInstallationIds = new Set(installations.filter(item => item.state === "active").map(item => Number(item.installationId)));
     if (new Set(githubInstallationIds).size !== githubInstallationIds.length || githubInstallationIds.some(id => !activeInstallationIds.has(id))) throw new ServiceError(400, "invalid_request", "One or more selected GitHub installations are unavailable.");
     if (linearConnectionId && (!await this.connections().get("linear"))) throw new ServiceError(400, "invalid_request", "The selected Linear connection is unavailable.");
+    const xConnections = await new XConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).list();
+    if (new Set(xConnectionIds).size !== xConnectionIds.length || xConnectionIds.some(id => !xConnections.some(connection => connection.id === id && connection.status === "connected"))) throw new ServiceError(400, "invalid_request", "One or more selected X connections are unavailable. Connect them or remove the selections.");
     if (modelAccountId && byId.get(modelAccountId)?.kind !== "model") throw new ServiceError(400, "invalid_request", "The selected model account is unavailable.");
     if (modelAccountId && !modelCredentialConfigured((await this.credentials().managedCredential(modelAccountId,"model"))?.payload??"")) throw new ServiceError(400,"invalid_request","Connect the selected model account before using it in a job.");
     for (const id of portableIntegrationIds) if (!await this.credentials().managedCredential(id,"bearer")) throw new ServiceError(400,"invalid_request","Re-enter the selected bearer credential before using it in a job.");
     if (modelAccess === "portable" && executionType !== "code" && !modelAccountId) throw new ServiceError(400, "invalid_request", "Portable model access requires a model account.");
-    return { portableIntegrationIds, githubInstallationIds, ...(linearConnectionId ? { linearConnectionId } : {}), modelAccess, ...(modelAccountId ? { modelAccountId } : {}) };
+    return { portableIntegrationIds, githubInstallationIds, ...(linearConnectionId ? { linearConnectionId } : {}), xConnectionIds, modelAccess, ...(modelAccountId ? { modelAccountId } : {}) };
   }
 
   private async validateExecutionOptions(id: string, model: string, effort: string, tags: string[]) {
@@ -231,17 +236,20 @@ export class ApiService {
     const config = active.execution_config;
     const ids = Array.isArray(config.portableIntegrationIds) ? config.portableIntegrationIds : [];
     const githubIds = Array.isArray(config.githubInstallationIds) ? config.githubInstallationIds : [];
-    const [records, installations, revoked, linear, model] = await Promise.all([
+    const xIds = Array.isArray(config.xConnectionIds) ? config.xConnectionIds : [];
+    const [records, installations, revoked, linear, model, xConnections] = await Promise.all([
       db.pool.query<{id: string; name: string; description: string | null}>("SELECT id,name,description FROM app.integration_records WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND kind='bearer' AND deleted_at IS NULL", [tenantId, ids]),
       db.pool.query<{installation_id: number; state: string}>("SELECT installation_id,state FROM app.github_installations WHERE tenant_id=$1 AND installation_id=ANY($2::bigint[])", [tenantId, githubIds]),
       db.pool.query<{kind: string; credential_id: string}>("SELECT kind,credential_id FROM app.run_credential_revocations WHERE tenant_id=$1 AND run_id=$2", [tenantId, runId]),
       config.linearConnectionId === "linear" ? db.pool.query("SELECT 1 FROM app.connections WHERE tenant_id=$1 AND kind='linear'", [tenantId]) : null,
       config.modelAccess === "portable" && typeof config.modelAccountId === "string" ? db.pool.query("SELECT 1 FROM app.integration_records WHERE tenant_id=$1 AND id=$2 AND kind='model' AND deleted_at IS NULL", [tenantId, config.modelAccountId]) : null,
+      db.pool.query<{id: string; name: string; account_handle: string | null; granted_scopes: string[]; status: string}>("SELECT id,name,account_handle,granted_scopes,status FROM app.x_connections WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [tenantId, xIds]),
     ]);
     const denied = new Set(revoked.rows.map(row => `${row.kind}:${row.credential_id}`));
     return publicValue(runtimeIntegrationsResponse, {
       kind: "factorize-run-integrations-v1",
       integrations: ids.map((id: string) => { const record = records.rows.find(row => row.id === id); return {id, name: record?.name ?? "Unavailable integration", description: record?.description ?? null, path: `/integrations/${id}/`, available: Boolean(record) && !denied.has(`bearer:${id}`)}; }),
+      xConnections: xIds.map((id: string) => { const connection = xConnections.rows.find(row => row.id === id); return { id, name: connection?.name ?? "Unavailable X connection", accountHandle: connection?.account_handle ?? null, scopes: connection?.granted_scopes ?? [], path: `/x/${id}/`, available: connection?.status === "connected" }; }),
       providers: {
         githubInstallations: githubIds.map((installationId: number) => ({installationId, path: `/providers/github/${installationId}/`, available: installations.rows.some(row => Number(row.installation_id) === installationId && row.state === "active") && !denied.has(`github:${installationId}`)})),
         linear: config.linearConnectionId === "linear" ? {path: "/providers/linear/", available: Boolean(linear?.rowCount) && !denied.has("linear:linear")} : null,
@@ -603,6 +611,88 @@ export class ApiService {
   async saveTailIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveTail(input); }
   async testTailIntegration(id: string) { await this.authorize("integrations:write"); const result = await this.integrations().testTail(id); if (!result) throw new ServiceError(404, "not_found", "Integration not found"); return result; }
   private credentials() { return new CredentialRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+  private xConnections() { return new XConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
+  async listXConnections() {
+    await this.authorizeOwnerSession("integrations:read");
+    return { connections: await this.xConnections().list() };
+  }
+  async createXConnection(input: { id: string; name: string; clientId: string; clientSecret: string; scopes: string[] }) {
+    await this.authorizeOwnerSession("integrations:write");
+    let scopes: XOAuthScope[];
+    try { scopes = validateXOAuthScopes(input.scopes); }
+    catch (error) { throw new ServiceError(400, "invalid_request", error instanceof Error ? error.message : "Invalid X scopes."); }
+    if (!/^[A-Za-z0-9_-]{1,256}$/.test(input.clientId)) throw new ServiceError(400, "invalid_request", "Enter a valid X OAuth 2.0 client ID.");
+    if (!input.clientSecret.trim() || input.clientSecret.length > 4096 || /[\r\n]/.test(input.clientSecret)) throw new ServiceError(400, "invalid_request", "Enter a valid X OAuth client secret.");
+    if ((await this.xConnections().get(input.id)) !== null) throw new ServiceError(409, "conflict", "X connection already exists.");
+    try { return await this.xConnections().create({ ...input, name: input.name.trim(), clientId: input.clientId.trim(), scopes }); }
+    catch (error) {
+      if (error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "23505") throw new ServiceError(409, "conflict", "An X connection with this name already exists.");
+      throw error;
+    }
+  }
+  async deleteXConnection(id: string) {
+    await this.authorizeOwnerSession("integrations:write");
+    const credentials = await this.xConnections().disconnect(id);
+    if (!credentials) throw new ServiceError(404, "not_found", "X connection not found.");
+    // Local revocation is committed before contacting X. Upstream availability
+    // must never keep a disconnected run grant usable.
+    for (const token of [credentials.refreshToken, credentials.accessToken].filter((value): value is string => Boolean(value))) {
+      try {
+        await fetch("https://api.x.com/2/oauth2/revoke", {
+          method: "POST", redirect: "error", signal: AbortSignal.timeout(5_000),
+          headers: { Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ token, token_type_hint: token === credentials.refreshToken ? "refresh_token" : "access_token" }),
+        });
+      } catch { /* Best effort after local run access has already been revoked. */ }
+    }
+    return { id, deleted: true as const };
+  }
+  async testXConnection(id: string) {
+    await this.authorizeOwnerSession("integrations:read");
+    const repository = this.xConnections(), connection = await repository.get(id);
+    if (!connection || connection.status === "revoked") throw new ServiceError(404, "not_found", "X connection not found.");
+    if (connection.status !== "connected") return { status: "reconnect_required" as const, accountHandle: connection.accountHandle, message: "Reconnect this X connection before testing it." };
+    const credentials = await repository.clientCredentials(id);
+    if (!credentials?.accessToken || !credentials.expiresAt || Date.parse(credentials.expiresAt) <= Date.now())
+      return { status: "reconnect_required" as const, accountHandle: connection.accountHandle, message: "Reconnect this X connection before testing it." };
+    try {
+      const response = await fetch("https://api.x.com/2/users/me?user.fields=id%2Cusername", {
+        method: "GET", redirect: "error", signal: AbortSignal.timeout(10_000),
+        headers: { Authorization: `Bearer ${credentials.accessToken}`, Accept: "application/json" },
+      });
+      if (response.status === 401) return { status: "reconnect_required" as const, accountHandle: connection.accountHandle, message: "X rejected this authorization. Reconnect the connection." };
+      if (!response.ok) return { status: "failed" as const, accountHandle: connection.accountHandle, message: "X could not verify the connection. Try again later." };
+      const me = await response.json() as { data?: { id?: unknown; username?: unknown } };
+      if (me.data?.id !== connection.accountId || me.data?.username !== connection.accountHandle)
+        return { status: "failed" as const, accountHandle: connection.accountHandle, message: "X returned an account that does not match this connection." };
+      return { status: "connected" as const, accountHandle: connection.accountHandle, message: "X connection verified." };
+    } catch {
+      return { status: "failed" as const, accountHandle: connection.accountHandle, message: "X could not verify the connection. Try again later." };
+    }
+  }
+  async replaceXConnectionCredentials(id: string, input: { clientId: string; clientSecret: string }) {
+    await this.authorizeOwnerSession("integrations:write");
+    if (!/^[A-Za-z0-9_-]{1,256}$/.test(input.clientId)) throw new ServiceError(400, "invalid_request", "Enter a valid X OAuth 2.0 client ID.");
+    if (!input.clientSecret.trim() || input.clientSecret.length > 4096 || /[\r\n]/.test(input.clientSecret)) throw new ServiceError(400, "invalid_request", "Enter a valid X OAuth client secret.");
+    const updated = await this.xConnections().replaceClientCredentials(id, { clientId: input.clientId.trim(), clientSecret: input.clientSecret });
+    if (!updated) throw new ServiceError(404, "not_found", "X connection not found.");
+    return updated;
+  }
+  async authorizeXConnection(id: string) {
+    await this.authorizeOwnerSession("integrations:write");
+    const repository = this.xConnections(), connection = await repository.get(id);
+    if (connection?.status === "revoked") throw new ServiceError(404, "not_found", "X connection not found.");
+    const credentials = await repository.clientCredentials(id);
+    if (!connection || !credentials) throw new ServiceError(404, "not_found", "X connection not found.");
+    const scopes = validateXOAuthScopes(connection.scopes);
+    const pkce = await createXPKCE(), nonce = crypto.randomUUID(), expires = Math.floor(Date.now() / 1000) + 600;
+    const state = await signXOAuthState({ tenantId: this.auth.tenantId, userId: this.auth.userId, sessionVersion: this.auth.sessionVersion, connectionId: id, scopes, nonce, exp: expires }, this.env.SESSION_SIGNING_SECRET);
+    const saved = await repository.createOAuthAttempt({ nonce, userId: this.auth.userId, sessionVersion: this.auth.sessionVersion, connectionId: id, scopes, verifier: pkce.verifier, expiresAt: new Date(expires * 1000) });
+    if (!saved) throw new ServiceError(404, "not_found", "X connection not found.");
+    const redirectUri = `${this.env.APP_ORIGIN}/oauth/x/callback`, authorize = new URL("https://x.com/i/oauth2/authorize");
+    authorize.search = new URLSearchParams({ response_type: "code", client_id: credentials.clientId, redirect_uri: redirectUri, scope: scopes.join(" "), state, code_challenge: pkce.challenge, code_challenge_method: "S256" }).toString();
+    return { authorizationUrl: authorize.toString(), stateCookie: state };
+  }
   private async bearerWrite(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; origin: string; description: string | null; token?: string; operation: "upsert" | "delete" }) {
     try { return await this.credentials().write({ ...input, managedSecret: input.token, kind: "bearer" }); }
     catch (error) {

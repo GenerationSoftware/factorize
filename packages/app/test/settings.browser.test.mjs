@@ -7,6 +7,7 @@ let server, origin, browser;
 before(async () => { server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } }); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 async function setup() { const context = await browser.newContext(), page = await context.newPage(); page.setDefaultTimeout(10000);
+  await page.route("**/api/v1/x/connections", route => route.fulfill({json:{connections:[]}}));
   await page.route("**/api/v1/fly/connection", route => route.fulfill({json:{connection:null}}));
   await page.route("**/api/v1/integrations/bearer", route => route.fulfill({json:{revision:0,integrations:[]}}));
   await page.route("**/api/v1/model-accounts", route => route.fulfill({json:{revision:0,accounts:[]}}));
@@ -162,7 +163,8 @@ test("all connections share one list, row policies save by identity and disabled
   await page.route('**/api/v1/fly/connection',route=>route.fulfill({json:{connection:{organizationName:'Machines',organizationSlug:'machines'}}}));
   await page.route('**/api/v1/integrations/bearer',route=>route.fulfill({json:{revision:1,integrations:[{id,name:'Example API',origin:'https://api.example.test',description:null,revision:1}]}}));
   await page.route('**/api/v1/model-accounts',route=>route.fulfill({json:{revision:1,accounts:[{id,name:'Model fixture',description:null,credentialConfigured:true,revision:1}]}}));
-  const policies=[['linear','linear'],['clickup','clickup'],['github','17'],['exe','vm'],['amp','amp'],['fly','fly'],['bearer',id],['model',id]].map(([kind,credentialId],index)=>({id:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`,kind,credentialId,name:kind,available:true,policy:kind==='model'?'disabled':'requestable',revision:1}));
+  await page.route('**/api/v1/x/connections',route=>route.fulfill({json:{connections:[{id,name:'Social account',accountId:'123',accountHandle:'social',status:'connected',scopes:['users.read'],grantedScopes:['users.read']}]}}));
+  const policies=[['linear','linear'],['clickup','clickup'],['github','17'],['exe','vm'],['amp','amp'],['fly','fly'],['bearer',id],['model',id],['x',id]].map(([kind,credentialId],index)=>({id:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`,kind,credentialId,name:kind,available:true,policy:kind==='model'?'disabled':'requestable',revision:1}));
   await page.route('**/api/v1/integration-api-policies',route=>route.fulfill({json:{integrations:policies}}));
   const updates=[];let conflict=true;
   await page.route('**/api/v1/integration-api-policies/*',route=>{
@@ -174,11 +176,11 @@ test("all connections share one list, row policies save by identity and disabled
   await page.goto(origin+'/settings/integrations');
   const list=page.getByRole('list',{name:'Your integrations'});
   await list.getByText('Example API',{exact:true}).waitFor();
-  assert.equal(await list.getByRole('listitem').count(),9);
+  assert.equal(await list.getByRole('listitem').count(),10);
   assert.equal(await page.getByRole('heading',{name:'MCP API access',exact:true}).count(),0);
   assert.equal(await page.locator('form').count(),0);
   await list.getByRole('checkbox',{name:'Example API available by default',exact:true}).waitFor();
-  assert.equal(await list.getByRole('checkbox').count(),8);
+  assert.equal(await list.getByRole('checkbox').count(),9);
   const checkbox=list.getByRole('checkbox',{name:'Example API available by default',exact:true});
   await checkbox.click();await list.getByRole('alert').filter({hasText:'Integration policy changed'}).waitFor();
   await checkbox.check();await page.waitForFunction(()=>document.querySelector('input[aria-label="Example API available by default"]')?.checked);
