@@ -54,7 +54,7 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
   const legacyRequest = parsed.scope.some(scope => scope === "flows:read" || scope === "flows:write");
   const selected = normalizeScopes(input.scopes);
   const issuedScopes = legacyRequest ? input.scopes : selected;
-  if (input.scopes.some(scope => !allowed.has(scope) && !allowed.has(normalizeScopes([scope])[0] ?? "") ) || selected.some(scope => !AGENT_SCOPES.includes(scope) && !isIntegrationScope(scope))) return null;
+  if (input.scopes.some(scope => !allowed.has(scope) && !allowed.has(normalizeScopes([scope])[0] ?? "") ) || selected.some(scope => !(AGENT_SCOPES as readonly string[]).includes(scope) && !isIntegrationScope(scope))) return null;
   return databaseFor(env).transaction(async transaction => {
     const preview = await transaction.query("UPDATE app.oauth_consent_previews SET used_at=now() WHERE id=$1 AND used_at IS NULL AND expires_at>clock_timestamp() RETURNING id", [envelope.nonce]);
     if (!preview.rows.length) return null;

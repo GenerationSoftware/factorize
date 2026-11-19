@@ -35,6 +35,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
 | `start_run` | runs:start | Literal `prompt`, optional `skill`, `inputs`, `projectId`, `name` and `idempotencyKey`. Returns `runId`, the browser `url`, `outcomeUri`, and `duplicate`. |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
+| `rename_mcp_client` | Authenticated OAuth connection | `{ "name": "Release assistant" }`. Sets this connection’s display name in Settings → Authorized clients. Names are trimmed and accept 1–120 characters. |
 | `get_api_reflection` | Authenticated OAuth/run identity | `{}`. Discover the authorization identity, effective scopes, and granted/requestable integration APIs, including instructions, required OAuth scope, and connection availability. |
 | `grant_vm` | vm:grant and proxy:use | OAuth agent delegates explicit integration IDs to a VM on an eligible exe.dev connection. Requires providerIntegrationId, vm, integrationIds and idempotencyKey. |
 | `revoke_vm_grant` | vm:grant | Requires grantId. Invalidates guest access and schedules identity integration cleanup. |

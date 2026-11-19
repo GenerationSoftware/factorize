@@ -74,6 +74,8 @@ export const agentIntegrations = app.table("agent_integrations", {
   policy:text("policy").$type<"baseline"|"requestable"|"disabled">().notNull().default("requestable"),epoch:integer("epoch").notNull().default(1),revision:integer("revision").notNull().default(1),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.kind,t.credentialId)]);
 export const agentIdentities = app.table("agent_identities", {
+  displayName: text("display_name"), disabledScopes: text("disabled_scopes").array().notNull().default([]),
+  integrationOverrides: jsonb("integration_overrides").notNull().default({}), permissionsRevision: integer("permissions_revision").notNull().default(0),
   tenantId:uuid("tenant_id").notNull().references(()=>tenants.id,{onDelete:"cascade"}),id:uuid("id").notNull().defaultRandom(),kind:text("kind").$type<"oauth"|"run"|"vm">().notNull(),subject:text("subject").notNull(),userId:uuid("user_id").notNull(),sessionVersion:integer("session_version").notNull(),revokedAt:timestamp("revoked_at",{withTimezone:true}),createdAt:createdAt(),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.kind,t.subject)]);
 export const vmGrants = app.table("vm_grants", {

@@ -173,6 +173,16 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     const request=(token,integration,path='/',extra={})=>proxy(token,'/api/v1/agent/requests',{integration:integration.id,method:'GET',path,...extra});
     const scopes=row=>'integration:'+row.id+':'+row.epoch;
     const first=await authorize(['jobs:read']),second=await authorize(['jobs:read']);
+    await rpc(first, 'rename_mcp_client', {name:'Release assistant'});
+    const clients = await json('/api/v1/access/authorized-clients','GET',undefined,owner);
+    const siblingConnections = clients.body.filter(client => client.clientId === clientId);
+    assert.deepEqual(siblingConnections.map(client => client.clientName).sort(), ['Agent fixture','Release assistant']);
+    const renamed = siblingConnections.find(client => client.clientName === 'Release assistant');
+    const permissionPath = '/api/v1/access/authorizations/' + renamed.grantId + '/permissions';
+    assert.equal((await json(permissionPath, 'PUT', {disabledScopes:[], integrationOverrides:{[baseline.id]:false}}, owner)).status, 200);
+    assert.equal((await request(first, baseline)).status, 403);
+    assert.equal((await request(second, baseline)).status, 200);
+    assert.equal((await json(permissionPath, 'PUT', {disabledScopes:[], integrationOverrides:{}}, owner)).status, 200);
     const reflect=await rpc(first,'get_api_reflection');assert.equal(reflect.status,200,reflect.text);assert.equal(reflect.result.integrations.find(row=>row.id===baseline.id).access,'granted');assert.equal(reflect.result.integrations.find(row=>row.id===requestable.id).access,'requestable');
     // A new local agent obtains a single device authorization. Its HTTP client
     // reads the private header file; MCP and shell credentials are never copied.
