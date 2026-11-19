@@ -77,9 +77,11 @@ Source: https://docs.factorize.sh/quickstart
 ## Set up in the browser
 
 1. Open [app.factorize.sh/auth/signup](https://app.factorize.sh/auth/signup). Sign up with **email and password** (12–200 characters), verify the email, then sign in. Use [resend verification](https://app.factorize.sh/auth/verify/request) if needed.
-2. Open [Settings → Integrations](https://app.factorize.sh/settings). Add an exe.dev account token, test credentials, select the execution agent and VM tags, then save. Saving validates the agent/models on a temporary VM. Alternatively connect an Amp project and its access token.
+2. Open [Integrations](https://app.factorize.sh/integrations). Add an exe.dev account token, test credentials, select the execution agent and VM tags, then save. Saving validates the agent/models on a temporary VM. Alternatively connect an Amp project and its access token.
 3. Ensure the execution account can access your repository and the required model/integrations. For exe.dev, the account token must permit VM listing, creation, SSH and deletion (`ls`, `new`, `ssh`, `rm`). VM tags attach your execution integrations. Current exe.dev targets do **not** store a repository URL or checkout ref: put the repository URL and checkout instructions in the job prompt.
 4. [Connect your MCP client](https://docs.factorize.sh/mcp/overview), approve the four workflow scopes, and ask “List my Factorize jobs.”
+
+To reuse a VM setup, open dashboard **Settings**, choose **Add preset**, and save a name and provider settings. Apply it from **VM preset** in a job’s Execution settings or a project’s direct run defaults. Editing or deleting the preset leaves those saved settings in place.
 
 These account, credential and consent steps happen in the browser. MCP can discover saved targets, manage jobs and invoke/inspect runs; it cannot sign you up, verify email, connect execution credentials or select provider resources.
 
@@ -238,7 +240,7 @@ User request:
 
 > When an issue in my selected Linear project moves to my selected Ready status, run the repository agent to investigate it and report the result.
 
-In browser [Settings → Integrations](https://app.factorize.sh/settings), connect Linear, approve workspace access, and select an accessible project/status in the job editor. The execution account separately needs repository and Linear access if the prompt asks it to read/update Linear. MCP does not list Linear projects/statuses or connect accounts; use browser resource selection to obtain the IDs.
+In browser [Integrations](https://app.factorize.sh/integrations), connect Linear, approve workspace access, and select an accessible project/status in the job editor. The execution account separately needs repository and Linear access if the prompt asks it to read/update Linear. MCP does not list Linear projects/statuses or connect accounts; use browser resource selection to obtain the IDs.
 
 Create a job with the required [job fields](https://docs.factorize.sh/mcp/tools), repository instructions, and this trigger (replace both IDs):
 
@@ -268,7 +270,7 @@ Open one test PR on the selected repository. Verify delivery timeline, job activ
 ## Automate from ClickUp
 Source: https://docs.factorize.sh/integrations/clickup
 
-[Connect ClickUp](https://docs.factorize.sh/integrations/oauth) in Settings and approve access to the intended team/list. Factorize registers the task webhook on connection. Use the browser job editor to select a list and rule target IDs; MCP does not discover ClickUp lists/statuses.
+[Connect ClickUp](https://docs.factorize.sh/integrations/oauth) in Integrations and approve access to the intended team/list. Factorize registers the task webhook on connection. Use the browser job editor to select a list and rule target IDs; MCP does not discover ClickUp lists/statuses.
 
 Add this trigger to the complete job configuration:
 
@@ -278,7 +280,7 @@ Add this trigger to the complete job configuration:
 
 Replace IDs with browser-selected values. All configured rules must match. Read the returned stable slug/reflection before using `{{trigger-2.task}}` in the prompt. Ensure the execution agent separately has any ClickUp access required to work on the task.
 
-Change one test task to the selected status. Verify delivery with `list_webhook_deliveries({"provider":"clickup"})`, inspect its timeline, job activity and resulting run. Reconnect in Settings if provider authorization expires; use [event troubleshooting](https://docs.factorize.sh/troubleshooting/events) for rejected or absent deliveries.
+Change one test task to the selected status. Verify delivery with `list_webhook_deliveries({"provider":"clickup"})`, inspect its timeline, job activity and resulting run. Reconnect in Integrations if provider authorization expires; use [event troubleshooting](https://docs.factorize.sh/troubleshooting/events) for rejected or absent deliveries.
 
 ## Chain jobs
 Source: https://docs.factorize.sh/recipes/chaining
@@ -353,7 +355,7 @@ Scopes are snapshotted when the invocation is created and stored in immutable to
 ## Connect your accounts
 Source: https://docs.factorize.sh/integrations/oauth
 
-Factorize accounts own dashboard identity. Sign up with an email and password, verify your email to sign in automatically, then open [Settings → Integrations](https://app.factorize.sh/settings) to connect Linear when using Linear-backed jobs. Linear OAuth only connects the workspace; it never signs you in. Register `/auth/linear/callback`, configure issue and issue-label webhooks at `/webhooks/linear`, and store the client credentials and signing secret as Worker secrets. ClickUp is optional: register `/auth/clickup/callback`; connecting it automatically registers its task webhook. GitHub uses an installed GitHub App, while exe.dev and Cloudflare Tail connections are configured in Settings.
+Factorize accounts own dashboard identity. Sign up with an email and password, verify your email to sign in automatically, then open [Integrations](https://app.factorize.sh/integrations) to connect Linear when using Linear-backed jobs. Linear OAuth only connects the workspace; it never signs you in. Register `/auth/linear/callback`, configure issue and issue-label webhooks at `/webhooks/linear`, and store the client credentials and signing secret as Worker secrets. ClickUp is optional: register `/auth/clickup/callback`; connecting it automatically registers its task webhook. GitHub uses an installed GitHub App, while exe.dev and Cloudflare Tail connections are configured in Integrations.
 
 | Account | Browser action and required access | Verification |
 | --- | --- | --- |
@@ -365,14 +367,14 @@ Factorize accounts own dashboard identity. Sign up with an email and password, v
 
 The provider consent/installation screen is the authority for granted permissions. Grant access to the selected resources; changing those resources can require provider reauthorization. Job-trigger access and execution-agent access are separate: select an existing GitHub installation or Linear connection in each job to authorize its backend proxy access. Factorize reuses those credentials and their existing upstream permissions; it does not deliver tokens to the VM.
 
-MCP exposes safe connection/installation/target metadata, not tokens. Account connections, resource pickers and credential management require browser setup. Reconnect Linear/ClickUp from Settings; use GitHub's Configure installation link for repository access and verify the installation is active. Do not disconnect integrations while jobs still reference them; update those jobs first.
+MCP exposes safe connection/installation/target metadata, not tokens. Account connections, resource pickers and credential management require browser setup. Reconnect Linear/ClickUp from Integrations; use GitHub's Configure installation link for repository access and verify the installation is active. Do not disconnect integrations while jobs still reference them; update those jobs first.
 
 After changing access, create one controlled event and use `list_webhook_deliveries`, `get_webhook_delivery`, `list_job_webhook_activity`, and `list_runs` to verify delivery and execution. See [jobs not firing](https://docs.factorize.sh/troubleshooting/events). Hosted Factorize manages OAuth application registration, callbacks and webhook infrastructure. Operators of their own deployment use [configuration](https://docs.factorize.sh/self-hosting/configuration).
 
 
 ## Credentials selected by a job
 
-In Settings → Integrations, add custom bearer credentials with a fixed HTTPS
+In Integrations, add custom bearer credentials with a fixed HTTPS
 origin. Add model accounts with ChatGPT device authorization or an OpenAI API
 key. Factorize encrypts these credentials on the server; stored secrets cannot
 be viewed and no unlock key is required. Replace an existing credential to
@@ -398,7 +400,7 @@ External MCP clients continue to authenticate with OAuth; execution VMs continue
 to use vendor OIDC. These identities have separate grants. Run selections never
 inherit an external client's approvals.
 
-In Settings → Integrations → MCP API access, choose a policy for each custom
+In Integrations → MCP API access, choose a policy for each custom
 bearer integration, GitHub installation, Linear connection, and model account:
 
 * **Baseline:** immediately available to all active MCP authorizations. Removing
@@ -477,7 +479,7 @@ Lifecycle config is `{sourceJobIds, states}`, where states are `succeeded`, `fai
 
 Terminal lifecycle events (`succeeded`, `failed`, and `stopped`) are recorded transactionally when a watched run changes into that state. Creating a subscription, enabling a disabled subscription, re-enabling it, or changing its watched jobs or states starts matching from subsequent terminal transitions; existing terminal runs are not replayed. A run already in progress when a subscription starts is delivered if it reaches a watched terminal state afterward. Prompt and other unrelated job edits do not move this boundary. Events captured for an enabled subscription remain pending while its destination is disabled, and are delivered after it is enabled again; removing the trigger or deleting the source run discards its pending event. Delivery retries are deduplicated by trigger and source run state.
 
-For hosted jobs, connect the provider in [Settings](https://docs.factorize.sh/integrations/oauth), select accessible resources in the browser editor, and verify a matching event with delivery tools. Factorize verifies provider signatures and manages OAuth subscriptions. Optional Cloudflare Tail triggers require your own source/relay integration; infrastructure setup belongs in [operations](https://docs.factorize.sh/self-hosting/operations).
+For hosted jobs, connect the provider in [Integrations](https://docs.factorize.sh/integrations/oauth), select accessible resources in the browser editor, and verify a matching event with delivery tools. Factorize verifies provider signatures and manages OAuth subscriptions. Optional Cloudflare Tail triggers require your own source/relay integration; infrastructure setup belongs in [operations](https://docs.factorize.sh/self-hosting/operations).
 
 Choose **Job lifecycle → Edited** and one or more source jobs to run a job when another job is saved (including enable/disable saves). Creation and run status changes do not produce edit events. Each successful save is an event, even if the submitted values are unchanged. Only enabled subscribers in the same tenant are matched; a job cannot subscribe to its own edits.
 
@@ -544,10 +546,10 @@ Source: https://docs.factorize.sh/troubleshooting/connection
 | Client never connects | Confirm the exact URL `https://app.factorize.sh/mcp`, remote Streamable HTTP and OAuth support. Open the client's MCP status view and authenticate; use [client-specific instructions](https://docs.factorize.sh/mcp/overview). |
 | `invalid_token` or access disappears | Reauthorize the client. Password resets/changes and sign-out invalidate delegated credentials. An expired access token needs client refresh or renewed login. |
 | `insufficient_scope` | Reconnect and grant `flows:read` for discovery, `flows:write` for job edits/diagnosis, `runs:read` for inspection and `runs:write` for renaming, invocation, or stop. |
-| `list_execution_configs` returns no items | In browser Settings, test and save an exe.dev or Amp integration in the same workspace. MCP cannot create credential-bearing connections. |
+| `list_execution_configs` returns no items | In dashboard Integrations, test and save an exe.dev or Amp integration in the same workspace. MCP cannot create credential-bearing connections. |
 | Target exists but repository/model access fails | Test the saved execution integration and check execution-account repository/model access and VM tags. For exe.dev, `diagnose_exe_integration` uses the saved connection ID and creates/deletes a temporary VM. |
 
-To reconnect access, open [Settings → Authorized clients](https://app.factorize.sh/settings/authorized-clients), revoke the old client if necessary, remove/reconnect its authorization in the MCP client, then authorize again. Verify with “List my Factorize jobs” followed by “List my execution integrations.” Revocation affects access, not stored jobs. Provider reconnection is separate: use [Settings → Integrations](https://app.factorize.sh/settings).
+To reconnect access, open [Account settings → Authorized clients](https://app.factorize.sh/settings/authorized-clients), revoke the old client if necessary, remove/reconnect its authorization in the MCP client, then authorize again. Verify with “List my Factorize jobs” followed by “List my execution integrations.” Revocation affects access, not stored jobs. Provider reconnection is separate: use [Integrations](https://app.factorize.sh/integrations).
 
 ## Jobs not firing
 Source: https://docs.factorize.sh/troubleshooting/events
@@ -555,7 +557,7 @@ Source: https://docs.factorize.sh/troubleshooting/events
 1. Fetch `get_job`; confirm the job and intended trigger are enabled. Check schedule timezone/cron, selected provider resources, and all matching rules.
 2. Make one controlled matching provider event. Ask for `list_webhook_deliveries` filtered by `provider` and `jobId`; if nothing is found, search by provider alone since unmatched deliveries may not link the job.
 3. Use the returned delivery's identifier with `get_webhook_delivery` to inspect its safe timeline. Use `list_job_webhook_activity` for matching, rejected, duplicate and accepted activity. No raw payloads or secrets are returned.
-4. If no delivery appears, reconnect the provider in Settings, check resource access/app installation and provider delivery status. Ask the hosted operator to investigate transport/subscription failures; hosted users do not configure Factorize's webhook signing secrets.
+4. If no delivery appears, reconnect the provider in Integrations, check resource access/app installation and provider delivery status. Ask the hosted operator to investigate transport/subscription failures; hosted users do not configure Factorize's webhook signing secrets.
 5. If delivery appears but no run does, check event/action selection, match rules and conditions. `test_job_webhook_conditions` previews prepared example context only; it does not authenticate or deliver an event.
 6. Check `list_runs`: automatic occurrences coalesce while a run is queued. An accepted run may be waiting for an active slot. Query the provider itself for authoritative work.
 
@@ -773,7 +775,7 @@ Job creation and updates accept optional `runScopes`, an array of Factorize API 
 
 ## Integration API access
 
-In **Settings → Integrations**, each connected API integration has an
+In **Integrations**, each connected API integration has an
 **Available by default** checkbox. Checked integrations are available immediately
 to connected MCP clients. Unchecked integrations require approval for each client
 connection. Existing approvals remain valid when default access is unchecked.
@@ -948,13 +950,13 @@ For local development, copy `packages/api/.dev.vars.example` to `packages/api/.d
 ## Operator configuration
 Source: https://docs.factorize.sh/self-hosting/configuration
 
-These steps apply only to your own deployment. Hosted Factorize users connect existing accounts in [Settings](https://app.factorize.sh/settings); they do not register Factorize OAuth applications or set Worker secrets.
+These steps apply only to your own deployment. Hosted Factorize users connect existing accounts in [Integrations](https://app.factorize.sh/integrations); they do not register Factorize OAuth applications or set Worker secrets.
 
 Register provider applications for your deployment origin. Linear requires Issues and Issue labels webhooks and fresh workspace authorization after subscription changes; ClickUp registers its task webhook on connection. Configure the GitHub App credentials and webhook settings for your deployment using the template in `packages/api/.dev.vars.example` and the executable callbacks/webhook routes in `packages/api/src/worker.ts`.
 
 ## Account authentication
 
-Factorize owns authentication in PostgreSQL. Create a native account at `/auth/signup` with an email address and a password of 12–200 characters. Emails are case-insensitive. Verify the email before signing in at `/auth/login`; email plus password are accepted. Linear is connected after sign-in from **Settings → Integrations**, only for Linear-backed jobs.
+Factorize owns authentication in PostgreSQL. Create a native account at `/auth/signup` with an email address and a password of 12–200 characters. Emails are case-insensitive. Verify the email before signing in at `/auth/login`; email plus password are accepted. Linear is connected after sign-in from **Integrations**, only for Linear-backed jobs.
 
 Postmark sends one-hour, single-use verification and password-reset links. `/auth/verify/request` resends verification; `/auth/password-reset` handles recovery. Links never appear in application responses or logs. Passwords use salted PBKDF2-SHA-256. **Change password** in the account menu requires the current password. Password reset, password change and sign-out invalidate existing sessions via membership session versions, including delegated API credentials.
 
@@ -993,7 +995,7 @@ After changing the webhook settings, re-authorize existing workspaces so Linear 
 
 ## Configure ClickUp
 
-Create a ClickUp OAuth application with the callback URL `https://your-domain.example/auth/clickup/callback`, then store its client ID and secret in `CLICKUP_CLIENT_ID` and `CLICKUP_CLIENT_SECRET`. Connecting ClickUp from Settings registers the signed task webhook automatically. ClickUp triggers can filter a list by status, tag, assignee, or creator; all configured rules must match.
+Create a ClickUp OAuth application with the callback URL `https://your-domain.example/auth/clickup/callback`, then store its client ID and secret in `CLICKUP_CLIENT_ID` and `CLICKUP_CLIENT_SECRET`. Connecting ClickUp from Integrations registers the signed task webhook automatically. ClickUp triggers can filter a list by status, tag, assignee, or creator; all configured rules must match.
 
 
 ## Configuration reference

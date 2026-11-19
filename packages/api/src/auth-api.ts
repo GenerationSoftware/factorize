@@ -43,13 +43,13 @@ export const loginSuccess = authSuccess.extend({ returnTo: z.string() });
 
 /** Only local application/protocol destinations; never trust a return cookie or form field. */
 export function safeReturnTo(value: string | undefined): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || /[\\\x00-\x20]/.test(value)) return "/settings/integrations";
+  if (!value || !value.startsWith("/") || value.startsWith("//") || /[\\\x00-\x20]/.test(value)) return "/integrations";
   try {
     const url = new URL(value, "https://local.invalid");
-    if (url.origin !== "https://local.invalid") return "/settings/integrations";
-    if (!/^\/(?:authorize|device|jobs(?:\/[^/]+(?:\/(?:edit|settings))?)?|job-runs(?:\/[^/]+)?|settings(?:\/(?:integrations|api-keys(?:\/new)?|password))?)$/.test(url.pathname)) return "/settings/integrations";
+    if (url.origin !== "https://local.invalid") return "/integrations";
+    if (!/^\/(?:authorize|device|integrations|jobs(?:\/[^/]+(?:\/(?:edit|settings))?)?|job-runs(?:\/[^/]+)?|settings(?:\/(?:integrations|api-keys(?:\/new)?|password))?)$/.test(url.pathname)) return "/integrations";
     return url.pathname + url.search + url.hash;
-  } catch { return "/settings/integrations"; }
+  } catch { return "/integrations"; }
 }
 
 export function validBrowserOrigin(request: Request, env: Env): boolean {
@@ -174,7 +174,7 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
     if (pending && sameBrowser) await databaseFor(env).pool.query("UPDATE app.oauth_connections SET ready=false WHERE id=$1", [pending.id]);
     const continuation = pending
       ? pending.kind === "device" || sameBrowser ? { returnTo: connectionDestination(pending) } : { crossBrowser: true }
-      : { returnTo: identity.connection ? "/auth/login?expired=1" : "/settings/integrations" };
+      : { returnTo: identity.connection ? "/auth/login?expired=1" : "/integrations" };
     return signedIn(env, identity, { ok: true, ...continuation });
   }
   if ((action === "verification" || action === "reset") && result.status === 200 && "userId" in result.body && result.body.userId && !result.body.tenantId) return failure(403, "This account needs a workspace owner invitation.");

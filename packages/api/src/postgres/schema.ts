@@ -18,6 +18,11 @@ export const schemaMigrations = app.table("schema_migrations", {
 });
 
 export const tenants = app.table("tenants", { id: uuid("id").primaryKey(), name: text("name"), createdAt: createdAt(), updatedAt: updatedAt() });
+export const vmPresets = app.table("vm_presets", {
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  id: uuid("id").notNull(), name: text("name").notNull(), settings: jsonb("settings").notNull(),
+  executionConfigId: text("execution_config_id").notNull(),
+}, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("vm_presets_name").on(t.tenantId, sql`lower(${t.name})`)]);
 export const authUsers = app.table("auth_users", { id: uuid("id").primaryKey(), email: text("email").notNull().unique(), emailVerified: boolean("email_verified").notNull().default(false), createdAt: createdAt() }, t => [uniqueIndex("auth_users_email_normalized").on(sql`lower(${t.email})`)]);
 export const authAccounts = app.table("auth_accounts", {
   id: uuid("id").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), provider: text("provider").notNull(), providerAccountId: text("provider_account_id").notNull(), passwordHash: text("password_hash"),
@@ -205,7 +210,7 @@ export const runRelations = relations(runs, ({ one, many }) => ({
 }));
 
 export const databaseSchema = {
-  schemaMigrations, tenants, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
+  schemaMigrations, tenants, vmPresets, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
   connections, agentIntegrations, agentIdentities, vmGrants, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, modelDeviceAuthorizations, linearWorkspaces, githubInstallations, githubSetupStates, projects, jobs, vmImageVerifications, skillLibraries, skillLibraryBackfill, skills, jobSkills, triggers, webhookConditionsCutover, invocations, manualInvocationPermissions, jobRuns, runAuthorizations, runs, runArtifacts, runRetentionCleanup,
   runTraceEvents, runActivity, activeClaims, scheduleState, automaticWakes, lifecycleDeliveries, lifecycleEvents, jobEditDeliveries, jobEvents,
   webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints, runTraceCursors, runTraceChunks,

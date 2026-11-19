@@ -378,7 +378,7 @@ test("dashboard Projects subnav completes keyboard navigation into project Jobs"
   const skillsTab = dashboardNav.getByRole("link", { name: "Skills", exact: true });
   await projectsTab.waitFor();
   await skillsTab.waitFor();
-  assert.deepEqual(await dashboardNav.getByRole("link").allTextContents(), ["Projects", "Skills"]);
+  assert.deepEqual(await dashboardNav.getByRole("link").allTextContents(), ["Projects", "Skills", "Integrations", "Settings"]);
   assert.equal(await projectsTab.getAttribute("aria-current"), "page");
   assert.equal(await skillsTab.getAttribute("aria-current"), null);
   assert.equal(await projectsTab.evaluate(element => getComputedStyle(element.parentElement).overflowX), "auto");
@@ -463,7 +463,7 @@ test("mobile main navigation truncates the account and project names without the
   const account = mainNav.getByRole("button", { name: "Your account" });
   await account.waitFor();
   await account.click();
-  await page.locator("#mobile-profile-menu").getByRole("link", { name: "Settings", exact: true }).waitFor();
+  await page.locator("#mobile-profile-menu").getByRole("link", { name: "Account settings", exact: true }).waitFor();
   const project = mainNav.getByRole("link", { name: "A very long release project name for mobile" });
   assert.equal(await project.evaluate(element => Number.parseFloat(getComputedStyle(element).maxWidth) > window.innerWidth * 0.35), true);
   assert.equal(await mainNav.getByRole("button", { name: "Switch project" }).evaluate(element => getComputedStyle(element).marginLeft), "0px");

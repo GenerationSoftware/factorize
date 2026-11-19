@@ -8,7 +8,7 @@ import type { Env } from "./types";
 const cookie = "factorize_x_oauth_state";
 const clearCookie = `${cookie}=; HttpOnly; Secure; SameSite=Lax; Path=/oauth/x/callback; Max-Age=0`;
 const settings = (env: Env, result: string) => {
-  const target = new URL("/settings/integrations", env.APP_ORIGIN);
+  const target = new URL("/integrations", env.APP_ORIGIN);
   target.searchParams.set("x", result);
   return target.toString();
 };

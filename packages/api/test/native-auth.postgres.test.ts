@@ -140,7 +140,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect((await auth.login({ email, password })).status).toBe(403);
     expect((await post("/auth/verify", { token: link })).status).toBe(303);
     const login = await post("/auth/login", { email, password }); expect(login.status).toBe(303);
-    expect(login.headers.get("location")).toBe("/settings/integrations"); expect(login.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(login.headers.get("location")).toBe("/integrations"); expect(login.headers.get("set-cookie")).toContain("HttpOnly");
     const loggedIn = await sessionFor(email);
     expect(await sessionBody(loggedIn.cookie)).toMatchObject({ authenticated: true });
   });
@@ -226,7 +226,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     const cookie = `${session.cookie}; linear_oauth_state=${encodeURIComponent(state)}`;
     vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/oauth/token") ? Response.json({ access_token: "new-token", refresh_token: "refresh" }) : Response.json({ data: { viewer: { id: crypto.randomUUID(), email: "linear@example.test" }, organization: { id: organizationId, name: "Workspace" } } })));
     const callback = await app.request(`/auth/linear/callback?code=code&state=${encodeURIComponent(state)}`, { headers: { Cookie: cookie } }, env);
-    expect(callback.status).toBe(302); expect(callback.headers.get("location")).toBe("/settings/integrations");
+    expect(callback.status).toBe(302); expect(callback.headers.get("location")).toBe("/integrations");
     expect(callback.headers.get("set-cookie")).not.toContain("factorize_session");
     expect((await db.pool.query("SELECT tenant_id FROM app.linear_workspaces WHERE organization_id=$1", [organizationId])).rows[0].tenant_id).toBe(session.tenantId);
     expect(await new ConnectionRepository(db, session.tenantId, env.CREDENTIAL_ENCRYPTION_KEY).get("linear")).toMatchObject({ organizationId });

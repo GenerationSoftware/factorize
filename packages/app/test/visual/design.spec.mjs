@@ -64,7 +64,7 @@ test("mobile profile, search and run dialog keyboard/focus behavior; long conten
   await page.setViewportSize({ width: 390, height: 844 }); await mockApi(page, { long: true });
   await page.goto(origin + "/jobs/" + jobId);
   const profile = page.getByRole("button", { name: "Your account", exact: true });
-  await profile.click(); await expect(page.getByRole("link", { name: "Settings", exact: true }).last()).toBeVisible();
+  await profile.click(); await expect(page.getByRole("link", { name: "Account settings", exact: true }).last()).toBeVisible();
   await page.keyboard.press("Escape"); await expect(profile).toBeFocused();
   await page.getByRole("button", { name: "Search jobs, runs, and messages", exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Search jobs and runs by name, title, or issue identifier", exact: true })).toBeFocused();

@@ -1,3 +1,5 @@
+import { vmPresetInput } from "./vm-presets";
+import { VmPresetRepository } from "./postgres/vm-preset-repository";
 import { SkillContent } from "./skill-content";
 import { SkillLibrary } from "./skill-library";
 import { configureLibrary } from "./skill-library-contract";
@@ -469,14 +471,49 @@ export class ApiService {
     } catch (error) { this.throwFlyAccountError(error); }
   }
   async removeFlyConnection() { await this.authorizeOwnerSession("integrations:write"); return { deleted: await this.flyConnections().remove() }; }
+  private vmPresets() { return new VmPresetRepository(databaseFor(this.env), this.auth.tenantId); }
+  async listVmPresets() {
+    await this.authorizeOwnerSession("integrations:read");
+    return { presets: await this.vmPresets().list() };
+  }
+  async saveVmPreset(body: unknown, id?: string) {
+    await this.authorizeOwnerSession("integrations:write");
+    const input = vmPresetInput.parse(body);
+    const settings = input.settings;
+    if (settings.provider === "fly") {
+      if (!await this.flyConnections().get()) throw new ServiceError(409, "fly_connection_required", "Connect Fly.io before saving this preset.");
+      await this.validateFlySize(settings);
+    } else {
+      const status = await this.integrations().status();
+      const connection = status.exeConnections.find(item => item.connectionId === settings.connectionId);
+      if (!connection || settings.tags.some(tag => !connection.accountTags.includes(tag))) throw new ServiceError(400, "invalid_vm_preset", "Choose an available exe.dev connection and VM tags.");
+    }
+    try {
+      const preset = await this.vmPresets().save(input, id);
+      if (!preset) throw new ServiceError(404, "not_found", "VM preset not found.");
+      return { preset };
+    } catch (error) {
+      if ((error as {constraint?: string}).constraint === "vm_presets_name") throw new ServiceError(409, "duplicate_name", "A VM preset already uses this name.");
+      throw error;
+    }
+  }
+  async removeVmPreset(id: string) {
+    await this.authorizeOwnerSession("integrations:write");
+    if (!await this.vmPresets().remove(id)) throw new ServiceError(404, "not_found", "VM preset not found.");
+    return { deleted: true };
+  }
+  private async validateFlySize(settings: {region: string; size: string}) {
+    const metadata = await this.flyMetadata();
+    if (!metadata.regions.includes(settings.region) || !metadata.sizes.includes(settings.size)) throw new ServiceError(400, "invalid_fly_configuration", "The selected Fly region or VM size is unavailable.");
+  }
   private flyExecutionConfigs() { return new FlyExecutionConfigurationRepository(databaseFor(this.env), this.auth.tenantId); }
   async listFlyExecutionConfigurations() { await this.authorizeOwnerSession("integrations:read"); return { configurations: await this.flyExecutionConfigs().list() }; }
   async getFlyExecutionConfiguration(id: string) { await this.authorizeOwnerSession("integrations:read"); const value = await this.flyExecutionConfigs().get(id); if (!value) throw new ServiceError(404, "not_found", "Fly execution configuration not found"); return { configuration: value }; }
   async saveFlyExecutionConfiguration(input: unknown, id?: string) {
     await this.authorizeOwnerSession("integrations:write");
     if (!await this.flyConnections().get()) throw new ServiceError(409, "fly_connection_required", "Connect a Fly account before saving execution configurations.");
-    const parsed = flyExecutionConfigurationInput.parse(input), metadata = await this.flyMetadata();
-    if (!metadata.regions.includes(parsed.region) || !metadata.sizes.includes(parsed.size)) throw new ServiceError(400, "invalid_fly_configuration", "The selected Fly region or VM size is unavailable.");
+    const parsed = flyExecutionConfigurationInput.parse(input);
+    await this.validateFlySize(parsed);
     return { configuration: await this.flyExecutionConfigs().save(parsed, id) };
   }
   async removeFlyExecutionConfiguration(id: string) { await this.authorizeOwnerSession("integrations:write"); const deleted = await this.flyExecutionConfigs().remove(id); if (!deleted) throw new ServiceError(404, "not_found", "Fly execution configuration not found"); return { id, deleted: true }; }

@@ -5597,6 +5597,518 @@ paths:
                 - token
                 - organizationSlug
               additionalProperties: false
+  /api/v1/vm-presets:
+    get:
+      summary: List VM presets
+      responses:
+        "200":
+          description: List VM presets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                          maxLength: 120
+                        settings:
+                          oneOf:
+                            - type: object
+                              properties:
+                                image:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 512
+                                  pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                                region:
+                                  type: string
+                                  pattern: ^[a-z0-9]{3}$
+                                size:
+                                  type: string
+                                  pattern: ^[a-z0-9-]{1,64}$
+                                provider:
+                                  type: string
+                                  const: fly
+                              required:
+                                - image
+                                - region
+                                - size
+                                - provider
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                provider:
+                                  type: string
+                                  const: exe
+                                connectionId:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 256
+                                image:
+                                  type: string
+                                tags:
+                                  maxItems: 20
+                                  type: array
+                                  items:
+                                    type: string
+                                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                              required:
+                                - provider
+                                - connectionId
+                                - image
+                                - tags
+                              additionalProperties: false
+                        id:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        executionConfigId:
+                          type: string
+                      required:
+                        - name
+                        - settings
+                        - id
+                        - executionConfigId
+                      additionalProperties: false
+                required:
+                  - presets
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_vm_presets
+      tags:
+        - vm-presets
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+    post:
+      summary: Create a VM preset
+      responses:
+        "200":
+          description: Create a VM preset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preset:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 120
+                      settings:
+                        oneOf:
+                          - type: object
+                            properties:
+                              image:
+                                type: string
+                                minLength: 1
+                                maxLength: 512
+                                pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                              region:
+                                type: string
+                                pattern: ^[a-z0-9]{3}$
+                              size:
+                                type: string
+                                pattern: ^[a-z0-9-]{1,64}$
+                              provider:
+                                type: string
+                                const: fly
+                            required:
+                              - image
+                              - region
+                              - size
+                              - provider
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              provider:
+                                type: string
+                                const: exe
+                              connectionId:
+                                type: string
+                                minLength: 1
+                                maxLength: 256
+                              image:
+                                type: string
+                              tags:
+                                maxItems: 20
+                                type: array
+                                items:
+                                  type: string
+                                  pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                            required:
+                              - provider
+                              - connectionId
+                              - image
+                              - tags
+                            additionalProperties: false
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      executionConfigId:
+                        type: string
+                    required:
+                      - name
+                      - settings
+                      - id
+                      - executionConfigId
+                    additionalProperties: false
+                required:
+                  - preset
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: post_api_v1_vm_presets
+      tags:
+        - vm-presets
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                settings:
+                  oneOf:
+                    - type: object
+                      properties:
+                        image:
+                          type: string
+                          minLength: 1
+                          maxLength: 512
+                          pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                        region:
+                          type: string
+                          pattern: ^[a-z0-9]{3}$
+                        size:
+                          type: string
+                          pattern: ^[a-z0-9-]{1,64}$
+                        provider:
+                          type: string
+                          const: fly
+                      required:
+                        - image
+                        - region
+                        - size
+                        - provider
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        provider:
+                          type: string
+                          const: exe
+                        connectionId:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        image:
+                          type: string
+                          maxLength: 512
+                          pattern: ^(?:(?:(?:[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\/)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?))?$
+                        tags:
+                          maxItems: 20
+                          type: array
+                          items:
+                            type: string
+                            pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                      required:
+                        - provider
+                        - connectionId
+                        - image
+                        - tags
+                      additionalProperties: false
+              required:
+                - name
+                - settings
+              additionalProperties: false
+  /api/v1/vm-presets/{id}:
+    put:
+      summary: Update a VM preset
+      responses:
+        "200":
+          description: Update a VM preset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preset:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 120
+                      settings:
+                        oneOf:
+                          - type: object
+                            properties:
+                              image:
+                                type: string
+                                minLength: 1
+                                maxLength: 512
+                                pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                              region:
+                                type: string
+                                pattern: ^[a-z0-9]{3}$
+                              size:
+                                type: string
+                                pattern: ^[a-z0-9-]{1,64}$
+                              provider:
+                                type: string
+                                const: fly
+                            required:
+                              - image
+                              - region
+                              - size
+                              - provider
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              provider:
+                                type: string
+                                const: exe
+                              connectionId:
+                                type: string
+                                minLength: 1
+                                maxLength: 256
+                              image:
+                                type: string
+                              tags:
+                                maxItems: 20
+                                type: array
+                                items:
+                                  type: string
+                                  pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                            required:
+                              - provider
+                              - connectionId
+                              - image
+                              - tags
+                            additionalProperties: false
+                      id:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      executionConfigId:
+                        type: string
+                    required:
+                      - name
+                      - settings
+                      - id
+                      - executionConfigId
+                    additionalProperties: false
+                required:
+                  - preset
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: put_api_v1_vm_presets_id
+      tags:
+        - vm-presets
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                settings:
+                  oneOf:
+                    - type: object
+                      properties:
+                        image:
+                          type: string
+                          minLength: 1
+                          maxLength: 512
+                          pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                        region:
+                          type: string
+                          pattern: ^[a-z0-9]{3}$
+                        size:
+                          type: string
+                          pattern: ^[a-z0-9-]{1,64}$
+                        provider:
+                          type: string
+                          const: fly
+                      required:
+                        - image
+                        - region
+                        - size
+                        - provider
+                      additionalProperties: false
+                    - type: object
+                      properties:
+                        provider:
+                          type: string
+                          const: exe
+                        connectionId:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        image:
+                          type: string
+                          maxLength: 512
+                          pattern: ^(?:(?:(?:[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\/)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?))?$
+                        tags:
+                          maxItems: 20
+                          type: array
+                          items:
+                            type: string
+                            pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                      required:
+                        - provider
+                        - connectionId
+                        - image
+                        - tags
+                      additionalProperties: false
+              required:
+                - name
+                - settings
+              additionalProperties: false
+    delete:
+      summary: Delete a VM preset
+      responses:
+        "200":
+          description: Delete a VM preset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                required:
+                  - deleted
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: delete_api_v1_vm_presets_id
+      tags:
+        - vm-presets
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/fly/execution-configurations:
     get:
       summary: List Fly execution configurations
@@ -5623,6 +6135,8 @@ paths:
                           type: string
                           format: uuid
                           pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        presetName:
+                          type: string
                         name:
                           type: string
                         image:
@@ -5693,6 +6207,8 @@ paths:
                         type: string
                         format: uuid
                         pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      presetName:
+                        type: string
                       name:
                         type: string
                       image:
@@ -5788,6 +6304,8 @@ paths:
                         type: string
                         format: uuid
                         pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      presetName:
+                        type: string
                       name:
                         type: string
                       image:
@@ -5864,6 +6382,8 @@ paths:
                         type: string
                         format: uuid
                         pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      presetName:
+                        type: string
                       name:
                         type: string
                       image:

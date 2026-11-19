@@ -107,7 +107,7 @@ describe("public auth API and cookie security", () => {
     expect(response.headers.get("Set-Cookie")).toMatch(/factorize_session=.*HttpOnly/);
     expect(response.headers.get("Set-Cookie")).toContain("Secure");
     expect(response.headers.get("Set-Cookie")).toContain("SameSite=Lax");
-    expect(await contract(response, "/api/v1/auth/login", "POST")).toEqual({ ok: true, returnTo: "/settings/integrations" });
+    expect(await contract(response, "/api/v1/auth/login", "POST")).toEqual({ ok: true, returnTo: "/integrations" });
   });
 
   it("rechecks owner membership and session version when establishing a session", async () => {
@@ -215,7 +215,7 @@ describe("public auth API and cookie security", () => {
 });
 
 describe("safe interrupted-flow navigation", () => {
-  it.each(["//evil.test", "https://evil.test", "/\\evil.test", "/device-evil", "/jobs/job-a/settings/extra", "/auth/logout", "/jobs\nLocation:evil", "/%2f%2fevil.test"])("rejects %s", value => expect(safeReturnTo(value)).toBe("/settings/integrations"));
+  it.each(["//evil.test", "https://evil.test", "/\\evil.test", "/device-evil", "/jobs/job-a/settings/extra", "/auth/logout", "/jobs\nLocation:evil", "/%2f%2fevil.test"])("rejects %s", value => expect(safeReturnTo(value)).toBe("/integrations"));
   it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/jobs/job-a/edit", "/jobs/job-a/settings?tab=prompt", "/job-runs", "/job-runs/run-a"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
 });
 

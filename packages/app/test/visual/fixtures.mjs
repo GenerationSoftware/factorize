@@ -50,6 +50,7 @@ export async function mockApi(page, { legacy = false, authenticated = true, empt
     else if (path === "/api/v1/trigger-contexts") json = { manual: [{ path: "prompt", type: "string", description: "Manual prompt" }] };
     else if (path === "/api/v1/job-trigger-availability") json = { manual: true, schedule: true, jobLifecycle: true, linear: false, github: false, clickup: false, cloudflareTail: false };
     else if (path === "/api/v1/x/connections") json = {connections:[]};
+    else if (path === "/api/v1/vm-presets") json = {presets:[]};
     else if (path === "/api/v1/fly/connection") json = {connection:null};
     else if (path === "/api/v1/integrations/bearer") json = {revision:0,integrations:[]};
     else if (path === "/api/v1/model-accounts") json = {revision:0,accounts:[]};
@@ -67,6 +68,6 @@ export const screens = [
   ["job", "/jobs/" + jobId, job.name],
   ["editor", "/jobs/" + jobId + "/settings", job.name],
   ["trace", "/job-runs/" + runId, run.run_name],
-  ["settings", "/settings", "Integrations"],
+  ["settings", "/integrations", "Integrations"],
   ["login", "/auth/login", "Sign in to Factorize"],
 ];

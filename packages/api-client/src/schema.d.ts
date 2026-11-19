@@ -840,6 +840,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vm-presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List VM presets
+         * @description Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_vm_presets"];
+        put?: never;
+        /**
+         * Create a VM preset
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_vm_presets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vm-presets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update a VM preset
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_vm_presets_id"];
+        post?: never;
+        /**
+         * Delete a VM preset
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_vm_presets_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/fly/execution-configurations": {
         parameters: {
             query?: never;
@@ -5203,6 +5259,224 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_vm_presets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List VM presets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        presets: {
+                            name: string;
+                            settings: {
+                                image: string;
+                                region: string;
+                                size: string;
+                                /** @constant */
+                                provider: "fly";
+                            } | {
+                                /** @constant */
+                                provider: "exe";
+                                connectionId: string;
+                                image: string;
+                                tags: string[];
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            executionConfigId: string;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_vm_presets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    settings: {
+                        image: string;
+                        region: string;
+                        size: string;
+                        /** @constant */
+                        provider: "fly";
+                    } | {
+                        /** @constant */
+                        provider: "exe";
+                        connectionId: string;
+                        image: string;
+                        tags: string[];
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Create a VM preset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        preset: {
+                            name: string;
+                            settings: {
+                                image: string;
+                                region: string;
+                                size: string;
+                                /** @constant */
+                                provider: "fly";
+                            } | {
+                                /** @constant */
+                                provider: "exe";
+                                connectionId: string;
+                                image: string;
+                                tags: string[];
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            executionConfigId: string;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_vm_presets_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    settings: {
+                        image: string;
+                        region: string;
+                        size: string;
+                        /** @constant */
+                        provider: "fly";
+                    } | {
+                        /** @constant */
+                        provider: "exe";
+                        connectionId: string;
+                        image: string;
+                        tags: string[];
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Update a VM preset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        preset: {
+                            name: string;
+                            settings: {
+                                image: string;
+                                region: string;
+                                size: string;
+                                /** @constant */
+                                provider: "fly";
+                            } | {
+                                /** @constant */
+                                provider: "exe";
+                                connectionId: string;
+                                image: string;
+                                tags: string[];
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            executionConfigId: string;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_vm_presets_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Delete a VM preset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        deleted: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_fly_execution_configurations: {
         parameters: {
             query?: never;
@@ -5222,6 +5496,7 @@ export interface operations {
                         configurations: {
                             /** Format: uuid */
                             id: string;
+                            presetName?: string;
                             name: string;
                             image: string;
                             region: string;
@@ -5270,6 +5545,7 @@ export interface operations {
                         configuration: {
                             /** Format: uuid */
                             id: string;
+                            presetName?: string;
                             name: string;
                             image: string;
                             region: string;
@@ -5312,6 +5588,7 @@ export interface operations {
                         configuration: {
                             /** Format: uuid */
                             id: string;
+                            presetName?: string;
                             name: string;
                             image: string;
                             region: string;
@@ -5362,6 +5639,7 @@ export interface operations {
                         configuration: {
                             /** Format: uuid */
                             id: string;
+                            presetName?: string;
                             name: string;
                             image: string;
                             region: string;

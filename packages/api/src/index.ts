@@ -85,7 +85,7 @@ app.get("/auth/linear/callback", async (c) => {
   if (!organization?.id || !viewer?.id) return c.text("Could not identify Linear workspace", 502);
   const connected = await new ConnectionRepository(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).putLinear(organization.id, { accessToken: tokens.access_token, refreshToken: tokens.refresh_token, accessTokenExpiresAt: Number.isFinite(tokens.expires_in) ? new Date(Date.now() + tokens.expires_in! * 1000).toISOString() : null, organizationId: organization.id, organizationName: organization.name, viewerId: viewer.id, viewerEmail: viewer.email });
   if (!connected) return c.text("This Linear workspace is already connected to another Factorize workspace. Sign in to that Factorize account to manage it.", 409);
-  return c.redirect("/settings/integrations");
+  return c.redirect("/integrations");
 });
 
 app.post("/auth/logout", async (c) => {
@@ -145,7 +145,7 @@ app.get("/auth/clickup/callback", async (c) => {
   if (!hookResponse.ok || !hook.id) return c.text("Could not register the ClickUp webhook", 502);
   await new ConnectionRepository(databaseFor(c.env), session.tenantId, c.env.CREDENTIAL_ENCRYPTION_KEY).put("clickup", { accessToken: tokens.access_token, teamId: String(team.id), teamName: team.name, webhookId: String(hook.id), webhookSecret: hook.secret });
   deleteCookie(c, "clickup_oauth_state", { path: "/auth/clickup" });
-  return c.redirect("/settings/integrations");
+  return c.redirect("/integrations");
 });
 
 app.get("/auth/github/install", async (c) => {
@@ -169,7 +169,7 @@ app.get("/auth/github/setup", async (c) => {
   if (!gh.ok || installation.id !== installationId) return c.text("Could not verify GitHub installation", 502);
   try { await new GitHubRepository(databaseFor(c.env), session.tenantId).save({ installationId, accountLogin: installation.account?.login, accountType: installation.account?.type, state: installation.suspended_at ? "suspended" : "active" }); }
   catch (error) { if (error instanceof Error && error.message === "installation_conflict") return c.text("This GitHub installation is already connected to another tenant", 409); throw error; }
-  return c.redirect("/settings");
+  return c.redirect("/integrations");
 });
 app.post("/webhooks/cloudflare/:tenantId/:jobId", async (c) => {
   const raw = await c.req.text();

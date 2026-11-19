@@ -1,3 +1,4 @@
+import { vmPreset, vmPresetInput } from "./vm-presets";
 import { configureLibrary,libraryStatus,libraryToken } from "./skill-library-contract";
 import { grantVmInput, vmGrantReceipt, apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestApiResponse, readApiResponseInput, apiResponseChunk } from "./agent-api-contracts";
 import { queryOf } from "./query-params";
@@ -450,6 +451,18 @@ export const API_ROUTES: RouteContract[] = [
     description: "Owner browser session only. Deletes the tenant's encrypted provisioning token.",
     responses: { "200": { description: "Deletion result", content: { "application/json": { schema: jsonSchema(z.object({ deleted: z.boolean() }), "output") } } } },
   }, service => service.removeFlyConnection(), { ownerSession: true }),
+  route("GET", "/api/v1/vm-presets", "integrations:read", {
+    summary: "List VM presets", responses: { "200": { description: "List VM presets", content: { "application/json": { schema: jsonSchema(z.object({ presets: z.array(vmPreset) }), "output") } } } },
+  }, service => service.listVmPresets(), { ownerSession: true }),
+  route("POST", "/api/v1/vm-presets", "integrations:write", {
+    summary: "Create a VM preset", responses: { "200": { description: "Create a VM preset", content: { "application/json": { schema: jsonSchema(z.object({ preset: vmPreset }), "output") } } } },
+  }, (service, { body }) => service.saveVmPreset(body), { ownerSession: true, body: vmPresetInput }),
+  route("PUT", "/api/v1/vm-presets/{id}", "integrations:write", {
+    summary: "Update a VM preset", responses: { "200": { description: "Update a VM preset", content: { "application/json": { schema: jsonSchema(z.object({ preset: vmPreset }), "output") } } } },
+  }, (service, { body, params }) => service.saveVmPreset(body, params.id), { ownerSession: true, body: vmPresetInput, parameters: z.object({ id: z.uuid() }) }),
+  route("DELETE", "/api/v1/vm-presets/{id}", "integrations:write", {
+    summary: "Delete a VM preset", responses: { "200": { description: "Delete a VM preset", content: { "application/json": { schema: jsonSchema(z.object({ deleted: z.boolean() }), "output") } } } },
+  }, (service, { params }) => service.removeVmPreset(params.id!), { ownerSession: true, parameters: z.object({ id: z.uuid() }) }),
   route("GET", "/api/v1/fly/execution-configurations", "integrations:read", {
     summary: "List Fly execution configurations", description: "Returns tenant-owned image, region, and VM size selections without connection credentials.",
     responses: { "200": { description: "Configurations", content: { "application/json": { schema: jsonSchema(z.object({ configurations: z.array(flyExecutionConfiguration) }), "output") } } } },

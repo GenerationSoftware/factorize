@@ -146,10 +146,10 @@ for (const malformed of ["bearer integrations", "model accounts"]) test(`setting
   await page.route("**/api/v1/integrations/bearer", route => route.fulfill({ json: malformed === "bearer integrations" ? { revision: 0 } : { revision: 0, integrations: [] } }));
   await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: malformed === "model accounts" ? { revision: 0 } : { revision: 0, accounts: [] } }));
   try {
-    await page.goto(origin + "/settings");
+    await page.goto(origin + "/integrations");
     await page.getByRole("heading", { name: "Integrations", exact: true }).waitFor();
     await page.getByRole("alert").filter({ hasText: /could not be loaded\. Reload the page to try again\./ }).waitFor();
-    await page.getByRole("navigation", { name: "Settings", exact: true }).getByRole("link", { name: "API keys", exact: true }).waitFor();
+    await page.getByRole("navigation", { name: "Dashboard navigation", exact: true }).getByRole("link", { name: "Settings", exact: true }).waitFor();
     assert.equal(await page.getByRole("heading", { name: "Could not load this page", exact: true }).count(), 0);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
@@ -223,4 +223,45 @@ test("Fly setup opens from its tile, verifies and saves, then appears in the uni
   await page.keyboard.press('Escape');assert.equal(await page.getByRole('dialog').count(),0);
   assert.equal(await page.evaluate(()=>JSON.stringify(localStorage).includes('synthetic-fly-token')),false);
   await context.close();
+});
+
+test("dashboard VM presets use dialogs for creation, editing, and deletion", async () => {
+  const { context, page } = await setup();
+  let presets = [];
+  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { exeConnections: [{ connectionId: "dev", accountTags: ["work"] }], ampConnections: [] } }));
+  await page.route("**/api/v1/fly/execution-configurations", route => route.fulfill({ json: { configurations: [] } }));
+  await page.route("**/api/v1/vm-presets", route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { presets } });
+    const body = route.request().postDataJSON();
+    assert.deepEqual(body, { name: "Build", settings: { provider: "exe", connectionId: "dev", image: "", tags: ["work"] } });
+    presets = [{ ...body, id, executionConfigId: "dev" }];
+    return route.fulfill({ json: { preset: presets[0] } });
+  });
+  await page.route("**/api/v1/vm-presets/" + id, route => {
+    if (route.request().method() === "DELETE") {
+      presets = [];
+      return route.fulfill({ json: { deleted: true } });
+    }
+    presets = [{ ...presets[0], ...route.request().postDataJSON() }];
+    return route.fulfill({ json: { preset: presets[0] } });
+  });
+  try {
+    await page.goto(origin + "/settings");
+    await page.getByText("No VM presets yet.").waitFor();
+    assert.equal(await page.locator("main form").count(), 0);
+    await page.getByRole("button", { name: "Add preset" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Preset name").fill("Build");
+    await dialog.getByLabel("work", { exact: true }).check();
+    await dialog.getByRole("button", { name: "Save preset" }).click();
+    await page.getByRole("button", { name: "Edit Build", exact: true }).click();
+    assert.equal(await dialog.getByLabel("work", { exact: true }).isChecked(), true);
+    await dialog.getByLabel("Preset name").fill("Release");
+    await dialog.getByRole("button", { name: "Save preset" }).click();
+    await page.getByRole("button", { name: "Edit Release" }).click();
+    page.once("dialog", confirm => confirm.accept());
+    await dialog.getByRole("button", { name: "Delete preset" }).click();
+    await page.getByText("No VM presets yet.").waitFor();
+  } finally { await context.close(); }
 });

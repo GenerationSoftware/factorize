@@ -38,6 +38,32 @@ describe.skipIf(!url)("Fly execution configurations (PostgreSQL/API)", () => {
     expect(await api.removeFlyExecutionConfiguration(second.configuration.id)).toEqual({ id: second.configuration.id, deleted: true });
   });
 
+  it("keeps applied VM settings after editing and deleting a preset and enforces unique names across providers", async () => {
+    const path = "/api/v1/vm-presets";
+    const fly = new FlyConnectionRepository(fixture.db, fixture.tenantId, fixture.env.CREDENTIAL_ENCRYPTION_KEY);
+    await fly.save({ organizationSlug: "alpha", organizationName: "Alpha" }, "synthetic-fly-token");
+    const settings = { provider: "fly", image: "ghcr.io/acme/runner:v1", region: "iad", size: "shared-cpu-1x" };
+    const response = await apiRequest("POST", path, { name: "  Build Runner ", settings });
+    expect(response.status).toBe(200);
+    const { preset } = await response.json() as any;
+    expect(preset.name).toBe("Build Runner");
+    const exe = { provider: "exe", image: "", tags: [], connectionId: "local" };
+    expect((await apiRequest("POST", path, { name: "build runner", settings: exe })).status).toBe(409);
+    expect((await apiRequest("POST", path, { name: "Missing", settings: { ...exe, connectionId: "other" } })).status).toBe(400);
+    const item = path + "/" + preset.id;
+    const updated = await apiRequest("PUT", item, { name: "Build Runner", settings: { ...settings, region: "ord" } });
+    expect(updated.status).toBe(200);
+    const next = (await updated.json() as any).preset;
+    expect(next.executionConfigId).not.toBe(preset.executionConfigId);
+    expect((await apiRequest("PUT", item, { name: "Linux", settings: exe })).status).toBe(200);
+    expect((await (await apiRequest("GET", path)).json() as any).presets).toEqual([expect.objectContaining({ name: "Linux", settings: exe, executionConfigId: "local" })]);
+    expect((await apiRequest("DELETE", item)).status).toBe(200);
+    expect((await apiRequest("PUT", item, { name: "Deleted", settings: exe })).status).toBe(404);
+    const configs = new FlyExecutionConfigurationRepository(fixture.db, fixture.tenantId);
+    expect(await configs.get(preset.executionConfigId)).toMatchObject({ region: "iad" });
+    expect(await configs.get(next.executionConfigId)).toMatchObject({ region: "ord" });
+  });
+
   it("requires a Fly connection and preserves old exe payload omission compatibility", async () => {
     const api = service();
     await expect(api.saveFlyExecutionConfiguration({ name: "x", image: "ghcr.io/a/b:v1", region: "iad", size: "shared-cpu-1x" })).rejects.toMatchObject({ code: "fly_connection_required" });

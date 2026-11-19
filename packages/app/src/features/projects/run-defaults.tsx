@@ -4,6 +4,7 @@ import { api, type operations } from "factorize-api-client";
 import { Button, Card, Input, Label, Select } from "../../shared/ui";
 import { messageOf } from "../auth/session";
 import { targetsQuery } from "../jobs/editor-queries";
+import { PresetPicker } from "../settings/preset-picker";
 import { flyConfigurationsQuery } from "../settings/fly";
 import { projectQuery } from "./queries";
 
@@ -45,6 +46,11 @@ export function ProjectRunDefaults({ projectId, initial }: { projectId: string; 
           save.mutate();
         }}
       >
+        <PresetPicker availableIds={[...(targets.data ?? []), ...(fly.data ?? [])].map(item => item.id)} apply={preset => {
+          const settings = preset.settings;
+          setDraft({ ...draft, executionConfigId: preset.executionConfigId, vmImage: settings.provider === "exe" ? settings.image : undefined,
+            tags: settings.provider === "exe" ? settings.tags : [], modelAccountId: settings.provider === "fly" ? draft.modelAccountId : undefined });
+        }} />
         <Label>
           VM configuration
           <Select
@@ -70,9 +76,9 @@ export function ProjectRunDefaults({ projectId, initial }: { projectId: string; 
                   {item.name} · {item.agentKind} · {item.id}
                 </option>
               ))}
-            {fly.data?.map((item) => (
+            {fly.data?.filter(item => !item.presetName || item.id === draft.executionConfigId).map((item) => (
               <option key={item.id} value={item.id}>
-                Fly · {item.name}
+                Fly · {item.presetName ?? item.name}
               </option>
             ))}
           </Select>

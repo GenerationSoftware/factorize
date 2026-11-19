@@ -46,6 +46,10 @@ export function useFlyIntegration() {
   };
 }
 
+export const flyRegions = ["iad", "ord", "sjc", "lax", "ams", "fra", "lhr", "nrt", "sin"];
+
+export const flySizes = ["shared-cpu-1x", "shared-cpu-2x", "shared-cpu-4x", "performance-1x", "performance-2x", "performance-4x"];
+
 type Configuration = { name: string; image: string; region: string; size: string };
 export function FlyExecutionFields({ initial, onDirty, onSaved }: { initial?: Configuration; onDirty: () => void; onSaved: (id: string) => void }) {
   const cache = useQueryClient();
@@ -58,8 +62,8 @@ export function FlyExecutionFields({ initial, onDirty, onSaved }: { initial?: Co
   return <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2" role="group" aria-label="Fly.io VM configuration">
     <Label>Execution configuration name <Input disabled={save.isPending} value={value.name} maxLength={120} onChange={e => change({ ...value, name: e.target.value })} /></Label>
     <Label>Fly VM image <Input disabled={save.isPending} value={value.image} maxLength={512} placeholder="ghcr.io/your-org/runner:tag" onChange={e => change({ ...value, image: e.target.value })} /></Label>
-    <Label>Fly region <Select disabled={save.isPending} value={value.region} onChange={e => change({ ...value, region: e.target.value })}>{["iad", "ord", "sjc", "lax", "ams", "fra", "lhr", "nrt", "sin"].map(region => <option key={region}>{region}</option>)}</Select></Label>
-    <Label>Fly VM size <Select disabled={save.isPending} value={value.size} onChange={e => change({ ...value, size: e.target.value })}>{["shared-cpu-1x", "shared-cpu-2x", "shared-cpu-4x", "performance-1x", "performance-2x", "performance-4x"].map(size => <option key={size}>{size}</option>)}</Select></Label>
+    <Label>Fly region <Select disabled={save.isPending} value={value.region} onChange={e => change({ ...value, region: e.target.value })}>{flyRegions.map(region => <option key={region}>{region}</option>)}</Select></Label>
+    <Label>Fly VM size <Select disabled={save.isPending} value={value.size} onChange={e => change({ ...value, size: e.target.value })}>{flySizes.map(size => <option key={size}>{size}</option>)}</Select></Label>
     <p className="text-sm sm:col-span-2">Save these settings as an execution configuration, then create or save the job. Changes create a new configuration so other jobs keep their settings. Use a public image with the prerequisites for your script or Codex agent.</p>
     <Button type="button" disabled={save.isPending || !value.name.trim() || !value.image.trim()} onClick={() => save.mutate()}>Save Fly VM settings</Button>
     {save.error && <p role="alert">{save.error.message}</p>}

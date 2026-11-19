@@ -38,7 +38,7 @@ describe.skipIf(!databaseUrl)("X owner OAuth callback (PostgreSQL)", { timeout: 
       const callback = () => worker.fetch(new Request(callbackUrl, { headers: { Cookie: `${fixture.cookie}; ${oauthCookie}` } }), fixture.env, { waitUntil() {} } as any);
       const result = await callback();
       expect(result.status).toBe(303);
-      expect(result.headers.get("Location")).toBe("https://factorize.test/settings/integrations?x=connected");
+      expect(result.headers.get("Location")).toBe("https://factorize.test/integrations?x=connected");
       expect(result.headers.get("Set-Cookie")).toContain("Max-Age=0");
       expect(calls.map(call => call.url)).toEqual([
         "https://api.x.com/2/oauth2/token", "https://api.x.com/2/users/me?user.fields=id%2Cusername",

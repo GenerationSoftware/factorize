@@ -16,6 +16,7 @@ async function setup(options) {
   await page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [], nextCursor: null } })); page.setDefaultTimeout(30000);
   await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } }));
   await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [{ connectionId: "vm", agentKind: "codex", tags: [], models: ["gpt-6"] }], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
+  await page.route("**/api/v1/vm-presets", route => route.fulfill({ json: { presets: [] } }));
   await page.route("**/api/v1/github-installations", route => route.fulfill({ json: [] }));
   await page.route("**/api/v1/x/connections", route => route.fulfill({ json: { connections: [] } }));
   await page.route("**/api/v1/trigger-contexts", route => route.fulfill({ json: { manual: [{ path: "prompt", type: "string", description: "Manual prompt" }] } }));
@@ -417,4 +418,25 @@ test("missing selected credentials stay visible until the owner explicitly remov
   await page.waitForFunction(()=>!document.body.textContent.includes("Unavailable bearer integration:"));
   const deadline=Date.now()+5000;while(writes.at(-1)?.portableIntegrationIds?.length!==0&&Date.now()<deadline)await new Promise(r=>setTimeout(r,50));
   assert.deepEqual(writes.at(-1).portableIntegrationIds,[]);
+});
+
+test("applying an exe.dev preset copies its image and tags into the job", async t => {
+  const { context, page } = await setup();
+  t.after(() => context.close());
+  const preset = { id: "preset", name: "Build VM", executionConfigId: "vm", settings: { provider: "exe", connectionId: "vm", tags: ["work"], image: "ghcr.io/acme/build:v1" } };
+  await page.route("**/api/v1/vm-presets", route => route.fulfill({ json: { presets: [preset] } }));
+  await page.route("**/api/v1/integrations", route => route.fulfill({ json: { exeConnections: [{ connectionId: "vm", agentKind: "codex", accountTags: ["work"], models: ["gpt-6"] }], ampConnections: [] } }));
+  let saved;
+  await page.route(`**/api/v1/jobs/${id}`, route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: initial });
+    saved = route.request().postDataJSON();
+    return route.fulfill({ json: { ...initial, ...saved, executionConfig: { ...initial.executionConfig, image: saved.vmImage } } });
+  });
+  await page.goto(origin + `/jobs/${id}/settings/execution`);
+  await page.getByLabel("VM preset").selectOption(preset.id);
+  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
+  assert.equal(saved.executionConfigId, "vm");
+  assert.equal(saved.vmImage, preset.settings.image);
+  assert.deepEqual(saved.tags, ["work"]);
+  assert.equal(saved.model, initial.model);
 });

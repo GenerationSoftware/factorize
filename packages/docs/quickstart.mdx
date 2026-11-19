@@ -6,9 +6,11 @@ description: Run a hosted repository review through MCP.
 ## Set up in the browser
 
 1. Open [app.factorize.sh/auth/signup](https://app.factorize.sh/auth/signup). Sign up with **email and password** (12–200 characters), verify the email, then sign in. Use [resend verification](https://app.factorize.sh/auth/verify/request) if needed.
-2. Open [Settings → Integrations](https://app.factorize.sh/settings). Add an exe.dev account token, test credentials, select the execution agent and VM tags, then save. Saving validates the agent/models on a temporary VM. Alternatively connect an Amp project and its access token.
+2. Open [Integrations](https://app.factorize.sh/integrations). Add an exe.dev account token, test credentials, select the execution agent and VM tags, then save. Saving validates the agent/models on a temporary VM. Alternatively connect an Amp project and its access token.
 3. Ensure the execution account can access your repository and the required model/integrations. For exe.dev, the account token must permit VM listing, creation, SSH and deletion (`ls`, `new`, `ssh`, `rm`). VM tags attach your execution integrations. Current exe.dev targets do **not** store a repository URL or checkout ref: put the repository URL and checkout instructions in the job prompt.
 4. [Connect your MCP client](/mcp/overview), approve the four workflow scopes, and ask “List my Factorize jobs.”
+
+To reuse a VM setup, open dashboard **Settings**, choose **Add preset**, and save a name and provider settings. Apply it from **VM preset** in a job’s Execution settings or a project’s direct run defaults. Editing or deleting the preset leaves those saved settings in place.
 
 These account, credential and consent steps happen in the browser. MCP can discover saved targets, manage jobs and invoke/inspect runs; it cannot sign you up, verify email, connect execution credentials or select provider resources.
 

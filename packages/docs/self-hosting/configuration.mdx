@@ -3,13 +3,13 @@ title: Operator configuration
 description: Email, OAuth applications, webhooks, and Worker secrets.
 ---
 
-These steps apply only to your own deployment. Hosted Factorize users connect existing accounts in [Settings](https://app.factorize.sh/settings); they do not register Factorize OAuth applications or set Worker secrets.
+These steps apply only to your own deployment. Hosted Factorize users connect existing accounts in [Integrations](https://app.factorize.sh/integrations); they do not register Factorize OAuth applications or set Worker secrets.
 
 Register provider applications for your deployment origin. Linear requires Issues and Issue labels webhooks and fresh workspace authorization after subscription changes; ClickUp registers its task webhook on connection. Configure the GitHub App credentials and webhook settings for your deployment using the template in `packages/api/.dev.vars.example` and the executable callbacks/webhook routes in `packages/api/src/worker.ts`.
 
 ## Account authentication
 
-Factorize owns authentication in PostgreSQL. Create a native account at `/auth/signup` with an email address and a password of 12–200 characters. Emails are case-insensitive. Verify the email before signing in at `/auth/login`; email plus password are accepted. Linear is connected after sign-in from **Settings → Integrations**, only for Linear-backed jobs.
+Factorize owns authentication in PostgreSQL. Create a native account at `/auth/signup` with an email address and a password of 12–200 characters. Emails are case-insensitive. Verify the email before signing in at `/auth/login`; email plus password are accepted. Linear is connected after sign-in from **Integrations**, only for Linear-backed jobs.
 
 Postmark sends one-hour, single-use verification and password-reset links. `/auth/verify/request` resends verification; `/auth/password-reset` handles recovery. Links never appear in application responses or logs. Passwords use salted PBKDF2-SHA-256. **Change password** in the account menu requires the current password. Password reset, password change and sign-out invalidate existing sessions via membership session versions, including delegated API credentials.
 
@@ -48,7 +48,7 @@ After changing the webhook settings, re-authorize existing workspaces so Linear 
 
 ## Configure ClickUp
 
-Create a ClickUp OAuth application with the callback URL `https://your-domain.example/auth/clickup/callback`, then store its client ID and secret in `CLICKUP_CLIENT_ID` and `CLICKUP_CLIENT_SECRET`. Connecting ClickUp from Settings registers the signed task webhook automatically. ClickUp triggers can filter a list by status, tag, assignee, or creator; all configured rules must match.
+Create a ClickUp OAuth application with the callback URL `https://your-domain.example/auth/clickup/callback`, then store its client ID and secret in `CLICKUP_CLIENT_ID` and `CLICKUP_CLIENT_SECRET`. Connecting ClickUp from Integrations registers the signed task webhook automatically. ClickUp triggers can filter a list by status, tag, assignee, or creator; all configured rules must match.
 
 
 ## Configuration reference

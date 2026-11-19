@@ -8,7 +8,7 @@ export const flyExecutionConfigurationInput = z.object({
 }).strict();
 
 export const flyExecutionConfiguration = z.object({
-  id: z.guid(), name: z.string(), image: z.string(), region: z.string(), size: z.string(), createdAt: z.string(), updatedAt: z.string(),
+  id: z.guid(), presetName: z.string().optional(), name: z.string(), image: z.string(), region: z.string(), size: z.string(), createdAt: z.string(), updatedAt: z.string(),
 });
 
 export type FlyExecutionConfigurationInput = z.infer<typeof flyExecutionConfigurationInput>;
