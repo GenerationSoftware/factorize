@@ -4209,6 +4209,7 @@ export interface operations {
                         credentialStatus: "connected";
                         /** @default [] */
                         accountTags: string[];
+                        tags?: string[];
                         /** @enum {string} */
                         agentKind?: "codex" | "claude" | "pi";
                         /** @default [] */
@@ -4453,6 +4454,7 @@ export interface operations {
                             credentialStatus: "connected";
                             /** @default [] */
                             accountTags: string[];
+                            tags?: string[];
                             /** @enum {string} */
                             agentKind?: "codex" | "claude" | "pi";
                             /** @default [] */
@@ -4466,6 +4468,7 @@ export interface operations {
                             credentialStatus: "connected";
                             /** @default [] */
                             accountTags: string[];
+                            tags?: string[];
                             /** @enum {string} */
                             agentKind?: "codex" | "claude" | "pi";
                             /** @default [] */
@@ -7278,10 +7281,11 @@ export interface operations {
                         integrations: {
                             /** Format: uuid */
                             id: string;
+                            credentialId: string;
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;
@@ -7432,10 +7436,11 @@ export interface operations {
                         integrations: {
                             /** Format: uuid */
                             id: string;
+                            credentialId: string;
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;
@@ -7484,10 +7489,11 @@ export interface operations {
                         integrations: {
                             /** Format: uuid */
                             id: string;
+                            credentialId: string;
                             name: string;
                             description: string | null;
                             /** @enum {string} */
-                            kind: "bearer" | "github" | "linear" | "model";
+                            kind: "bearer" | "github" | "linear" | "model" | "fly" | "exe" | "amp" | "clickup";
                             /** @enum {string} */
                             policy: "baseline" | "requestable" | "disabled";
                             available: boolean;

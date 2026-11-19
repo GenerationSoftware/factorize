@@ -49,6 +49,10 @@ export async function mockApi(page, { legacy = false, authenticated = true, empt
     else if (path === "/api/v1/execution-integrations") json = targets;
     else if (path === "/api/v1/trigger-contexts") json = { manual: [{ path: "prompt", type: "string", description: "Manual prompt" }] };
     else if (path === "/api/v1/job-trigger-availability") json = { manual: true, schedule: true, jobLifecycle: true, linear: false, github: false, clickup: false, cloudflareTail: false };
+    else if (path === "/api/v1/fly/connection") json = {connection:null};
+    else if (path === "/api/v1/integrations/bearer") json = {revision:0,integrations:[]};
+    else if (path === "/api/v1/model-accounts") json = {revision:0,accounts:[]};
+    else if (path === "/api/v1/integration-api-policies") json = {integrations:[{id:"00000000-0000-4000-8000-000000000050",kind:"linear",credentialId:"linear",name:"Linear",available:true,policy:"requestable",revision:1}]};
     else if (path === "/api/v1/integrations") json = integrations;
     else if (path === "/api/v1/search") json = { items: [{ kind: "job", id: jobId, title: job.name, subtitle: "Manual · codex", url: "/jobs/" + jobId, source: { kind: "job", label: job.name, id: jobId }, match: { text: job.name, ranges: [{ start: 7, end: 14 }] } }] };
     else if (path.endsWith("/consent/preview")) json = { clientName: "Release CLI", scopes: ["flows:read", "runs:read"], request: "fixture", signature: "fixture", expiresAt: time };

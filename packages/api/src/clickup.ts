@@ -12,10 +12,12 @@ export function matchingClickUpTask(task: ClickUpTask, listId: string, rules: Ma
   });
 }
 
+export const CLICKUP_API_BASE = "https://api.clickup.com/api/v2";
+
 export const clickUpHeaders = (token: string) => ({ Authorization: token, "Content-Type": "application/json" });
 
 export async function clickUpJson(token: string, path: string): Promise<any> {
-  const response = await fetch(`https://api.clickup.com/api/v2${path}`, { headers: clickUpHeaders(token) });
+  const response = await fetch(`${CLICKUP_API_BASE}${path}`, { headers: clickUpHeaders(token) });
   const body = await response.json().catch(() => ({})) as any;
   if (!response.ok) throw new Error(body.err ?? body.error ?? `ClickUp request failed (${response.status})`);
   return body;

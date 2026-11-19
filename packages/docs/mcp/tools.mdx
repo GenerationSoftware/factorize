@@ -185,3 +185,32 @@ Tool errors are `code: message`. `invalid_token` needs reauthorization; `insuffi
 MCP is a selected tool surface, **not full REST parity**. Signup, verification, integration credential management, authorized-client management, provider resource selection, schedule preview, specialized run status/trace pagination and retained-artifact replay have no corresponding tools in this inventory. Some REST operations require an interactive owner session rather than delegated tokens. Use the browser for setup/resource selection and [REST reference](/api/reference) for exact routes, restrictions and schemas. MCP cannot pass your conversational client's credentials to the execution agent.
 
 Job creation and updates accept optional `runScopes`, an array of Factorize API scope names. Omitting it on update preserves the current policy; an explicit empty array grants no application scopes to future runs. Jobs granted `jobs:write` can configure this field too. See [run permissions](/work/manual-invocation-permissions) for defaults and credential snapshot semantics.
+
+## Integration API access
+
+In **Settings → Integrations**, each connected API integration has an
+**Available by default** checkbox. Checked integrations are available immediately
+to connected MCP clients. Unchecked integrations require approval for each client
+connection. Existing approvals remain valid when default access is unchecked.
+Use the integration's **⋯ → MCP access…** action to disable access entirely;
+disabling or disconnecting revokes approvals, and re-enabling requires fresh consent.
+Job runs retain their independent, explicit credential selections.
+
+`get_api_reflection` lists integration references and access instructions.
+`request_api` forwards a relative path using the selected integration's stored
+credential. The same policy applies to Bearer APIs, GitHub, Linear, model accounts,
+Fly.io, exe.dev, Amp, and ClickUp. Credentials stay on the server.
+
+| Integration | Path convention |
+| --- | --- |
+| Bearer API | Relative to its configured HTTPS origin |
+| GitHub | GitHub API path, with existing Git/raw/archive routing |
+| Linear | `/graphql` with a JSON GraphQL body |
+| Model account | Relative to the account's model API prefix, such as `/responses` |
+| Fly.io | Fly Machines API path, such as `/v1/apps` |
+| exe.dev | `POST /exec` with a `text/plain` command body |
+| Amp | Relative to the configured API base, defaulting to `/api/cloud/v1` |
+| ClickUp | Relative to `/api/v2`, such as `/team` |
+
+Cloudflare Tail connections contain inbound webhook signing secrets, not
+Cloudflare API credentials, so they do not expose an outbound API.

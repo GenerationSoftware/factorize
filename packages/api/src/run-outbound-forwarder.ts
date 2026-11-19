@@ -3,7 +3,7 @@
  * Destinations and credentials are resolved server-side before this function. */
 export type OutboundCredential = {
   origin: string; path: string; credential: string;
-  authorization?: "bearer" | "github-git-basic";
+  authorization?: "bearer" | "github-git-basic" | "raw";
   headers?: Record<string, string>;
 };
 const hop = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"]);
@@ -44,7 +44,7 @@ export async function forwardRunOutbound(request: Request, selected: OutboundCre
   target.pathname = separator < 0 ? selected.path : selected.path.slice(0, separator);
   target.search = separator < 0 ? "" : selected.path.slice(separator);
   const headers = filteredHeaders(request.headers, true);
-  headers.set("Authorization", selected.authorization === "github-git-basic" ? `Basic ${btoa(`x-access-token:${selected.credential}`)}` : `Bearer ${selected.credential}`);
+  headers.set("Authorization", selected.authorization === "github-git-basic" ? `Basic ${btoa(`x-access-token:${selected.credential}`)}` : selected.authorization === "raw" ? selected.credential : `Bearer ${selected.credential}`);
   headers.set("Accept-Encoding", "identity");
   headers.set("User-Agent", "Factorize-Run-Proxy");
   for (const [name, value] of Object.entries(selected.headers ?? {})) headers.set(name, value);

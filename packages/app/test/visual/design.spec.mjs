@@ -27,6 +27,7 @@ for (const theme of ["light", "dark"]) for (const width of [1280, 390]) {
     await mockApi(page, { authenticated: name !== "login" });
     await page.goto(origin + path);
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+    if (name === "settings") await expect(page.getByRole("checkbox", { name: "Linear available by default", exact: true })).toBeVisible();
     if (name === "editor") await expect(page.getByLabel("Name", { exact: true })).toHaveValue("Review release builds");
     if (name === "trace") {
       await expect(page.getByText("User · user_message", { exact: true })).toBeVisible();

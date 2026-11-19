@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { Button, Card, Input, Label } from "../../shared/ui";
+import { Button, Input, Label } from "../../shared/ui";
 import { messageOf } from "../auth/session";
+
+import { Dialog } from "../../shared/dialog";
+import { IntegrationRow, ProviderTile } from "./integration-ui";
 
 type BearerRecord = { id: string; name: string; origin: string; description: string | null; revision: number };
 const recordsQuery = { queryKey: ["settings", "bearer-integrations"], queryFn: async ({ signal }: { signal: AbortSignal }) => {
@@ -29,9 +32,10 @@ function validOrigin(value: string): boolean {
   } catch { return false; }
 }
 
-export function BearerIntegrations() {
+export function useBearerIntegrations() {
   const cache = useQueryClient(), records = useQuery(recordsQuery);
   const [editing, setEditing] = useState<string | null>(null), [name, setName] = useState(""), [origin, setOrigin] = useState(""), [description, setDescription] = useState(""), [token, setToken] = useState("");
+  const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const clearFields = () => { setToken(""); };
   const save = useMutation({ retry: false, mutationFn: async () => {
@@ -50,27 +54,31 @@ export function BearerIntegrations() {
     const { data, error } = await api.POST("/api/v1/integrations/bearer", { body: { ...body, id } });
     if (!data || error) throw new Error(messageOf(error));
     return data;
-  }, onSuccess: async () => { clearFields(); setNotice("Saved integration in Factorize managed encrypted storage."); setEditing(null); setName(""); setOrigin(""); setDescription(""); await cache.invalidateQueries({ queryKey: recordsQuery.queryKey }); }, onError: async error => { clearFields(); setNotice(error.message); if (error.message.includes("changed") || error.message.includes("revision")) await cache.invalidateQueries({ queryKey: recordsQuery.queryKey }); } });
+  }, onSuccess: async () => { clearFields(); setNotice("Bearer integration saved."); setOpen(false); setEditing(null); setName(""); setOrigin(""); setDescription(""); await cache.invalidateQueries({ queryKey: ["settings"] }); }, onError: async error => { clearFields(); setNotice(error.message); if (error.message.includes("changed") || error.message.includes("revision")) await cache.invalidateQueries({ queryKey: ["settings"] }); } });
   const remove = useMutation({ retry: false, mutationFn: async (record: BearerRecord) => {
     const { data, error } = await api.DELETE("/api/v1/integrations/bearer/{integrationId}", { params: { path: { integrationId: record.id } }, body: { expectedRevision: records.data?.revision ?? 0, idempotencyKey: crypto.randomUUID() } });
     if (!data || error) throw new Error(messageOf(error));
     return data;
-  }, onSuccess: async () => { setNotice("Integration deleted."); await cache.invalidateQueries({ queryKey: recordsQuery.queryKey }); }, onError: async error => { setNotice(error.message); await cache.invalidateQueries({ queryKey: recordsQuery.queryKey }); } });
-  const beginEdit = (record: BearerRecord) => { clearFields(); setNotice(""); setEditing(record.id); setName(record.name); setOrigin(record.origin); setDescription(record.description ?? ""); };
+  }, onSuccess: async () => { setNotice("Integration deleted."); await cache.invalidateQueries({ queryKey: ["settings"] }); }, onError: async error => { setNotice(error.message); await cache.invalidateQueries({ queryKey: ["settings"] }); } });
+  const beginEdit = (record: BearerRecord) => { setOpen(true); clearFields(); setNotice(""); setEditing(record.id); setName(record.name); setOrigin(record.origin); setDescription(record.description ?? ""); };
   const reset = () => { clearFields(); setEditing(null); setName(""); setOrigin(""); setDescription(""); setNotice(""); };
-  return <section className="mt-10 space-y-4" aria-labelledby="bearer-integrations-heading">
-    <div><h2 id="bearer-integrations-heading" className="text-2xl font-bold">Bearer integrations</h2><p className="text-sm text-slate-600 dark:text-slate-400">Factorize encrypts credentials before storing them. Stored tokens cannot be viewed; edit to replace one.</p></div>
-    {records.isPending && <p role="status">Loading bearer integrations…</p>}{records.error && <p role="alert">{records.error.message}</p>}
-    {records.data?.integrations.map(record => <Card key={record.id} className="flex flex-wrap items-center gap-3"><div className="min-w-40 flex-1"><p className="font-semibold">{record.name}</p><p>{record.origin}</p>{record.description && <p>{record.description}</p>}<p className="text-sm">Bearer token stored encrypted</p></div><Button type="button" onClick={() => beginEdit(record)}>Replace or edit</Button><Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => { if (window.confirm(`Delete ${record.name}?`)) remove.mutate(record); }}>Delete</Button></Card>)}
-    <Card><h3 className="font-semibold">{editing ? "Edit bearer integration" : "Add bearer integration"}</h3>
-      <form className="mt-3 grid gap-3" onSubmit={event => { event.preventDefault(); setNotice(""); save.mutate(); }}>
+  return {
+    count: records.data?.integrations.length ?? 0, pending: records.isPending,
+    rows: records.data?.integrations.map(record => <IntegrationRow key={record.id} kind="bearer" credentialId={record.id} name={record.name} detail={[record.origin, record.description].filter(Boolean).join(" · ")} actions={[
+      {label: "Edit / replace token", onClick: () => beginEdit(record)},
+      {label: "Delete", destructive: true, disabled: remove.isPending, onClick: () => {if (window.confirm(`Delete ${record.name}?`)) remove.mutate(record);}},
+    ]} />),
+    tile: <ProviderTile kind="bearer" name="Bearer API" description="Connect an HTTPS API using a bearer token." count={records.data?.integrations.length ?? 0} onAdd={() => {reset(); setOpen(true);}} />,
+    feedback: <>{records.error && <p role="alert">{records.error.message}</p>}{notice && !open && <p role={save.isError || remove.isError ? "alert" : "status"}>{notice}</p>}</>,
+    dialog: open && <Dialog title={editing ? "Edit bearer integration" : "Add bearer integration"} close={() => {reset(); setOpen(false);}}>
+      <p className="text-sm">Stored tokens cannot be viewed. Editing requires a replacement token.</p>
+      <form className="mt-3 grid gap-3" onSubmit={event => {event.preventDefault(); setNotice(""); save.mutate();}}>
         <Label>Name <Input required maxLength={120} value={name} onChange={event => setName(event.target.value)} /></Label>
         <Label>HTTPS origin <Input required type="url" placeholder="https://api.example.com" value={origin} onChange={event => setOrigin(event.target.value)} /></Label>
         <Label>Description or help (optional) <Input maxLength={500} value={description} onChange={event => setDescription(event.target.value)} /></Label>
         <Label>{editing ? "Replacement bearer token" : "Bearer token"} <Input required type="password" autoComplete="new-password" value={token} onChange={event => setToken(event.target.value)} /></Label>
-        <div className="flex gap-2"><Button variant="primary" disabled={save.isPending}>{save.isPending ? "Encrypting and saving…" : editing ? "Save replacement" : "Add integration"}</Button>{editing && <Button type="button" onClick={reset}>Cancel</Button>}</div>
-      </form>
-    </Card>
-    {notice && <p role={save.isError || remove.isError ? "alert" : "status"}>{notice}</p>}
-  </section>;
+        <div className="flex gap-2"><Button variant="primary" disabled={save.isPending || records.isPending || Boolean(records.error)}>{save.isPending ? "Saving…" : editing ? "Save replacement" : "Add integration"}</Button><Button type="button" onClick={() => {reset(); setOpen(false);}}>Cancel</Button></div>
+      </form>{notice && <p role={save.isError ? "alert" : "status"}>{notice}</p>}
+    </Dialog>,
+  };
 }

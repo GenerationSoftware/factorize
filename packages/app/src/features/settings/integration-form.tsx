@@ -3,7 +3,6 @@ import { AutosaveStatus, useDebouncedAutosave } from "../../shared/use-debounced
 import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { integrationsQuery } from "./queries";
 import { messageOf } from "../auth/session";
 export function IntegrationForm({ kind, connectionId, initialName = "", initialAgent = "codex", initialTags = [], initialApiBaseUrl }: { kind: "exe" | "amp" | "cloudflareTail"; connectionId?: string; initialName?: string; initialAgent?: "codex" | "claude" | "pi"; initialTags?: string[]; initialApiBaseUrl?: string }) {
   const cache = useQueryClient(), [credential, setCredential] = useState(""), [name, setName] = useState(initialName), [agentKind, setAgentKind] = useState<"codex" | "claude" | "pi">(initialAgent), [tags, setTags] = useState<string[]>(initialTags), [generatedSecret, setGeneratedSecret] = useState(""), [savedFeedback, setSavedFeedback] = useState(false), savedSnapshot = useRef("");
@@ -18,7 +17,7 @@ export function IntegrationForm({ kind, connectionId, initialName = "", initialA
     const body = { name, signingSecret: credential || undefined, generateSecret: !credential && !connectionId };
     const { data, error } = connectionId ? await api.PUT("/api/v1/integrations/cloudflare-tail/{integrationId}", { params: { path: { integrationId: connectionId } }, body }) : await api.POST("/api/v1/integrations/cloudflare-tail", { body });
     if (!data || error) throw new Error(messageOf(error)); setGeneratedSecret(data.generatedSecret ?? ""); return { saved: true };
-  }, onSuccess: async () => { setCredential(""); setSavedFeedback(true); test.reset(); await cache.invalidateQueries({ queryKey: integrationsQuery.queryKey }); await cache.invalidateQueries({ queryKey: ["providers"] }); await cache.invalidateQueries({ queryKey: ["editor"] }); } });
+  }, onSuccess: async () => { setCredential(""); setSavedFeedback(true); test.reset(); await cache.invalidateQueries({ queryKey: ["settings"] }); await cache.invalidateQueries({ queryKey: ["providers"] }); await cache.invalidateQueries({ queryKey: ["editor"] }); } });
   const value = { credential, name, agentKind, tags };
   if (!savedSnapshot.current) savedSnapshot.current = JSON.stringify({ credential: "", name: initialName, agentKind: initialAgent, tags: initialTags });
   const validate = (next: typeof value) => {

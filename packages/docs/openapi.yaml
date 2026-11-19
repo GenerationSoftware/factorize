@@ -4058,6 +4058,10 @@ paths:
                       type: array
                       items:
                         type: string
+                    tags:
+                      type: array
+                      items:
+                        type: string
                     agentKind:
                       type: string
                       enum:
@@ -4515,6 +4519,10 @@ paths:
                             type: array
                             items:
                               type: string
+                          tags:
+                            type: array
+                            items:
+                              type: string
                           agentKind:
                             type: string
                             enum:
@@ -4551,6 +4559,10 @@ paths:
                           const: connected
                         accountTags:
                           default: []
+                          type: array
+                          items:
+                            type: string
+                        tags:
                           type: array
                           items:
                             type: string
@@ -10715,6 +10727,8 @@ paths:
                           type: string
                           format: uuid
                           pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        credentialId:
+                          type: string
                         name:
                           type: string
                         description:
@@ -10728,6 +10742,10 @@ paths:
                             - github
                             - linear
                             - model
+                            - fly
+                            - exe
+                            - amp
+                            - clickup
                         policy:
                           type: string
                           enum:
@@ -10752,6 +10770,7 @@ paths:
                           type: string
                       required:
                         - id
+                        - credentialId
                         - name
                         - description
                         - kind
@@ -11031,6 +11050,8 @@ paths:
                           type: string
                           format: uuid
                           pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        credentialId:
+                          type: string
                         name:
                           type: string
                         description:
@@ -11044,6 +11065,10 @@ paths:
                             - github
                             - linear
                             - model
+                            - fly
+                            - exe
+                            - amp
+                            - clickup
                         policy:
                           type: string
                           enum:
@@ -11060,6 +11085,7 @@ paths:
                           type: string
                       required:
                         - id
+                        - credentialId
                         - name
                         - description
                         - kind
@@ -11124,6 +11150,8 @@ paths:
                           type: string
                           format: uuid
                           pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        credentialId:
+                          type: string
                         name:
                           type: string
                         description:
@@ -11137,6 +11165,10 @@ paths:
                             - github
                             - linear
                             - model
+                            - fly
+                            - exe
+                            - amp
+                            - clickup
                         policy:
                           type: string
                           enum:
@@ -11153,6 +11185,7 @@ paths:
                           type: string
                       required:
                         - id
+                        - credentialId
                         - name
                         - description
                         - kind

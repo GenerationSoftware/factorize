@@ -35,11 +35,12 @@ describe("independent loading", () => {
 
   it("keeps configured exe.dev tags visible when inventory refresh omits them", async () => {
     vi.spyOn(ConnectionRepository.prototype, "all").mockResolvedValue(new Map([
-      ["exe:vm", { availableTags: ["current"], tags: ["anarack", "current"], agentKind: "codex" }],
+      ["exe:vm", { availableTags: ["current", "unselected"], tags: ["anarack", "current"], agentKind: "codex" }],
     ]));
     vi.spyOn(IntegrationService.prototype, "tails").mockResolvedValue([]);
     const result = await new IntegrationService({ pool: { query: vi.fn(async () => ({ rows: [] })) } } as any, "tenant", "key").status();
-    expect(result.exeConnections[0].accountTags).toEqual(["anarack", "current"]);
+    expect(result.exeConnections[0].accountTags).toEqual(["anarack", "current", "unselected"]);
+    expect(result.exeConnections[0].tags).toEqual(["anarack", "current"]);
   });
   it("propagates a failed integration read without leaving an unhandled sibling promise", async () => {
     vi.spyOn(ConnectionRepository.prototype, "all").mockRejectedValue(new Error("Connection read failed"));

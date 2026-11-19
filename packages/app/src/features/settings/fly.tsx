@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { Button, Card, Input, Label, Select } from "../../shared/ui";
+import { Button, Input, Label, Select } from "../../shared/ui";
 import { messageOf } from "../auth/session";
+
+import { Dialog } from "../../shared/dialog";
+import { IntegrationRow, ProviderTile } from "./integration-ui";
 
 export const flyConnectionQuery = { queryKey: ["settings", "fly"], queryFn: async ({ signal }: { signal: AbortSignal }) => {
   const { data, error } = await api.GET("/api/v1/fly/connection", { signal });
@@ -12,27 +15,35 @@ export const flyConfigurationsQuery = { queryKey: ["editor", "fly-configurations
   const { data, error } = await api.GET("/api/v1/fly/execution-configurations", { signal });
   if (!data || error) throw new Error(messageOf(error)); return data.configurations;
 } };
-export function FlyIntegration() {
+export function useFlyIntegration() {
   const cache = useQueryClient(), connection = useQuery(flyConnectionQuery);
+  const [open, setOpen] = useState(false);
   const [token, setToken] = useState(""), [organizationSlug, setOrganizationSlug] = useState("");
   const action = useMutation({ retry: false, mutationFn: async (kind: "verify" | "save" | "disconnect") => {
     const body = { token, organizationSlug: organizationSlug || connection.data?.organizationSlug || "" };
     const result = kind === "verify" ? await api.POST("/api/v1/fly/connection/test", { body }) : kind === "save" ? await api.PUT("/api/v1/fly/connection", { body }) : await api.DELETE("/api/v1/fly/connection");
     if (!result.data || result.error) throw new Error(messageOf(result.error));
     return kind;
-  }, onSuccess: async kind => { if (kind !== "verify") { setToken(""); await cache.invalidateQueries({ queryKey: ["settings", "fly"] }); await cache.invalidateQueries({ queryKey: ["editor"] }); } } });
-  return <section aria-label="Fly.io integration" className="mt-6"><Card><h2>Fly.io</h2><p>Run jobs on Fly Machines in your organization.</p>
-    {connection.isPending && <p role="status">Loading Fly.io connection…</p>}
-    {connection.data && <p>Connected to {connection.data.organizationName} ({connection.data.organizationSlug})</p>}
-    <form className="mt-4 grid gap-3" onSubmit={event => { event.preventDefault(); action.mutate("save"); }}>
-      <Label>Fly organization slug <Input required disabled={action.isPending} value={organizationSlug || connection.data?.organizationSlug || ""} onChange={event => { setOrganizationSlug(event.target.value); action.reset(); }} /></Label>
-      <Label>Fly organization token <Input required disabled={action.isPending} type="password" autoComplete="new-password" value={token} onChange={event => { setToken(event.target.value); action.reset(); }} /></Label>
-      <p className="text-sm">Use an organization deploy token with Machines permissions. Enter the token to verify or replace the connection. Verification checks credentials without launching a VM.</p>
-      <div className="flex flex-wrap gap-2"><Button type="button" disabled={!token.trim() || action.isPending} onClick={() => action.mutate("verify")}>{action.isPending && action.variables === "verify" ? "Verifying…" : "Verify connection"}</Button><Button disabled={action.isPending}>Save Fly.io integration</Button>{connection.data && <Button type="button" variant="destructive" disabled={action.isPending} onClick={() => { if (window.confirm("Disconnect Fly.io? Jobs using this connection will no longer run.")) action.mutate("disconnect"); }}>Disconnect Fly.io</Button>}</div>
-    </form>
-    {action.isSuccess && <p role="status">{action.data === "verify" ? "Fly.io connection verified." : action.data === "save" ? "Fly.io integration saved." : "Fly.io disconnected."}</p>}
-    {[connection.error, action.error].filter(Boolean).map((error, index) => <p key={index} role="alert">{error?.message}</p>)}
-  </Card></section>;
+  }, onSuccess: async kind => { if (kind !== "verify") { setToken(""); setOpen(false); await cache.invalidateQueries({ queryKey: ["settings"] }); await cache.invalidateQueries({ queryKey: ["editor"] }); } } });
+  const close = () => {setToken(""); setOrganizationSlug(""); setOpen(false); action.reset();};
+  return {
+    count: connection.data ? 1 : 0, pending: connection.isPending,
+    rows: connection.data ? [<IntegrationRow key="fly" kind="fly" credentialId="fly" name="Fly.io" detail={`${connection.data.organizationName} (${connection.data.organizationSlug})`} actions={[
+      {label: "Edit / verify connection", onClick: () => {action.reset(); setOpen(true);}},
+      {label: "Disconnect", destructive: true, disabled: action.isPending, onClick: () => {if (window.confirm("Disconnect Fly.io? Jobs using this connection will no longer run.")) action.mutate("disconnect");}},
+    ]} />] : [],
+    tile: <ProviderTile kind="fly" name="Fly.io" description="Run jobs on Fly Machines in your organization." count={connection.data ? 1 : 0} onAdd={() => {action.reset(); setOpen(true);}} />,
+    feedback: <>{connection.error && <p role="alert">{connection.error.message}</p>}{!open && action.error && <p role="alert">{action.error.message}</p>}{!open && action.isSuccess && <p role="status">{action.data === "save" ? "Fly.io integration saved." : "Fly.io disconnected."}</p>}</>,
+    dialog: open && <Dialog title={connection.data ? "Edit Fly.io integration" : "Add Fly.io integration"} close={close}>
+      <form className="mt-4 grid gap-3" onSubmit={event => {event.preventDefault(); action.mutate("save");}}>
+        <Label>Fly organization slug <Input required disabled={action.isPending} value={organizationSlug || connection.data?.organizationSlug || ""} onChange={event => {setOrganizationSlug(event.target.value); action.reset();}} /></Label>
+        <Label>Fly organization token <Input required disabled={action.isPending} type="password" autoComplete="new-password" value={token} onChange={event => {setToken(event.target.value); action.reset();}} /></Label>
+        <p className="text-sm">Use an organization deploy token with Machines permissions. Enter the token to verify or replace the connection. Verification checks credentials without launching a VM.</p>
+        <div className="flex flex-wrap gap-2"><Button type="button" disabled={!token.trim() || action.isPending} onClick={() => action.mutate("verify")}>{action.isPending && action.variables === "verify" ? "Verifying…" : "Verify connection"}</Button><Button disabled={action.isPending || connection.isPending || Boolean(connection.error)}>Save Fly.io integration</Button><Button type="button" onClick={close}>Cancel</Button></div>
+      </form>
+      {action.isSuccess && action.data === "verify" && <p role="status">Fly.io connection verified.</p>}{action.error && <p role="alert">{action.error.message}</p>}
+    </Dialog>,
+  };
 }
 
 type Configuration = { name: string; image: string; region: string; size: string };

@@ -11,12 +11,12 @@ import type { z } from "zod";
 export class AgentApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly scope?: string) { super(message); }
 }
-export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; revision: number};
+export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear" | "fly" | "exe" | "amp" | "clickup"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; revision: number};
 export const requiredIntegrationScope = (row: AgentIntegration) => `integration:${row.id}:${row.epoch}`;
 const STORAGE_BLOCK_BYTES = 1024 * 1024;
 const forbidden = () => new AgentApiError(403, "forbidden", "This integration is not authorized.");
 const invalidIdentity = () => new AgentApiError(401, "invalid_token", "The agent authorization is no longer active.");
-const publicIntegration = (row: AgentIntegration) => ({ id: row.id, kind: row.kind, name: row.name, description: row.description, available: row.available, policy: row.policy, revision: row.revision, requiredScope: requiredIntegrationScope(row) });
+const publicIntegration = (row: AgentIntegration) => ({ id: row.id, kind: row.kind, credentialId: row.credential_id, name: row.name, description: row.description, available: row.available, policy: row.policy, revision: row.revision, requiredScope: requiredIntegrationScope(row) });
 
 /** These are structural checks only: reflection never refreshes/decrypts secrets. */
 export async function integrationConsentLabels(env: Env, tenantId: string, scopes: string[]) {
@@ -66,6 +66,8 @@ export class AgentApiService {
       case "linear": return config.linearConnectionId === "linear";
       case "model": return config.modelAccess === "portable" && config.modelAccountId === row.credential_id;
     }
+    // Execution-provider credentials are not implicitly selected by a run.
+    return false;
   }
   async authorize(integration: string) {
     const identity = await this.identity();
@@ -92,7 +94,7 @@ export class AgentApiService {
         if (!(error instanceof AgentApiError) || error.status === 401) throw error;
         access = error.code === "insufficient_scope" ? "requestable" : "unavailable";
       }
-      result.push({...publicIntegration(row), access, instructions: row.kind === "linear" ? "Use request_api with path /graphql and a JSON GraphQL body." : row.kind === "model" ? "Use request_api with an OpenAI-compatible path relative to /v1." : "Use request_api with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions."});
+      result.push({...publicIntegration(row), access, instructions: row.kind === "linear" ? "Use request_api with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use request_api with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use request_api with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use request_api with a path relative to /api/v2." : row.kind === "fly" ? "Use request_api with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use request_api with an OpenAI-compatible path relative to /v1." : "Use request_api with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions."});
     }
     return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(this.auth.scopes), integrations: result};
   }
