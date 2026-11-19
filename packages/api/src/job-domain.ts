@@ -7,6 +7,7 @@ export type JobRunState = "queued" | "reserved" | "running" | "succeeded" | "fai
 
 export interface ExecutionConfig {
   executionType?: "agent" | "code";
+  launchSkillId?: string;
   targetId?: string;
   connectionId: string;
   workspace: string;
@@ -37,6 +38,8 @@ export interface Trigger {
   updatedAt: string;
 }
 
+export interface JobSkill { id: string; key: string; revision: number; body: string; position: number }
+
 export interface Job {
   id: string;
   projectId?: string;
@@ -57,7 +60,8 @@ export interface Job {
   triggers: Trigger[];
   createdAt: string;
   updatedAt: string;
-  selectedSkills?: { id: string; key: string; revision: number; body: string; position: number }[];
+  launchSkill?: JobSkill;
+  selectedSkills?: JobSkill[];
   portableIntegrationIds?: string[];
   modelAccess?: "native" | "portable";
   modelAccountId?: string;
@@ -99,6 +103,7 @@ export interface JobRun {
   state: JobRunState;
   /** Persisted form is encrypted; repositories decrypt only at an authorized read boundary. */
   encryptedPrompt: string;
+  launchSkill?: { id: string; key: string; revision: number };
   encryptedSkillSnapshot?: string;
   runName?: string;
   createdAt: string;
@@ -121,11 +126,16 @@ export class InvocationError extends Error {
   constructor(public code: "queue_full" | "job_not_found" | "job_disabled" | "invalid_invocation" | "invalid_template", message: string) { super(message); }
 }
 
-export function renderJobPrompt(job: Pick<Job, "promptTemplate" | "selectedSkills">, context: Record<string, unknown>): string {
+function promptSkills(job: Pick<Job, "selectedSkills" | "launchSkill">): JobSkill[] {
+  const ordered = [...(job.selectedSkills ?? [])].sort((a,b) => a.position-b.position);
+  return job.launchSkill ? [job.launchSkill, ...ordered.filter(skill => skill.id !== job.launchSkill!.id)] : ordered;
+}
+
+export function renderJobPrompt(job: Pick<Job, "promptTemplate" | "selectedSkills" | "launchSkill">, context: Record<string, unknown>): string {
   try {
     Mustache.parse(job.promptTemplate);
     const rendered = renderTextTemplate(job.promptTemplate, context);
-    return [...(job.selectedSkills ?? []).sort((a, b) => a.position - b.position).map(skill => skill.body), rendered].join("\n\n");
+    return [...promptSkills(job).map(skill => skill.body), rendered].join("\n\n");
   } catch (error) {
     if (error instanceof InvocationError) throw error;
     throw new InvocationError("invalid_template", "The job prompt is not valid Mustache.");
@@ -166,8 +176,8 @@ export class InvocationService {
     if (!input.triggerId || !input.context || typeof input.context !== "object" || Array.isArray(input.context)) throw new InvocationError("invalid_invocation", "A trigger and structured context are required.");
     const createdAt = this.clock();
     const invocation: Invocation = { id: this.makeId(), jobId, source: input.source, claimKey: input.claimKey, triggerId: input.triggerId, context: input.context, ...(input.sourceJobId ? { sourceJobId: input.sourceJobId } : {}), ...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}), ...(input.occurrence ? { occurrence: input.occurrence } : {}), createdAt };
-    const selectedSkills = (job.selectedSkills ?? []).sort((a, b) => a.position - b.position);
-    const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input.context)), encryptedSkillSnapshot: selectedSkills.length ? await this.encryptSnapshot(JSON.stringify(selectedSkills.map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision, body: skill.body, order: skill.position })))) : undefined, runName: (input.source === "manual" ? input.name?.trim() : undefined) || renderRunName(job.runNameTemplate ?? "", input.context, job.name), createdAt, updatedAt: createdAt };
+    const selectedSkills = promptSkills(job);
+    const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", launchSkill: job.launchSkill, encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input.context)), encryptedSkillSnapshot: selectedSkills.length ? await this.encryptSnapshot(JSON.stringify(selectedSkills.map((skill,order) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: skill.body, order })))) : undefined, runName: (input.source === "manual" ? input.name?.trim() : undefined) || renderRunName(job.runNameTemplate ?? "", input.context, job.name), createdAt, updatedAt: createdAt };
     if (!await this.repository.insertInvocationAndRun(invocation, run)) {
       const winner = await this.repository.findInvocation(jobId, input.claimKey);
       if (!winner) throw new Error("Invocation claim was lost without a persisted winner.");

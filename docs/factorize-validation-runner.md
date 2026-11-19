@@ -52,6 +52,31 @@ PostgreSQL admin URL, so missing image prerequisites fail before migrations
 or the full suite. A failure requires correcting the image or bootstrap and
 publishing a new digest, followed by repeating this sequence.
 
+## Background run acceptance
+
+`npm run test:local` includes the background run acceptance scenario. It starts
+the Worker and PostgreSQL locally. A deterministic VM backend receives the
+scheduler's launch requests and supplies success and failure responses. The
+test dispatches through MCP, listens for a resource update, and delivers each
+terminal outcome to a durable conversation inbox. It also exercises vendor
+identity, duplicate submissions, capacity, cancellation, replay, and run
+history after template deletion. Chromium covers the launch form and skill
+filter in the browser lane.
+
+For a focused rerun after `npm ci`, run `npm run bootstrap:test`, export the
+local database variables it prints, then run:
+
+```sh
+npm run build --workspace=factorize-app
+node --test scripts/agent-api-runtime.test.mjs
+node --test --test-name-pattern='filter direct runs' packages/app/test/runs.browser.test.mjs
+```
+
+The [host adapter](../scripts/watch-run.mjs) accepts an authenticated MCP
+request function, a conversation ID, and an idempotent delivery callback.
+The [acceptance test](../scripts/background-run-acceptance.mjs) supplies a
+PostgreSQL inbox and verifies delivery after reconnecting.
+
 ## Validated image record
 
 | Field | Value |

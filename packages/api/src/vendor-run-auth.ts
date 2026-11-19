@@ -11,7 +11,7 @@ export const RUN_IDENTITY_HEADER = "X-Factorize-Run-Id";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type RunAuthorization = {
-  tenant_id: string; run_id: string; job_id: string; user_id: string; session_version: number;
+  tenant_id: string; run_id: string; job_id: string | null; user_id: string; session_version: number;
   scopes: string[]; provider: VendorIdentityProvider; vm_id: string; issuer: string;
   subject: string; audience: string; execution_config: Record<string, unknown>;
   execution_handle: { id?: string; vendorIdentityIntegrationName?: string } | null;
@@ -65,7 +65,7 @@ export async function authenticateVendorRunRequest(request: Request, env: Env, o
       issuer: row.issuer, subject: row.subject, audience: row.audience, exeAttachment,
     } });
     return { tenantId: row.tenant_id, userId: row.user_id, sessionVersion: row.session_version,
-      scopes: normalizeScopes(row.scopes), authMethod: "vendor_identity", runId, runJobId: row.job_id,
+      scopes: normalizeScopes(row.scopes), authMethod: "vendor_identity", runId, runJobId: row.job_id ?? undefined,
       runIdentityProvider: row.provider };
   } catch {
     // Never surface provider response text, JWTs, or decrypted credentials.

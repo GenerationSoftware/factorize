@@ -19,7 +19,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `get_job` | jobs:read | Required string `jobId` |
 | `create_job` | jobs:write | Required `name`, `slug`, `promptTemplate`, `executionConfigId`; job fields below |
 | `update_job` | jobs:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` and `runScopes` |
-| `delete_job` | jobs:write | Required string `jobId`; deletion removes execution history/artifacts |
+| `delete_job` | jobs:write | Required string `jobId`; deletion retires the template and triggers |
 | `enable_job` | jobs:write | Required string `jobId` |
 | `disable_job` | jobs:write | Required string `jobId` |
 | `list_projects` | projects:read | `{}` |
@@ -33,6 +33,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `rename_run` | runs:write | Required `runId` and `name`; optional `expectedName` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
 | `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
+| `start_run` | runs:start | Literal `prompt`, optional `skill`, `inputs`, `projectId`, `name` and `idempotencyKey`. Returns `runId`, the browser `url`, `outcomeUri`, and `duplicate`. |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
 | `get_api_reflection` | Authenticated OAuth/run identity | `{}`. Discover the authorization identity, effective scopes, and granted/requestable integration APIs, including instructions, required OAuth scope, and connection availability. |
 | `grant_vm` | vm:grant and proxy:use | OAuth agent delegates explicit integration IDs to a VM on an eligible exe.dev connection. Requires providerIntegrationId, vm, integrationIds and idempotencyKey. |
@@ -124,7 +125,7 @@ Save `id`, trigger IDs/slugs and `updatedAt`. Full job results include prompt/co
 
 Result is the saved job with new `updatedAt`. Preserve any automatic triggers too. Omission can reset optional settings or remove automatic triggers. On `stale_job`, fetch/reapply; omitting `expectedUpdatedAt` is last-writer-wins. Stable slugs survive edits when trigger identity/kind is retained; changing kind creates a new trigger identity. Inspect returned slugs rather than assuming numbering.
 
-`enable_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","enabled":true}`; `disable_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","enabled":false}`. `delete_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","deleted":true}`; deletion also removes execution history/artifacts. Missing jobs return `not_found`. Saves can emit `edited` events; see [chaining](/recipes/chaining).
+`enable_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","enabled":true}`; `disable_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","enabled":false}`. `delete_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","deleted":true}`; existing runs retain their history and artifacts. Missing jobs return `not_found`. Saves can emit `edited` events; see [chaining](/recipes/chaining).
 
 ## Invocation, run inspection, and retries
 

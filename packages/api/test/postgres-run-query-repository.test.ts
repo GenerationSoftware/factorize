@@ -44,8 +44,8 @@ describe("run timing queries", () => {
   });
 
   it.each([
-    ["job", "asc", "j.name ASC"],
-    ["job", "desc", "j.name DESC"],
+    ["job", "asc", "COALESCE(j.name,r.source_job_name) ASC"],
+    ["job", "desc", "COALESCE(j.name,r.source_job_name) DESC"],
     ["run", "asc", "COALESCE(NULLIF(r.run_name, ''), NULLIF(r.issue_title, ''), 'Run') ASC"],
     ["run", "desc", "COALESCE(NULLIF(r.run_name, ''), NULLIF(r.issue_title, ''), 'Run') DESC"],
     ["status", "asc", "r.state ASC"],
@@ -87,7 +87,7 @@ describe("run timing queries", () => {
     const query = vi.fn(async () => ({ rows: [] }));
     await new RunQueryRepository({ pool: { query } } as any, "tenant").list(new URLSearchParams([['projectId', 'project-a'], ['projectId', 'project-b'], ['jobId', 'job-a'], ['jobId', 'job-b'], ['limit', '10']]));
     const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
-    expect(sql).toContain("j.project_id=ANY($2::uuid[])");
+    expect(sql).toContain("r.project_id=ANY($2::uuid[])");
     expect(sql).toContain("r.job_id=ANY($3::uuid[])");
     expect(values).toEqual(["tenant", ["project-a", "project-b"], ["job-a", "job-b"], 11]);
   });

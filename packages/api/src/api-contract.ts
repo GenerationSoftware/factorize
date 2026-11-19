@@ -13,7 +13,7 @@ import { z } from "zod";
 import type { ApiService } from "./flow-service";
 import {
   jobInputSchema,
-  manualInvocationSchema,
+  startRunInput, startRunReceipt, projectRunDefaults, storedRunDefaults, manualInvocationSchema,
   renameRunSchema,
   reportRunErrorSchema,
   invocationPermissionsInput,
@@ -978,6 +978,14 @@ export const API_ROUTES: RouteContract[] = [
     { summary: "Delete job", responses: { "200": { description: "Deleted" } } },
     (service, { params }) => service.deleteJob(params.jobId),
   ),
+  route("POST","/api/v1/runs","runs:start",{
+    summary:"Start a project VM run with a literal prompt and optional launch skill",
+    responses:{"202":{description:"Accepted run",content:{"application/json":{schema:jsonSchema(startRunReceipt,"output")}}}},
+  },(service,{body})=>service.startRun(body),{body:startRunInput,maxBodyBytes:256_000}),
+  route("PUT","/api/v1/projects/{projectId}/run-defaults","projects:write",{
+    summary:"Set the VM configuration, permissions and capacity for direct launches",
+    responses:{"200":{description:"Project run defaults",content:{"application/json":{schema:jsonSchema(storedRunDefaults,"output")}}}},
+  },(service,{params,body})=>service.setRunDefaults(params.projectId,body),{body:projectRunDefaults,parameters:z.object({projectId:z.guid()}),ownerSession:true}),
   route(
     "GET",
     "/api/v1/runs",

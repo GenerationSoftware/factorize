@@ -8,19 +8,21 @@ export async function lockJobQueue(client: DatabaseClient, tenantId: string, job
 }
 
 /** Check after claiming the occurrence so duplicate retries still return their original run. */
-export async function reserveExecutionSlot(client: DatabaseClient, tenantId: string, jobId: string, run: { state: string }, concurrencyLimit: number): Promise<void> {
+export async function reserveExecutionSlot(client: DatabaseClient, tenantId: string, jobId: string, run: { state: string }, concurrencyLimit: number, available = Number.POSITIVE_INFINITY): Promise<void> {
   const activeStates = "('reserved','starting','running','blocked','stopping')";
 
   // A newly free slot belongs to the oldest waiter before it belongs to a new arrival.
-  while (true) {
+  while (available > 0) {
     const active = await client.query<{ count: string }>(`SELECT count(*)::text count FROM app.job_runs WHERE tenant_id=$1 AND job_id=$2 AND state IN ${activeStates}`, [tenantId, jobId]);
     if (Number(active.rows[0]?.count ?? 0) >= concurrencyLimit) break;
     const promoted = await client.query(`UPDATE app.job_runs SET state='reserved',updated_at=now() WHERE tenant_id=$1 AND id=(SELECT id FROM app.job_runs WHERE tenant_id=$1 AND job_id=$2 AND state='queued' ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id`, [tenantId, jobId]);
     if (!promoted.rowCount) break;
+    await client.query("UPDATE app.runs SET state='reserved',updated_at=now() WHERE tenant_id=$1 AND id=$2", [tenantId,promoted.rows[0].id]);
+    available--;
   }
 
   const active = await client.query<{ count: string }>(`SELECT count(*)::text count FROM app.job_runs WHERE tenant_id=$1 AND job_id=$2 AND state IN ${activeStates}`, [tenantId, jobId]);
-  if (Number(active.rows[0]?.count ?? 0) < concurrencyLimit) {
+  if (available > 0 && Number(active.rows[0]?.count ?? 0) < concurrencyLimit) {
     run.state = "reserved";
     return;
   }

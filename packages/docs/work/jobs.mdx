@@ -11,4 +11,4 @@ Jobs using exe.dev may set optional `vmImage` to a public Docker/OCI image refer
 
 Supply `expectedUpdatedAt` from the fetched job's `updatedAt` to protect against concurrent edits. On `stale_job`, fetch again and reapply the desired changes. Omitting it retains last-writer-wins behavior. Omitted optional configuration resets to defaults; omitted triggers remove the configured automatic triggers. Preserve all triggers you want to keep.
 
-After saving, call `get_job` and compare prompt, target and triggers. `enable_job` and `disable_job` change enabled state without rebuilding configuration. Disabling automation does not stop an existing run. Job saves can trigger `edited` lifecycle subscribers. Deleting a job removes its execution history/artifacts; inspect and retain anything needed first.
+After saving, call `get_job` and compare prompt, target and triggers. `enable_job` and `disable_job` change enabled state without rebuilding configuration. Disabling automation does not stop an existing run. Job saves can trigger `edited` lifecycle subscribers. Deleting a Job removes its template and triggers. Runs and artifacts follow their normal retention period.

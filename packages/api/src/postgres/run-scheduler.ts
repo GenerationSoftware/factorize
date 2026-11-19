@@ -163,7 +163,7 @@ export class RunScheduler {
       const app = `factorize-run-${run.tenantId.replaceAll("-", "")}`;
       const machines = createFlyMachinesClient({ token: connection });
       return new FlyJobExecutionBackend({
-        app, organizationSlug: connectionDetails.organizationSlug, image: configuration.image, region: configuration.region, size: configuration.size,
+        app, organizationSlug: connectionDetails.organizationSlug, image: run.executionConfig.image ?? configuration.image, region: run.executionConfig.region ?? configuration.region, size: run.executionConfig.size ?? configuration.size,
         machines, guest: machine => flyJobGuest({ app, machine: machine.id, token: connection }),
         prepare: () => machines.ensureRunApp(app, connectionDetails.organizationSlug),
         vendorIdentityAudience: runId => `factorize://runs/${runId}`,

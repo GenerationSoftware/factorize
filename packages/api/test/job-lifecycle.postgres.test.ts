@@ -264,7 +264,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     expect(edges.rowCount).toBe(0);
   });
 
-  it("commits provider cleanup ownership with job deletion and rolls both back on failure", async () => {
+  it("retains the running VM and its cleanup ownership after deleting its job", async () => {
     const a = await tenant(), source = await job(a);
     const run = await start(a, source);
     const handle = { backendKind: "exe-vm", id: `factorize-${run.id}` };
@@ -286,13 +286,11 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("job lifecycle delivery (Po
     }
 
     expect(await repository(a).delete(source.id)).toBe(true);
-    expect((await database.pool.query("SELECT execution_config,execution_backend_kind,execution_handle,started_at FROM app.deleted_job_provider_cleanup WHERE tenant_id=$1 AND run_id=$2", [a, run.id])).rows[0]).toMatchObject({
-      execution_config: expect.objectContaining({ connectionId: "test" }),
-      execution_backend_kind: "exe-vm",
-      execution_handle: handle,
-      started_at: expect.any(Date),
-    });
-    expect((await database.pool.query("SELECT 1 FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, run.id])).rowCount).toBe(0);
+    const retained = await database.pool.query("SELECT job_id,execution_handle,state,source_job_name FROM app.runs WHERE tenant_id=$1 AND id=$2",[a,run.id]);
+    expect(retained.rows[0]).toMatchObject({job_id:null,execution_handle:handle,state:"running",source_job_name:"Job"});
+    await database.pool.query("UPDATE app.job_runs SET next_poll_at=now() WHERE tenant_id=$1 AND id=$2",[a,run.id]);
+    expect((await runs.dueForPoll()).some(item=>item.id===run.id)).toBe(true);
+    expect((await new RunQueryRepository(database,a).get(run.id))?.job_name).toBe("Job");
   });
 
   it("stores and revokes an explicit self-invocation permission", async () => {

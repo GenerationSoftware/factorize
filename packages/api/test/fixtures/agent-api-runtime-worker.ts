@@ -1,3 +1,6 @@
+import { RunScheduler } from "../../src/postgres/run-scheduler";
+import { databaseFor } from "../../src/postgres/database";
+import type {ExecutionBackend, JobResultReader} from "../../src/execution";
 import { cleanupVmGrants } from "../../src/vm-grants";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import worker from "../../src/worker";
@@ -18,5 +21,21 @@ export default {
 // A test-only entrypoint drives the exact production heartbeat cleanup against
 // real PostgreSQL/R2, without adding a deployment endpoint or waiting 24 hours.
 export class AgentApiMaintenance extends WorkerEntrypoint<Env> {
-  async fetch() { await cleanupAgentResponses(this.env); await cleanupVmGrants(this.env); return new Response("done"); }
+  async fetch(request:Request) {
+    if (new URL(request.url).pathname === "/run-tick") {
+      const launches:string[]=[];
+      const backend:ExecutionBackend & JobResultReader={
+        kind:"exe-vm", capabilities:["stop"],
+        async launch(request) {
+          launches.push(request.runId);
+          if (request.prompt.startsWith("Simulate a launch failure")) throw new Error("Fixture VM unavailable");
+          return {handle:{backendKind:"exe-vm",id:request.runId},destinationUrl:"https://fixture.invalid/",capabilities:["stop"],observation:{state:"running"}};
+        },
+        async inspect(){return {state:"succeeded"};}, async stop(){return {state:"stopped"};},
+        async readJobResult(){return JSON.stringify({status:"succeeded",summary:"Review complete"});}
+      };
+      await new RunScheduler(databaseFor(this.env),this.env,()=>backend).process();
+      return Response.json(launches);
+    }
+    await cleanupAgentResponses(this.env); await cleanupVmGrants(this.env); return new Response("done"); }
 }

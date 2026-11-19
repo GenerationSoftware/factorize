@@ -87,7 +87,7 @@ test("all-jobs runs index uses a tenant-scoped page, navigation, refresh, and cr
   const { context, page } = await setup(); const requests = []; let refreshes = 0;
 const runs = Array.from({ length: 21 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, project_id: projectId, project_name: "Project Alpha", job_id: jobId, job_name: "Review builds", run_name: `Run ${index}`, state: index === 0 ? "running" : "succeeded", created_at: time, updated_at: time, started_at: index === 0 ? time : null, agent_kind: "codex", elapsed_time: index === 0 ? { low: 60, high: 180 } : { duration: 120 } }));
   await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); refreshes++; const second = url.searchParams.has("cursor"); return route.fulfill({ json: { items: second ? [runs[20]] : runs.slice(0, 20), nextCursor: second ? null : "page-2" } }); });
-  await page.goto(origin + "/job-runs"); await page.getByRole("heading", { name: "Job Runs", exact: true }).waitFor(); await page.getByRole("link", { name: "Run 0", exact: true }).waitFor();
+  await page.goto(origin + "/job-runs"); await page.getByRole("heading", { name: "Runs", exact: true }).waitFor(); await page.getByRole("link", { name: "Run 0", exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: "Jobs", exact: true }).count(), 0); assert.equal(await page.getByRole("link", { name: "Runs", exact: true }).count(), 0);
   const table = page.getByRole("table"); assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Project", "Job", "Run", "Elapsed", "Created"]); assert.equal(await page.getByText("Run 0", { exact: true }).count(), 1); assert.equal(await page.getByText("1m–3m", { exact: true }).count(), 1); assert.equal(await page.getByText("2m", { exact: true }).count(), 19); assert.equal(await page.getByRole("link", { name: "Project Alpha", exact: true }).first().getAttribute("href"), `/projects/${projectId}`); assert.equal(await page.locator("td time").count(), 20); assert.equal(await page.locator("td time").first().getAttribute("datetime"), time);
   const firstRowCells = await table.locator("tbody tr").first().locator("td").all(); const elapsedBox = await firstRowCells[4].boundingBox(); const createdBox = await firstRowCells[5].boundingBox(); assert.ok(elapsedBox && createdBox && elapsedBox.x + elapsedBox.width <= createdBox.x, "Elapsed and Created columns must not overlap");
@@ -500,4 +500,40 @@ test("run table metadata widths stay fixed across filters, pages, locale content
   assert.ok(projectOverflow.page <= projectOverflow.viewport, "narrow project run scrolling stays inside its table shell"); assert.ok(projectOverflow.table > projectOverflow.shell);
   if (process.env.GEN_2919_CAPTURE_EVIDENCE === "1") { await projectPage.screenshot({ path: `${evidenceDir}/project-runs-narrow.png`, fullPage: true }); }
   await projectPage.close(); await french.close(); await frenchContext.close(); await context.close();
+});
+
+test("filter direct runs by launch skill and start another from the project", async () => {
+  const { context, page } = await setup();
+  const skillId = "00000000-0000-4000-8000-000000000099";
+  const project = { id: projectId, name: "Development", jobCount: 0, description: "" };
+  const run = { id: runId, run_name: "Review", launch_skill_key: "dev", project_id: projectId,
+    project_name: project.name, job_id: null, job_name: null, state: "succeeded", created_at: time, updated_at: time };
+  let submitted;
+  await page.route(`**/api/v1/projects/${projectId}`, route => route.fulfill({json: project}));
+  await page.route("**/api/v1/skills?**", route => route.fulfill({json: {items: [{id: skillId, key: "dev"}]}}));
+  await page.route("**/api/v1/runs?**", route => route.fulfill({json: {
+    items: new URL(route.request().url()).searchParams.get("launchSkillId") === skillId ? [run] : [], nextCursor: null
+  }}));
+  await page.route("**/api/v1/runs", route => {
+    submitted = route.request().postDataJSON();
+    return route.fulfill({status: 202, json: {runId, duplicate: false, url: origin+"/job-runs/"+runId, outcomeUri: "factorize://runs/"+runId+"/outcome"}});
+  });
+  await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({json: {...run, finalizing: false, artifact_state: "stored", trace_revision: "rev"}}));
+  try {
+    await page.goto(origin+`/projects/${projectId}`);
+    await page.getByLabel("Launch skill").selectOption(skillId);
+    const row = page.getByRole("row").filter({hasText: "Review"});
+    await row.getByText("Direct", {exact: true}).waitFor();
+    await row.getByText("/dev", {exact: true}).waitFor();
+    await page.getByRole("button", {name: "Start run"}).click();
+    const form = page.locator("form").filter({has: page.getByLabel("Prompt", {exact: true})});
+    await form.getByLabel("Launch skill").selectOption(skillId);
+    await form.getByLabel("Prompt").fill("Review the migration");
+    await page.getByRole("button", {name: "Start run", exact: true}).click();
+    await page.waitForURL(new RegExp("/job-runs/"+runId));
+    assert.deepEqual(submitted, {projectId, prompt: "Review the migration", skill: skillId, idempotencyKey: submitted.idempotencyKey});
+    assert.match(submitted.idempotencyKey, /^[\da-f-]{36}$/);
+  } finally {
+    await context.close();
+  }
 });

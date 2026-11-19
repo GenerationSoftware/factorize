@@ -137,7 +137,7 @@ Jobs using exe.dev may set optional `vmImage` to a public Docker/OCI image refer
 
 Supply `expectedUpdatedAt` from the fetched job's `updatedAt` to protect against concurrent edits. On `stale_job`, fetch again and reapply the desired changes. Omitting it retains last-writer-wins behavior. Omitted optional configuration resets to defaults; omitted triggers remove the configured automatic triggers. Preserve all triggers you want to keep.
 
-After saving, call `get_job` and compare prompt, target and triggers. `enable_job` and `disable_job` change enabled state without rebuilding configuration. Disabling automation does not stop an existing run. Job saves can trigger `edited` lifecycle subscribers. Deleting a job removes its execution history/artifacts; inspect and retain anything needed first.
+After saving, call `get_job` and compare prompt, target and triggers. `enable_job` and `disable_job` change enabled state without rebuilding configuration. Disabling automation does not stop an existing run. Job saves can trigger `edited` lifecycle subscribers. Deleting a Job removes its template and triggers. Runs and artifacts follow their normal retention period.
 
 ## Write job prompts
 Source: https://docs.factorize.sh/work/prompts
@@ -193,12 +193,20 @@ WHERE state='failed' AND failure_source='system'
 
 Roll forward with the additive migration before serving the new UI/API. Roll back application code separately and leave repaired outcome data intact; the old API ignores the new columns. Do not reverse the repair by changing every `agent` source back to `system`; unknown historical rows remain unknown.
 
+## Background runs
+
+Set the project's direct-run VM defaults with an owner session using `PUT /api/v1/projects/{projectId}/run-defaults`. Supply an execution configuration ID and optional model, permissions and capacity. Direct launches require the separate `runs:start` scope. A verified parent run can launch in its own project. The child's permissions come from the project's configured defaults. Finishing the parent leaves the child running.
+
+Call `start_run` with a literal prompt, optional skill key or ID, and a client-generated idempotency key. Supply `projectId` when an external client has multiple projects. Retrying the same request returns the same run. A launch skill is captured by ID, key and revision. Filter `list_runs` by `launchSkillId`, using `none` for unclassified runs.
+
+Save the receipt's `outcomeUri` with the originating conversation ID. With MCP revision 2026-07-28, request `subscriptions/listen` with that URI in `notifications.resourceSubscriptions`. On acknowledgment and on each resource update, call `resources/read`. A terminal outcome has a stable `eventId`, state, available result, failure and artifact references. Append it to the originating conversation once per event ID. Reopen the listen stream on close or reconnect. Older clients can read the resource directly. Reading or watching requires `runs:read`. Outcomes share the run's history retention period.
+
 ## Stop and retry runs
 Source: https://docs.factorize.sh/work/stop-retry
 
 Ask: “Inspect this run, stop it if it is still active, and verify its final state.” Fetch `get_run`, then use `stop_run({"runId":"RUN_ID"})` for a starting, running or blocked run. The response requests `stopping`; poll until terminal and inspect diagnostics for cleanup.
 
-**Current behavior:** `kill_run` calls the same stop operation as `stop_run`. It does not force a queued run to terminate or release its slot immediately. Both return `operation_failed` when the run is not active. Do not treat kill as stronger recovery; contact the hosted operator if a run remains stuck.
+**Current behavior:** `kill_run` calls the same stop operation as `stop_run`. Stopping a queued or reserved run records a terminal stopped outcome before VM launch. Both return `operation_failed` when the run is not active. Do not treat kill as stronger recovery; contact the hosted operator if a run remains stuck.
 
 For a timed-out manual submission, repeat `invoke_job` with the **same** `idempotencyKey`. The response contains the original `invocationId`, `runId`, and `duplicate: true`. Retain the key you submitted: current `get_run` does not return `invocation.idempotency_key`. Never send its internal `invocation.claim_key` or a `manual:` prefix back as the key. If the key was lost, inspect existing runs before requesting another.
 
@@ -595,7 +603,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `get_job` | jobs:read | Required string `jobId` |
 | `create_job` | jobs:write | Required `name`, `slug`, `promptTemplate`, `executionConfigId`; job fields below |
 | `update_job` | jobs:write | Same required job fields plus `jobId`; optional `expectedUpdatedAt` and `runScopes` |
-| `delete_job` | jobs:write | Required string `jobId`; deletion removes execution history/artifacts |
+| `delete_job` | jobs:write | Required string `jobId`; deletion retires the template and triggers |
 | `enable_job` | jobs:write | Required string `jobId` |
 | `disable_job` | jobs:write | Required string `jobId` |
 | `list_projects` | projects:read | `{}` |
@@ -609,6 +617,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `rename_run` | runs:write | Required `runId` and `name`; optional `expectedName` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
 | `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
+| `start_run` | runs:start | Literal `prompt`, optional `skill`, `inputs`, `projectId`, `name` and `idempotencyKey`. Returns `runId`, the browser `url`, `outcomeUri`, and `duplicate`. |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
 | `get_api_reflection` | Authenticated OAuth/run identity | `{}`. Discover the authorization identity, effective scopes, and granted/requestable integration APIs, including instructions, required OAuth scope, and connection availability. |
 | `grant_vm` | vm:grant and proxy:use | OAuth agent delegates explicit integration IDs to a VM on an eligible exe.dev connection. Requires providerIntegrationId, vm, integrationIds and idempotencyKey. |
@@ -700,7 +709,7 @@ Save `id`, trigger IDs/slugs and `updatedAt`. Full job results include prompt/co
 
 Result is the saved job with new `updatedAt`. Preserve any automatic triggers too. Omission can reset optional settings or remove automatic triggers. On `stale_job`, fetch/reapply; omitting `expectedUpdatedAt` is last-writer-wins. Stable slugs survive edits when trigger identity/kind is retained; changing kind creates a new trigger identity. Inspect returned slugs rather than assuming numbering.
 
-`enable_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","enabled":true}`; `disable_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","enabled":false}`. `delete_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","deleted":true}`; deletion also removes execution history/artifacts. Missing jobs return `not_found`. Saves can emit `edited` events; see [chaining](https://docs.factorize.sh/recipes/chaining).
+`enable_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","enabled":true}`; `disable_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","enabled":false}`. `delete_job({"jobId":"JOB_ID"})` → `{"id":"JOB_ID","deleted":true}`; existing runs retain their history and artifacts. Missing jobs return `not_found`. Saves can emit `edited` events; see [chaining](https://docs.factorize.sh/recipes/chaining).
 
 ## Invocation, run inspection, and retries
 
@@ -795,17 +804,19 @@ Cloudflare API credentials, so they do not expose an outbound API.
 ## Jobs, triggers, runs, and targets
 Source: https://docs.factorize.sh/concepts
 
-A **job** is a saved instruction: what to do, where to execute it, and when it may run. A **trigger** is a reason to run it: a manual request, schedule, provider event, or another job's lifecycle event. A **run** is one execution of the job, with its own state, prompt, context and output. An **execution integration** is a saved execution account/agent configuration discovered with `list_execution_configs`.
+A **run** is one accepted execution in a project. It records the prompt, inputs, execution configuration, permissions and outcome. An agent can start one directly with a prompt and an optional launch skill such as `dev`. A **job** is a saved template for creating runs. Its **triggers** can invoke it manually, on a schedule, on a provider event, or in response to another job's lifecycle. Both paths use the same queue and execution backends. An **execution integration** supplies the account and agent configuration.
 
-The **conversational agent** you talk to uses MCP to control Factorize. The **execution agent** receives the job's rendered prompt and does the work on the execution account. Giving the conversational agent MCP permission does not give the execution agent repository, provider or model access. Your saved connection, VM tags and prompt must supply those.
+The **conversational agent** you talk to uses MCP to control Factorize. The **execution agent** receives the run's resolved prompt and does the work on the execution account. Giving the conversational agent MCP permission does not give the execution agent repository, provider or model access. Your saved connection, VM tags and prompt must supply those.
 
 Every job gets a manual trigger. Additional triggers have immutable server-generated slugs such as `trigger-2`. Each run receives only the firing trigger's context; [prompt templates](https://docs.factorize.sh/work/prompts) use that slug.
 
 ## Concurrency and the queue
 
-With concurrency 1, a review already running occupies the only active slot. One more run may wait in the queue. A further manual request returns `queue_full`; wait for capacity instead of repeatedly changing retry keys. Automatic schedule/webhook/lifecycle signals arriving while a run is queued are skipped/coalesced, so they are not a complete event log. An accepted idempotency key still returns its original run even when the queue is full.
+A project owner enables direct launches by saving a VM configuration in **Project settings → Direct run defaults**. The project concurrency limit applies to both direct and job-created runs. The project can also hold that many waiting runs. Each saved job has its own concurrency limit within that capacity.
 
-Concurrency can be 1–50. With concurrency 2, two reviews may execute and one may wait. Queued runs keep the prompt/context they were submitted with; editing a job does not rewrite those runs. Query runs and the provider for authoritative work when automatic events coalesce.
+With job concurrency 1, a review already running occupies the only active slot. One more run may wait in the queue. A further manual request returns `queue_full`; wait for capacity instead of repeatedly changing retry keys. Automatic schedule/webhook/lifecycle signals arriving while a run is queued are skipped/coalesced, so they are not a complete event log. An accepted idempotency key still returns its original run even when the queue is full.
+
+Job concurrency can be 1–50. With job concurrency 2, two reviews may execute and one may wait. Queued runs keep the prompt/context they were submitted with; editing a job does not rewrite those runs. Query runs and the provider for authoritative work when automatic events coalesce.
 
 Inspect output before treating a terminal state as a useful result. Trace collection can be incomplete even when execution completed; advanced trace recovery belongs in [operations](https://docs.factorize.sh/self-hosting/operations).
 ## Global skills
@@ -875,7 +886,7 @@ An expired or completed request cannot be extended by resending email or recover
 | `integrations:read` | View integration metadata and provider resources |
 | `integrations:write` | Create, configure, test, and remove integrations |
 
-Scopes are independent: write does not imply read. Job configuration can cause future execution through schedules, webhooks, and lifecycle triggers; deleting a job can remove its execution history and artifacts. Key and OAuth grant administration and trace replay always require an interactive owner session.
+Scopes are independent: write does not imply read. Job configuration can cause future execution through schedules, webhooks, and lifecycle triggers; existing runs survive template deletion. Key and OAuth grant administration and trace replay always require an interactive owner session.
 
 Legacy `flows:read` and `flows:write` grants remain usable during migration and are normalized at authentication (`flows:read` → all three read domains, `flows:write` → all three write domains). `runs:write` is now an available scope for run renaming; grants using that name also retain invocation and cancellation access. New API keys, OAuth consent, and discovery expose 12 scopes. No new legacy `flows:*` grant is issued.
 

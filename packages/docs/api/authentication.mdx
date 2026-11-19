@@ -34,7 +34,7 @@ An expired or completed request cannot be extended by resending email or recover
 | `integrations:read` | View integration metadata and provider resources |
 | `integrations:write` | Create, configure, test, and remove integrations |
 
-Scopes are independent: write does not imply read. Job configuration can cause future execution through schedules, webhooks, and lifecycle triggers; deleting a job can remove its execution history and artifacts. Key and OAuth grant administration and trace replay always require an interactive owner session.
+Scopes are independent: write does not imply read. Job configuration can cause future execution through schedules, webhooks, and lifecycle triggers; existing runs survive template deletion. Key and OAuth grant administration and trace replay always require an interactive owner session.
 
 Legacy `flows:read` and `flows:write` grants remain usable during migration and are normalized at authentication (`flows:read` → all three read domains, `flows:write` → all three write domains). `runs:write` is now an available scope for run renaming; grants using that name also retain invocation and cancellation access. New API keys, OAuth consent, and discovery expose 12 scopes. No new legacy `flows:*` grant is issued.
 

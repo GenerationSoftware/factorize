@@ -1,5 +1,6 @@
 import { z } from "zod";
-export const projectResponse = z.object({ id: z.guid(), name: z.string(), description: z.string().optional(), createdAt: z.string(), updatedAt: z.string(), jobCount: z.number().int() });
+import { storedRunDefaults } from "./flow-schemas";
+export const projectResponse = z.object({ id: z.guid(), name: z.string(), description: z.string().optional(), createdAt: z.string(), updatedAt: z.string(), runDefaults:storedRunDefaults.optional(), jobCount: z.number().int() });
 export const projectListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(100),
   sort: z.enum(["name", "updated"]).default("name"),

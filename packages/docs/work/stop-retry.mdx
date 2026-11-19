@@ -5,7 +5,7 @@ description: Avoid duplicate work and understand current stop behavior.
 
 Ask: “Inspect this run, stop it if it is still active, and verify its final state.” Fetch `get_run`, then use `stop_run({"runId":"RUN_ID"})` for a starting, running or blocked run. The response requests `stopping`; poll until terminal and inspect diagnostics for cleanup.
 
-**Current behavior:** `kill_run` calls the same stop operation as `stop_run`. It does not force a queued run to terminate or release its slot immediately. Both return `operation_failed` when the run is not active. Do not treat kill as stronger recovery; contact the hosted operator if a run remains stuck.
+**Current behavior:** `kill_run` calls the same stop operation as `stop_run`. Stopping a queued or reserved run records a terminal stopped outcome before VM launch. Both return `operation_failed` when the run is not active. Do not treat kill as stronger recovery; contact the hosted operator if a run remains stuck.
 
 For a timed-out manual submission, repeat `invoke_job` with the **same** `idempotencyKey`. The response contains the original `invocationId`, `runId`, and `duplicate: true`. Retain the key you submitted: current `get_run` does not return `invocation.idempotency_key`. Never send its internal `invocation.claim_key` or a `manual:` prefix back as the key. If the key was lost, inspect existing runs before requesting another.
 
