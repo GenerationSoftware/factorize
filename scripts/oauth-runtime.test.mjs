@@ -50,7 +50,13 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     const registration = await json('/oauth/register', { client_name: 'Protocol fixture', redirect_uris: ['http://127.0.0.1/callback'], token_endpoint_auth_method: 'none', grant_types: ['authorization_code','refresh_token'], response_types: ['code'] });
     assert.equal(registration.status, 201, registration.text); const clientId = registration.json.client_id;
     const verifier = randomBytes(32).toString('base64url'), challenge = createHash('sha256').update(verifier).digest('base64url');
-    const authorizationQuery = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: 'http://127.0.0.1/callback', scope: 'flows:read', state: 'fixture-state', code_challenge: challenge, code_challenge_method: 'S256', resource: origin+'/mcp' }).toString();
+    const redirectUri = 'http://127.0.0.1:62311/callback';
+    const authorizationQuery = new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope: 'flows:read', state: 'fixture-state', code_challenge: challenge, code_challenge_method: 'S256', resource: origin+'/mcp' }).toString();
+    for (const invalidRedirect of ['http://localhost:62311/callback', redirectUri + '/other']) {
+      const query = new URLSearchParams(authorizationQuery);
+      query.set('redirect_uri', invalidRedirect);
+      assert.equal((await send('/authorize?' + query, 'GET', undefined, owner)).status, 400);
+    }
     const screen = await send('/authorize?'+authorizationQuery, 'GET', undefined, owner); assert.equal(screen.status, 302);
     const connectionCookie = screen.headers['set-cookie'][0].split(';')[0];
     const connectedScreen = await send(new URL(screen.headers.location).pathname + new URL(screen.headers.location).search, 'GET', undefined, { ...owner, Cookie: cookie + '; ' + connectionCookie }); assert.equal(connectedScreen.status, 200); assert.match(connectedScreen.text, /\/assets\//);
@@ -59,7 +65,7 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     assert.equal((await json('/api/v1/oauth/consent/decision', decision, { ...owner, Origin: 'https://evil.test' })).status, 403);
     const consent = await json('/api/v1/oauth/consent/decision', decision, owner); assert.equal(consent.status, 200, consent.text);
     const destination = new URL(consent.json.redirectTo); assert.equal(destination.searchParams.get('state'), 'fixture-state');
-    const exchange = await form('/oauth/token', { grant_type: 'authorization_code', client_id: clientId, code: destination.searchParams.get('code'), redirect_uri: 'http://127.0.0.1/callback', code_verifier: verifier, resource: origin+'/mcp' }); assert.equal(exchange.status, 200, exchange.text);
+    const exchange = await form('/oauth/token', { grant_type: 'authorization_code', client_id: clientId, code: destination.searchParams.get('code'), redirect_uri: redirectUri, code_verifier: verifier, resource: origin+'/mcp' }); assert.equal(exchange.status, 200, exchange.text);
     const bearer = { Authorization: 'Bearer '+exchange.json.access_token };
     // OAuth resource remains /mcp; do not broaden its audience during migration.
     assert.equal((await send('/api/v1/job-summaries', 'GET', undefined, bearer)).status, 401);

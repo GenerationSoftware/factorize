@@ -1,7 +1,7 @@
 import { integrationConsentLabels } from "./agent-api";
 import { isIntegrationScope } from "./agent-api-contracts";
 import { databaseFor } from "./postgres/database";
-import { connectionFor, originalBrowser } from "./oauth-continuation";
+import { connectionFor, matchesRegisteredRedirect, originalBrowser } from "./oauth-continuation";
 import { z } from "zod";
 import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { hmac } from "./crypto";
@@ -49,7 +49,7 @@ export async function consentDecision(env: Env, session: Session, input: z.infer
   const parsed = envelope.parsed;
   // Revalidate client registration and redirect URI before grant issuance.
   const client = await env.OAUTH_PROVIDER.lookupClient(parsed.clientId);
-  if (!client || !client.redirectUris.includes(parsed.redirectUri)) return null;
+  if (!client || !matchesRegisteredRedirect(parsed.redirectUri, client.redirectUris)) return null;
   const allowed = new Set(normalizeScopes(parsed.scope.filter(scope => supported.includes(scope) || isIntegrationScope(scope))));
   const legacyRequest = parsed.scope.some(scope => scope === "flows:read" || scope === "flows:write");
   const selected = normalizeScopes(input.scopes);

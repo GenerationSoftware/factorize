@@ -16,6 +16,16 @@ export async function originalBrowser(request: Request, env: Env, connection: Co
   const cookie = requestCookie(request, connectionCookie(connection.id));
   return !!cookie && await tokenDigest(cookie, env.SESSION_SIGNING_SECRET) === connection.browser_digest;
 }
+// Native clients select a free HTTP loopback port at login (RFC 8252 §7.3).
+// Preserve the exact registered URI outside the port, including path and query.
+const loopbackAuthority = /^(http:\/\/(?:127(?:\.\d{1,3}){3}|localhost|\[::1\]))(?::\d+)?(?=[/?#]|$)/;
+export function matchesRegisteredRedirect(uri: string, registered: string[]): boolean {
+  if (registered.includes(uri)) return true;
+  if (!loopbackAuthority.test(uri) || !URL.canParse(uri)) return false;
+  const withoutPort = uri.replace(loopbackAuthority, "$1");
+  return registered.some(candidate => candidate.replace(loopbackAuthority, "$1") === withoutPort);
+}
+
 export async function startConnection(request: Request, env: Env, destination: string) {
   if (!destination.startsWith("/") || destination.startsWith("//") || /[\\\x00-\x20]/.test(destination)) return null;
   const url = new URL(destination, env.APP_ORIGIN);
@@ -26,7 +36,7 @@ export async function startConnection(request: Request, env: Env, destination: s
     if (!env.OAUTH_PROVIDER) return null;
     const parsed = await env.OAUTH_PROVIDER.parseAuthRequest(new Request(url));
     const client = await env.OAUTH_PROVIDER.lookupClient(parsed.clientId);
-    if (!client || !client.redirectUris.includes(parsed.redirectUri) || parsed.responseType !== "code" || !parsed.codeChallenge || parsed.codeChallengeMethod !== "S256") return null;
+    if (!client || !matchesRegisteredRedirect(parsed.redirectUri, client.redirectUris) || parsed.responseType !== "code" || !parsed.codeChallenge || parsed.codeChallengeMethod !== "S256") return null;
     clientName = client.clientName ?? "this MCP client"; kind = "callback";
   } else {
     const code = url.searchParams.get("user_code");
