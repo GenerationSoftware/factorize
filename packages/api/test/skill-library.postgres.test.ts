@@ -120,16 +120,30 @@ it.skipIf(!process.env.AUTH_TEST_DATABASE_URL)(
             return Response.json({
               tree: key
                 ? [
+                    ...(commit === "a".repeat(40)
+                      ? [
+                          { path: "new-key", type: "tree" },
+                          {
+                            path: "new-key/SKILL.md",
+                            type: "blob",
+                            sha: "replacement-blob",
+                            mode: "100644",
+                            size: 13,
+                          },
+                        ]
+                      : []),
                     { path: key, type: "tree" },
                     { path: key + "/SKILL.md", type: "blob", sha: "blob", mode: "100644", size: body.length },
                   ]
                 : [],
             });
+          if (path.endsWith("/blobs/replacement-blob"))
+            return Response.json({ encoding: "base64", content: btoa("Keep this too") });
           if (path.endsWith("/blobs/blob")) return Response.json({ encoding: "base64", content: btoa(body) });
           return new Response(null, { status: 404 });
         }),
       );
-      await seedLegacy("unused", "Keep this too");
+      const unused = await seedLegacy("unused", "Keep this too");
       await library.migrate();
       await library.migrate();
       expect(mirrored.map((dir) => dir.key)).toContain("unused");
@@ -195,6 +209,8 @@ it.skipIf(!process.env.AUTH_TEST_DATABASE_URL)(
         ).status,
       ).toBe(200);
       expect(await store.get("unused")).toBeNull();
+      expect(await store.get(unused.id)).toBeNull();
+      expect(await store.get("new-key")).toMatchObject({ body: "Keep this too" });
       expect((await library.token()).remote).toContain("fixture.test");
       expect(issueToken).toHaveBeenLastCalledWith("read", 3600);
       expect(installationToken).toHaveBeenCalledWith(f.env, 123, 42);

@@ -180,7 +180,7 @@ export class SkillLibrary {
         ON CONFLICT(tenant_id) DO UPDATE SET repo=excluded.repo,remote=excluded.remote,source=excluded.source`,
         [this.tenant, name, created.remote, source],
       );
-      await this.publish(client, current, directories, commit, upstreamCommit ?? commit, tree);
+      await this.publish(client, current, directories, commit, upstreamCommit ?? commit, tree, false);
     } catch (error) {
       await this.artifacts().delete(name);
       throw error;
@@ -193,6 +193,7 @@ export class SkillLibrary {
     revision: string | (() => Promise<string>),
     upstream: string,
     tree: string | null = null,
+    preserveRenames = true,
   ) {
     const keys = new Set(dirs.map((dir) => dir.key));
     const previousByKey = new Map(current.map((item) => [item.key, item]));
@@ -203,6 +204,7 @@ export class SkillLibrary {
     for (const { dir: item, print } of removedPrints) {
       const matches = addedPrints.filter((candidate) => candidate.print === print);
       if (
+        preserveRenames &&
         matches.length === 1 &&
         removedPrints.filter((candidate) => candidate.print === print).length === 1
       ) {
@@ -215,14 +217,18 @@ export class SkillLibrary {
         previousByKey.set(key, item);
         continue;
       }
+      await client.query(
+        `UPDATE app.jobs j SET execution_config=CASE WHEN execution_config->>'launchSkillId'=$2::text
+           THEN execution_config-'launchSkillId' ELSE execution_config END,
+           updated_at=greatest(now(),date_trunc('milliseconds',updated_at)+interval '1 millisecond')
+         WHERE tenant_id=$1 AND (execution_config->>'launchSkillId'=$2::text OR EXISTS (
+           SELECT 1 FROM app.job_skills js WHERE js.tenant_id=j.tenant_id AND js.job_id=j.id AND js.skill_id=($2::text)::uuid))`,
+        [this.tenant, item.id],
+      );
       await client.query("DELETE FROM app.job_skills WHERE tenant_id=$1 AND skill_id=$2", [
         this.tenant,
         item.id,
       ]);
-      await client.query(
-        "UPDATE app.jobs SET execution_config=execution_config-'launchSkillId',updated_at=now() WHERE tenant_id=$1 AND execution_config->>'launchSkillId'=$2",
-        [this.tenant, item.id],
-      );
       await client.query("DELETE FROM app.skills WHERE tenant_id=$1 AND id=$2", [this.tenant, item.id]);
     }
     const commit = typeof revision === "string" ? revision : await revision();
