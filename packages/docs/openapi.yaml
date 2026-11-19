@@ -7213,6 +7213,42 @@ paths:
                 items:
                   type: object
                   properties:
+                    availableScopes:
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - projects:read
+                          - projects:write
+                          - jobs:read
+                          - jobs:write
+                          - runs:read
+                          - runs:invoke
+                          - runs:start
+                          - runs:cancel
+                          - runs:write
+                          - integrations:read
+                          - integrations:write
+                          - skills:read
+                          - skills:write
+                          - proxy:use
+                          - vm:grant
+                    integrationOverrides:
+                      type: object
+                      propertyNames:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      additionalProperties:
+                        anyOf:
+                          - type: string
+                          - type: boolean
+                            const: false
+                      description: Integration ID to approved epoch-bound scope, or false to block.
+                    revision:
+                      type: integer
+                      minimum: -9007199254740991
+                      maximum: 9007199254740991
                     grantId:
                       type: string
                     clientId:
@@ -7234,6 +7270,9 @@ paths:
                         - string
                         - "null"
                   required:
+                    - availableScopes
+                    - integrationOverrides
+                    - revision
                     - grantId
                     - clientId
                     - clientName
@@ -7524,6 +7563,106 @@ paths:
           schema:
             type: string
             minLength: 1
+  /api/v1/access/authorizations/{grantId}/permissions:
+    put:
+      summary: Edit an OAuth connection’s scopes and integration access
+      responses:
+        "200":
+          description: Permissions saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the jobs:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: put_api_v1_access_authorizations_grantId_permissions
+      tags:
+        - access
+      security:
+        - cookieAuth: []
+      x-required-scope: jobs:write
+      x-owner-session-required: true
+      parameters:
+        - name: grantId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                disabledScopes:
+                  maxItems: 15
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - projects:read
+                      - projects:write
+                      - jobs:read
+                      - jobs:write
+                      - runs:read
+                      - runs:invoke
+                      - runs:start
+                      - runs:cancel
+                      - runs:write
+                      - integrations:read
+                      - integrations:write
+                      - skills:read
+                      - skills:write
+                      - proxy:use
+                      - vm:grant
+                integrationOverrides:
+                  type: object
+                  propertyNames:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  additionalProperties:
+                    anyOf:
+                      - type: string
+                      - type: boolean
+                        const: false
+                  description: Integration ID to approved epoch-bound scope, or false to block.
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+              required:
+                - disabledScopes
+                - integrationOverrides
+              additionalProperties: false
   /api/v1/access/authorizations/{grantId}:
     delete:
       summary: Revoke one isolated OAuth connection

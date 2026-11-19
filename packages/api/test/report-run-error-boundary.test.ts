@@ -4,6 +4,7 @@ import { ProtectedApiHandler, protectedApiFetch } from "../src/protected-api";
 import { RunRepository } from "../src/postgres/run-repository";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class { constructor(public ctx: any, public env: any) {} } }));
+vi.mock("../src/oauth-connection-settings", () => ({disabledConnectionScopes: async () => []}));
 afterEach(() => vi.restoreAllMocks());
 
 const runId = "00000000-0000-4000-8000-000000000001";

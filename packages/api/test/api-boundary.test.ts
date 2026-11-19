@@ -8,6 +8,7 @@ import { ApiService, ServiceError } from "../src/flow-service";
 import { InvocationError } from "../src/job-domain";
 import type { Env, OAuthProps } from "../src/types";
 
+vi.mock("../src/oauth-connection-settings", () => ({ disabledConnectionScopes: async () => [] }));
 vi.mock("cloudflare:workers", () => ({
   WorkerEntrypoint: class {
     constructor(

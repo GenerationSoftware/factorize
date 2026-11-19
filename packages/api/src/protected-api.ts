@@ -1,3 +1,5 @@
+import { disabledConnectionScopes } from "./oauth-connection-settings";
+import { clientNameInput } from "./settings-contracts";
 import { SkillContentError } from "./skill-files";
 import { listenForOutcomes, outcomeRunId } from "./run-outcome-subscription";
 import { authenticateVendorRunRequest } from "./vendor-run-auth";
@@ -65,6 +67,11 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
     };
     try {
       const url = new URL(request.url), path = url.pathname;
+      if (auth?.oauthGrantId) {
+        const disabled = await disabledConnectionScopes(env, auth);
+        auth = { ...auth, scopes: auth.scopes.filter(scope => !disabled.includes(scope)) };
+        if (path.startsWith("/api/v1/agent/") && !auth.scopes.includes("proxy:use")) throw new ServiceError(403, "insufficient_scope", "The proxy:use scope is required.");
+      }
       if (path === "/mcp") {
         if (!auth) throw new ServiceError(401, "invalid_token", "Unauthorized");
         const mcpService = new ApiService(env, auth);
@@ -77,11 +84,12 @@ export async function protectedApiFetch(request: Request, env: Env, auth: OAuthP
           try { body = await new Response(limited).json(); } catch(error) { if(error instanceof ServiceError) throw error; throw new ServiceError(400,"invalid_request","Request body must be valid JSON."); }
           mcpBodies.set(request,body);
           if (body?.method === "subscriptions/listen" && body.params?.notifications?.resourceSubscriptions) {
+            const listenerAuth = auth;
             const credentialActive = async () => {
-              if (auth.authMethod === "vendor_identity") return !!await authenticateVendorRunRequest(request,env);
-              if (auth.oauthGrantId) {
+              if (listenerAuth.authMethod === "vendor_identity") return !!await authenticateVendorRunRequest(request,env);
+              if (listenerAuth.oauthGrantId) {
                 const token = await env.OAUTH_PROVIDER?.unwrapToken<OAuthProps>(request.headers.get("Authorization")?.slice(7) ?? "");
-                return token?.grantId === auth.oauthGrantId && token.expiresAt > Date.now()/1000 && normalizeScopes(token.scope).includes("runs:read");
+                return token?.grantId === listenerAuth.oauthGrantId && token.expiresAt > Date.now()/1000 && normalizeScopes(token.scope).includes("runs:read") && !(await disabledConnectionScopes(env, listenerAuth)).includes("runs:read");
               }
               return true; // outcomeStates rechecks API key and owner membership.
             };
@@ -143,6 +151,7 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
       try { return structured(await action(input)); }
       catch (error) { const response = errorResponse(error), detail = await response.json() as any; throw new Error(`${detail.error?.code ?? "operation_failed"}: ${detail.error?.message ?? "Operation failed"}`); }
     });
+    tool("rename_mcp_client", "Set the display name of this OAuth connection in Authorized clients.", clientNameInput, input => service.renameMcpClient(input));
     tool("get_api_reflection", "Discover this agent identity, effective Factorize scopes, and granted/requestable integration APIs. Availability describes connection state, not verified credential health.", z.object({}), () => service.getApiReflection());
     tool("grant_vm", "Delegate selected proxy integrations to a VM on a supported provider connection.", grantVmInput, (input) => service.grantVm(input));
     tool("revoke_vm_grant", "Revoke proxy access for an externally managed VM.", revokeVmInput, ({grantId}: any) => service.revokeVmGrant(grantId));

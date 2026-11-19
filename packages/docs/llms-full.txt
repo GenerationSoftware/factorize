@@ -448,9 +448,7 @@ every read. Revocation blocks subsequent calls and reads but cannot undo an
 upstream action already accepted. Existing VM proxy URLs retain true streaming.
 
 The same operations are documented under `/api/v1/agent/reflection`,
-`/api/v1/agent/requests`, and `/api/v1/agent/responses/read`. Authorize `proxy:use` to use the HTTP proxy with the agent credential. Existing MCP authorizations without this scope require renewed consent. Other REST operations retain their own authentication requirements. Clients migrating from `request_api` and `read_api_response` send the same JSON arguments to the reflected HTTP endpoints with the Factorize bearer token. Owner policy endpoints require an interactive browser session. Authorized
-clients settings revoke individual connections; the existing client-wide revoke
-endpoint remains available for compatibility.
+`/api/v1/agent/requests`, and `/api/v1/agent/responses/read`. Authorize `proxy:use` to use the HTTP proxy with the agent credential. Existing MCP authorizations without this scope require renewed consent. Other REST operations retain their own authentication requirements. Clients migrating from `request_api` and `read_api_response` send the same JSON arguments to the reflected HTTP endpoints with the Factorize bearer token. Owner policy endpoints require an interactive browser session. In **Settings → Authorized clients**, choose **Edit permissions** to disable or restore originally authorized Factorize scopes. For each integration, choose **Default** to follow workspace policy and OAuth consent, **Allow** to approve the current integration, or **Block** to deny this connection access. Disabling or disconnecting a workspace integration invalidates per-connection approvals. Edits apply to subsequent requests from this connection and its delegated VMs. Owners can also revoke a connection. MCP clients can set their own connection label with `rename_mcp_client`.
 
 The scheduler maintenance heartbeat removes expired response objects and their
 PostgreSQL receipts. A receipt exists before any R2 block is written, including
@@ -621,6 +619,7 @@ The required scope inventory below is authoritative. Legacy `flows:*` and `runs:
 | `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
 | `start_run` | runs:start | Literal `prompt`, optional `skill`, `inputs`, `projectId`, `name` and `idempotencyKey`. Returns `runId`, the browser `url`, `outcomeUri`, and `duplicate`. |
 | `invoke_job` | runs:invoke | Required string `jobId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
+| `rename_mcp_client` | Authenticated OAuth connection | `{ "name": "Release assistant" }`. Sets this connection’s display name in Settings → Authorized clients. Names are trimmed and accept 1–120 characters. |
 | `get_api_reflection` | Authenticated OAuth/run identity | `{}`. Discover the authorization identity, effective scopes, and granted/requestable integration APIs, including instructions, required OAuth scope, and connection availability. |
 | `grant_vm` | vm:grant and proxy:use | OAuth agent delegates explicit integration IDs to a VM on an eligible exe.dev connection. Requires providerIntegrationId, vm, integrationIds and idempotencyKey. |
 | `revoke_vm_grant` | vm:grant | Requires grantId. Invalidates guest access and schedules identity integration cleanup. |

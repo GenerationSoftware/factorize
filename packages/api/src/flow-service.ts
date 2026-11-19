@@ -12,7 +12,7 @@ import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput }
 import { DEFAULT_RUN_SCOPES } from "./run-scopes";
 import { launchPayloadResponse } from "./launch-payload";
 import { searchResponse } from "./search-contracts";
-import { integrationStatus, exeConnection, accessToken, createdAccessToken, authorizedClient } from "./settings-contracts";
+import { integrationStatus, exeConnection, accessToken, createdAccessToken, clientPermissionsInput, clientNameInput, authorizedClient } from "./settings-contracts";
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
 import { runPageResponse, fullRunResponse, runtimeContextResponse, runtimeIntegrationsResponse } from "./run-read-contracts";
@@ -377,7 +377,7 @@ export class ApiService {
   async previewJobPrompt(input: unknown) { await this.authorize("skills:read"); const parsed = previewSkillInput.parse(input); const repository = this.skills(); const skills = await Promise.all(parsed.skillIds.map(async id => { const skill = await repository.get(id); if (!skill) throw new ServiceError(400, "invalid_request", "A selected skill is unavailable."); return skill; })); return { prompt: composePrompt(skills.map(skill => ({ body: skill.body ?? "" })), parsed.jobContext), skills: skills.map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision })) }; }
 
   private async authorize(scope: Scope): Promise<void> {
-    if (!normalizeScopes(this.auth.scopes).includes(scope)) throw new ServiceError(403, "insufficient_scope", `The ${scope} scope is required.`);
+    if (!(this.auth.oauthGrantId ? this.auth.scopes : normalizeScopes(this.auth.scopes)).includes(scope)) throw new ServiceError(403, "insufficient_scope", `The ${scope} scope is required.`);
     await this.authorizeIdentity();
   }
   private async authorizeIdentity(): Promise<void> {
@@ -440,7 +440,7 @@ export class ApiService {
 
   async getRuntimeContext() {
     await this.authorizeIdentity();
-    return publicValue(runtimeContextResponse, { kind: "factorize-runtime-context-v1", authMethod: this.auth.authMethod ?? "oauth", runId: this.auth.runId ?? null, jobId: this.auth.runJobId ?? null, scopes: normalizeScopes(this.auth.scopes) });
+    return publicValue(runtimeContextResponse, { kind: "factorize-runtime-context-v1", authMethod: this.auth.authMethod ?? "oauth", runId: this.auth.runId ?? null, jobId: this.auth.runJobId ?? null, scopes: this.auth.oauthGrantId ? this.auth.scopes : normalizeScopes(this.auth.scopes) });
   }
 
   async getRuntimeLaunchPayload() {
@@ -1432,6 +1432,36 @@ export class ApiService {
   async githubIssueOptions(installationId: number, repositoryId: number) { await this.authorize("integrations:read"); return publicValue(providerOptions, await this.providers().githubIssueOptions(installationId, repositoryId)); }
   async removeGitHubInstallation(id: number) { await this.authorize("integrations:write"); if (!await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).delete(id)) throw new ServiceError(404, "not_found", "Installation not found"); return { id, deleted: true }; }
 
+  async renameMcpClient(input: unknown) {
+    const { name } = clientNameInput.parse(input);
+    if (this.auth.authMethod !== "oauth") throw new ServiceError(403, "forbidden", "An OAuth connection is required.");
+    const identity = await this.agentApi().identity();
+    await databaseFor(this.env).pool.query("UPDATE app.agent_identities SET display_name=$3 WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, identity.id, name]);
+    return { name };
+  }
+  async updateClientPermissions(grantId: string, input: unknown) {
+    await this.authorizeOwnerSession("jobs:write");
+    const edit = clientPermissionsInput.parse(input);
+    const client = (await this.listAuthorizedClients()).find(client => client.grantId === grantId);
+    if (!client) throw new ServiceError(404, "not_found", "Authorization not found.");
+    if (edit.disabledScopes.some(scope => !client.availableScopes.includes(scope))) throw new ServiceError(400, "invalid_request", "Scope is outside this authorization.");
+    const { integrations } = await listAgentPolicies(this.env, this.auth.tenantId);
+    const current = new Map(integrations.map(row => [row.id, row]));
+    if (Object.entries(edit.integrationOverrides).some(([id, approval]) => {
+      const row = current.get(id);
+      return !row || (approval !== false && (!row.available || row.policy === "disabled" || approval !== row.requiredScope));
+    })) throw new ServiceError(409, "conflict", "Integration availability changed. Reload permissions.");
+    const result = await databaseFor(this.env).pool.query(`
+      INSERT INTO app.agent_identities AS i(tenant_id,kind,subject,user_id,session_version,disabled_scopes,integration_overrides,permissions_revision)
+      SELECT $1,'oauth',$2,$3,$4,$5,$6,1 WHERE coalesce($7::integer,0)=0 OR EXISTS
+        (SELECT 1 FROM app.agent_identities WHERE tenant_id=$1 AND kind='oauth' AND subject=$2)
+      ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET disabled_scopes=excluded.disabled_scopes,
+        integration_overrides=excluded.integration_overrides, permissions_revision=i.permissions_revision+1
+      WHERE i.revoked_at IS NULL AND i.user_id=excluded.user_id AND ($7 IS NULL OR i.permissions_revision=$7)
+      RETURNING permissions_revision`, [this.auth.tenantId, grantId, this.auth.userId, this.auth.sessionVersion, edit.disabledScopes, JSON.stringify(edit.integrationOverrides), edit.expectedRevision]);
+    if (!result.rowCount) throw new ServiceError(409, "conflict", "Connection permissions changed. Reload permissions.");
+    return { ok: true };
+  }
   async listAuthorizedClients() {
     await this.authorizeOwnerSession("jobs:read");
     if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503, "operation_failed", "OAuth management unavailable");
@@ -1439,7 +1469,15 @@ export class ApiService {
     do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => (grant.metadata as any)?.tenantId === this.auth.tenantId && (!grant.expiresAt || grant.expiresAt > Math.floor(Date.now() / 1000)))); cursor = page.cursor; } while (cursor);
     const clients = await Promise.all([...new Set(grants.map(grant => grant.clientId))].map(async clientId => [clientId, await this.env.OAUTH_PROVIDER!.lookupClient(clientId)] as const));
     const byId = new Map(clients);
-    return publicValue(z.array(authorizedClient), grants.map(grant => ({ grantId: grant.id, clientId: grant.clientId, clientName: byId.get(grant.clientId)?.clientName ?? grant.clientId, scopes: normalizeScopes(grant.scope), authorizationDate: new Date(grant.createdAt * 1000).toISOString(), expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null })));
+    const settings = await databaseFor(this.env).pool.query("SELECT subject,display_name,disabled_scopes,integration_overrides,permissions_revision FROM app.agent_identities WHERE tenant_id=$1 AND user_id=$2 AND kind='oauth' AND subject=ANY($3)", [this.auth.tenantId, this.auth.userId, grants.map(g => g.id)]);
+    const byGrant = new Map(settings.rows.map(row => [row.subject, row]));
+    return publicValue(z.array(authorizedClient), grants.map(grant => {
+      const row = byGrant.get(grant.id), availableScopes = normalizeScopes(grant.scope);
+      return { grantId: grant.id, clientId: grant.clientId, clientName: row?.display_name ?? byId.get(grant.clientId)?.clientName ?? grant.clientId,
+        availableScopes: availableScopes.filter(scope => !scope.startsWith("integration:")), scopes: availableScopes.filter(scope => !row?.disabled_scopes.includes(scope)), revision: row?.permissions_revision ?? 0,
+        integrationOverrides: row?.integration_overrides ?? {}, authorizationDate: new Date(grant.createdAt * 1000).toISOString(),
+        expiresAt: grant.expiresAt ? new Date(grant.expiresAt * 1000).toISOString() : null, lastUsedAt: null };
+    }));
   }
   async revokeOAuthAuthorization(grantId: string) {
     await this.authorizeOwnerSession("jobs:write");

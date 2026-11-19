@@ -265,3 +265,34 @@ test("dashboard VM presets use dialogs for creation, editing, and deletion", asy
     await page.getByText("No VM presets yet.").waitFor();
   } finally { await context.close(); }
 });
+
+test("owner edits one MCP connection’s scopes and integration access", async () => {
+  const {context, page} = await setup();
+  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", requiredScope = `integration:${id}:3`;
+  const client = {grantId:"first", clientId:"shared", clientName:"Release assistant", availableScopes:["jobs:read", "jobs:write"], scopes:["jobs:read", "jobs:write"], integrationOverrides:{}, revision:0, authorizationDate:"2026-11-19", expiresAt:null, lastUsedAt:null};
+  await page.route("**/api/v1/access/authorized-clients", route => route.fulfill({json:[client]}));
+  await page.route("**/api/v1/integration-api-policies", route => route.fulfill({json:{integrations:[{id, requiredScope, available:true, policy:"requestable", name:"Linear"}]}}));
+  let saved;
+  await page.route("**/api/v1/access/authorizations/first/permissions", route => {
+    saved = route.request().postDataJSON();
+    client.scopes = ["jobs:read"];
+    client.integrationOverrides = saved.integrationOverrides;
+    client.revision++;
+    return route.fulfill({json:{ok:true}});
+  });
+  try {
+    await page.goto(origin + "/settings/authorized-clients");
+    const edit = page.getByRole("button", {name:"Edit permissions"});
+    await edit.click();
+    const dialog = page.getByRole("dialog", {name:"Permissions for Release assistant"});
+    await dialog.getByLabel("jobs:write").uncheck();
+    await dialog.getByLabel("Linear").selectOption("allow");
+    await dialog.getByRole("button", {name:"Save permissions"}).click();
+    await dialog.waitFor({state:"hidden"});
+    assert.deepEqual(saved, {disabledScopes:["jobs:write"], integrationOverrides:{[id]:requiredScope}, expectedRevision:0});
+    await page.reload();
+    await edit.click();
+    assert.equal(await dialog.getByLabel("jobs:write").isChecked(), false);
+    assert.equal(await dialog.getByLabel("Linear").inputValue(), "allow");
+  } finally { await context.close(); }
+});

@@ -14,6 +14,12 @@ export class AgentApiError extends Error {
 }
 export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear" | "fly" | "exe" | "amp" | "clickup" | "x"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; revision: number};
 export const requiredIntegrationScope = (row: AgentIntegration) => `integration:${row.id}:${row.epoch}`;
+type ConnectionPolicy = { integration_overrides: Record<string, string | false>; disabled_scopes: string[] };
+function connectionAccess(row: AgentIntegration, scopes: string[], policy: ConnectionPolicy) {
+  const scope = requiredIntegrationScope(row);
+  if (policy.disabled_scopes.includes("proxy:use") || policy.integration_overrides[row.id] === false || row.policy === "disabled" || !row.available) return "blocked";
+  return row.policy === "baseline" || policy.integration_overrides[row.id] === scope || scopes.includes(scope) ? "granted" : "requestable";
+}
 const STORAGE_BLOCK_BYTES = 1024 * 1024;
 const forbidden = () => new AgentApiError(403, "forbidden", "This integration is not authorized.");
 const invalidIdentity = () => new AgentApiError(401, "invalid_token", "The agent authorization is no longer active.");
@@ -71,24 +77,23 @@ export class AgentApiService {
       config = row.execution_config;
     } else if (auth.authMethod === "vm_grant" && auth.vmGrantId) {
       kind = "vm"; subject = auth.vmGrantId;
-      const grant = (await this.database.pool.query(`SELECT g.permissions, g.parent_scopes FROM app.vm_grants g
+      const grant = (await this.database.pool.query(`SELECT g.permissions, g.parent_scopes, parent.integration_overrides, parent.disabled_scopes, to_jsonb(provider) AS provider FROM app.vm_grants g
         JOIN app.agent_identities parent ON parent.tenant_id=g.tenant_id AND parent.id=g.parent_id
         JOIN app.agent_integrations provider ON provider.tenant_id=g.tenant_id AND provider.id=g.provider_id
         WHERE g.tenant_id=$1 AND g.id=$2 AND parent.user_id=$3 AND parent.session_version=$4
         AND parent.revoked_at IS NULL AND g.issuer IS NOT NULL AND g.revoked_at IS NULL AND g.expires_at>now()
-        AND provider.available AND provider.epoch=g.provider_epoch AND (provider.policy='baseline' OR
-        (provider.policy='requestable' AND g.parent_scopes @> to_jsonb(ARRAY['integration:' || provider.id::text || ':' || provider.epoch::text])))`,
+        AND provider.available AND provider.epoch=g.provider_epoch`,
         [auth.tenantId, subject, auth.userId, auth.sessionVersion])).rows[0];
-      if (!grant) throw invalidIdentity();
+      if (!grant || grant.disabled_scopes.includes("vm:grant") || connectionAccess(grant.provider, grant.parent_scopes, grant as ConnectionPolicy) !== "granted") throw invalidIdentity();
       config = grant;
     } else if (auth.authMethod === "oauth" && auth.oauthGrantId && auth.oauthClientId && auth.oauthExpiresAt && auth.oauthExpiresAt > Date.now()/1000) {
       kind = "oauth"; subject = auth.oauthGrantId;
     } else throw invalidIdentity();
-    const row = (await this.database.pool.query<{id: string; user_id: string; session_version: number; revoked_at: Date | null}>(`INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version)
+    const row = (await this.database.pool.query<ConnectionPolicy & {id: string; user_id: string; session_version: number; revoked_at: Date | null}>(`INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version)
       VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,kind,subject) DO UPDATE SET subject=excluded.subject
-      RETURNING id,user_id,session_version,revoked_at`, [auth.tenantId, kind, subject, auth.userId, auth.sessionVersion])).rows[0]!;
+      RETURNING id,user_id,session_version,revoked_at,integration_overrides,disabled_scopes`, [auth.tenantId, kind, subject, auth.userId, auth.sessionVersion])).rows[0]!;
     if (row.revoked_at || row.user_id !== auth.userId || row.session_version !== auth.sessionVersion) throw invalidIdentity();
-    return {id: row.id, kind, config};
+    return {id: row.id, kind, config, policy: row};
   }
   private selected(row: AgentIntegration, config: Record<string, any>) {
     switch(row.kind) {
@@ -107,15 +112,15 @@ export class AgentApiService {
     if (!row) throw forbidden();
     if (identity.kind === "vm") {
       const grant = identity.config!;
-      if (grant.permissions[row.id] !== row.epoch || !row.available || row.policy === "disabled"
-        || (row.policy !== "baseline" && !grant.parent_scopes.includes(requiredIntegrationScope(row)))) throw forbidden();
+      if (grant.permissions[row.id] !== row.epoch || connectionAccess(row, grant.parent_scopes, grant as ConnectionPolicy) !== "granted") throw forbidden();
     } else if (identity.kind === "run") {
       if (!this.selected(row, identity.config!)) throw forbidden();
       const revoked = await this.database.pool.query("SELECT 1 FROM app.run_credential_revocations WHERE tenant_id=$1 AND run_id=$2 AND kind=$3 AND credential_id=$4", [this.auth.tenantId, this.auth.runId, row.kind, row.credential_id]);
       if (revoked.rowCount || !row.available) throw forbidden();
     } else {
-      if (row.policy === "disabled" || !row.available) throw forbidden();
-      if (row.policy !== "baseline" && !this.auth.scopes.includes(requiredIntegrationScope(row))) throw new AgentApiError(403, "insufficient_scope", "Approve this integration before making the request.", requiredIntegrationScope(row));
+      const access = connectionAccess(row, this.auth.scopes, identity.policy);
+      if (access === "blocked") throw forbidden();
+      if (access === "requestable") throw new AgentApiError(403, "insufficient_scope", "Approve this integration before making the request.", requiredIntegrationScope(row));
     }
     return {identity, integration: row};
   }
@@ -132,7 +137,7 @@ export class AgentApiService {
       }
       result.push({...publicIntegration(row), access, ...(row.kind === "exe" && identity.kind === "oauth" && access === "granted" ? {vmGrantProvider: "exe.dev" as const} : {}), instructions: row.kind === "x" ? "Use the HTTP request endpoint with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use the HTTP request endpoint with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use the HTTP request endpoint with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use the HTTP request endpoint with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use the HTTP request endpoint with a path relative to /api/v2." : row.kind === "fly" ? "Use the HTTP request endpoint with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use the HTTP request endpoint with an OpenAI-compatible path relative to /v1." : "Use the HTTP request endpoint with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions."});
     }
-    return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(this.auth.scopes), proxy: {
+    return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(this.auth.scopes).filter(scope => !identity.policy.disabled_scopes.includes(scope)), proxy: {
       requestUrl: this.env.APP_ORIGIN + "/api/v1/agent/requests",
       readResponseUrl: this.env.APP_ORIGIN + "/api/v1/agent/responses/read",
       authentication: identity.kind === "run" ? "Use your run identity helper." : "POST JSON with integration, method, and path. Use the agent OAuth credential with proxy:use. With the Factorize device launcher, curl -H @\"$FACTORIZE_AGENT_AUTH_FILE\" reads the authorization header.",

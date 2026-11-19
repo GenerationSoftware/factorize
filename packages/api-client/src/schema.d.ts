@@ -1232,6 +1232,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/access/authorizations/{grantId}/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Edit an OAuth connection’s scopes and integration access
+         * @description Requires the jobs:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_access_authorizations_grantId_permissions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/access/authorizations/{grantId}": {
         parameters: {
             query?: never;
@@ -6067,6 +6089,12 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        availableScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "proxy:use" | "vm:grant")[];
+                        /** @description Integration ID to approved epoch-bound scope, or false to block. */
+                        integrationOverrides: {
+                            [key: string]: string | false;
+                        };
+                        revision: number;
                         grantId: string;
                         clientId: string;
                         clientName: string;
@@ -6194,6 +6222,50 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_access_authorizations_grantId_permissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    disabledScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "proxy:use" | "vm:grant")[];
+                    /** @description Integration ID to approved epoch-bound scope, or false to block. */
+                    integrationOverrides: {
+                        [key: string]: string | false;
+                    };
+                    expectedRevision?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Permissions saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
