@@ -1,3 +1,4 @@
+import { SkillLibrary } from "./skill-library";
 import { authenticateVmGrant, VM_GRANT_HEADER } from "./vm-grants";
 import { staticApp, securityHeaders } from "./static-app";
 import { OAuthProvider, AuthorizationError, getOAuthApi, type AuthRequest, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
@@ -155,4 +156,11 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
   return response;
 } } satisfies ExportedHandler<Env>;
 
-export default { async fetch(request: Request, env: Env, ctx: ExecutionContext) { return securityHeaders(request, await backend.fetch(request, env, ctx)); } } satisfies ExportedHandler<Env>;
+export default {
+  async scheduled(_event: ScheduledController, env: Env) {
+    // Retry missed deliveries and refresh managed remotes in oldest-checked order.
+    const db = databaseFor(env);
+    const rows = await db.pool.query("SELECT tenant_id FROM app.skill_libraries WHERE checked_at IS NULL OR checked_at < now()-interval '5 minutes' ORDER BY checked_at NULLS FIRST LIMIT 10");
+    for (const row of rows.rows) await new SkillLibrary(env,row.tenant_id).sync();
+  },
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) { return securityHeaders(request, await backend.fetch(request, env, ctx)); } } satisfies ExportedHandler<Env>;

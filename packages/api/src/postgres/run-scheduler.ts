@@ -1,3 +1,4 @@
+import { snapshotFiles } from "../skill-files";
 import { cleanupVmGrants } from "../vm-grants";
 import { cleanupAgentResponses } from "../agent-api";
 import { validateTraceSources, type TraceSource, type TraceSources } from "../trace-source";
@@ -200,10 +201,11 @@ export class RunScheduler {
     });
     const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
     validateTraceSources(sources);
+    const skillFiles = run.encryptedSkillSnapshot ? snapshotFiles(JSON.parse(await decrypt(run.encryptedSkillSnapshot, this.env.CREDENTIAL_ENCRYPTION_KEY))) : undefined;
     const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const reservation = backend.reserve?.(run.id) ?? null;
     if (reservation) await this.runs.recordLaunchHandle(run, reservation);
-    const launched = await this.launchBackend(run, backend, { runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runAccessInstructions({ githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId), xConnectionIds: run.executionConfig.xConnectionIds ?? [] })}`, runIdentity: { backendOrigin: this.env.APP_ORIGIN }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
+    const launched = await this.launchBackend(run, backend, { runId: run.id, reservation: reservation ?? undefined, skillFiles, prompt: `${prompt}${skillFiles?.length ? "\n\nSelected skill directories are available under $FACTORIZE_SKILLS_DIR/<skill-key>/." : ""}${JOB_RESULT_INSTRUCTIONS}${runAccessInstructions({ githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId), xConnectionIds: run.executionConfig.xConnectionIds ?? [] })}`, runIdentity: { backendOrigin: this.env.APP_ORIGIN }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
     if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
   }

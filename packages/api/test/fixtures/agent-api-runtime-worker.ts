@@ -1,3 +1,4 @@
+export { SkillPushWorkflow } from "../../src/cloudflare-entry";
 import { RunScheduler } from "../../src/postgres/run-scheduler";
 import { databaseFor } from "../../src/postgres/database";
 import type {ExecutionBackend, JobResultReader} from "../../src/execution";

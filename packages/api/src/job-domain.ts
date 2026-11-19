@@ -38,7 +38,7 @@ export interface Trigger {
   updatedAt: string;
 }
 
-export interface JobSkill { id: string; key: string; revision: number; body: string; position: number }
+export interface JobSkill { version?: import("./skill-files").SkillVersion; id: string; key: string; revision: number; body: string; position: number }
 
 export interface Job {
   id: string;
@@ -177,7 +177,7 @@ export class InvocationService {
     const createdAt = this.clock();
     const invocation: Invocation = { id: this.makeId(), jobId, source: input.source, claimKey: input.claimKey, triggerId: input.triggerId, context: input.context, ...(input.sourceJobId ? { sourceJobId: input.sourceJobId } : {}), ...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}), ...(input.occurrence ? { occurrence: input.occurrence } : {}), createdAt };
     const selectedSkills = promptSkills(job);
-    const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", launchSkill: job.launchSkill, encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input.context)), encryptedSkillSnapshot: selectedSkills.length ? await this.encryptSnapshot(JSON.stringify(selectedSkills.map((skill,order) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: skill.body, order })))) : undefined, runName: (input.source === "manual" ? input.name?.trim() : undefined) || renderRunName(job.runNameTemplate ?? "", input.context, job.name), createdAt, updatedAt: createdAt };
+    const run: JobRun = { id: this.makeId(), jobId, invocationId: invocation.id, state: "queued", launchSkill: job.launchSkill, encryptedPrompt: await this.encryptPrompt(renderJobPrompt(job, input.context)), encryptedSkillSnapshot: selectedSkills.length ? await this.encryptSnapshot(JSON.stringify(selectedSkills.map((skill,order) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: skill.body, version: skill.version, order })))) : undefined, runName: (input.source === "manual" ? input.name?.trim() : undefined) || renderRunName(job.runNameTemplate ?? "", input.context, job.name), createdAt, updatedAt: createdAt };
     if (!await this.repository.insertInvocationAndRun(invocation, run)) {
       const winner = await this.repository.findInvocation(jobId, input.claimKey);
       if (!winner) throw new Error("Invocation claim was lost without a persisted winner.");

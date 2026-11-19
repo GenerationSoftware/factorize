@@ -1,3 +1,4 @@
+import { apiWranglerCli } from "./api-wrangler.mjs";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -31,7 +32,7 @@ test('local OAuth consent and device grants authorize REST/MCP and respect revoc
     const origin = `https://localhost:${port}`, secret = randomBytes(32).toString('hex');
     const body = Buffer.from(JSON.stringify({ tenantId, userId, email, exp: Math.floor(Date.now()/1000)+600, sessionVersion: 1 })).toString('base64url');
     const cookie = 'factorize_session=' + encodeURIComponent(body + '.' + createHmac('sha256', secret).update(body).digest('base64'));
-    const wranglerCli = fileURLToPath(new URL('../node_modules/wrangler/bin/wrangler.js', import.meta.url));
+    const wranglerCli = apiWranglerCli;
     child = spawn(process.execPath, [wranglerCli, 'dev', '--local', '--local-protocol', 'https', '--port', String(port), '--persist-to', directory, '--var', `APP_ORIGIN:${origin}`, '--var', `SESSION_SIGNING_SECRET:${secret}`, '--var', `CREDENTIAL_ENCRYPTION_KEY:${randomBytes(32).toString('base64')}`], { cwd: fileURLToPath(new URL('../packages/api/', import.meta.url)), detached: true, stdio: ['ignore','pipe','pipe'], env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: base.href } });
     await new Promise((resolve, reject) => {
       let readyOutput = ''; const deadline = setTimeout(() => reject(new Error('Local protocol Worker did not start')), 30000);

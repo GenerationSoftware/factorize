@@ -24,10 +24,10 @@ function wrapPkcs1AsPkcs8(pkcs1: Uint8Array): Uint8Array {
   return Uint8Array.from([0x30, ...derLength(body.length), ...body]);
 }
 
-export async function installationToken(env: { GITHUB_APP_ID?: string; GITHUB_APP_PRIVATE_KEY?: string }, installationId: number): Promise<string> {
+export async function installationToken(env: { GITHUB_APP_ID?: string; GITHUB_APP_PRIVATE_KEY?: string }, installationId: number, repositoryId?: number): Promise<string> {
   if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) throw new Error("GitHub App credentials are not configured");
   const jwt = await createAppJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY.replaceAll("\\n", "\n"));
-  const response = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, { method: "POST", headers: githubHeaders(jwt) });
+  const response = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, { method: "POST", headers: githubHeaders(jwt), ...(repositoryId ? { body: JSON.stringify({repository_ids:[repositoryId]}) } : {}) });
   const body = await response.json() as { token?: string; message?: string };
   if (!response.ok || !body.token) throw new Error(body.message ?? `GitHub token request failed (${response.status})`);
   return body.token;

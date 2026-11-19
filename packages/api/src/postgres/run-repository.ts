@@ -7,7 +7,7 @@ import type { JobResult } from "../job-result";
 
 export interface PersistedRun {
   tenantId: string; id: string; jobId: string | null; invocationId: string; state: ExecutionState;
-  encryptedPrompt: string; executionConfig: Record<string, any>; executionHandle: RunHandle | null;
+  encryptedSkillSnapshot?: string; encryptedPrompt: string; executionConfig: Record<string, any>; executionHandle: RunHandle | null;
   traceSources?: TraceSources | null; executionDiagnostics?: ExecutionDiagnostics | null; finalizationAttempt?: number;
   failureCode?: string | null; failureReason?: string | null;
   backendKind: string; capabilities: string[]; artifactState: string; resultProtocolVersion: number; createdAt: string; updatedAt: string;
@@ -15,13 +15,13 @@ export interface PersistedRun {
 export interface RunFailure { source: "run" | "system"; code: string; reason: string }
 
 interface RunRow {
-  tenant_id: string; id: string; job_id: string | null; invocation_id: string; state: ExecutionState; encrypted_prompt: string;
+  tenant_id: string; id: string; job_id: string | null; invocation_id: string; state: ExecutionState; encrypted_skill_snapshot?: string; encrypted_prompt: string;
   execution_config: Record<string, any>; execution_handle: RunHandle | null; execution_backend_kind: string;
   failure_code?: string | null; failure_reason?: string | null;
   trace_sources: TraceSources | null; execution_diagnostics: ExecutionDiagnostics | null; vm_cleanup_attempt: number;
   execution_capabilities: string[]; artifact_state: string; result_protocol_version: number; created_at: Date; updated_at: Date;
 }
-const mapped = (row: RunRow): PersistedRun => ({ tenantId: row.tenant_id, id: row.id, jobId: row.job_id, invocationId: row.invocation_id, state: row.state, encryptedPrompt: row.encrypted_prompt, executionConfig: row.execution_config, traceSources: row.trace_sources, executionHandle: row.execution_handle, executionDiagnostics: row.execution_diagnostics, finalizationAttempt: row.vm_cleanup_attempt, failureCode: row.failure_code, failureReason: row.failure_reason, backendKind: row.execution_backend_kind, capabilities: row.execution_capabilities, artifactState: row.artifact_state, resultProtocolVersion: row.result_protocol_version, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() });
+const mapped = (row: RunRow): PersistedRun => ({ tenantId: row.tenant_id, id: row.id, jobId: row.job_id, invocationId: row.invocation_id, state: row.state, encryptedPrompt: row.encrypted_prompt, encryptedSkillSnapshot: row.encrypted_skill_snapshot, executionConfig: row.execution_config, traceSources: row.trace_sources, executionHandle: row.execution_handle, executionDiagnostics: row.execution_diagnostics, finalizationAttempt: row.vm_cleanup_attempt, failureCode: row.failure_code, failureReason: row.failure_reason, backendKind: row.execution_backend_kind, capabilities: row.execution_capabilities, artifactState: row.artifact_state, resultProtocolVersion: row.result_protocol_version, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() });
 
 export class RunRepository {
   constructor(private database: Database) {}
@@ -61,7 +61,7 @@ export class RunRepository {
         ), claimed AS (
           UPDATE app.job_runs r SET state='starting',launch_lease_expires_at=now()+interval '5 minutes',updated_at=now()
           FROM candidate c WHERE r.tenant_id=c.tenant_id AND r.id=c.id RETURNING r.*
-        ) SELECT c.tenant_id,c.id,c.job_id,c.invocation_id,c.state,c.encrypted_prompt,x.execution_config,x.trace_sources,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.failure_code,x.failure_reason,x.vm_cleanup_attempt,x.artifact_state,x.result_protocol_version,c.created_at,c.updated_at
+        ) SELECT c.tenant_id,c.id,c.job_id,c.invocation_id,c.state,c.encrypted_prompt,c.encrypted_skill_snapshot,x.execution_config,x.trace_sources,x.execution_handle,x.execution_backend_kind,x.execution_capabilities,x.execution_diagnostics,x.failure_code,x.failure_reason,x.vm_cleanup_attempt,x.artifact_state,x.result_protocol_version,c.created_at,c.updated_at
           FROM claimed c JOIN app.runs x ON x.tenant_id=c.tenant_id AND x.id=c.id`, [candidate.tenant_id,candidate.id]);
       const row = result.rows[0];
       if (!row) return null;

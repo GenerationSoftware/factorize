@@ -20,6 +20,7 @@ export interface LaunchRequest {
   runIdentity?: { backendOrigin: string };
   /** The exact payload has been persisted for the VM to fetch with its vendor identity. */
   fetchLaunchPayload?: boolean;
+  skillFiles?: import("./skill-files").SkillFile[];
   traceSources?: TraceSources;
   harness?: { executable: string; args: string[]; env: Record<string, string> };
   code?: { script: string; context: Record<string, unknown> };

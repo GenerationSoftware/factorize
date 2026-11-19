@@ -1,3 +1,5 @@
+import { SkillLibrary } from "./skill-library";
+import { librarySource } from "./skill-library-contract";
 import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
 import { startRunInput,projectRunDefaults } from "./flow-schemas";
@@ -343,11 +345,26 @@ export class ApiService {
       lastRunState: stats?.last_run_state ?? null,
     });
   }
+  private library() { return new SkillLibrary(this.env,this.auth.tenantId); }
+  async skillLibraryStatus() { await this.authorize("skills:read"); return this.library().status(); }
+  async configureSkillLibrary(input: unknown) {
+    await this.authorize("skills:write");
+    const source = librarySource.parse(input);
+    if (source.kind === "github") await this.authorize("integrations:write");
+    try { return await this.library().configure(source); }
+    catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; }
+  }
+  async skillLibraryToken() {
+    await this.authorize("skills:write");
+    try { return await this.library().token(); }
+    catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; }
+  }
+  async syncSkillLibrary() { await this.authorize("skills:write"); const library=this.library(); await library.sync(); return library.status(); }
   async listSkills(query: { q: string; limit: number; cursor?: string }) { await this.authorize("skills:read"); return publicValue(skillPage, await this.skills().list(query.q, query.limit, query.cursor)); }
   async getSkill(id: string) { await this.authorize("skills:read"); const value = await this.skills().get(id); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); }
-  async createSkill(input: unknown) { await this.authorize("skills:write"); return publicValue(skillResponse, await this.skills().create(skillInput.parse(input).key, skillInput.parse(input).body)); }
-  async updateSkill(id: string, input: unknown) { await this.authorize("skills:write"); try { const value = await this.skills().update(id, skillUpdateInput.parse(input)); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
-  async deleteSkill(id: string, expectedRevision: number) { await this.authorize("skills:write"); try { if (!await this.skills().remove(id, expectedRevision)) throw new ServiceError(404, "not_found", "Skill not found"); return { id, deleted: true }; } catch (e) { if (e instanceof SkillReferenced) throw new ServiceError(409, "skill_referenced", `${e.message} Jobs: ${e.jobs.map(job => job.name).join(", ")}`); if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
+  async createSkill(input: unknown) { await this.authorize("skills:write"); const parsed = skillInput.parse(input); try { return publicValue(skillResponse, await this.library().edit(store => store.create(parsed.key,parsed.body))); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; } }
+  async updateSkill(id: string, input: unknown) { await this.authorize("skills:write"); try { const value = await this.library().edit(store => store.update(id, skillUpdateInput.parse(input))); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
+  async deleteSkill(id: string, expectedRevision: number) { await this.authorize("skills:write"); try { if (!await this.library().edit(store => store.remove(id, expectedRevision))) throw new ServiceError(404, "not_found", "Skill not found"); return { id, deleted: true }; } catch (e) { if (e instanceof SkillReferenced) throw new ServiceError(409, "skill_referenced", `${e.message} Jobs: ${e.jobs.map(job => job.name).join(", ")}`); if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
   async listSkillJobs(id: string) { await this.authorize("skills:read"); return publicValue(skillJobsResponse, { skillId: id, jobs: await this.skills().jobs(id) }); }
   async previewJobPrompt(input: unknown) { await this.authorize("skills:read"); const parsed = previewSkillInput.parse(input); const skills = await Promise.all(parsed.skillIds.map(async id => { const skill = await this.skills().get(id); if (!skill) throw new ServiceError(400, "invalid_request", "A selected skill is unavailable."); return skill; })); return { prompt: composePrompt(skills.map(skill => ({ body: skill.body ?? "" })), parsed.jobContext), skills: skills.map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision })) }; }
 
@@ -1018,7 +1035,7 @@ export class ApiService {
     const encryptedSkills = skill
       ? await encrypt(
           JSON.stringify([
-            { id: skill.id, key: skill.key, revision: skill.revision, body: skill.body, order: 0 },
+            { id: skill.id, key: skill.key, revision: skill.revision, body: skill.body, version: skill.version, order: 0 },
           ]),
           this.env.CREDENTIAL_ENCRYPTION_KEY,
         )

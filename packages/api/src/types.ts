@@ -28,6 +28,7 @@ export interface Env {
   POSTMARK_SERVER_TOKEN?: string;
   POSTMARK_FROM_EMAIL?: string;
   POSTMARK_MESSAGE_STREAM?: string;
+  SKILL_ARTIFACTS?: Artifacts;
   RUN_ARTIFACTS?: R2Bucket;
   /** Pause automatic retention and artifact-history deletion while retaining maintenance visibility. */
   RUN_HISTORY_RETENTION_PAUSED?: string;

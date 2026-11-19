@@ -1,3 +1,4 @@
+import { SkillContentError } from "./skill-files";
 import { listenForOutcomes, outcomeRunId } from "./run-outcome-subscription";
 import { authenticateVendorRunRequest } from "./vendor-run-auth";
 import { Hono } from "hono";
@@ -19,6 +20,7 @@ import { matchApiOperation } from "./api-contract";
 import { normalizeScopes } from "./access-tokens";
 
 function errorResponse(error: unknown, origin?: string): Response {
+  if (error instanceof SkillContentError) return Response.json({ error: { code: "invalid_skill_directory", message: error.message } }, {status:409});
   if (error instanceof AgentApiError) return Response.json({error: {code: error.code, message: error.message}}, {status: error.status, headers: error.code === "insufficient_scope" ? {"WWW-Authenticate": `Bearer error="insufficient_scope", scope="${error.scope}", resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`} : undefined});
   if (error instanceof ExeIntegrationError) return Response.json({ error: { code: "invalid_request", message: error.message } }, { status: 400 });
   if (error instanceof URIError) return Response.json({ error: { code: "invalid_request", message: "Invalid path encoding" } }, { status: 400 });

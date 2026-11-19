@@ -1,39 +1,47 @@
+import { apiWranglerCli } from "./api-wrangler.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import https from "node:https";
 import pg from "pg";
-import { randomUUID } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { createHmac, randomUUID } from "node:crypto";
+import { mkdtemp, rm, writeFile, readdir, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-function read(port, path, method = "GET", headers = {}) {
+function read(port, path, method = "GET", headers = {}, body) {
   return new Promise((resolve, reject) => {
     const request = https.request({ hostname: "localhost", port, path, method, headers, rejectUnauthorized: false }, response => {
       const chunks = []; response.on("data", chunk => chunks.push(chunk)); response.on("end", () => resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString() }));
     });
     request.setTimeout(10_000, () => request.destroy(new Error("Hosting request timed out")));
-    request.on("error", reject); request.end();
+    request.on("error", reject); request.end(body);
   });
 }
 test("actual Cloudflare local runtime enforces static/API/protocol ownership, headers and cache policy", { timeout: 60_000 }, async () => {
   const socket = createServer(); await new Promise(resolve => socket.listen(0, "127.0.0.1", resolve)); const port = socket.address().port; await new Promise(resolve => socket.close(resolve));
   const databaseUrl = new URL(process.env.AUTH_TEST_DATABASE_URL ?? "postgresql://postgres@localhost/factorize_test");
   if (!databaseUrl.password) databaseUrl.password = "local-runtime-only";
+  const tenantId=randomUUID(), userId=randomUUID(), signingSecret=randomUUID(), encryptionKey=Buffer.alloc(32,1).toString("base64");
   let admin, databaseName;
   if (process.env.AUTH_TEST_DATABASE_URL) {
     admin = new pg.Client({ connectionString: databaseUrl.href }); await admin.connect();
     databaseName = "hosting_test_" + randomUUID().replaceAll("-", "");
     await admin.query(`CREATE DATABASE "${databaseName}"`); databaseUrl.pathname = "/" + databaseName;
     const migrated = new pg.Client({ connectionString: databaseUrl.href }); await migrated.connect();
-    try { for (const file of (await readdir("packages/api/migrations")).filter(file => file.endsWith(".sql")).sort()) await migrated.query(await readFile("packages/api/migrations/" + file, "utf8")); }
+    try { for (const file of (await readdir("packages/api/migrations")).filter(file => file.endsWith(".sql")).sort()) await migrated.query(await readFile("packages/api/migrations/" + file, "utf8"));
+      await migrated.query("INSERT INTO app.tenants(id) VALUES($1)",[tenantId]);
+      await migrated.query("INSERT INTO app.auth_users(id,email,email_verified) VALUES($1,'skills@fixture.test',true)",[userId]);
+      await migrated.query("INSERT INTO app.members(tenant_id,user_id,email,role,session_version) VALUES($1,$2,'skills@fixture.test','owner',1)",[tenantId,userId]);
+    }
     finally { await migrated.end(); }
   }
   const database = databaseUrl.href;
   assert.ok(["localhost", "127.0.0.1"].includes(new URL(database).hostname), "Hosting runtime requires a local database URL");
-  const wranglerCli = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
-  const child = spawn(process.execPath, [wranglerCli, "dev", "--local", "--local-protocol", "https", "--port", String(port), "--var", `APP_ORIGIN:https://localhost:${port}`], { cwd: fileURLToPath(new URL("../packages/api/", import.meta.url)), env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: database }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+  const wranglerCli = apiWranglerCli;
+  const child = spawn(process.execPath, [wranglerCli, "dev", "--local", "--local-protocol", "https", "--port", String(port), "--var", `APP_ORIGIN:https://localhost:${port}`, "--var", `SESSION_SIGNING_SECRET:${signingSecret}`, "--var", `CREDENTIAL_ENCRYPTION_KEY:${encryptionKey}`], { cwd: fileURLToPath(new URL("../packages/api/", import.meta.url)), env: { ...process.env, CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: database }, detached: true, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   const ready = new Promise((resolve, reject) => {
     const deadline = setTimeout(() => reject(new Error("Local Worker did not start: " + output)), 30_000);
@@ -57,6 +65,35 @@ test("actual Cloudflare local runtime enforces static/API/protocol ownership, he
     // Unknown protocol requests fail validation before onboarding; they cannot become return cookies.
     for (const path of ["/authorize?client_id=client", ...(admin ? ["/device?user_code=ABCD-2345"] : [])]) { const result = await read(port, path); assert.equal(result.status, 400, path + ": " + result.body); assert.equal(result.headers["set-cookie"], undefined); }
     const csrf = await read(port, "/api/v1/auth/login", "POST", { Origin: "https://untrusted.test", "Content-Type": "application/json" }); assert.equal(csrf.status, 403);
+    if (admin) {
+      const session=Buffer.from(JSON.stringify({tenantId,userId,email:"skills@fixture.test",sessionVersion:1,exp:Math.floor(Date.now()/1000)+60})).toString("base64url");
+      const signature=createHmac("sha256",signingSecret).update(session).digest("base64");
+      const headers={Cookie:"factorize_session="+encodeURIComponent(session+"."+signature),Origin:`https://localhost:${port}`,"Content-Type":"application/json"};
+      const created=await read(port,"/api/v1/skills","POST",headers,JSON.stringify({key:"review",body:"Original"}));
+      assert.equal(created.status,201,created.body);
+      const skill=JSON.parse(created.body);
+      const credential=await read(port,"/api/v1/skill-library/token","POST",headers);
+      assert.equal(credential.status,200);
+      const {remote,token}=JSON.parse(credential.body);
+      assert.equal(new URL(remote).hostname,"127.0.0.1");
+      const directory=await mkdtemp(join(tmpdir(),"managed-skills-"));
+      const git=(...args)=>execFileSync("git",args,{cwd:directory,stdio:"pipe",env:{...process.env,GIT_CONFIG_COUNT:"1",GIT_CONFIG_KEY_0:"http.extraHeader",GIT_CONFIG_VALUE_0:"Authorization: Bearer "+token}});
+      try {
+        git("clone","-q",remote,".");
+        assert.equal(await readFile(join(directory,"skills/review/SKILL.md"),"utf8"),"Original");
+        await writeFile(join(directory,"skills/review/SKILL.md"),"Updated via Git");
+        git("-c","user.name=Fixture","-c","user.email=fixture@example.test","commit","-qam","Update skill");
+        git("push","origin","main");
+        // Local Artifacts supports Git but only emits repository lifecycle and token events.
+        // Exercise the same publishing path invoked by the deployed push Workflow.
+        const synced=await read(port,"/api/v1/skill-library/sync","POST",headers);
+        assert.equal(synced.status,200);
+        assert.equal(JSON.parse(synced.body).error,null);
+        const published=JSON.parse((await read(port,"/api/v1/skills/"+skill.id,"GET",headers)).body);
+        assert.equal(published.body,"Updated via Git");
+        assert.equal(published.revision,2);
+      } finally {await rm(directory,{recursive:true,force:true});}
+    }
     const metadata = await read(port, "/.well-known/oauth-authorization-server"); assert.equal(metadata.status, 200); assert.equal(JSON.parse(metadata.body).issuer, `https://localhost:${port}`); assert.equal(JSON.parse(metadata.body).device_authorization_endpoint, `https://localhost:${port}/oauth/device_authorization`);
   } finally {
     try { process.kill(-child.pid, "SIGTERM"); } catch (error) { if (error.code !== "ESRCH") throw error; } await new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once("exit", resolve); });

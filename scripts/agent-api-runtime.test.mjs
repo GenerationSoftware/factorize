@@ -1,3 +1,4 @@
+import { apiWranglerCli } from "./api-wrangler.mjs";
 import {backgroundRunAcceptance} from './background-run-acceptance.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -101,7 +102,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     const config=JSON.parse(await readFile('packages/api/wrangler.jsonc','utf8'));
     config.main=resolve('packages/api/test/fixtures/agent-api-runtime-worker.ts');config.assets.directory=resolve('packages/app/dist');
     await writeFile(directory+'/wrangler.json',JSON.stringify(config));
-    await exec(process.execPath,[resolve('node_modules/wrangler/bin/wrangler.js'),'deploy','--dry-run','--config',directory+'/wrangler.json','--outdir',directory],{maxBuffer:2*1024*1024});
+    await exec(process.execPath,[apiWranglerCli,'deploy','--dry-run','--config',directory+'/wrangler.json','--outdir',directory],{maxBuffer:2*1024*1024});
     await exec('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',directory+'/key.pem','-out',directory+'/cert.pem','-days','1','-subj','/CN=localhost']);
     site=createHttpsServer({key:await readFile(directory+'/key.pem'),cert:await readFile(directory+'/cert.pem')},async(req,res)=>{
       try {

@@ -1,6 +1,7 @@
 import type { ExecutionBackend, ExecutionObservation, LaunchReceipt, LaunchRequest, RunHandle } from "./execution";
 export type JobMachine = { id: string; name?: string; state?: string; config?: { metadata?: Record<string, string> } };
 export type JobMachineConfig = Record<string, unknown> & { metadata?: Record<string, string> };
+import { serializeLaunchPayload } from "./launch-payload";
 import { safeDiagnosticText } from "./harness-diagnostics";
 import type { TraceChunkCollectionRequest, ArtifactCollectionRequest, ArtifactCollector, ExecutionTerminator, HarnessLogReader, JobFileCollectionRequest, JobFileCollector, JobResultReader } from "./execution";
 import { sourceCommand } from "./trace-source";
@@ -114,7 +115,7 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
         const started = await guest.run(["/bin/sh", "-c", "nohup node /run/factorize-identity/proxy.mjs >/tmp/factorize-identity-proxy.log 2>&1 </dev/null & echo $! > /run/factorize-identity/pid; n=0; until curl --fail --silent http://127.0.0.1:18180/_factorize/ready >/dev/null; do n=$((n+1)); test $n -lt 50 || exit 1; sleep 0.1; done"]);
         if (!started.ok) throw new Error("Fly guest vendor identity helper did not become ready");
       }
-      const payload = JSON.stringify({ version: 1, runId: request.runId, ...(request.code ? { code: request.code } : { prompt: request.prompt, harness: request.harness }), ...(request.traceSources ? { traceSources: request.traceSources } : {}) });
+      const payload = serializeLaunchPayload(request);
       const launchCommand = request.runIdentity
         ? ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/bin/env", "FACTORIZE_PROXY_URL=http://127.0.0.1:18180", "/usr/local/bin/factorize-job", "launch"]
         : ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"];

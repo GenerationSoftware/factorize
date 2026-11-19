@@ -1,12 +1,15 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "factorize",
-  "main": "src/worker.ts",
+  "main": "src/cloudflare-entry.ts",
   "compatibility_date": "2026-09-10",
-  "compatibility_flags": ["global_fetch_strictly_public"],
+  "compatibility_flags": ["global_fetch_strictly_public", "nodejs_compat"],
   "assets": { "directory": "../app/dist", "binding": "ASSETS", "run_worker_first": true, "not_found_handling": "none" },
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "cacbf744337747ffbb9c0153329aad4f" }],
   "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9b6c8a09921d4ee18cdf3723135c82ad" }],
+  "artifacts": [{ "binding": "SKILL_ARTIFACTS", "namespace": "factorize-skills", "remote": false }],
+  "workflows": [{ "binding": "SKILL_PUSH", "name": "factorize-skill-push", "class_name": "SkillPushWorkflow" }],
+  "triggers": { "crons": ["*/5 * * * *"], "events": [{ "type": "cf.artifacts.repo.pushed", "filter": { "namespace": "factorize-skills" }, "targets": [{ "type": "workflow", "workflow_name": "factorize-skill-push" }] }] },
   "r2_buckets": [{ "binding": "RUN_ARTIFACTS", "bucket_name": "factorize-run-artifacts" }],
   "durable_objects": {
     "bindings": [{ "name": "SCHEDULER", "class_name": "AlarmCoordinator" }]
