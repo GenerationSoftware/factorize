@@ -9,6 +9,7 @@ import { CredentialRepository } from "../src/postgres/credential-repository";
 import { FlyConnectionRepository } from "../src/postgres/fly-connection-repository";
 import { FlyExecutionConfigurationRepository } from "../src/postgres/fly-execution-configuration-repository";
 import { GitHubRepository } from "../src/postgres/github-repository";
+import { XConnectionRepository } from "../src/postgres/x-connection-repository";
 import { encrypt } from "../src/crypto";
 import { ApiService } from "../src/flow-service";
 import worker from "../src/worker";
@@ -181,6 +182,33 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
       await db.pool.query("DELETE FROM app.github_installations WHERE tenant_id=$1 AND installation_id=ANY($2::bigint[])", [tenantId, [installationId]]);
       await db.pool.query("DELETE FROM app.github_installations WHERE tenant_id=$1 AND installation_id=$2", [otherTenant, foreignInstallationId]);
       if (priorLinear) await connections.put("linear", priorLinear); else await connections.delete("linear");
+    }
+  });
+  it("validates tenant-owned X selections and keeps each run's X connection snapshot immutable", async () => {
+    const service = new ApiService(env, auth), x = new XConnectionRepository(db, tenantId, env.CREDENTIAL_ENCRYPTION_KEY), foreign = new XConnectionRepository(db, otherTenant, env.CREDENTIAL_ENCRYPTION_KEY);
+    const firstId = crypto.randomUUID(), nextId = crypto.randomUUID(), foreignId = crypto.randomUUID(), slug = `x-provider-${crypto.randomUUID().slice(0, 8)}`;
+    const scopes = ["tweet.read", "users.read", "offline.access"];
+    const createConnected = async (repository: XConnectionRepository, id: string, name: string) => {
+      await repository.create({ id, name, clientId: "public-client", clientSecret: "private", scopes });
+      await repository.completeOAuth(id, { accessToken: "access", refreshToken: "refresh", expiresAt: new Date(Date.now()+3_600_000).toISOString(), accountId: id, accountHandle: name.toLowerCase().replaceAll(" ", "_"), grantedScopes: scopes });
+    };
+    const base = { name: "X provider selections", slug, promptTemplate: "Do work", executionConfigId: "local", concurrencyLimit: 1, triggers: [{ kind: "manual" as const, enabled: true, config: {} }] };
+    try {
+      await createConnected(x, firstId, "First X"); await createConnected(x, nextId, "Next X"); await createConnected(foreign, foreignId, "Foreign X");
+      await expect(service.createJob({ ...base, xConnectionIds: [foreignId] })).rejects.toMatchObject({ status: 400 });
+      const job = await service.createJob({ ...base, xConnectionIds: [firstId] });
+      expect(job).toMatchObject({ xConnectionIds: [firstId] });
+      const run = await service.invokeJob(job.id, { prompt: "run", data: {} });
+      const readSnapshot = async () => (await db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenantId, run.runId])).rows[0].execution_config;
+      const snapshot = await readSnapshot(); expect(snapshot.xConnectionIds).toEqual([firstId]);
+      await service.updateJob(job.id, { ...base, xConnectionIds: [nextId] });
+      expect(await readSnapshot()).toEqual(snapshot);
+      await x.delete(firstId);
+      await expect(service.updateJob(job.id, { ...base, xConnectionIds: [firstId] })).rejects.toMatchObject({ status: 400 });
+      await expect(service.createJob({ ...base, slug: `${slug}-foreign`, xConnectionIds: [foreignId] })).rejects.toMatchObject({ status: 400 });
+    } finally {
+      await db.pool.query("DELETE FROM app.jobs WHERE tenant_id=$1 AND slug LIKE $2", [tenantId, `${slug}%`]);
+      await db.pool.query("DELETE FROM app.x_connections WHERE (tenant_id=$1 AND id=ANY($2::uuid[])) OR (tenant_id=$3 AND id=$4)", [tenantId, [firstId, nextId], otherTenant, foreignId]);
     }
   });
   it("enforces tenant and scope boundaries, email verification, cookie expiry and session revocation", async () => {

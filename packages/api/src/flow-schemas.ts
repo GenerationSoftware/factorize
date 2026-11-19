@@ -81,6 +81,7 @@ export const jobInputSchema = z.object({
   modelAccountId: z.guid().optional(),
   githubInstallationIds: z.array(z.number().int().positive()).max(100).refine(ids => new Set(ids).size === ids.length, "GitHub installations must be unique").optional(),
   linearConnectionId: z.literal("linear").nullable().optional(),
+  xConnectionIds: z.array(z.guid()).max(100).refine(ids => new Set(ids).size === ids.length, "X connections must be unique").optional(),
 }).strict().superRefine((value, context) => {
   if (value.executionType !== "code" && !value.promptTemplate?.trim()) context.addIssue({ code: "custom", path: ["promptTemplate"], message: "Agent jobs require a prompt template." });
   if (value.executionType === "code" && !value.script?.trim()) context.addIssue({ code: "custom", path: ["script"], message: "Code jobs require a script." });

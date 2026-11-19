@@ -1,5 +1,133 @@
 // Generated from packages/docs/openapi.yaml. Do not edit.
 export interface paths {
+    "/api/v1/x/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List X connections
+         * @description Requires an interactive owner session. Returns named connection metadata, account identity, selected/granted scopes, and status. Client secrets and OAuth tokens are never returned.
+         *
+         *     Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_x_connections"];
+        put?: never;
+        /**
+         * Add a user-owned X app connection
+         * @description Requires an interactive owner session. Stores the X OAuth client secret in Factorize-managed encrypted storage and never returns it. Selected scopes are validated before saving.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_x_connections"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/x/connections/{connectionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete an X connection
+         * @description Requires an interactive owner session. Immediately clears the encrypted credential and revokes the connection. A secret-free tombstone prevents old run snapshots from being revived if an identifier is reused.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_x_connections_connectionId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/x/connections/{connectionId}/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start X OAuth authorization
+         * @description Requires an interactive owner session. Starts a short-lived PKCE authorization bound to this owner, tenant, session, connection, and selected scopes. The one-time state is set in an HttpOnly cookie.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_x_connections_connectionId_authorize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/x/connections/{connectionId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test an X connection
+         * @description Requires an interactive owner session. Performs a non-mutating GET to X /2/users/me using the saved access token. Returns only a safe status and the already stored account handle; it never returns tokens, credentials, or upstream error bodies. The verification read may incur X API usage charges.
+         *
+         *     Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_x_connections_connectionId_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/x/connections/{connectionId}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace X app credentials
+         * @description Requires an interactive owner session. Replaces the encrypted client credentials, invalidates saved access and refresh tokens and pending OAuth attempts, preserves the existing account identity binding, and requires reauthorization. Reauthorization cannot switch the connection to a different X account; create a new connection for another account. Existing run selections remain unavailable until authorization succeeds.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_x_connections_connectionId_credentials"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/model-accounts": {
         parameters: {
             query?: never;
@@ -1821,7 +1949,7 @@ export interface paths {
         };
         /**
          * Discover this run's selected integration endpoints
-         * @description Requires vendor-verified run identity. Returns only snapshotted selections and current availability, without origins or credentials. Selection authorization is independent of the run's Factorize API scopes.
+         * @description Requires vendor-verified run identity. Returns only snapshotted selections, safe connection metadata, X OAuth scopes, and current availability, without origins or credentials. X connections use /x/{connectionId}/ for supported API v2 resources; each resource is checked against selected and granted OAuth scopes. Selection authorization is independent of the run's Factorize API scopes.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -2871,6 +2999,7 @@ export interface components {
             modelAccountId?: string;
             githubInstallationIds?: number[];
             linearConnectionId?: "linear" | null;
+            xConnectionIds?: string[];
         };
         ManualInvocation: {
             /** @default  */
@@ -2993,6 +3122,266 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_api_v1_x_connections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description X connection metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        connections: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            clientId: string;
+                            scopes: string[];
+                            accountId: string | null;
+                            accountHandle: string | null;
+                            grantedScopes: string[];
+                            /** @enum {string} */
+                            status: "pending" | "connected" | "reconnect_required" | "revoked";
+                            createdAt: string;
+                            updatedAt: string;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_x_connections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    id: string;
+                    name: string;
+                    clientId: string;
+                    clientSecret: string;
+                    scopes: ("tweet.read" | "tweet.write" | "tweet.moderate.write" | "users.email" | "users.read" | "follows.read" | "follows.write" | "offline.access" | "space.read" | "mute.read" | "mute.write" | "like.read" | "like.write" | "list.read" | "list.write" | "block.read" | "block.write" | "bookmark.read" | "bookmark.write" | "dm.read" | "dm.write" | "media.write" | "broadcast.read" | "broadcast.write")[];
+                };
+            };
+        };
+        responses: {
+            /** @description X connection created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        clientId: string;
+                        scopes: string[];
+                        accountId: string | null;
+                        accountHandle: string | null;
+                        grantedScopes: string[];
+                        /** @enum {string} */
+                        status: "pending" | "connected" | "reconnect_required" | "revoked";
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_x_connections_connectionId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description X connection deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** @constant */
+                        deleted: true;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_x_connections_connectionId_authorize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description X authorization URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uri */
+                        authorizationUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_x_connections_connectionId_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Safe connection test result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "connected" | "failed" | "reconnect_required";
+                        accountHandle: string | null;
+                        message: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_x_connections_connectionId_credentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    clientId: string;
+                    clientSecret: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated safe connection metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string;
+                        clientId: string;
+                        scopes: string[];
+                        accountId: string | null;
+                        accountHandle: string | null;
+                        grantedScopes: string[];
+                        /** @enum {string} */
+                        status: "pending" | "connected" | "reconnect_required" | "revoked";
+                        createdAt: string;
+                        updatedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_model_accounts: {
         parameters: {
             query?: never;
@@ -6447,6 +6836,7 @@ export interface operations {
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6746,6 +7136,7 @@ export interface operations {
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -6957,6 +7348,7 @@ export interface operations {
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7568,6 +7960,15 @@ export interface operations {
                             path: string;
                             available: boolean;
                         }[];
+                        /** @default [] */
+                        xConnections: {
+                            id: string;
+                            name: string;
+                            accountHandle: string | null;
+                            scopes: string[];
+                            path: string;
+                            available: boolean;
+                        }[];
                         providers: {
                             githubInstallations: {
                                 installationId: number;
@@ -7817,6 +8218,7 @@ export interface operations {
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -8109,6 +8511,7 @@ export interface operations {
                     modelAccountId?: string;
                     githubInstallationIds?: number[];
                     linearConnectionId?: "linear" | null;
+                    xConnectionIds?: string[];
                     /** Format: date-time */
                     expectedUpdatedAt?: string;
                 };
@@ -8158,6 +8561,7 @@ export interface operations {
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;

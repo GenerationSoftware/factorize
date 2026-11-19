@@ -193,7 +193,7 @@ export class RunScheduler {
     if (run.executionConfig.agentKind === "Amp") throw new Error("Amp execution is unavailable for new runs because it cannot deliver the required structured result file. Choose an exe.dev agent integration.");
     const backend = await this.backend(run), driver = agentDriver(run.executionConfig.agentKind as AgentKind), harness = driver.launch(run.id, {
       model: run.executionConfig.model, effort: run.executionConfig.effort,
-      providerEndpoints: { githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId) },
+      providerEndpoints: { githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId), xConnectionIds: run.executionConfig.xConnectionIds ?? [] },
       ...(driver.kind === "codex" ? { codexModel: { baseUrl: run.executionConfig.modelAccess === "portable" && run.executionConfig.modelAccountId ? "http://127.0.0.1:18180/providers/model/v1" : this.env.CODEX_MODEL_BASE_URL ?? "https://llm.int.exe.xyz/v1" } } : {}),
     });
     const sources = rolloutTraceSources(driverTraceSources(driver.kind, harness), run.tenantId, this.env);
@@ -201,7 +201,7 @@ export class RunScheduler {
     const prompt = await decrypt(run.encryptedPrompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const reservation = backend.reserve?.(run.id) ?? null;
     if (reservation) await this.runs.recordLaunchHandle(run, reservation);
-    const launched = await this.launchBackend(run, backend, { runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runAccessInstructions({ githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId) })}`, runIdentity: { backendOrigin: this.env.APP_ORIGIN }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
+    const launched = await this.launchBackend(run, backend, { runId: run.id, reservation: reservation ?? undefined, prompt: `${prompt}${JOB_RESULT_INSTRUCTIONS}${runAccessInstructions({ githubInstallationIds: run.executionConfig.githubInstallationIds ?? [], linear: run.executionConfig.linearConnectionId === "linear", model: run.executionConfig.modelAccess === "portable" && Boolean(run.executionConfig.modelAccountId), xConnectionIds: run.executionConfig.xConnectionIds ?? [] })}`, runIdentity: { backendOrigin: this.env.APP_ORIGIN }, traceSources: sources, harness: { executable: harness.executable, args: harness.args, env: harness.env }, verifyVendorIdentity: this.vendorIdentityVerifier(run) });
     await this.runs.markLaunched(run, launched.handle, launched.destinationUrl, launched.capabilities, sources);
     if (launched.observation.state === "failed") await this.runs.recordObservation(run, launched.observation);
   }

@@ -7,6 +7,7 @@ const runIntegration = z.object({ id: z.string(), name: z.string(), description:
 export const runtimeIntegrationsResponse = z.object({
   kind: z.literal("factorize-run-integrations-v1"),
   integrations: z.array(runIntegration),
+  xConnections: z.array(z.object({ id: z.string(), name: z.string(), accountHandle: z.string().nullable(), scopes: z.array(z.string()), path: z.string(), available: z.boolean() })).default([]),
   providers: z.object({
     githubInstallations: z.array(z.object({installationId: z.number().int(), path: z.string(), available: z.boolean()})),
     linear: z.object({path: z.string(), available: z.boolean()}).nullable(),

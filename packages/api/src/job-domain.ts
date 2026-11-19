@@ -20,6 +20,7 @@ export interface ExecutionConfig {
   modelAccountId?: string;
   githubInstallationIds?: number[];
   linearConnectionId?: "linear" | null;
+  xConnectionIds?: string[];
   executionProvider?: "exe" | "fly" | "docker";
   region?: string;
   size?: string;
@@ -62,6 +63,7 @@ export interface Job {
   modelAccountId?: string;
   githubInstallationIds?: number[];
   linearConnectionId?: "linear" | null;
+  xConnectionIds?: string[];
 }
 
 export interface InvocationRequest {

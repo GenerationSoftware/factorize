@@ -26,5 +26,10 @@ record. Native sessions live in object storage. `run_artifacts` records exact
 keys and checksums, while `run_trace_events` is the bounded projection used by
 the cursor-paginated UI and PostgreSQL search.
 
+X app secrets and OAuth tokens use the tenant-scoped encrypted payload in
+`x_connections`; connection metadata queries never return that payload. Revoked
+X connection IDs remain as secret-cleared tombstones so an old run selection
+cannot be revived by reusing an ID.
+
 The destructive artifact cutover is `0002`; `0003` completes runtime queue
 ownership by binding deferred GitHub verification to an exact trigger.

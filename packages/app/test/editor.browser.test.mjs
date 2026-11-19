@@ -16,6 +16,8 @@ async function setup(options) {
   await page.route("**/api/v1/runs?**", route => route.fulfill({ json: { items: [], nextCursor: null } })); page.setDefaultTimeout(30000);
   await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } }));
   await page.route("**/api/v1/integrations", route => route.fulfill({ json: { linear: null, clickup: null, exe: null, exeConnections: [{ connectionId: "vm", agentKind: "codex", tags: [], models: ["gpt-6"] }], ampConnections: [], cloudflareTail: { count: 0, installations: [] } } }));
+  await page.route("**/api/v1/github-installations", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/x/connections", route => route.fulfill({ json: { connections: [] } }));
   await page.route("**/api/v1/trigger-contexts", route => route.fulfill({ json: { manual: [{ path: "prompt", type: "string", description: "Manual prompt" }] } }));
   await page.route("**/api/v1/job-trigger-availability", route => route.fulfill({ json: { manual: true, schedule: true, jobLifecycle: true, linear: true, clickup: true, github: true, cloudflareTail: true } }));
   return { context, page };
@@ -90,6 +92,19 @@ test("run permission scopes autosave and survive reload", async () => {
   await page.getByRole("checkbox", { name: "Run scope jobs:write", exact: true }).uncheck();
   await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
   assert.deepEqual(saved.runScopes, ["jobs:read", "runs:read"]);
+  await context.close();
+});
+test("job editor selects a connected X account and preserves its safe scopes in the job write", async () => {
+  const { context, page } = await setup();
+  const xId = "00000000-0000-4000-8000-000000000099"; let current = structuredClone(initial), saved;
+  await page.route(`**/api/v1/jobs/${id}`, route => { if (route.request().method() === "GET") return route.fulfill({ json: current }); saved = route.request().postDataJSON(); current = { ...current, ...saved }; return route.fulfill({ json: current }); });
+  await page.route("**/api/v1/x/connections", route => route.fulfill({ json: { connections: [{ id: xId, name: "Release account", clientId: "public-client", scopes: ["tweet.read", "users.read", "offline.access"], accountId: "123", accountHandle: "release_bot", grantedScopes: ["tweet.read", "users.read", "offline.access"], status: "connected", createdAt: "2026-11-01T00:00:00.000Z", updatedAt: "2026-11-01T00:00:00.000Z" }] } }));
+  await page.goto(origin + `/jobs/${id}/settings/execution`);
+  await page.getByLabel(/X · Release account \(@release_bot\)/).check();
+  await page.getByRole("status").filter({ hasText: "Job settings saved." }).waitFor();
+  assert.deepEqual(saved.xConnectionIds, [xId]);
+  await page.reload();
+  assert.equal(await page.getByLabel(/X · Release account \(@release_bot\)/).isChecked(), true);
   await context.close();
 });
 test("manual invocation permissions include the current job and jobs in the same project", async () => {

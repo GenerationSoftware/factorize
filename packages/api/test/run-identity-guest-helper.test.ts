@@ -32,12 +32,15 @@ describe("run-owned vendor identity guest helper", () => {
     const response = await fetch(`${origin}/providers/github/17/owner/repo.git/git-upload-pack`, {method: "POST", body: "pack-request", headers: {Authorization: "Bearer guest-supplied", Cookie: "factorize_session=private", "X-Factorize-Run-Id": "other-run", "Git-Protocol": "version=2"}});
     expect(await response.text()).toBe("data: streamed\n\n");
     expect(response.headers.has("Set-Cookie")).toBe(false);
+    const xId = "22222222-2222-4222-8222-222222222222";
+    await (await fetch(`${origin}/x/${xId}/2/users/me?user.fields=id`, {headers: {Authorization: "Bearer guest-supplied"}})).body?.cancel();
     await (await fetch(`${origin}/api/v1/runtime-context`)).body?.cancel();
     await (await fetch(`${origin}/integrations`)).body?.cancel();
     expect(forwarded).toMatchObject([
       {url: `https://factorize.example.com/internal/run-proxy/${runId}/providers/github/17/owner/repo.git/git-upload-pack`, token: "Bearer header.claims.signature1", body: "pack-request", protocol: "version=2"},
-      {url: "https://factorize.example.com/api/v1/runtime-context", token: "Bearer header.claims.signature2"},
-      {url: "https://factorize.example.com/api/v1/runtime-integrations", token: "Bearer header.claims.signature3"},
+      {url: `https://factorize.example.com/internal/run-proxy/${runId}/x/${xId}/2/users/me?user.fields=id`, token: "Bearer header.claims.signature2"},
+      {url: "https://factorize.example.com/api/v1/runtime-context", token: "Bearer header.claims.signature3"},
+      {url: "https://factorize.example.com/api/v1/runtime-integrations", token: "Bearer header.claims.signature4"},
     ]);
   });
 
