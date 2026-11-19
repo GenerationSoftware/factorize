@@ -25,6 +25,7 @@ test("X settings guides app callback setup, validated permissions, and starts ow
   await page.route("**/api/v1/**", route => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/v1/session") return route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: ["integrations:read", "integrations:write"] } });
+    if (path === "/api/v1/fly/connection") return route.fulfill({json:{connection:null}});
     if (path === "/api/v1/projects") return route.fulfill({ json: [] });
     if (path === "/api/v1/integrations") return route.fulfill({ json: { exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] }, linear: null, clickup: null } });
     if (path.includes("providers/github/installations")) return route.fulfill({ json: [] });
@@ -41,7 +42,8 @@ test("X settings guides app callback setup, validated permissions, and starts ow
   });
   await page.route("https://x.com/**", route => route.fulfill({ contentType: "text/html", body: "X consent" }));
   await page.goto(origin + "/settings/integrations");
-  await page.getByRole("heading", { name: "X connections", exact: true }).waitFor();
+  await page.getByRole("button", {name:"Add X integration",exact:true}).click();
+  await page.getByRole("dialog",{name:"Add X integration",exact:true}).waitFor();
   const callback = origin + "/oauth/x/callback";
   await page.locator("code").filter({ hasText: callback }).waitFor({ timeout: 3000 });
   assert.match(await page.getByText(/X Developer Console/).textContent(), /X Developer Console/);
@@ -69,6 +71,7 @@ test("X settings explains terminal authorization failures and offers an explicit
   await page.route("**/api/v1/**", route => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/v1/session") return route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: ["integrations:read", "integrations:write"] } });
+    if (path === "/api/v1/fly/connection") return route.fulfill({json:{connection:null}});
     if (path === "/api/v1/projects") return route.fulfill({ json: [] });
     if (path === "/api/v1/integrations") return route.fulfill({ json: { exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] }, linear: null, clickup: null } });
     if (path.includes("providers/github/installations")) return route.fulfill({ json: [] });
@@ -82,6 +85,7 @@ test("X settings explains terminal authorization failures and offers an explicit
   await page.route("https://x.com/**", route => route.fulfill({ contentType: "text/html", body: "X consent" }));
   await page.goto(origin + "/settings/integrations");
   await page.getByText("Needs attention", { exact: true }).waitFor();
+  await page.getByLabel("Actions for X · Work account",{exact:true}).click();
   await page.getByRole("button", { name: "Connect X", exact: true }).click();
   await page.waitForURL("https://x.com/i/oauth2/authorize**");
   assert.equal(authorizeCalls, 1);
@@ -95,6 +99,7 @@ test("X owner can test safely and replace app credentials before same-account re
   await page.route("**/api/v1/**", route => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/v1/session") return route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: ["integrations:read", "integrations:write"] } });
+    if (path === "/api/v1/fly/connection") return route.fulfill({json:{connection:null}});
     if (path === "/api/v1/projects") return route.fulfill({ json: [] });
     if (path === "/api/v1/integrations") return route.fulfill({ json: { exeConnections: [], ampConnections: [], cloudflareTail: { installations: [] }, linear: null, clickup: null } });
     if (path.includes("providers/github/installations")) return route.fulfill({ json: [] });
@@ -109,10 +114,13 @@ test("X owner can test safely and replace app credentials before same-account re
   });
   await page.route("https://x.com/**", route => route.fulfill({ contentType: "text/html", body: "X consent" }));
   await page.goto(origin + "/settings/integrations");
-  await page.getByRole("button", { name: "Test connection" }).click();
+  await page.getByLabel("Actions for X · Work account",{exact:true}).click();
+  await page.getByRole("button", { name: "Test connection",exact:true }).click();
   await page.getByRole("status").filter({ hasText: "X could not verify the connection" }).waitFor();
   assert.equal(tested, 1);
+  await page.getByLabel("Actions for X · Work account",{exact:true}).click();
   await page.getByRole("button", { name: "Replace app credentials" }).click();
+  await page.getByRole("dialog",{name:"Replace X app credentials",exact:true}).waitFor();
   await page.getByLabel("Replacement OAuth 2.0 Client ID").fill("replacement-client");
   await page.getByLabel("Replacement OAuth 2.0 Client Secret").fill("replacement-secret");
   await page.getByRole("button", { name: "Replace credentials and reauthorize" }).click();

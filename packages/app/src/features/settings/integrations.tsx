@@ -1,7 +1,4 @@
-import { ApiPolicies } from "./api-policies";
 import { useState, type ReactNode } from "react";
-import { IntegrationIcon } from "./icon";
-import { Disclosure, Summary, Button, Card, Badge } from "../../shared/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { integrationsQuery } from "./queries";
@@ -9,61 +6,76 @@ import { installationsQuery } from "../jobs/provider-queries";
 import { SettingsLayout } from "./navigation";
 import { IntegrationForm } from "./integration-form";
 import { messageOf } from "../auth/session";
-import { BearerIntegrations } from "./bearer-integrations";
-import { FlyIntegration, flyConnectionQuery } from "./fly";
-import { ModelAccounts } from "./model-accounts";
-import { XConnections } from "./x-connections";
+import { useBearerIntegrations } from "./bearer-integrations";
+import { useFlyIntegration } from "./fly";
+import { useXConnections } from "./x-connections";
+import { useModelAccounts } from "./model-accounts";
+import { IntegrationPoliciesProvider } from "./api-policies";
+import { IntegrationRow, ProviderTile, type IntegrationAction } from "./integration-ui";
+import { Dialog } from "../../shared/dialog";
 
+type Kind = "exe" | "amp" | "cloudflareTail" | "github";
 const linkClass = "inline-flex min-h-10 items-center rounded-lg border border-stone-200 px-3 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-slate-700 dark:hover:bg-slate-800";
-
-function SetupDisclosure({ title, onToggle, children }: { title: string; onToggle: (open: boolean) => void; children: ReactNode }) {
-  return <Disclosure onToggle={event => onToggle(event.currentTarget.open)}><Summary>{title}</Summary>{children}</Disclosure>;
-}
-
-function ProviderCard({ kind, name, description, children }: { kind: string; name: string; description: string; children: ReactNode }) {
-  return <Card className="flex flex-col gap-4"><div className="flex items-start gap-3"><IntegrationIcon kind={kind} /><div><h3 className="mb-1 text-lg font-semibold">{name}</h3><p className="text-sm text-slate-600 dark:text-slate-400">{description}</p></div></div>{children}</Card>;
-}
-
 export function Integrations() {
-  const cache = useQueryClient(), status = useQuery(integrationsQuery), fly = useQuery(flyConnectionQuery), github = useQuery(installationsQuery), [openSetup, setOpenSetup] = useState<string | null>(null), [feedback, setFeedback] = useState<{ key: string; test: boolean; message: string; error: boolean } | null>(null);
-  const action = useMutation({ retry: false, mutationFn: async ({ kind, id, test }: { kind: "exe" | "amp" | "cloudflareTail" | "github"; id: string; test?: boolean }) => {
+  return <SettingsLayout title="Integrations"><IntegrationPoliciesProvider><IntegrationsContent /></IntegrationPoliciesProvider></SettingsLayout>;
+}
+function IntegrationsContent() {
+  const cache = useQueryClient(), status = useQuery(integrationsQuery), github = useQuery(installationsQuery);
+  const fly = useFlyIntegration(), bearer = useBearerIntegrations(), models = useModelAccounts(), x = useXConnections();
+  const [setup, setSetup] = useState<{title: string; form: ReactNode} | null>(null);
+  const [feedback, setFeedback] = useState<{key: string; message: string; error: boolean} | null>(null);
+  const action = useMutation({retry: false, mutationFn: async ({kind, id, test}: {kind: Kind; id: string; test?: boolean}) => {
     let result;
-    if (kind === "exe") result = test ? await api.POST("/api/v1/integrations/exe/test", { body: { connectionId: id } }) : await api.DELETE("/api/v1/integrations/exe/{connectionId}", { params: { path: { connectionId: id } } });
-    else if (kind === "amp") result = test ? await api.POST("/api/v1/integrations/amp/test", { body: { connectionId: id } }) : await api.DELETE("/api/v1/integrations/amp/{connectionId}", { params: { path: { connectionId: id } } });
-    else if (kind === "cloudflareTail") result = test ? await api.POST("/api/v1/integrations/cloudflare-tail/{integrationId}/test", { params: { path: { integrationId: id } } }) : await api.DELETE("/api/v1/integrations/cloudflare-tail/{integrationId}", { params: { path: { integrationId: id } } });
-    else result = await api.DELETE("/api/v1/providers/github/installations/{installationId}", { params: { path: { installationId: id } } });
+    if (kind === "exe") result = test ? await api.POST("/api/v1/integrations/exe/test", {body: {connectionId: id}}) : await api.DELETE("/api/v1/integrations/exe/{connectionId}", {params: {path: {connectionId: id}}});
+    else if (kind === "amp") result = test ? await api.POST("/api/v1/integrations/amp/test", {body: {connectionId: id}}) : await api.DELETE("/api/v1/integrations/amp/{connectionId}", {params: {path: {connectionId: id}}});
+    else if (kind === "cloudflareTail") result = test ? await api.POST("/api/v1/integrations/cloudflare-tail/{integrationId}/test", {params: {path: {integrationId: id}}}) : await api.DELETE("/api/v1/integrations/cloudflare-tail/{integrationId}", {params: {path: {integrationId: id}}});
+    else result = await api.DELETE("/api/v1/providers/github/installations/{installationId}", {params: {path: {installationId: id}}});
     if (result.error) throw new Error(messageOf(result.error));
     if (test && (!result.data || !("ok" in result.data) || result.data.ok !== true)) {
-      const missing = result.data && "missingPermissions" in result.data && Array.isArray(result.data.missingPermissions)
-        ? result.data.missingPermissions.filter((permission): permission is string => typeof permission === "string") : [];
+      const missing = result.data && "missingPermissions" in result.data && Array.isArray(result.data.missingPermissions) ? result.data.missingPermissions.filter((permission): permission is string => typeof permission === "string") : [];
       throw new Error(missing.length ? `Connection verification failed. Missing exe.dev permissions: ${missing.join(", ")}.` : "Connection verification failed.");
     }
-    return { test, result: result.data };
-  }, onSuccess: async (_result, variables) => { setFeedback({ key: `${variables.kind}:${variables.id}`, test: Boolean(variables.test), message: variables.test ? "Connection verified." : "Integration disconnected.", error: false }); await cache.invalidateQueries({ queryKey: ["settings"] }); await cache.invalidateQueries({ queryKey: ["providers"] }); await cache.invalidateQueries({ queryKey: ["editor"] }); }, onError: (error, variables) => setFeedback({ key: `${variables.kind}:${variables.id}`, test: Boolean(variables.test), message: error.message, error: true }) });
-  const buttons = (kind: "exe" | "amp" | "cloudflareTail" | "github", id: string) => { const key = `${kind}:${id}`, current = feedback?.key === key ? feedback : null; return <div className="flex flex-wrap items-center gap-2">{kind !== "github" && <Button disabled={action.isPending} onClick={() => { setFeedback(null); action.mutate({ kind, id, test: true }); }}>Test connection</Button>}<Button variant="destructive" disabled={action.isPending} onClick={() => { if (window.confirm("Disconnect this integration? Jobs that still reference it must be updated first.")) { setFeedback(null); action.mutate({ kind, id }); } }}>Disconnect</Button>{current && <p role={current.error ? "alert" : "status"} aria-live="polite" className={current.error ? "text-red-700 dark:text-red-400" : "text-green-700 dark:text-green-400"}>{current.error ? current.message : `✓ ${current.message}`}</p>}</div>; };
-  const manage = (key: string, form: ReactNode) => openSetup === key && <div className="mt-3 border-t border-stone-200 pt-3 dark:border-slate-700">{form}</div>;
-  const hasConnections = Boolean(status.data?.linear || status.data?.clickup || status.data?.exeConnections.length || status.data?.ampConnections.length || status.data?.cloudflareTail.installations.length || github.data?.length);
-  return <SettingsLayout title="Integrations">
-    {status.isPending && <p role="status">Loading integrations…</p>}{[status.error, github.error].filter(Boolean).map((error, i) => <p role="alert" key={i}>{error?.message}</p>)}
-    <section aria-labelledby="your-integrations-heading"><div className="mb-4"><h2 id="your-integrations-heading" className="text-2xl font-bold">Your integrations</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage the connections already available to your workspace.</p></div>
-      {!hasConnections && !fly.data && !status.isPending && !fly.isPending && <Card className="border-dashed"><p className="font-semibold">No integrations added yet</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Choose a provider from the available integrations below to get started.</p></Card>}
-      {hasConnections && <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        {status.data?.linear && <div className="flex flex-wrap items-center gap-3 border-b border-stone-200 p-4 dark:border-slate-800"><IntegrationIcon kind="linear" /><div className="min-w-40 flex-1"><p className="font-semibold">Linear</p><p className="text-sm text-slate-600 dark:text-slate-400">{status.data.linear.organizationName ?? status.data.linear.viewerEmail ?? "Connected account"}</p></div><Badge active>Connected</Badge><Button onClick={() => setOpenSetup(openSetup === "linear" ? null : "linear")}>Manage</Button>{manage("linear", <a className={linkClass} href="/auth/linear">Reconnect Linear</a>)}</div>}
-        {status.data?.clickup && <div className="flex flex-wrap items-center gap-3 border-b border-stone-200 p-4 dark:border-slate-800"><IntegrationIcon kind="clickup" /><div className="min-w-40 flex-1"><p className="font-semibold">ClickUp</p><p className="text-sm text-slate-600 dark:text-slate-400">{status.data.clickup.teamName ?? "Connected workspace"}</p></div><Badge active>Connected</Badge><Button onClick={() => setOpenSetup(openSetup === "clickup" ? null : "clickup")}>Manage</Button>{manage("clickup", <a className={linkClass} href="/auth/clickup">Reconnect ClickUp</a>)}</div>}
-        {github.data?.map(i => <div className="flex flex-wrap items-center gap-3 border-b border-stone-200 p-4 last:border-b-0 dark:border-slate-800" key={i.installationId}><IntegrationIcon kind="github" /><div className="min-w-40 flex-1"><p className="font-semibold">GitHub</p><p className="text-sm text-slate-600 dark:text-slate-400">{i.accountLogin} · {i.accountType}</p></div><Badge active={i.state === "active"}>{i.state === "active" ? "Connected" : `Needs attention · ${i.state}`}</Badge><a className={linkClass} href="https://github.com/settings/installations" target="_blank" rel="noreferrer">Manage</a>{buttons("github", String(i.installationId))}</div>)}
-        {status.data?.exeConnections.map(c => <div className="border-b border-stone-200 p-4 last:border-b-0 dark:border-slate-800" key={c.connectionId}><div className="flex flex-wrap items-center gap-3"><IntegrationIcon kind="exe" /><div className="min-w-40 flex-1"><p className="font-semibold">exe.dev · {c.connectionId}</p><p className="text-sm text-slate-600 dark:text-slate-400">{(c.accountTags ?? []).join(", ") || "Account tags available"}</p></div><Badge active>Connected</Badge><Button onClick={() => setOpenSetup(openSetup === `exe:${c.connectionId}` ? null : `exe:${c.connectionId}`)}>Manage</Button>{buttons("exe", c.connectionId)}</div>{manage(`exe:${c.connectionId}`, <IntegrationForm kind="exe" connectionId={c.connectionId} />)}</div>)}
-        {status.data?.ampConnections.map(c => <div className="border-b border-stone-200 p-4 last:border-b-0 dark:border-slate-800" key={c.connectionId}><div className="flex flex-wrap items-center gap-3"><IntegrationIcon kind="amp" /><div className="min-w-40 flex-1"><p className="font-semibold">Amp · {c.project}</p><p className="text-sm text-slate-600 dark:text-slate-400">Project connection</p></div><Badge active>Connected</Badge><Button onClick={() => setOpenSetup(openSetup === `amp:${c.connectionId}` ? null : `amp:${c.connectionId}`)}>Manage</Button>{buttons("amp", c.connectionId)}</div>{manage(`amp:${c.connectionId}`, <IntegrationForm kind="amp" connectionId={c.connectionId} initialName={c.project} initialApiBaseUrl={c.apiBaseUrl} />)}</div>)}
-        {status.data?.cloudflareTail.installations.map(c => <div className="border-b border-stone-200 p-4 last:border-b-0 dark:border-slate-800" key={c.integrationId}><div className="flex flex-wrap items-center gap-3"><IntegrationIcon kind="tail" /><div className="min-w-40 flex-1"><p className="font-semibold">Cloudflare Tail · {c.name}</p><p className="text-sm text-slate-600 dark:text-slate-400">Referenced by {c.referencedJobCount} {c.referencedJobCount === 1 ? "job" : "jobs"}</p></div><Badge active>Connected</Badge><Button onClick={() => setOpenSetup(openSetup === `tail:${c.integrationId}` ? null : `tail:${c.integrationId}`)}>Manage</Button>{buttons("cloudflareTail", c.integrationId)}</div>{manage(`tail:${c.integrationId}`, <IntegrationForm kind="cloudflareTail" connectionId={c.integrationId} initialName={c.name} />)}</div>)}
+    return result.data;
+  }, onSuccess: async (_result, variables) => {
+    setFeedback({key: `${variables.kind}:${variables.id}`, message: variables.test ? "Connection verified." : "Integration disconnected.", error: false});
+    await Promise.all([cache.invalidateQueries({queryKey: ["settings"]}), cache.invalidateQueries({queryKey: ["providers"]}), cache.invalidateQueries({queryKey: ["editor"]})]);
+  }, onError: (error, variables) => setFeedback({key: `${variables.kind}:${variables.id}`, message: error.message, error: true})});
+  const actions = (kind: Kind, id: string, edit?: () => void): IntegrationAction[] => [
+    ...(edit ? [{label: "Edit integration", onClick: edit}] : []),
+    ...(kind !== "github" ? [{label: "Test connection", disabled: action.isPending, onClick: () => {setFeedback(null); action.mutate({kind, id, test: true});}}] : []),
+    {label: "Disconnect", destructive: true, disabled: action.isPending, onClick: () => {if (window.confirm("Disconnect this integration? Jobs that still reference it must be updated first.")) {setFeedback(null); action.mutate({kind, id});}}},
+  ];
+  const result = (key: string) => feedback?.key === key && <p className="mt-2 text-sm" role={feedback.error ? "alert" : "status"}>{feedback.message}</p>;
+  const open = (title: string, form: ReactNode) => setSetup({title, form});
+  const data = status.data;
+  const count = (data?.linear ? 1 : 0) + (data?.clickup ? 1 : 0) + (github.data?.length ?? 0) + (data?.exeConnections.length ?? 0) + (data?.ampConnections.length ?? 0) + (data?.cloudflareTail.installations.length ?? 0) + fly.count + bearer.count + models.count + x.count;
+  const pending = status.isPending || github.isPending || fly.pending || bearer.pending || models.pending || x.pending;
+  return <>
+    {[status.error, github.error].filter(Boolean).map((error, i) => <p role="alert" key={i}>{error?.message}</p>)}
+    <section aria-labelledby="your-integrations-heading"><h2 id="your-integrations-heading" className="text-xl font-bold">Your integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Manage workspace connections. Default API access applies to connected MCP clients; other access requires approval.</p>
+      {pending && <p role="status">Loading integrations…</p>}
+      {!count && !pending && <p className="rounded-xl border border-dashed border-stone-300 p-5 dark:border-slate-700">No integrations added yet. Choose a provider below to get started.</p>}
+      {Boolean(count) && <div role="list" aria-label="Your integrations" className="rounded-xl border border-stone-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        {data?.linear && <IntegrationRow kind="linear" credentialId="linear" name="Linear" detail={data.linear.organizationName ?? data.linear.viewerEmail ?? "Connected account"} actions={[{label: "Reconnect Linear", href: "/auth/linear"}]} />}
+        {data?.clickup && <IntegrationRow kind="clickup" credentialId="clickup" name="ClickUp" detail={data.clickup.teamName ?? "Connected workspace"} actions={[{label: "Reconnect ClickUp", href: "/auth/clickup"}]} />}
+        {github.data?.map(i => <IntegrationRow key={i.installationId} kind="github" credentialId={String(i.installationId)} name={`GitHub · ${i.accountLogin}`} detail={i.accountType} connected={i.state === "active"} status={i.state === "active" ? "Connected" : `Needs attention · ${i.state}`} actions={[{label: "Manage on GitHub", href: "https://github.com/settings/installations", external: true}, ...actions("github", String(i.installationId))]}>{result(`github:${i.installationId}`)}</IntegrationRow>)}
+        {data?.exeConnections.map(c => <IntegrationRow key={c.connectionId} kind="exe" credentialId={c.connectionId} name={`exe.dev · ${c.connectionId}`} detail={(c.accountTags ?? []).join(", ") || "Account connection"} actions={actions("exe", c.connectionId, () => open("Edit exe.dev integration", <IntegrationForm kind="exe" connectionId={c.connectionId} initialAgent={c.agentKind} initialTags={c.tags} />))}>{result(`exe:${c.connectionId}`)}</IntegrationRow>)}
+        {data?.ampConnections.map(c => <IntegrationRow key={c.connectionId} kind="amp" credentialId={c.connectionId} name={`Amp · ${c.project}`} detail="Project connection" actions={actions("amp", c.connectionId, () => open("Edit Amp integration", <IntegrationForm kind="amp" connectionId={c.connectionId} initialName={c.project} initialApiBaseUrl={c.apiBaseUrl} />))}>{result(`amp:${c.connectionId}`)}</IntegrationRow>)}
+        {fly.rows}{bearer.rows}{models.rows}{x.rows}
+        {data?.cloudflareTail.installations.map(c => <IntegrationRow key={c.integrationId} kind="tail" credentialId={c.integrationId} name={`Cloudflare Tail · ${c.name}`} detail={`Referenced by ${c.referencedJobCount} ${c.referencedJobCount === 1 ? "job" : "jobs"}`} actions={actions("cloudflareTail", c.integrationId, () => open("Edit Tail integration", <IntegrationForm kind="cloudflareTail" connectionId={c.integrationId} initialName={c.name} />))}>{result(`cloudflareTail:${c.integrationId}`)}</IntegrationRow>)}
       </div>}
+      {feedback && !feedback.error && feedback.message === "Integration disconnected." && <p role="status">Integration disconnected.</p>}
+      {fly.feedback}{bearer.feedback}{models.feedback}{x.feedback}
     </section>
-    <FlyIntegration /><BearerIntegrations /><ModelAccounts /><XConnections /><ApiPolicies />
-    <section aria-labelledby="available-integrations-heading" className="mt-10"><div className="mb-4"><h2 id="available-integrations-heading" className="text-2xl font-bold">Available integrations</h2><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Connect a provider to add it to your workspace. Connected providers remain available for additional connections.</p></div><div className="grid gap-4 sm:grid-cols-2">
-      <ProviderCard kind="linear" name="Linear" description="Create and update issues from automated workflows."><SetupDisclosure title={status.data?.linear ? "Add another Linear account" : "Connect Linear"} onToggle={open => setOpenSetup(open ? "linear-new" : null)}><a className={linkClass} href="/auth/linear">{status.data?.linear ? "Add another Linear account" : "Connect Linear"}</a></SetupDisclosure></ProviderCard>
-      <ProviderCard kind="clickup" name="ClickUp" description="Trigger workflows from ClickUp tasks and lists."><SetupDisclosure title={status.data?.clickup ? "Add another ClickUp workspace" : "Connect ClickUp"} onToggle={open => setOpenSetup(open ? "clickup-new" : null)}><a className={linkClass} href="/auth/clickup">{status.data?.clickup ? "Add another ClickUp workspace" : "Connect ClickUp"}</a></SetupDisclosure></ProviderCard>
-      <ProviderCard kind="github" name="GitHub" description="React to repository events and pull request activity."><p className="text-sm font-semibold">{github.data?.length ?? 0} added</p><a className={linkClass} href="/auth/github/install">{github.data?.length ? "Add another GitHub installation" : "Connect GitHub"}</a></ProviderCard>
-      <ProviderCard kind="exe" name="exe.dev" description="Run jobs on your exe.dev VMs with your preferred agent."><p className="text-sm font-semibold">{status.data?.exeConnections.length ?? 0} added</p><SetupDisclosure title="Add exe.dev integration" onToggle={open => setOpenSetup(open ? "exe-new" : null)}><IntegrationForm kind="exe" /></SetupDisclosure></ProviderCard>
-      <ProviderCard kind="amp" name="Amp" description="Run workflows against an Amp project."><p className="text-sm font-semibold">{status.data?.ampConnections.length ?? 0} added</p><SetupDisclosure title={status.data?.ampConnections.length ? "Add another Amp project" : "Add Amp integration"} onToggle={open => setOpenSetup(open ? "amp-new" : null)}><IntegrationForm kind="amp" /></SetupDisclosure></ProviderCard>
-      <ProviderCard kind="tail" name="Cloudflare Tail" description="Capture and route Cloudflare Worker logs into workflows."><p className="text-sm font-semibold">{status.data?.cloudflareTail.installations.length ?? 0} added</p><SetupDisclosure title={status.data?.cloudflareTail.installations.length ? "Add another Tail integration" : "Add Tail integration"} onToggle={open => setOpenSetup(open ? "tail-new" : null)}><IntegrationForm kind="cloudflareTail" /></SetupDisclosure></ProviderCard>
+    <section aria-labelledby="available-integrations-heading" className="mt-10"><h2 id="available-integrations-heading" className="text-xl font-bold">Available integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Choose a provider to connect or configure an integration.</p><div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+      <ProviderTile kind="linear" name="Linear" description="Create and update issues." count={data?.linear ? 1 : 0} href="/auth/linear" />
+      <ProviderTile kind="clickup" name="ClickUp" description="Trigger workflows from tasks and lists." count={data?.clickup ? 1 : 0} href="/auth/clickup" />
+      <ProviderTile kind="github" name="GitHub" description="Connect repositories and pull requests." count={github.data?.length ?? 0} href="/auth/github/install" />
+      <ProviderTile kind="exe" name="exe.dev" description="Run jobs on your VMs." count={data?.exeConnections.length ?? 0} onAdd={() => open("Add exe.dev integration", <IntegrationForm kind="exe" />)} />
+      <ProviderTile kind="amp" name="Amp" description="Run workflows against an Amp project." count={data?.ampConnections.length ?? 0} onAdd={() => open("Add Amp integration", <IntegrationForm kind="amp" />)} />
+      {fly.tile}{bearer.tile}{models.tile}{x.tile}
+      <ProviderTile kind="tail" name="Cloudflare Tail" description="Capture Worker logs through webhooks." count={data?.cloudflareTail.installations.length ?? 0} onAdd={() => open("Add Tail integration", <IntegrationForm kind="cloudflareTail" />)} />
     </div></section>
-  </SettingsLayout>;
+    {setup && <Dialog title={setup.title} close={() => setSetup(null)}>{setup.form}</Dialog>}{fly.dialog}{bearer.dialog}{models.dialog}{x.dialog}
+  </>;
 }

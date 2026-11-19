@@ -12,12 +12,12 @@ import type { z } from "zod";
 export class AgentApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly scope?: string) { super(message); }
 }
-export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; revision: number};
+export type AgentIntegration = {id: string; kind: "bearer" | "model" | "github" | "linear" | "fly" | "exe" | "amp" | "clickup" | "x"; credential_id: string; name: string; description: string | null; available: boolean; policy: "baseline" | "requestable" | "disabled"; epoch: number; revision: number};
 export const requiredIntegrationScope = (row: AgentIntegration) => `integration:${row.id}:${row.epoch}`;
 const STORAGE_BLOCK_BYTES = 1024 * 1024;
 const forbidden = () => new AgentApiError(403, "forbidden", "This integration is not authorized.");
 const invalidIdentity = () => new AgentApiError(401, "invalid_token", "The agent authorization is no longer active.");
-const publicIntegration = (row: AgentIntegration) => ({ id: row.id, kind: row.kind, name: row.name, description: row.description, available: row.available, policy: row.policy, revision: row.revision, requiredScope: requiredIntegrationScope(row) });
+const publicIntegration = (row: AgentIntegration) => ({ id: row.id, kind: row.kind, credentialId: row.credential_id, name: row.name, description: row.description, available: row.available, policy: row.policy, revision: row.revision, requiredScope: requiredIntegrationScope(row) });
 
 /** Restrict the generic X v2 proxy to resources with an explicit OAuth-scope
  * mapping. Unsupported resources and credential-management routes fail closed. */
@@ -83,8 +83,11 @@ export class AgentApiService {
       case "bearer": return Array.isArray(config.portableIntegrationIds) && config.portableIntegrationIds.includes(row.credential_id);
       case "github": return Array.isArray(config.githubInstallationIds) && config.githubInstallationIds.includes(Number(row.credential_id));
       case "linear": return config.linearConnectionId === "linear";
+      case "x": return Array.isArray(config.xConnectionIds) && config.xConnectionIds.includes(row.credential_id);
       case "model": return config.modelAccess === "portable" && config.modelAccountId === row.credential_id;
     }
+    // Execution-provider credentials are not implicitly selected by a run.
+    return false;
   }
   async authorize(integration: string) {
     const identity = await this.identity();
@@ -111,12 +114,13 @@ export class AgentApiService {
         if (!(error instanceof AgentApiError) || error.status === 401) throw error;
         access = error.code === "insufficient_scope" ? "requestable" : "unavailable";
       }
-      result.push({...publicIntegration(row), access, instructions: row.kind === "linear" ? "Use request_api with path /graphql and a JSON GraphQL body." : row.kind === "model" ? "Use request_api with an OpenAI-compatible path relative to /v1." : "Use request_api with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions."});
+      result.push({...publicIntegration(row), access, instructions: row.kind === "x" ? "Use request_api with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use request_api with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use request_api with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use request_api with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use request_api with a path relative to /api/v2." : row.kind === "fly" ? "Use request_api with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use request_api with an OpenAI-compatible path relative to /v1." : "Use request_api with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions."});
     }
     return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(this.auth.scopes), integrations: result};
   }
   async forward(integration: string, path: string, request: Request) {
     const grant = await this.authorize(integration);
+    if (grant.integration.kind === "x") return this.forwardX(grant.integration.credential_id, path, request);
     let credential;
     try { credential = await resolveAgentCredential(this.env, this.auth.tenantId, grant.integration.kind, grant.integration.credential_id, path); }
     catch { throw new AgentApiError(502, "credential_unavailable", "The upstream credential could not be resolved."); }
@@ -129,7 +133,14 @@ export class AgentApiService {
   }
   async forwardX(connectionId: string, path: string, request: Request) {
     const identity = await this.identity();
-    if (identity.kind !== "run" || !Array.isArray(identity.config?.xConnectionIds) || !identity.config.xConnectionIds.includes(connectionId)) throw forbidden();
+    let apiGrant: {integration: AgentIntegration} | undefined;
+    if (identity.kind === "run") {
+      if (!Array.isArray(identity.config?.xConnectionIds) || !identity.config.xConnectionIds.includes(connectionId)) throw forbidden();
+    } else {
+      const row = (await this.database.pool.query<{id: string}>("SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND kind='x' AND credential_id=$2", [this.auth.tenantId, connectionId])).rows[0];
+      if (!row) throw forbidden();
+      apiGrant = await this.authorize(row.id);
+    }
     const required = xRequiredScope(path, request.method);
     if (!required) throw forbidden();
     const repository = new XConnectionRepository(this.database, this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY);
@@ -159,7 +170,11 @@ export class AgentApiService {
     if (!accessToken) throw forbidden();
     const currentIdentity = await this.identity();
     const current = await repository.get(connectionId);
-    if (currentIdentity.kind !== "run" || !Array.isArray(currentIdentity.config?.xConnectionIds) || !currentIdentity.config.xConnectionIds.includes(connectionId) || current?.status !== "connected" || !current.scopes.includes(required) || !current.grantedScopes.includes(required)) throw forbidden();
+    if (apiGrant) {
+      const currentGrant = await this.authorize(apiGrant.integration.id);
+      if (currentGrant.integration.epoch !== apiGrant.integration.epoch) throw forbidden();
+    } else if (currentIdentity.kind !== "run" || !Array.isArray(currentIdentity.config?.xConnectionIds) || !currentIdentity.config.xConnectionIds.includes(connectionId)) throw forbidden();
+    if (current?.status !== "connected" || !current.scopes.includes(required) || !current.grantedScopes.includes(required)) throw forbidden();
     try { return await forwardRunOutbound(request, { origin: "https://api.x.com", path: path, credential: accessToken }); }
     catch { throw new AgentApiError(502, "proxy_failed", "The X API request failed. Check X API access, credits, and rate limits, then retry if safe."); }
   }

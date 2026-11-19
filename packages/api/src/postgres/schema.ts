@@ -65,7 +65,7 @@ export const xOAuthAttempts = app.table("x_oauth_attempts", {
 }, t => [primaryKey({ columns: [t.tenantId, t.nonce] }), foreignKey({ columns: [t.tenantId, t.connectionId], foreignColumns: [xConnections.tenantId, xConnections.id] }).onDelete("cascade"), index("x_oauth_attempt_expiry").on(t.expiresAt)]);
 export const agentIntegrations = app.table("agent_integrations", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id, {onDelete:"cascade"}), id: uuid("id").notNull().defaultRandom(),
-  kind: text("kind").$type<"bearer"|"github"|"linear"|"model">().notNull(), credentialId: text("credential_id").notNull(), name:text("name").notNull(), description:text("description"), available:boolean("available").notNull(),
+  kind: text("kind").$type<"bearer"|"github"|"linear"|"model"|"fly"|"exe"|"amp"|"clickup"|"x">().notNull(), credentialId: text("credential_id").notNull(), name:text("name").notNull(), description:text("description"), available:boolean("available").notNull(),
   policy:text("policy").$type<"baseline"|"requestable"|"disabled">().notNull().default("requestable"),epoch:integer("epoch").notNull().default(1),revision:integer("revision").notNull().default(1),
 },t=>[primaryKey({columns:[t.tenantId,t.id]}),unique().on(t.tenantId,t.kind,t.credentialId)]);
 export const agentIdentities = app.table("agent_identities", {

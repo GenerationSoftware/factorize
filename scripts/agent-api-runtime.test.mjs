@@ -31,7 +31,20 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
   const observed=[];let releaseStream;
   try {
     await admin.query(`CREATE DATABASE "${name}"`);address.pathname='/'+name;db=new pg.Client({connectionString:address.href});await db.connect();
-    for(const file of (await readdir('packages/api/migrations')).filter(file=>/^\d+.*\.sql$/.test(file)).sort()) await db.query(await readFile('packages/api/migrations/'+file,'utf8'));
+    const backfillTenant=randomUUID();
+    for(const file of (await readdir('packages/api/migrations')).filter(file=>/^\d+.*\.sql$/.test(file)).sort()) {
+      await db.query(await readFile('packages/api/migrations/'+file,'utf8'));
+      if(file==='0058_x_credential_versions.sql') {
+        await db.query("INSERT INTO app.tenants(id,name) VALUES($1,'Migration fixture')",[backfillTenant]);
+        for(const kind of ['exe:existing','amp:existing','clickup','cloudflare-tail:existing']) await db.query("INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,$2,'cipher')",[backfillTenant,kind]);
+        await db.query("INSERT INTO app.fly_connections(tenant_id,organization_slug,organization_name,encrypted_token) VALUES($1,'existing','Existing','cipher')",[backfillTenant]);
+        for (const status of ['connected','pending']) await db.query("INSERT INTO app.x_connections(tenant_id,id,name,client_id,scopes,encrypted_secret,status) VALUES($1,$2,$3,'fixture',ARRAY['users.read'],'cipher',$3)",[backfillTenant,randomUUID(),status]);
+      }
+    }
+    const backfilled=(await db.query('SELECT kind,policy,available FROM app.agent_integrations WHERE tenant_id=$1 ORDER BY kind,available',[backfillTenant])).rows;
+    assert.deepEqual(backfilled.map(row=>row.kind),['amp','clickup','exe','fly','x','x']);
+    assert.deepEqual(backfilled.filter(row=>row.kind==='x').map(row=>row.available),[false,true]);
+    assert.ok(backfilled.every(row=>row.policy==='requestable'),'migration preserves explicit consent by default');
     await db.query('INSERT INTO app.tenants(id,name) VALUES($1,$2)',[tenant,'Agent fixture']);
     await db.query('INSERT INTO app.auth_users(id,email,email_verified) VALUES($1,$2,true)',[user,'agent@example.test']);
     await db.query("INSERT INTO app.members(tenant_id,user_id,email,role) VALUES($1,$2,$3,'owner')",[tenant,user,'agent@example.test']);
@@ -81,7 +94,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
         try {const data=await readFile(resolve('packages/app/dist','.'+path));return new Response(data,{headers:{'Content-Type':path.endsWith('.js')?'application/javascript':path.endsWith('.css')?'text/css':'text/html'}});}catch{return new Response('Not found',{status:404});}
       }},
       outboundService:async request=>{
-        const target=new URL(request.url);assert.ok(['fixture.upstream.com','api.github.com','github.com','raw.githubusercontent.com','codeload.github.com','api.linear.app','api.openai.com','oidc.fly.io','auth.openai.com','chatgpt.com'].includes(target.hostname),'Unexpected upstream '+target.hostname);
+        const target=new URL(request.url);assert.ok(['fixture.upstream.com','api.github.com','github.com','raw.githubusercontent.com','codeload.github.com','api.linear.app','api.openai.com','oidc.fly.io','auth.openai.com','chatgpt.com','exe.dev','ampcode.com','api.clickup.com','api.machines.dev','custom.amp.upstream.com','api.x.com'].includes(target.hostname),'Unexpected upstream '+target.hostname);
         const headers=new Headers(request.headers);headers.set('x-fixture-target',target.href);
         const response=await fetch('http://127.0.0.1:'+upstream.address().port+target.pathname+target.search,{method:request.method,headers,body:request.method==='GET'||request.method==='HEAD'?undefined:await request.arrayBuffer(),redirect:'manual'});
         return new Response(response.body,{status:response.status,headers:response.headers});
@@ -103,7 +116,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
       const verifier=randomBytes(32).toString('base64url'),query=new URLSearchParams({response_type:'code',client_id:clientId,redirect_uri:'http://127.0.0.1/callback',scope:scopes.join(' '),state:randomUUID(),code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'S256',resource:origin+'/mcp'});
       const page=await context.newPage();page.setDefaultTimeout(15000);
       await page.goto(origin+'/authorize?'+query);await page.getByRole('heading',{name:'Authorize Agent fixture',exact:true}).waitFor();
-      if(scopes.some(scope=>scope.startsWith('integration:'))) assert.ok(await page.getByText('Requestable API',{exact:false}).count());
+      for (const scope of scopes.filter(scope=>scope.startsWith('integration:'))) assert.ok(await page.getByLabel(scope,{exact:true}).count());
       if(narrow) await page.getByLabel(narrow,{exact:true}).uncheck();
       await page.getByRole('button',{name:decision==='allow'?'Allow':'Deny',exact:true}).click();await page.waitForURL('http://127.0.0.1/callback?**');
       const destination=new URL(page.url());await page.close();
@@ -174,6 +187,78 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
       const row=(await db.query('SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind=$2',[tenant,kind])).rows[0];await policy(row,'baseline');
       const result=await request(first,row,path);assert.equal(result.result.status,200,result.text);assert.equal(observed.at(-1).target,expected);assert.equal(observed.at(-1).headers.authorization,'Bearer '+auth);
     }
+    // Execution and task providers use the same default, consent and revocation rules.
+    const extraProviders = [
+      {kind:'exe', key:'exe:vm-api', credentialId:'vm-api', value:{apiToken:'exe-private'}, path:'/exec', target:'https://exe.dev/exec', authorization:'Bearer exe-private'},
+      {kind:'amp', key:'amp:amp-api', credentialId:'amp-api', value:{accessToken:'amp-private',project:'fixture'}, path:'/projects?q=1', target:'https://ampcode.com/api/cloud/v1/projects?q=1', authorization:'Bearer amp-private'},
+      {kind:'amp', key:'amp:custom-api', credentialId:'custom-api', value:{accessToken:'custom-private',project:'fixture',apiBaseUrl:'https://custom.amp.upstream.com/custom/v2'}, path:'/runs', target:'https://custom.amp.upstream.com/custom/v2/runs', authorization:'Bearer custom-private'},
+      {kind:'clickup', key:'clickup', credentialId:'clickup', value:{accessToken:'clickup-private'}, path:'/team', target:'https://api.clickup.com/api/v2/team', authorization:'clickup-private'},
+      {kind:'fly', credentialId:'fly', path:'/v1/apps?org_slug=fixture', target:'https://api.machines.dev/v1/apps?org_slug=fixture', authorization:'Bearer fly-private'},
+    ];
+    for (const provider of extraProviders) {
+      if (provider.key) await db.query("INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,$2,$3)",[tenant,provider.key,encrypt(JSON.stringify(provider.value))]);
+      else await db.query("INSERT INTO app.fly_connections(tenant_id,organization_slug,organization_name,encrypted_token) VALUES($1,'fixture','Fixture',$2)",[tenant,encrypt('fly-private')]);
+      const row=(await db.query('SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind=$2 AND credential_id=$3',[tenant,provider.kind,provider.credentialId])).rows[0];
+      assert.ok(row,provider.kind+' is registered'); assert.equal(row.policy,'requestable');
+      const count=observed.length;
+      assert.equal((await request(first,row,provider.path)).status,403); assert.equal(observed.length,count,'unapproved calls never reach upstream');
+      const approved=await authorize(['jobs:read',scopes(row)]);
+      const forwarded=await request(approved,row,provider.path,{method:'POST',body:'fixture command',headers:{Authorization:'caller-secret',Cookie:'private-cookie','Content-Type':'text/plain'}});
+      assert.equal(forwarded.result.status,200,forwarded.text); assert.equal(observed.at(-1).target,provider.target); assert.equal(observed.at(-1).headers.authorization,provider.authorization); assert.equal(observed.at(-1).headers.cookie,undefined); assert.equal(observed.at(-1).body,'fixture command');
+      assert.ok(!forwarded.text.includes(provider.authorization));
+      await policy(row,'baseline'); assert.equal((await request(first,row,provider.path)).result.status,200);
+      await policy(row,'disabled'); assert.equal((await request(approved,row,provider.path)).status,403);
+      await policy(row,'requestable'); assert.equal((await request(approved,row,provider.path)).status,403,'disable revokes old consent for '+provider.kind);
+      await policy(row,'baseline');
+      if (provider.kind==='amp' || provider.kind==='clickup') {
+        const beforeEscape=observed.length;
+        assert.ok((await request(first,row,'/../outside')).text.includes('credential_unavailable'));
+        assert.equal(observed.length,beforeEscape,'configured API prefix cannot be escaped');
+      }
+      // Token rotation preserves identity; disconnect/reconnect invalidates approvals.
+      if(provider.kind==='fly') {
+        const before=(await db.query('SELECT epoch FROM app.agent_integrations WHERE id=$1',[row.id])).rows[0].epoch;
+        await db.query("UPDATE app.fly_connections SET organization_slug='other',organization_name='Other' WHERE tenant_id=$1",[tenant]);
+        assert.equal((await db.query('SELECT epoch FROM app.agent_integrations WHERE id=$1',[row.id])).rows[0].epoch,before+1,'switching Fly organizations revokes prior approvals');
+      }
+      const epoch=(await db.query('SELECT epoch FROM app.agent_integrations WHERE id=$1',[row.id])).rows[0].epoch;
+      if (provider.key) {
+        await db.query('UPDATE app.connections SET encrypted_value=$3 WHERE tenant_id=$1 AND kind=$2',[tenant,provider.key,encrypt(JSON.stringify(provider.value))]);
+        assert.equal((await db.query('SELECT epoch FROM app.agent_integrations WHERE id=$1',[row.id])).rows[0].epoch,epoch);
+        await db.query('DELETE FROM app.connections WHERE tenant_id=$1 AND kind=$2',[tenant,provider.key]);
+      } else await db.query('DELETE FROM app.fly_connections WHERE tenant_id=$1',[tenant]);
+      assert.equal((await request(first,row,provider.path)).status,403);
+      const disconnected=(await db.query('SELECT * FROM app.agent_integrations WHERE id=$1',[row.id])).rows[0];
+      assert.equal(disconnected.available,false); assert.equal(disconnected.epoch,epoch+1);
+    }
+    const listed=await json('/api/v1/integration-api-policies','GET',undefined,owner);
+    for(const provider of extraProviders) assert.ok(listed.body.integrations.some(row=>row.kind===provider.kind && row.credentialId===provider.credentialId));
+    // Inbound webhook signing secrets are never registered as outbound APIs.
+    await db.query("INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,'cloudflare-tail:fixture',$2)",[tenant,encrypt(JSON.stringify({signingSecret:'tail-private'}))]);
+    assert.equal((await db.query("SELECT 1 FROM app.agent_integrations WHERE tenant_id=$1 AND credential_id='fixture'",[tenant])).rowCount,0);
+    // X uses the same client policies while retaining upstream OAuth scope restrictions.
+    const xId=randomUUID();
+    const xCredential={clientSecret:'x-client-private',accessToken:'x-private',refreshToken:'x-refresh',expiresAt:new Date(Date.now()+3600000).toISOString()};
+    await db.query("INSERT INTO app.x_connections(tenant_id,id,name,client_id,scopes,encrypted_secret,status,account_id,account_handle,granted_scopes) VALUES($1,$2,'Social account','fixture',ARRAY['users.read','tweet.read','offline.access'],$3,'connected','123','fixture',ARRAY['users.read','tweet.read','offline.access'])",[tenant,xId,encrypt(JSON.stringify(xCredential))]);
+    const xRow=(await db.query("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind='x' AND credential_id=$2",[tenant,xId])).rows[0];
+    assert.equal(xRow.available,true);assert.equal((await request(first,xRow,'/2/users/me')).status,403);
+    const xApproved=await authorize(['jobs:read',scopes(xRow)]);
+    assert.equal((await request(xApproved,xRow,'/2/users/me')).result.status,200);assert.equal(observed.at(-1).target,'https://api.x.com/2/users/me');assert.equal(observed.at(-1).headers.authorization,'Bearer x-private');
+    const xCount=observed.length;
+    const xWrite=await request(xApproved,xRow,'/2/tweets',{method:'POST',body:'{}'});
+    assert.equal(xWrite.result,undefined,'MCP consent cannot expand X OAuth scopes');assert.match(xWrite.text,/This X connection does not grant tweet.write/);
+    const xManagement=await request(xApproved,xRow,'/2/oauth2/token',{method:'POST',body:'{}'});
+    assert.equal(xManagement.result,undefined,'credential management is not proxyable');assert.match(xManagement.text,/not authorized/);assert.equal(observed.length,xCount);
+    await policy(xRow,'baseline');assert.equal((await request(first,xRow,'/2/users/me')).result.status,200);
+    await policy(xRow,'disabled');assert.equal((await request(xApproved,xRow,'/2/users/me')).status,403);
+    await policy(xRow,'requestable');assert.equal((await request(xApproved,xRow,'/2/users/me')).status,403);
+    const oldEpoch=(await db.query('SELECT epoch FROM app.agent_integrations WHERE id=$1',[xRow.id])).rows[0].epoch;
+    await db.query("UPDATE app.x_connections SET status='reconnect_required',credential_version=credential_version+1 WHERE tenant_id=$1 AND id=$2",[tenant,xId]);
+    assert.equal((await db.query('SELECT epoch FROM app.agent_integrations WHERE id=$1',[xRow.id])).rows[0].epoch,oldEpoch+1);
+    await db.query("UPDATE app.x_connections SET status='connected' WHERE tenant_id=$1 AND id=$2",[tenant,xId]);
+    assert.equal((await request(xApproved,xRow,'/2/users/me')).status,403,'replacing X credentials invalidates old MCP approval');
+    // Restore a baseline entry for run-selection isolation checks below.
+    await policy(xRow,'baseline');
     const github=(await db.query("SELECT * FROM app.agent_integrations WHERE tenant_id=$1 AND kind='github'",[tenant])).rows[0];
     for(const [path,target] of [['/owner/repo.git/info/refs','https://github.com/owner/repo.git/info/refs'],['/raw/owner/repo/main/file','https://raw.githubusercontent.com/owner/repo/main/file'],['/archive/owner/repo/zip/main','https://codeload.github.com/owner/repo/zip/main']]) {
       assert.equal((await request(first,github,path)).result.status,200);assert.equal(observed.at(-1).target,target);

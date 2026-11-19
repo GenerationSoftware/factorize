@@ -4,11 +4,40 @@ import { CredentialRepository } from "./postgres/credential-repository";
 import { resolveRunProviderCredentials } from "./provider-credentials";
 import type { OutboundCredential } from "./run-outbound-forwarder";
 import { resolveManagedModelCredential } from "./managed-model-credentials";
+import { CLICKUP_API_BASE } from "./clickup";
+import { ConnectionRepository } from "./postgres/connection-repository";
+import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
 import { isPublicHttpsOrigin } from "./public-address";
 
 /** Only call after shared identity/grant authorization. No caller origin or secret. */
 export async function resolveAgentCredential(env: Env, tenantId: string, kind: string, credentialId: string, relativePath: string): Promise<OutboundCredential | null> {
   const database = databaseFor(env);
+  if (kind === "fly") {
+    if (credentialId !== "fly") return null;
+    const token = await new FlyConnectionRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY).token();
+    return token ? {origin: "https://api.machines.dev", path: relativePath, credential: token} : null;
+  }
+  if (kind === "exe" || kind === "amp" || kind === "clickup") {
+    if (kind === "clickup" && credentialId !== "clickup") return null;
+    const connection = await new ConnectionRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY)
+      .get<{apiToken?: string; accessToken?: string; apiBaseUrl?: string}>(kind === "clickup" ? kind : `${kind}:${credentialId}`);
+    const credential = kind === "exe" ? connection?.apiToken : connection?.accessToken;
+    if (!credential) return null;
+    if (kind === "exe") return {origin: "https://exe.dev", path: relativePath, credential};
+    if (kind === "clickup") {
+      const base = new URL(CLICKUP_API_BASE), target = new URL(`${CLICKUP_API_BASE}${relativePath}`);
+      if (!target.pathname.startsWith(`${base.pathname}/`)) return null;
+      return {origin: target.origin, path: `${target.pathname}${target.search}`, credential, authorization: "raw"};
+    }
+    const base = new URL(connection?.apiBaseUrl || "https://ampcode.com/api/cloud/v1");
+    if (!isPublicHttpsOrigin(base.origin, env.APP_ORIGIN) || base.username || base.password || base.search || base.hash) return null;
+    const prefix = base.pathname.replace(/\/$/, "");
+    const target = new URL(`${base.origin}${prefix}${relativePath}`);
+    // Relative dot segments must not escape the configured API prefix.
+    if (!target.pathname.startsWith(`${prefix}/`)) return null;
+    return {origin: base.origin, path: `${target.pathname}${target.search}`, credential};
+  }
+  if (!["bearer", "github", "linear", "model"].includes(kind)) return null;
   const modelAccountId = credentialId;
   const prefix = kind === "bearer" ? `/integrations/${credentialId}` : kind === "github" ? `/providers/github/${credentialId}` : kind === "linear" ? "/providers/linear" : "/providers/model/v1";
   const separator = relativePath.indexOf("?");
