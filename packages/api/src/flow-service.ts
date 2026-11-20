@@ -24,6 +24,13 @@ import type { DatabaseClient } from "./postgres/database";
 import { startRunInput,projectRunDefaults,scopeSchema, teamRunDefaults } from "./flow-schemas";
 import { grantVm, revokeVmGrant } from "./vm-grants";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
+import {PhoenixIntegration,runPhoenixStatus} from "./phoenix";
+import {phoenixInput,phoenixRevision} from "./phoenix-contracts";
+import {RunTelemetry,telemetryPageQuery,telemetryContentQuery} from "./run-telemetry";
+import {pricingOverrideInput,pricingCatalogVersion,pricingCatalogSource} from "./model-pricing";
+import {ProxyPayloads,createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
+import {ProxyOperations,operationRef,operationRead} from "./proxy-operations";
+import {queryApiResponseInput} from "./agent-api-contracts";
 import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
 import { DEFAULT_RUN_SCOPES } from "./run-scopes";
 import { launchPayloadResponse } from "./launch-payload";
@@ -535,7 +542,36 @@ export class ApiService {
     }finally{if(response.handle)await databaseFor(this.env).pool.query("UPDATE app.agent_proxy_responses SET expires_at=now() WHERE tenant_id=$1 AND id=$2",[this.auth.tenantId,response.handle]);}
 
   }
+  async getPhoenix(){await this.authorizeOwnerSession("integrations:read");return new PhoenixIntegration(this.env,this.auth.tenantId).get();}
+  async putPhoenix(input:unknown){await this.authorizeOwnerSession("integrations:write");return new PhoenixIntegration(this.env,this.auth.tenantId).put(phoenixInput.parse(input));}
+  async deletePhoenix(input:unknown){await this.authorizeOwnerSession("integrations:write");return new PhoenixIntegration(this.env,this.auth.tenantId).remove(phoenixRevision.parse(input).expectedRevision);}
+  async testPhoenix(){await this.authorizeOwnerSession("integrations:write");return new PhoenixIntegration(this.env,this.auth.tenantId).test();}
+  async getRunTelemetry(runId:string,query:unknown){await this.authorize("runs:read");const page=await new RunTelemetry(databaseFor(this.env),this.env.CREDENTIAL_ENCRYPTION_KEY,this.auth.tenantId).page(runId,telemetryPageQuery.parse(query));return {...page,phoenix:await runPhoenixStatus(this.env,this.auth.tenantId,runId)};}
+  async getRunTelemetryContent(runId:string,spanId:string,query:unknown){await this.authorize("runs:read");return new RunTelemetry(databaseFor(this.env),this.env.CREDENTIAL_ENCRYPTION_KEY,this.auth.tenantId).content(runId,spanId,telemetryContentQuery.parse(query));}
+  async getModelPricing(){await this.authorize("integrations:read");const rows=(await databaseFor(this.env).pool.query("SELECT integration_id,model,rates,revision FROM app.model_pricing_overrides WHERE tenant_id=$1 ORDER BY model,integration_id",[this.auth.tenantId])).rows;return {catalogVersion:pricingCatalogVersion,source:pricingCatalogSource,items:rows.map(row=>({integrationId:row.integration_id,model:row.model,rates:row.rates,revision:row.revision}))};}
+  async setModelPricing(input:unknown){
+    await this.authorizeOwnerSession("integrations:write");const value=pricingOverrideInput.parse(input),db=databaseFor(this.env);
+    if(!(await db.pool.query("SELECT 1 FROM app.integration_records WHERE tenant_id=$1 AND id=$2 AND kind='model'",[this.auth.tenantId,value.integrationId])).rowCount)throw new ServiceError(404,"not_found","Model integration not found.");
+    const row=(await db.pool.query("INSERT INTO app.model_pricing_overrides(tenant_id,integration_id,model,rates) SELECT $1,$2,$3,$4 WHERE $5=0 OR EXISTS(SELECT 1 FROM app.model_pricing_overrides WHERE tenant_id=$1 AND integration_id=$2 AND model=$3) ON CONFLICT(tenant_id,integration_id,model) DO UPDATE SET rates=excluded.rates,revision=app.model_pricing_overrides.revision+1,updated_at=now() WHERE app.model_pricing_overrides.revision=$5 RETURNING revision",[this.auth.tenantId,value.integrationId,value.model,value.rates,value.expectedRevision])).rows[0];
+    if(!row)throw new ServiceError(409,"revision_conflict","Pricing changed; reload before saving.");return {integrationId:value.integrationId,model:value.model,rates:value.rates,revision:row.revision};
+  }
+  async createProxyPayload(input:unknown){return new ProxyPayloads(this.env,this.auth).create(createPayloadInput.parse(input));}
+  async getProxyPayload(id:string){return new ProxyPayloads(this.env,this.auth).get(id);}
+  async uploadProxyPayload(id:string,request:Request){return new ProxyPayloads(this.env,this.auth).upload(id,request);}
+  async appendProxyPayload(input:unknown){return new ProxyPayloads(this.env,this.auth).append(appendPayloadInput.parse(input));}
+  async finalizeProxyPayload(input:unknown){return new ProxyPayloads(this.env,this.auth).finalize(finalizePayloadInput.parse(input));}
+  async importProxyAttachment(input:unknown){return new ProxyPayloads(this.env,this.auth).importAttachment(attachmentInput.parse(input));}
+  async fetchProxyPayload(input:{integration:string;path:string;name?:string;mediaType?:string}){return new ProxyPayloads(this.env,this.auth).importIntegration(input);}
+  async requestApiMcp(input:unknown,signal?:AbortSignal){
+    const parsed=requestApiInput.parse(input);
+    return parsed.execution==="async" || parsed.execution!=="sync" && this.auth.authMethod==="oauth" ? this.startApiOperation(parsed) : this.requestApi(parsed,signal);
+  }
+  async startApiOperation(input:unknown){return new ProxyOperations(this.env,this.auth).start(requestApiInput.parse(input));}
+  async getApiOperation(input:unknown){return new ProxyOperations(this.env,this.auth).get(operationRef.parse(input).operationId);}
+  async cancelApiOperation(input:unknown){return new ProxyOperations(this.env,this.auth).cancel(operationRef.parse(input).operationId);}
+  async readApiOperation(input:unknown){return new ProxyOperations(this.env,this.auth).read(operationRead.parse(input));}
   async requestApi(input: unknown, signal?: AbortSignal) { return this.agentApi().request(requestApiInput.parse(input), signal); }
+  async queryApiResponse(input:unknown){return this.agentApi().query(queryApiResponseInput.parse(input));}
   async readApiResponse(input: unknown) { return this.agentApi().read(readApiResponseInput.parse(input)); }
   async listApiPolicies() { await this.authorizeOwnerSession("integrations:read"); return listAgentPolicies(this.env, this.auth.tenantId); }
   async updateApiPolicy(id: string, input: unknown) {

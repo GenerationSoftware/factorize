@@ -1,0 +1,11 @@
+import {z} from "zod";
+const safeName=z.string().min(1).max(160).refine(value=>!/[\r\n\0"\\]/.test(value),"Use a plain name without quotes or control characters.");
+const mime=z.string().min(1).max(160).regex(/^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$/);
+export const createPayloadInput=z.object({name:safeName.default("payload"),mediaType:mime.default("application/octet-stream"),byteSize:z.number().int().min(0).max(32*1024*1024).optional()}).strict();
+export const payloadRef=z.object({handle:z.uuid()}).strict();
+export const appendPayloadInput=payloadRef.extend({offset:z.number().int().nonnegative(),body:z.string().max(8192),encoding:z.enum(["utf8","base64"]).default("utf8")});
+export const finalizePayloadInput=payloadRef.extend({sha256:z.string().regex(/^[a-f0-9]{64}$/).optional()});
+export const attachmentInput=z.object({file:z.object({download_url:z.string().url().max(8192),file_id:z.string().min(1).max(256),mime_type:z.string().optional(),file_name:z.string().optional()}).strict()}).strict();
+export const payloadReceipt=z.object({handle:z.uuid(),name:z.string(),mediaType:z.string(),size:z.number().int(),state:z.enum(["pending","uploading","finalizing","ready"]),sha256:z.string().nullable(),expiresAt:z.string(),uploadUrl:z.string().url(),browserUploadUrl:z.string().url()});
+export const requestBodySource=z.discriminatedUnion("kind",[z.object({kind:z.literal("payload"),handle:z.uuid()}),z.object({kind:z.literal("response"),handle:z.uuid()}),z.object({kind:z.literal("artifact"),runId:z.uuid(),artifactId:z.uuid()})]);
+export const multipartPart=z.object({name:safeName,text:z.string().max(8192).optional(),source:requestBodySource.optional(),filename:safeName.optional(),mediaType:mime.optional()}).strict().refine(value=>(value.text!==undefined)!==!!value.source,"Supply text or a file source.");

@@ -5,6 +5,7 @@ import { AuthScreen } from "../auth/auth-screen";
 export function settingsRoutes(root: AnyRootRoute) {
   const guard = async ({ location }: { location: { href: string } }) => { if (!(await queryClient.ensureQueryData(sessionQuery)).authenticated) throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } }); };
   return [
+    createRoute({getParentRoute:()=>root,path:"/uploads/proxy/$handle",beforeLoad:guard,component:lazyRouteComponent(()=>import("./proxy-upload"),"ProxyUpload")}),
     createRoute({ getParentRoute: () => root, path: "/settings/profile", beforeLoad: guard, component: lazyRouteComponent(() => import("./profile"), "Profile") }),
     createRoute({ getParentRoute: () => root, path: "/settings/integrations", beforeLoad: ({ location }) => { throw redirect({ to: "/integrations", search: location.search, hash: location.hash, replace: true }); } }),
     createRoute({ getParentRoute: () => root, path: "/integrations", beforeLoad: guard, component: lazyRouteComponent(() => import("./integrations"), "Integrations") }),

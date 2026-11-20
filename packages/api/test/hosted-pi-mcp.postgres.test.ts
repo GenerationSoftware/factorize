@@ -9,7 +9,7 @@ import {PiSessionRepository,type PiLease} from "../src/postgres/pi-session-repos
 import {snapshotRunAuthorization} from "../src/run-authorizations";
 import {CredentialRepository} from "../src/postgres/credential-repository";
 import {issueHostedRunCredential,authenticateHostedRunRequest} from "../src/hosted-run-auth";
-import {encrypt} from "../src/crypto";
+import {decrypt,encrypt} from "../src/crypto";
 import {markdown} from "../src/skill-files";
 import {snapshotSkillUri,skillUri} from "../src/mcp-skills";
 import type {PersistedRun} from "../src/postgres/run-repository";
@@ -29,12 +29,12 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("hosted Pi through the publ
    const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(chunk);const body=JSON.parse(Buffer.concat(chunks).toString());requests.push(body);
    const results=body.messages.filter((m:any)=>m.role==="tool");let name:string|undefined,args:Record<string,unknown>={};
    if(!results.some((m:any)=>m.tool_call_id==="reflection"))name="get_api_reflection";
-   else if(!results.some((m:any)=>m.tool_call_id==="api")){name="request_api";args={integration:integrationId,method:"GET",path:"/status"};}
+   else if(!results.some((m:any)=>m.tool_call_id==="api")){name="request_api";args={integration:integrationId,method:"GET",path:"/status",execution:"sync"};}
    else if(!results.some((m:any)=>m.tool_call_id==="skills"))name="mcp_list_skills";
    else if(!results.some((m:any)=>m.tool_call_id==="resource")){name="mcp_read_resource";const list=JSON.parse(results.find((m:any)=>m.tool_call_id==="skills").content);args={uri:list.skills.find((s:any)=>s.frontmatter.name==="shared-guide").uri};}
    const id=name==="get_api_reflection"?"reflection":name==="request_api"?"api":name==="mcp_list_skills"?"skills":"resource";
    const chunk=(delta:unknown,finish_reason:string|null=null)=>"data: "+JSON.stringify({id:"mcp-fixture",object:"chat.completion.chunk",created:1,model:"fixture",choices:[{index:0,delta,finish_reason}]})+"\n\n";
-   res.writeHead(200,{"Content-Type":"text/event-stream"});res.end(chunk({role:"assistant"})+chunk(name?{tool_calls:[{index:0,id,type:"function",function:{name,arguments:JSON.stringify(args)}}]}:{content:"Skill completed."})+chunk({},name?"tool_calls":"stop")+"data: [DONE]\n\n");
+   res.writeHead(200,{"Content-Type":"text/event-stream"});res.end(chunk({role:"assistant"})+chunk(name?{tool_calls:[{index:0,id,type:"function",function:{name,arguments:JSON.stringify(args)}}]}:{content:"Skill completed."})+chunk({},name?"tool_calls":"stop")+"data: "+JSON.stringify({id:"usage",choices:[],usage:{prompt_tokens:100,completion_tokens:20,prompt_tokens_details:{cached_tokens:30},completion_tokens_details:{reasoning_tokens:5}}})+"\n\ndata: [DONE]\n\n");
   });await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));providerUrl=`http://127.0.0.1:${(server.address() as any).port}/v1`;
   const creds=new CredentialRepository(f.db,f.tenantId,f.env.CREDENTIAL_ENCRYPTION_KEY);
   await creds.write({id:modelId,kind:"model",name:"Model",origin:null,description:null,expectedRevision:0,idempotencyKey:crypto.randomUUID(),operation:"upsert",managedModelPayload:JSON.stringify({providerUrl})});
@@ -62,6 +62,11 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("hosted Pi through the publ
   for(let i=0;i<5;i++)await new HostedPi(f.db,f.env,(run,lease)=>createPiMcpTools(f.env,run,lease)).advance(run);
   expect((await sessions().read(f.tenantId,run.id))?.status).toBe("complete");expect(upstream,JSON.stringify(requests.map(request=>request.messages))).toHaveLength(1);expect(upstream[0].authorization).toBe("Bearer private-api-token");
   expect(requests[0].messages.some((m:any)=>m.role==="user"&&m.content===skillBody)).toBe(true);
+  const spans=(await f.db.pool.query("SELECT * FROM app.run_telemetry_spans WHERE tenant_id=$1 AND run_id=$2",[f.tenantId,run.id])).rows;
+  expect(spans.filter(s=>s.kind==="model")).toHaveLength(5);expect(spans.filter(s=>s.kind==="tool")).toHaveLength(4);expect(spans.find(s=>s.kind==="run").status).toBe("ok");
+  for(const model of spans.filter(s=>s.kind==="model")){expect(Number(model.input_tokens)).toBe(70);expect(Number(model.cache_read_tokens)).toBe(30);expect(Number(model.output_tokens)).toBe(20);expect(Number(model.reasoning_tokens)).toBe(5);const exported=JSON.parse(await decrypt(model.encrypted_otel,f.env.CREDENTIAL_ENCRYPTION_KEY));expect(exported.traceId).toHaveLength(32);expect(exported.parentSpanId).toHaveLength(16);expect(exported.attributes).toContainEqual({key:"llm.token_count.total",value:{intValue:"120"}});}
+  const page=await (await protectedApiFetch(new Request(f.env.APP_ORIGIN+`/api/v1/runs/${run.id}/telemetry?limit=50`),f.env,f.auth,{} as any)).json() as any;
+  expect(page.summary.usage).toMatchObject({input:500,output:100,total:600});expect(page.items.find((span:any)=>span.kind==="run").usage).toMatchObject({input:500,output:100,total:600});expect(page.items.filter((span:any)=>span.kind==="turn")).toHaveLength(5);for(const turn of page.items.filter((span:any)=>span.kind==="turn"))expect(turn.usage).toMatchObject({input:100,output:20,total:120});
   const externalAuth={...f.auth,authMethod:"oauth" as const,scopes:["proxy:use","skills:read"],oauthGrantId:"external-fixture",oauthClientId:"external-client",oauthExpiresAt:Math.floor(Date.now()/1000)+3600};
   const external=new PiMcpClient(f.env.APP_ORIGIN,request=>protectedApiFetch(request,f.env,externalAuth,{} as any),async()=>"external-fixture-token");
   const resource=await external.request("resources/read",{uri:skillUri(f.tenantId,"shared-guide")});expect(resource.contents[0].text).toContain(skillBody);
@@ -85,7 +90,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("hosted Pi through the publ
   await f.db.pool.query("UPDATE app.runs SET state='stopping' WHERE tenant_id=$1 AND id=$2",[f.tenantId,run.id]);expect(await authenticateHostedRunRequest(req(token),f.env)).toBeNull();
  });
  it("enforces integration disconnection and permanent run revocation after reconnect",async()=>{
-  const lease=(await sessions().claim(f.tenantId,run.id))!,mcp=client(lease),args={integration:integrationId,method:"GET",path:"/status"};
+  const lease=(await sessions().claim(f.tenantId,run.id))!,mcp=client(lease),args={integration:integrationId,method:"GET",path:"/status",execution:"sync"};
   const first=await mcp.request("tools/call",{name:"request_api",arguments:args});expect(first.isError,JSON.stringify(first)).not.toBe(true);
   const creds=new CredentialRepository(f.db,f.tenantId,f.env.CREDENTIAL_ENCRYPTION_KEY);
   await creds.write({id:bearerId,kind:"bearer",name:"Status API",origin:"https://api.example.com",description:null,expectedRevision:await creds.revision(),idempotencyKey:crypto.randomUUID(),operation:"delete"});
@@ -117,7 +122,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("hosted Pi through the publ
   expect((await mcp.request("tools/call",{name:"invoke_trigger",arguments:args})).isError).toBe(true);
  });
  it("backfills known historical direct-run disconnections idempotently without revoking newer snapshots",async()=>{
-  const lease=(await sessions().claim(f.tenantId,run.id))!,mcp=client(lease),args={integration:integrationId,method:"GET",path:"/status"};
+  const lease=(await sessions().claim(f.tenantId,run.id))!,mcp=client(lease),args={integration:integrationId,method:"GET",path:"/status",execution:"sync"};
   await f.db.pool.query("UPDATE app.runs SET created_at=now()-interval '1 day' WHERE tenant_id=$1 AND id=$2",[f.tenantId,run.id]);
   expect((await mcp.request("tools/call",{name:"request_api",arguments:args})).isError).not.toBe(true);
   await f.db.pool.query("INSERT INTO app.integration_changes(tenant_id,revision,id,idempotency_key,operation,record_id,kind,name,origin,description,encrypted_payload,created_at) VALUES($1,9999,$2,$3,'delete',$4,'bearer','Old disconnect','https://api.example.com',NULL,NULL,now()-interval '1 hour')",[f.tenantId,crypto.randomUUID(),crypto.randomUUID(),bearerId]);

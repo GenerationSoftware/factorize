@@ -7,7 +7,7 @@ export class PiToolUncertain extends Error {constructor(public callId:string,pub
 const sortedJson=(value:any):any=>value&&typeof value==="object"?Array.isArray(value)?value.map(sortedJson):Object.fromEntries(Object.keys(value).filter(key=>value[key]!==undefined).sort().map(key=>[key,sortedJson(value[key])])):value;
 export const canonicalToolArguments=(value:any):string=>JSON.stringify(sortedJson(value));
 const idempotentTools=new Set(["start_run","invoke_trigger"]);
-export function toolCanRetry(name:string,args:any){return idempotentTools.has(name) || new Set(["get_api_reflection","get_runtime_context","get_runtime_integrations","get_run","get_run_diagnostics","get_skill","list_skills","list_runs","list_triggers","preview_trigger_prompt","read_api_response","read_media","fetch_media","mcp_read_resource","mcp_list_skills","mcp_get_skill"]).has(name) || name==="request_api"&&["GET","HEAD","OPTIONS"].includes(args.method);}
+export function toolCanRetry(name:string,args:any){return idempotentTools.has(name) || new Set(["append_payload_chunk","finalize_payload","get_api_operation","read_api_operation","query_api_response","get_api_reflection","get_runtime_context","get_runtime_integrations","get_run","get_run_diagnostics","get_skill","list_skills","list_runs","list_triggers","preview_trigger_prompt","read_api_response","read_media","fetch_media","mcp_read_resource","mcp_list_skills","mcp_get_skill"]).has(name) || name==="request_api"&&["GET","HEAD","OPTIONS"].includes(args.method);}
 /** The result commits before it is returned to Pi. Replay and execution use the
  * same framework tool validation and the same scoped MCP boundary. */
 export class PiToolJournal {

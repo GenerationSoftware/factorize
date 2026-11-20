@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { root } from "./exports.mjs";
 
 export function checkInventory(implementation, reference) {
-  const actual = [...implementation.matchAll(/\btool\("([^"]+)"/g)].map(match => match[1]).sort();
+  const actual = [...implementation.matchAll(/\b(?:tool|registerTool)\("([^"]+)"/g)].map(match => match[1]).sort();
   const documented = [...reference.matchAll(/^\| `([^\`]+)` \|/gm)].map(match => match[1]).filter(name => name.includes("_")).sort();
   if (!actual.length || JSON.stringify(actual) !== JSON.stringify(documented)) throw new Error("MCP inventory differs from registered tools");
 }

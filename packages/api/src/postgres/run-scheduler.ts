@@ -1,3 +1,6 @@
+import {reconcileTerminalTelemetry} from "../pi-telemetry";
+import {processPhoenixExports} from "../phoenix";
+import {maintainProxyOperations} from "../proxy-operations";
 import type {PiLease} from "./pi-session-repository";
 import {MediaCleanup} from "./media-cleanup";
 import {WorkspaceVm,WorkspaceLeaseLost} from "../workspace-vm";
@@ -61,6 +64,9 @@ export class RunScheduler {
     await this.reconcileProviderCleanup();
     await this.runRetentionMaintenance(retention);
     if(this.env.RUN_HISTORY_RETENTION_PAUSED?.trim().toLowerCase()!=="true")await new MediaCleanup(this.database,this.env.RUN_ARTIFACTS).sweep();
+    await reconcileTerminalTelemetry(this.database,this.env.CREDENTIAL_ENCRYPTION_KEY);
+    await processPhoenixExports(this.env);
+    await maintainProxyOperations(this.env);
     await cleanupAgentResponses(this.env);
     await cleanupVmGrants(this.env);
   }

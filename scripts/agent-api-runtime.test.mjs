@@ -239,7 +239,12 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     const large=await request(first,baseline,'/large');assert.equal(large.result.size,1140000,large.text);assert.ok(large.result.handle);assert.equal(large.result.body,undefined);
     const chunk=await read(first,{handle:large.result.handle,offset:1040000});assert.equal(Buffer.from(chunk.result.body,'base64').length,65536);assert.ok(Buffer.from(chunk.result.body,'base64').every(value=>value===255));
     assert.ok((await read(second,{handle:large.result.handle,offset:0})).text.includes('not_found'));
-    const mcpRequest=await rpc(first,'request_api',{integration:baseline.id,method:'GET',path:'/'},{progressToken:'fixture-progress'});assert.equal(mcpRequest.result?.status,200,mcpRequest.text);assert.equal(mcpRequest.result.body,'fixture response');assert.ok(!mcpRequest.text.includes('upstream-private'));
+    // This harness intentionally has no scheduler: legacy synchronous calls
+    // remain usable, while the durable default must fail clearly before dispatch.
+    const beforeAsync=observed.length;
+    const unavailable=await rpc(first,'request_api',{integration:baseline.id,method:'GET',path:'/'});
+    assert.match(unavailable.text,/proxy_unavailable/);assert.equal(observed.length,beforeAsync);
+    const mcpRequest=await rpc(first,'request_api',{integration:baseline.id,method:'GET',path:'/',execution:'sync'},{progressToken:'fixture-progress'});assert.equal(mcpRequest.result?.status,200,mcpRequest.text);assert.equal(mcpRequest.result.body,'fixture response');assert.ok(!mcpRequest.text.includes('upstream-private'));
     const policies=await json('/api/v1/integration-api-policies','GET',undefined,owner);assert.equal(policies.status,200);
     const otherTenant=randomUUID();await db.query('INSERT INTO app.tenants(id) VALUES($1)',[otherTenant]);
     const foreign=randomUUID();await db.query("INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available,policy) VALUES($1,$2,'bearer','foreign','Foreign',true,'baseline')",[otherTenant,foreign]);assert.equal((await request(first,{id:foreign})).status,403);

@@ -1,0 +1,7 @@
+import {it,expect} from "vitest";
+import {estimateModelCost,pricingRates} from "../src/model-pricing";
+import catalog from "../src/data/phoenix-prices.json";
+const usage={input:70,output:20,cacheRead:30,cacheWrite:0,reasoning:5};
+it("prices uncached/cache/output once, without adding reasoning twice",()=>{const estimate=estimateModelCost("gpt-4o-mini",usage);expect(estimate.cost).toBeCloseTo(70*0.15/1e6+30*0.075/1e6+20*0.6/1e6);expect(estimate.snapshot.version).toBe(catalog.generated_at);});
+it("uses overrides for custom endpoints and leaves missing usage/prices unknown",()=>{expect(estimateModelCost("custom",usage).cost).toBeNull();expect(estimateModelCost("custom",usage,{input:1,output:2}).cost).toBeNull();expect(estimateModelCost("custom",usage,{input:1,output:2,cacheRead:0.1}).cost).toBeCloseTo(0.000113);expect(estimateModelCost("gpt-4o-mini",{...usage,input:null}).cost).toBeNull();expect(pricingRates.safeParse({input:-1,output:2}).success).toBe(false);});
+it("applies catalog prompt-length tiers",()=>{const models=catalog.models as unknown as {name:string;token_prices:{token_type:string;customization?:{key:string;threshold:number;new_rate:number}}[]}[];const entry=models.find(m=>m.token_prices.some(p=>p.token_type==="input"&&p.customization?.key==="llm.token_count.prompt"))!;const input=entry.token_prices.find(p=>p.token_type==="input")!;const tokens=input.customization!.threshold+1;expect(estimateModelCost(entry.name,{input:tokens,output:0,cacheRead:0,cacheWrite:0,reasoning:0}).cost).toBeCloseTo(tokens*input.customization!.new_rate);});

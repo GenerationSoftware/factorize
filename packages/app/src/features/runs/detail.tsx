@@ -1,3 +1,4 @@
+import {RunTelemetry} from "./telemetry";
 import { Button, Breadcrumb, Page, ResourceHeader, RunStatusLabel } from "../../shared/ui";
 import { ContinuousTrace } from "./continuous-trace";
 import { ExpandedRunDetail } from "./expanded-detail";
@@ -92,6 +93,7 @@ export function RunDetail() {
         <RuntimeInfo startedAt={status.data.started_at} updatedAt={status.data.updated_at} active={active} />
         <div className="sm:col-span-2"><dt className="text-sm font-semibold text-slate-700 dark:text-slate-300">Execution destination</dt><dd className="break-words text-sm text-slate-600 dark:text-slate-400">{status.data.destination_url && /^https?:\/\//.test(status.data.destination_url) ? <><a className="break-all underline" href={status.data.destination_url} target="_blank" rel="noopener noreferrer">{status.data.destination_url}</a><span className="mt-1 block text-xs">The location where this run executes.</span></> : "Not available for this run"}</dd></div>
       </dl>}
+      <RunTelemetry runId={runId!} active={active} visible={tab==="info"}/>
       <ExpandedRunDetail runId={runId!} />
       {status.data && !active ? <ReplayTrace runId={runId!} /> : <p className="my-4">Replay is available after the run finishes and trace finalization completes.</p>}
     </section>}

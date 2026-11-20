@@ -14581,11 +14581,19 @@ paths:
                       readResponseUrl:
                         type: string
                         format: uri
+                      requestTool:
+                        type: string
+                        const: request_api
+                      readResponseTool:
+                        type: string
+                        const: read_api_response
                       authentication:
                         type: string
                     required:
                       - requestUrl
                       - readResponseUrl
+                      - requestTool
+                      - readResponseTool
                       - authentication
                     additionalProperties: false
                   integrations:
@@ -14639,6 +14647,33 @@ paths:
                             - unavailable
                         instructions:
                           type: string
+                        requestExample:
+                          type: object
+                          properties:
+                            integration:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            method:
+                              type: string
+                              enum:
+                                - GET
+                                - POST
+                            path:
+                              type: string
+                            headers:
+                              type: object
+                              propertyNames:
+                                type: string
+                              additionalProperties:
+                                type: string
+                            body:
+                              type: string
+                          required:
+                            - integration
+                            - method
+                            - path
+                          additionalProperties: false
                         vmGrantProvider:
                           type: string
                           const: exe.dev
@@ -14654,6 +14689,7 @@ paths:
                         - requiredScope
                         - access
                         - instructions
+                        - requestExample
                       additionalProperties: false
                 required:
                   - agentHost
@@ -14693,7 +14729,7 @@ paths:
     post:
       summary: Make an authorized credential-injected API request
       description: |-
-        OAuth requires proxy:use. An external VM sends its short-lived exe.dev WIF bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
+        OAuth requires proxy:use. An external VM sends its short-lived exe.dev WIF bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
 
         Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
@@ -14730,6 +14766,10 @@ paths:
                     format: uuid
                     pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
                   expiresAt:
+                    type: string
+                  preview:
+                    type: string
+                  instructions:
                     type: string
                 required:
                   - status
@@ -14801,6 +14841,131 @@ paths:
                   additionalProperties:
                     type: string
                     maxLength: 8192
+                execution:
+                  type: string
+                  enum:
+                    - sync
+                    - async
+                idempotencyKey:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                maxResultBytes:
+                  type: integer
+                  minimum: 2048
+                  maximum: 32768
+                bodySource:
+                  oneOf:
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: payload
+                        handle:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      required:
+                        - kind
+                        - handle
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: response
+                        handle:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      required:
+                        - kind
+                        - handle
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: artifact
+                        runId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        artifactId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      required:
+                        - kind
+                        - runId
+                        - artifactId
+                multipart:
+                  minItems: 1
+                  maxItems: 16
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 160
+                      text:
+                        type: string
+                        maxLength: 8192
+                      source:
+                        oneOf:
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: payload
+                              handle:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            required:
+                              - kind
+                              - handle
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: response
+                              handle:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            required:
+                              - kind
+                              - handle
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: artifact
+                              runId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                              artifactId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            required:
+                              - kind
+                              - runId
+                              - artifactId
+                      filename:
+                        type: string
+                        minLength: 1
+                        maxLength: 160
+                      mediaType:
+                        type: string
+                        minLength: 1
+                        maxLength: 160
+                        pattern: ^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$
+                    required:
+                      - name
+                    additionalProperties: false
                 body:
                   type: string
                   maxLength: 44739244
@@ -14815,11 +14980,2319 @@ paths:
                 - method
                 - path
               additionalProperties: false
+  /api/v1/runs/{runId}/telemetry:
+    get:
+      summary: Read paginated run spans and live usage/cost totals
+      description: |-
+        Local telemetry remains available without Phoenix. Model input counts include cached tokens; reasoning is a subset of output. Unreported usage and unknown pricing remain unavailable. Wall time comes from the root span and does not sum overlapping child durations.
+
+        Requires the runs:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Telemetry page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                  traceId:
+                    type:
+                      - string
+                      - "null"
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        key:
+                          type: string
+                        traceId:
+                          type: string
+                        parentId:
+                          type:
+                            - string
+                            - "null"
+                        kind:
+                          type: string
+                        name:
+                          type: string
+                        model:
+                          type:
+                            - string
+                            - "null"
+                        status:
+                          type: string
+                          enum:
+                            - running
+                            - ok
+                            - error
+                            - canceled
+                            - uncertain
+                        startedAt:
+                          type: string
+                        endedAt:
+                          type:
+                            - string
+                            - "null"
+                        durationMs:
+                          type: number
+                        usage:
+                          type: object
+                          properties:
+                            input:
+                              type:
+                                - number
+                                - "null"
+                            uncachedInput:
+                              type:
+                                - number
+                                - "null"
+                            output:
+                              type:
+                                - number
+                                - "null"
+                            cacheRead:
+                              type:
+                                - number
+                                - "null"
+                            cacheWrite:
+                              type:
+                                - number
+                                - "null"
+                            reasoning:
+                              type:
+                                - number
+                                - "null"
+                            total:
+                              type:
+                                - number
+                                - "null"
+                          required:
+                            - input
+                            - uncachedInput
+                            - output
+                            - cacheRead
+                            - cacheWrite
+                            - reasoning
+                            - total
+                          additionalProperties: false
+                        costUsd:
+                          type:
+                            - number
+                            - "null"
+                      required:
+                        - id
+                        - key
+                        - traceId
+                        - parentId
+                        - kind
+                        - name
+                        - model
+                        - status
+                        - startedAt
+                        - endedAt
+                        - durationMs
+                        - usage
+                        - costUsd
+                      additionalProperties: false
+                  nextCursor:
+                    anyOf:
+                      - type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      - type: "null"
+                  phoenix:
+                    type: object
+                    properties:
+                      url:
+                        type:
+                          - string
+                          - "null"
+                      pending:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      sent:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      failed:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      canceled:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      lastError:
+                        type:
+                          - string
+                          - "null"
+                    required:
+                      - url
+                      - pending
+                      - sent
+                      - failed
+                      - canceled
+                      - lastError
+                    additionalProperties: false
+                  summary:
+                    type: object
+                    properties:
+                      durationMs:
+                        type:
+                          - number
+                          - "null"
+                      modelCalls:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      toolCalls:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      unreportedCalls:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      unpricedCalls:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      usage:
+                        type: object
+                        properties:
+                          input:
+                            type:
+                              - number
+                              - "null"
+                          uncachedInput:
+                            type:
+                              - number
+                              - "null"
+                          output:
+                            type:
+                              - number
+                              - "null"
+                          cacheRead:
+                            type:
+                              - number
+                              - "null"
+                          cacheWrite:
+                            type:
+                              - number
+                              - "null"
+                          reasoning:
+                            type:
+                              - number
+                              - "null"
+                          total:
+                            type:
+                              - number
+                              - "null"
+                        required:
+                          - input
+                          - uncachedInput
+                          - output
+                          - cacheRead
+                          - cacheWrite
+                          - reasoning
+                          - total
+                        additionalProperties: false
+                      costUsd:
+                        type:
+                          - number
+                          - "null"
+                    required:
+                      - durationMs
+                      - modelCalls
+                      - toolCalls
+                      - unreportedCalls
+                      - unpricedCalls
+                      - usage
+                      - costUsd
+                    additionalProperties: false
+                required:
+                  - available
+                  - traceId
+                  - items
+                  - nextCursor
+                  - summary
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_runs_runId_telemetry
+      tags:
+        - runs
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: runs:read
+      x-owner-session-required: false
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            default: 0
+            type: integer
+            minimum: 0
+            maximum: 1000000
+        - name: limit
+          in: query
+          required: false
+          schema:
+            default: 25
+            type: integer
+            minimum: 1
+            maximum: 50
+  /api/v1/runs/{runId}/telemetry/{spanId}:
+    get:
+      summary: Read a bounded chunk of span input/output and its pricing snapshot
+      responses:
+        "200":
+          description: At most 2048 characters of encrypted-at-rest content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  field:
+                    type: string
+                    enum:
+                      - input
+                      - output
+                  next:
+                    anyOf:
+                      - type: object
+                        properties:
+                          chunk:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                          offset:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                        required:
+                          - chunk
+                          - offset
+                        additionalProperties: false
+                      - type: "null"
+                  pricing: {}
+                required:
+                  - text
+                  - field
+                  - next
+                  - pricing
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the runs:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_runs_runId_telemetry_spanId
+      tags:
+        - runs
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: runs:read
+      x-owner-session-required: false
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+        - name: spanId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: ^[a-f0-9]{16}$
+        - name: field
+          in: query
+          required: false
+          schema:
+            default: output
+            type: string
+            enum:
+              - input
+              - output
+        - name: chunk
+          in: query
+          required: false
+          schema:
+            default: 0
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+        - name: offset
+          in: query
+          required: false
+          schema:
+            default: 0
+            type: integer
+            minimum: 0
+            maximum: 16384
+        - name: limit
+          in: query
+          required: false
+          schema:
+            default: 2048
+            type: integer
+            minimum: 1
+            maximum: 2048
+  /api/v1/integrations/phoenix:
+    get:
+      summary: Inspect credential-safe team Phoenix settings
+      responses:
+        "200":
+          description: Phoenix configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  endpoint:
+                    type: string
+                  projectName:
+                    type: string
+                  projectId:
+                    type:
+                      - string
+                      - "null"
+                  credentialConfigured:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  revision:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  lastTestAt:
+                    type:
+                      - string
+                      - "null"
+                  lastError:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - configured
+                  - endpoint
+                  - projectName
+                  - projectId
+                  - credentialConfigured
+                  - enabled
+                  - revision
+                  - lastTestAt
+                  - lastError
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:read scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: get_api_v1_integrations_phoenix
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: true
+    put:
+      summary: Configure automatic new-run telemetry export to Phoenix Cloud
+      description: |-
+        Requires an owner session and expectedRevision. API key is encrypted and never returned. Omit it to retain the existing key. Disabling cancels pending exports. Destination changes apply only to newly created runs; no historical backfill.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Saved configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  endpoint:
+                    type: string
+                  projectName:
+                    type: string
+                  projectId:
+                    type:
+                      - string
+                      - "null"
+                  credentialConfigured:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  revision:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  lastTestAt:
+                    type:
+                      - string
+                      - "null"
+                  lastError:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - configured
+                  - endpoint
+                  - projectName
+                  - projectId
+                  - credentialConfigured
+                  - enabled
+                  - revision
+                  - lastTestAt
+                  - lastError
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: put_api_v1_integrations_phoenix
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                endpoint:
+                  type: string
+                  maxLength: 2048
+                  format: uri
+                projectName:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                apiKey:
+                  writeOnly: true
+                  type: string
+                  minLength: 1
+                  maxLength: 8192
+                  pattern: ^[^\r\n]+$
+                enabled:
+                  default: true
+                  type: boolean
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+              required:
+                - endpoint
+                - projectName
+                - expectedRevision
+              additionalProperties: false
+    delete:
+      summary: Disconnect Phoenix and cancel pending exports
+      responses:
+        "200":
+          description: Disconnected configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  endpoint:
+                    type: string
+                  projectName:
+                    type: string
+                  projectId:
+                    type:
+                      - string
+                      - "null"
+                  credentialConfigured:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  revision:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  lastTestAt:
+                    type:
+                      - string
+                      - "null"
+                  lastError:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - configured
+                  - endpoint
+                  - projectName
+                  - projectId
+                  - credentialConfigured
+                  - enabled
+                  - revision
+                  - lastTestAt
+                  - lastError
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: delete_api_v1_integrations_phoenix
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+              required:
+                - expectedRevision
+              additionalProperties: false
+  /api/v1/integrations/phoenix/test:
+    post:
+      summary: Test Phoenix authentication and destination project lookup
+      responses:
+        "200":
+          description: Connection result without credentials
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connected:
+                    type: boolean
+                  projectFound:
+                    type: boolean
+                  error:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - connected
+                  - projectFound
+                  - error
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      operationId: post_api_v1_integrations_phoenix_test
+      tags:
+        - integrations
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+  /api/v1/model-pricing:
+    get:
+      summary: Read versioned catalog provenance and team model price overrides
+      responses:
+        "200":
+          description: Pricing settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  catalogVersion:
+                    type: string
+                  source:
+                    type: string
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        integrationId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        model:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        rates:
+                          anyOf:
+                            - type: object
+                              properties:
+                                input:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1000000
+                                output:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1000000
+                                cacheRead:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1000000
+                                cacheWrite:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1000000
+                              required:
+                                - input
+                                - output
+                              additionalProperties: false
+                            - type: "null"
+                        revision:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                      required:
+                        - integrationId
+                        - model
+                        - rates
+                        - revision
+                      additionalProperties: false
+                required:
+                  - catalogVersion
+                  - source
+                  - items
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_model_pricing
+      tags:
+        - model-pricing
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: false
+    put:
+      summary: Set per-integration/model USD prices per million tokens
+      description: |-
+        Requires an interactive owner session and expectedRevision. Set rates null to revert to the catalog. Historical estimates retain their original pricing snapshot.
+
+        Requires the integrations:write scope.
+
+        An interactive owner session is required; bearer tokens cannot call this operation.
+      responses:
+        "200":
+          description: Saved override revision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  integrationId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  model:
+                    type: string
+                    minLength: 1
+                    maxLength: 256
+                  rates:
+                    anyOf:
+                      - type: object
+                        properties:
+                          input:
+                            type: number
+                            minimum: 0
+                            maximum: 1000000
+                          output:
+                            type: number
+                            minimum: 0
+                            maximum: 1000000
+                          cacheRead:
+                            type: number
+                            minimum: 0
+                            maximum: 1000000
+                          cacheWrite:
+                            type: number
+                            minimum: 0
+                            maximum: 1000000
+                        required:
+                          - input
+                          - output
+                        additionalProperties: false
+                      - type: "null"
+                  revision:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - integrationId
+                  - model
+                  - rates
+                  - revision
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: put_api_v1_model_pricing
+      tags:
+        - model-pricing
+      security:
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                integrationId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                model:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+                rates:
+                  anyOf:
+                    - type: object
+                      properties:
+                        input:
+                          type: number
+                          minimum: 0
+                          maximum: 1000000
+                        output:
+                          type: number
+                          minimum: 0
+                          maximum: 1000000
+                        cacheRead:
+                          type: number
+                          minimum: 0
+                          maximum: 1000000
+                        cacheWrite:
+                          type: number
+                          minimum: 0
+                          maximum: 1000000
+                      required:
+                        - input
+                        - output
+                      additionalProperties: false
+                    - type: "null"
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+              required:
+                - integrationId
+                - model
+                - rates
+                - expectedRevision
+              additionalProperties: false
+  /api/v1/proxy-payloads:
+    post:
+      summary: Reserve a temporary connection/run-bound request body
+      responses:
+        "200":
+          description: Upload/staging receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  mediaType:
+                    type: string
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  state:
+                    type: string
+                    enum:
+                      - pending
+                      - uploading
+                      - finalizing
+                      - ready
+                  sha256:
+                    type:
+                      - string
+                      - "null"
+                  expiresAt:
+                    type: string
+                  uploadUrl:
+                    type: string
+                    format: uri
+                  browserUploadUrl:
+                    type: string
+                    format: uri
+                required:
+                  - handle
+                  - name
+                  - mediaType
+                  - size
+                  - state
+                  - sha256
+                  - expiresAt
+                  - uploadUrl
+                  - browserUploadUrl
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: post_api_v1_proxy_payloads
+      tags:
+        - proxy-payloads
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  default: payload
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                mediaType:
+                  default: application/octet-stream
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                  pattern: ^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$
+                byteSize:
+                  type: integer
+                  minimum: 0
+                  maximum: 33554432
+              additionalProperties: false
+  /api/v1/proxy-payloads/{handle}:
+    get:
+      summary: Inspect an authorized temporary upload
+      responses:
+        "200":
+          description: Payload receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  mediaType:
+                    type: string
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  state:
+                    type: string
+                    enum:
+                      - pending
+                      - uploading
+                      - finalizing
+                      - ready
+                  sha256:
+                    type:
+                      - string
+                      - "null"
+                  expiresAt:
+                    type: string
+                  uploadUrl:
+                    type: string
+                    format: uri
+                  browserUploadUrl:
+                    type: string
+                    format: uri
+                required:
+                  - handle
+                  - name
+                  - mediaType
+                  - size
+                  - state
+                  - sha256
+                  - expiresAt
+                  - uploadUrl
+                  - browserUploadUrl
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_proxy_payloads_handle
+      tags:
+        - proxy-payloads
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+  /api/v1/proxy-payloads/{handle}/bytes:
+    put:
+      summary: Stream a generic file into an authorized payload
+      description: |-
+        An authenticated owner browser can upload for its originating OAuth connection. Immutable finalized bytes; fixed 32 MiB limit. No run is required.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Finalized payload receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  mediaType:
+                    type: string
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  state:
+                    type: string
+                    enum:
+                      - pending
+                      - uploading
+                      - finalizing
+                      - ready
+                  sha256:
+                    type:
+                      - string
+                      - "null"
+                  expiresAt:
+                    type: string
+                  uploadUrl:
+                    type: string
+                    format: uri
+                  browserUploadUrl:
+                    type: string
+                    format: uri
+                required:
+                  - handle
+                  - name
+                  - mediaType
+                  - size
+                  - state
+                  - sha256
+                  - expiresAt
+                  - uploadUrl
+                  - browserUploadUrl
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: put_api_v1_proxy_payloads_handle_bytes
+      tags:
+        - proxy-payloads
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+  /api/v1/proxy-payloads/append:
+    post:
+      summary: Append a bounded idempotent payload chunk
+      responses:
+        "200":
+          description: Payload progress
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  mediaType:
+                    type: string
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  state:
+                    type: string
+                    enum:
+                      - pending
+                      - uploading
+                      - finalizing
+                      - ready
+                  sha256:
+                    type:
+                      - string
+                      - "null"
+                  expiresAt:
+                    type: string
+                  uploadUrl:
+                    type: string
+                    format: uri
+                  browserUploadUrl:
+                    type: string
+                    format: uri
+                required:
+                  - handle
+                  - name
+                  - mediaType
+                  - size
+                  - state
+                  - sha256
+                  - expiresAt
+                  - uploadUrl
+                  - browserUploadUrl
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: post_api_v1_proxy_payloads_append
+      tags:
+        - proxy-payloads
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                handle:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                offset:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                body:
+                  type: string
+                  maxLength: 8192
+                encoding:
+                  default: utf8
+                  type: string
+                  enum:
+                    - utf8
+                    - base64
+              required:
+                - handle
+                - offset
+                - body
+              additionalProperties: false
+  /api/v1/proxy-payloads/finalize:
+    post:
+      summary: Finalize and checksum a staged body
+      responses:
+        "200":
+          description: Immutable payload receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  mediaType:
+                    type: string
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  state:
+                    type: string
+                    enum:
+                      - pending
+                      - uploading
+                      - finalizing
+                      - ready
+                  sha256:
+                    type:
+                      - string
+                      - "null"
+                  expiresAt:
+                    type: string
+                  uploadUrl:
+                    type: string
+                    format: uri
+                  browserUploadUrl:
+                    type: string
+                    format: uri
+                required:
+                  - handle
+                  - name
+                  - mediaType
+                  - size
+                  - state
+                  - sha256
+                  - expiresAt
+                  - uploadUrl
+                  - browserUploadUrl
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: post_api_v1_proxy_payloads_finalize
+      tags:
+        - proxy-payloads
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                handle:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                sha256:
+                  type: string
+                  pattern: ^[a-f0-9]{64}$
+              required:
+                - handle
+              additionalProperties: false
+  /api/v1/proxy-payloads/attachment:
+    post:
+      summary: Import a native ChatGPT attachment
+      description: |-
+        Accepts documented OpenAI file parameters. Temporary signed URLs are never returned; imports require trusted public HTTPS file origins and disallow redirects.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Imported file handle
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  name:
+                    type: string
+                  mediaType:
+                    type: string
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  state:
+                    type: string
+                    enum:
+                      - pending
+                      - uploading
+                      - finalizing
+                      - ready
+                  sha256:
+                    type:
+                      - string
+                      - "null"
+                  expiresAt:
+                    type: string
+                  uploadUrl:
+                    type: string
+                    format: uri
+                  browserUploadUrl:
+                    type: string
+                    format: uri
+                required:
+                  - handle
+                  - name
+                  - mediaType
+                  - size
+                  - state
+                  - sha256
+                  - expiresAt
+                  - uploadUrl
+                  - browserUploadUrl
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_proxy_payloads_attachment
+      tags:
+        - proxy-payloads
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: object
+                  properties:
+                    download_url:
+                      type: string
+                      maxLength: 8192
+                      format: uri
+                    file_id:
+                      type: string
+                      minLength: 1
+                      maxLength: 256
+                    mime_type:
+                      type: string
+                    file_name:
+                      type: string
+                  required:
+                    - download_url
+                    - file_id
+                  additionalProperties: false
+              required:
+                - file
+              additionalProperties: false
+  /api/v1/agent/operations:
+    post:
+      summary: Start an identity-bound durable HTTP operation
+      description: |-
+        Fixed 32 MiB request, 64 MiB response and 15 minute upstream limits. An idempotencyKey safely reuses an accepted operation; interrupted dispatch is never automatically replayed. Poll/read/cancel using the operation ID.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Durable operation state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  operationId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  state:
+                    type: string
+                    enum:
+                      - queued
+                      - running
+                      - complete
+                      - failed
+                      - canceled
+                      - uncertain
+                  status:
+                    anyOf:
+                      - type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      - type: "null"
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  partial:
+                    type: boolean
+                  effectsUncertain:
+                    type: boolean
+                  error:
+                    anyOf:
+                      - type: object
+                        properties:
+                          code:
+                            type: string
+                          message:
+                            type: string
+                        required:
+                          - code
+                          - message
+                        additionalProperties: false
+                      - type: "null"
+                  responseHandle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  expiresAt:
+                    type: string
+                  instructions:
+                    type: string
+                required:
+                  - operationId
+                  - state
+                  - status
+                  - size
+                  - partial
+                  - effectsUncertain
+                  - error
+                  - expiresAt
+                  - instructions
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_agent_operations
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                integration:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                method:
+                  type: string
+                  enum:
+                    - GET
+                    - HEAD
+                    - POST
+                    - PUT
+                    - PATCH
+                    - DELETE
+                    - OPTIONS
+                path:
+                  type: string
+                  minLength: 1
+                  maxLength: 8192
+                headers:
+                  default: {}
+                  type: object
+                  propertyNames:
+                    type: string
+                    pattern: ^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$
+                  additionalProperties:
+                    type: string
+                    maxLength: 8192
+                execution:
+                  type: string
+                  enum:
+                    - sync
+                    - async
+                idempotencyKey:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                maxResultBytes:
+                  type: integer
+                  minimum: 2048
+                  maximum: 32768
+                bodySource:
+                  oneOf:
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: payload
+                        handle:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      required:
+                        - kind
+                        - handle
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: response
+                        handle:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      required:
+                        - kind
+                        - handle
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: artifact
+                        runId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                        artifactId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                      required:
+                        - kind
+                        - runId
+                        - artifactId
+                multipart:
+                  minItems: 1
+                  maxItems: 16
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        minLength: 1
+                        maxLength: 160
+                      text:
+                        type: string
+                        maxLength: 8192
+                      source:
+                        oneOf:
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: payload
+                              handle:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            required:
+                              - kind
+                              - handle
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: response
+                              handle:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            required:
+                              - kind
+                              - handle
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: artifact
+                              runId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                              artifactId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            required:
+                              - kind
+                              - runId
+                              - artifactId
+                      filename:
+                        type: string
+                        minLength: 1
+                        maxLength: 160
+                      mediaType:
+                        type: string
+                        minLength: 1
+                        maxLength: 160
+                        pattern: ^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$
+                    required:
+                      - name
+                    additionalProperties: false
+                body:
+                  type: string
+                  maxLength: 44739244
+                encoding:
+                  default: utf8
+                  type: string
+                  enum:
+                    - utf8
+                    - base64
+              required:
+                - integration
+                - method
+                - path
+              additionalProperties: false
+  /api/v1/agent/operations/status:
+    post:
+      summary: Poll an authorized HTTP operation
+      responses:
+        "200":
+          description: Operation state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  operationId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  state:
+                    type: string
+                    enum:
+                      - queued
+                      - running
+                      - complete
+                      - failed
+                      - canceled
+                      - uncertain
+                  status:
+                    anyOf:
+                      - type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      - type: "null"
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  partial:
+                    type: boolean
+                  effectsUncertain:
+                    type: boolean
+                  error:
+                    anyOf:
+                      - type: object
+                        properties:
+                          code:
+                            type: string
+                          message:
+                            type: string
+                        required:
+                          - code
+                          - message
+                        additionalProperties: false
+                      - type: "null"
+                  responseHandle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  expiresAt:
+                    type: string
+                  instructions:
+                    type: string
+                required:
+                  - operationId
+                  - state
+                  - status
+                  - size
+                  - partial
+                  - effectsUncertain
+                  - error
+                  - expiresAt
+                  - instructions
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: post_api_v1_agent_operations_status
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operationId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+              required:
+                - operationId
+              additionalProperties: false
+  /api/v1/agent/operations/cancel:
+    post:
+      summary: Cancel an authorized HTTP operation
+      responses:
+        "200":
+          description: Cancellation state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  operationId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  state:
+                    type: string
+                    enum:
+                      - queued
+                      - running
+                      - complete
+                      - failed
+                      - canceled
+                      - uncertain
+                  status:
+                    anyOf:
+                      - type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      - type: "null"
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  partial:
+                    type: boolean
+                  effectsUncertain:
+                    type: boolean
+                  error:
+                    anyOf:
+                      - type: object
+                        properties:
+                          code:
+                            type: string
+                          message:
+                            type: string
+                        required:
+                          - code
+                          - message
+                        additionalProperties: false
+                      - type: "null"
+                  responseHandle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  expiresAt:
+                    type: string
+                  instructions:
+                    type: string
+                required:
+                  - operationId
+                  - state
+                  - status
+                  - size
+                  - partial
+                  - effectsUncertain
+                  - error
+                  - expiresAt
+                  - instructions
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: post_api_v1_agent_operations_cancel
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operationId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+              required:
+                - operationId
+              additionalProperties: false
+  /api/v1/agent/operations/read:
+    post:
+      summary: Read bounded incremental operation bytes
+      responses:
+        "200":
+          description: Partial or completed byte range
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  operationId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  offset:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  nextOffset:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  body:
+                    type: string
+                  encoding:
+                    type: string
+                    const: base64
+                  size:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  state:
+                    type: string
+                  done:
+                    type: boolean
+                required:
+                  - operationId
+                  - offset
+                  - nextOffset
+                  - body
+                  - encoding
+                  - size
+                  - state
+                  - done
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: post_api_v1_agent_operations_read
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operationId:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                offset:
+                  default: 0
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                limit:
+                  default: 384
+                  type: integer
+                  minimum: 1
+                  maximum: 384
+              required:
+                - operationId
+              additionalProperties: false
+  /api/v1/agent/responses/query:
+    post:
+      summary: Query bounded retained JSON, text lines or binary byte ranges
+      description: |-
+        Rechecks proxy authorization and identity/tenant/integration expiry. JSON/text parsing is limited to 1 MiB; larger bodies remain available through byte ranges. JMESPath functions, root references and constructors are excluded to bound intermediate allocations.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      responses:
+        "200":
+          description: Bounded selected data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handle:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  mode:
+                    type: string
+                    enum:
+                      - json
+                      - text
+                      - bytes
+                  data: {}
+                  offset:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  nextOffset:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  done:
+                    type: boolean
+                  encoding:
+                    type: string
+                    enum:
+                      - json
+                      - utf8
+                      - base64
+                required:
+                  - handle
+                  - mode
+                  - data
+                  - offset
+                  - nextOffset
+                  - done
+                  - encoding
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: post_api_v1_agent_responses_query
+      tags:
+        - agent
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: []
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                handle:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                mode:
+                  default: json
+                  type: string
+                  enum:
+                    - json
+                    - text
+                    - bytes
+                expression:
+                  default: "@"
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+                offset:
+                  default: 0
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+                limit:
+                  default: 25
+                  type: integer
+                  minimum: 1
+                  maximum: 1000
+                maxResultBytes:
+                  default: 4096
+                  type: integer
+                  minimum: 2048
+                  maximum: 32768
+              required:
+                - handle
+              additionalProperties: false
   /api/v1/agent/responses/read:
     post:
       summary: Read up to 64 KiB of an identity-bound retained response
       description: |-
-        Accepts the same OAuth, run or external VM authentication as the request endpoint. Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.
+        Accepts the same OAuth, run or external VM authentication as the request endpoint. Rechecks authorization, integration revocation epoch, tenant, identity and 30-minute expiry. Chunks are always base64 so arbitrary byte offsets are safe.
 
         Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
@@ -14908,6 +17381,10 @@ paths:
                   type: integer
                   minimum: 0
                   maximum: 9007199254740991
+                limit:
+                  type: integer
+                  minimum: 1
+                  maximum: 65536
               required:
                 - handle
               additionalProperties: false

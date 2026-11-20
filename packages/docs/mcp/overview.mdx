@@ -57,3 +57,21 @@ Literal skills without frontmatter receive a published `name` and description wr
 Factorize-managed Pi uses this same MCP session boundary. Its short-lived identity is bound to the active run and current execution lease, with application scopes and selected integrations taken from the accepted run snapshot. Cancellation, lease replacement, owner revocation and integration disconnection are checked on subsequent requests. Provider credentials never enter the model context.
 
 Selected run skills are pinned inputs under `skill://runs/TEAM_ID/RUN_ID/SKILL_NAME/SKILL.md`, including their supporting files. An active run may discover and read these inputs even with no `skills:read` permission. That capability grants access only to its own accepted package. Broader team-library discovery still requires `skills:read`. Unrelated edits, renames or deletes do not replace the run's pinned inputs.
+
+## Proxy tool discovery
+
+Integration APIs are available through `request_api`, without a VM, shell, or raw
+OAuth credential. Call `get_api_reflection` first and pass an integration's
+`requestExample` to `request_api`. Use `read_api_response` for retained handles.
+The proxy tools remain discoverable when `proxy:use` has not been granted; calls
+then fail with `insufficient_scope` and require renewed consent. `forbidden`
+indicates integration policy; `credential_unavailable` asks the owner to repair
+upstream credentials.
+
+If reflection is available but proxy tools are missing, compare authenticated
+server `tools/list` with the connector's catalog. From a repository checkout,
+pipe the captured JSON into `node scripts/diagnose-mcp-proxy.mjs`. This diagnostic
+makes no network calls. If server discovery includes the missing tools, refresh
+or reconnect the client connector; otherwise check the deployed server version.
+A saved connector catalog can differ from the current repository. Local fixture
+acceptance verifies the protocol contract, not a particular mobile app release.

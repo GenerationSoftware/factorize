@@ -1,3 +1,4 @@
+import {PhoenixIntegration} from "./phoenix";
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
@@ -67,6 +68,7 @@ function IntegrationsContent() {
       {feedback && !feedback.error && feedback.message === "Integration disconnected." && <p role="status">Integration disconnected.</p>}
       {fly.feedback}{bearer.feedback}{models.feedback}{x.feedback}
     </section>
+    <PhoenixIntegration/>
     <section aria-labelledby="available-integrations-heading" className="mt-10"><h2 id="available-integrations-heading" className="text-xl font-bold">Available integrations</h2><p className="mb-4 mt-1 text-sm text-slate-600 dark:text-slate-400">Choose a provider to connect or configure an integration.</p><div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
       <ProviderTile kind="linear" name="Linear" description="Create and update issues." count={data?.linear ? 1 : 0} href="/auth/linear" />
       <ProviderTile kind="clickup" name="ClickUp" description="Event workflows from tasks and lists." count={data?.clickup ? 1 : 0} href="/auth/clickup" />

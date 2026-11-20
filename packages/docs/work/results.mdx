@@ -43,3 +43,44 @@ Set the team's model, optional workspace, permissions and capacity with an owner
 Call `start_run` with a literal prompt, optional skill key or ID, and a client-generated idempotency key. Supply `projectId` when an external client has multiple projects. Retrying the same request returns the same run. A launch skill is captured by ID, key and revision. Filter `list_runs` by `skillId`, using `none` for unclassified runs.
 
 Save the receipt's `outcomeUri` with the originating conversation ID. With MCP revision 2026-07-28, request `subscriptions/listen` with that URI in `notifications.resourceSubscriptions`. On acknowledgment and on each resource update, call `resources/read`. A terminal outcome has a stable `eventId`, state, available result, failure and artifact references. Append it to the originating conversation once per event ID. Reopen the listen stream on close or reconnect. Older clients can read the resource directly. Reading or watching requires `runs:read`. Outcomes share the run's history retention period.
+
+## Run telemetry and estimated costs
+
+Hosted Pi records OpenTelemetry/OpenInference run, turn, model, tool, retry and
+compaction spans without requiring Phoenix. Open a run's **Info** tab for live
+wall time, usage and estimated cost. Expand a span for its timings and paged
+input/output. Credentials and temporary file URLs are redacted; capture follows
+run retention. Historical runs without capture remain readable.
+
+Input totals include cache reads/writes; reasoning is already included in output.
+Unreported usage and unknown model prices display as unavailable. Estimates use
+an exact model-name match from a versioned Phoenix catalog snapshot. In
+**Integrations → Edit model integration → Estimated model prices**, add USD rates
+per million tokens for custom models or negotiated pricing. Each completed model
+call saves its applied rates; later changes do not rewrite historical estimates.
+
+The repository's `node scripts/update-model-prices.mjs` refreshes the bundled
+catalog from Arize Phoenix. Pass a local manifest file to validate/update without
+network access. Catalog provenance and generation date are exposed through the
+model-pricing API. Updating the catalog is a reviewed source change; normal runs
+and validation do not depend on live price downloads.
+
+## Phoenix Cloud export
+
+Configure the team in **Integrations → Phoenix Cloud telemetry** with the Phoenix
+base URL (including `/s/YOUR_SPACE` for Phoenix Cloud), project name and API key.
+Use **Test Phoenix connection** to verify access. Enabling exports captures new
+runs automatically; it does not backfill older runs. The key is encrypted and
+never returned to the browser. Omit it when editing to retain the configured key.
+
+Completed spans enter a durable queue and are sent in bounded OTLP protobuf
+batches. Transient errors retry with backoff, up to eight attempts; permanent
+errors remain visible. Delivery is at least once: an ambiguous acknowledgement
+can cause the same trace/span IDs to be sent again. Local capture and run results
+remain available during an outage. Disable or disconnect to cancel pending
+exports; neither action removes telemetry already received by Phoenix.
+
+Run Info shows pending/sent/failed/canceled counts, export errors, and **View in
+Phoenix** once the destination project ID is known. Link lookup retries separately
+from ingestion, preserving successful delivery without retransmitting spans.
+Large captured inputs/outputs use bounded previews with local content references.

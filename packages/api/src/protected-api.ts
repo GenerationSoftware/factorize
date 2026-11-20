@@ -1,3 +1,6 @@
+import {createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
+import {operationRef,operationRead} from "./proxy-operations";
+import {proxyToolResult} from "./proxy-result";
 import {mediaRef,fetchMediaInput} from "./media-contracts";
 import {authenticateHostedRunRequest} from "./hosted-run-auth";
 import {SKILLS_EXTENSION} from "./mcp-skills";
@@ -9,6 +12,7 @@ import { listenForOutcomes, outcomeRunId } from "./run-outcome-subscription";
 import { authenticateVendorRunRequest } from "./vendor-run-auth";
 import { Hono } from "hono";
 import { AgentApiError } from "./agent-api";
+import {queryApiResponseInput} from "./agent-api-contracts";
 import { vmExecInput, grantVmInput, revokeVmInput, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
 import { ExeIntegrationError } from "./exe-vm-backend";
 import { queryOf } from "./query-params";
@@ -56,7 +60,7 @@ function queryInput(url: URL): Record<string, string | string[]> {
 
 function structured(value: unknown) {
   const output = Array.isArray(value) ? { items: value } : value && typeof value === "object" ? value as Record<string, unknown> : { value };
-  return { content: [{ type: "text" as const, text: JSON.stringify(output) }], structuredContent: output };
+  return proxyToolResult(output);
 }
 
 export async function protectedApiFetch(request: Request, env: Env, auth: OAuthProps | null, ctx: ExecutionContext): Promise<Response> {
@@ -161,21 +165,33 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     server.server.setRequestHandler("skills/get",{params:z.object({uri:z.string(),_meta:z.record(z.string(),z.unknown()).optional()})},params=>skillAction(()=>service.mcpGetSkill(params.uri)));
     server.registerResource("team-skill",new ResourceTemplate("skill://teams/{teamId}/{+path}",{list:undefined}),{description:"Authorized team skill package files"},uri=>skillAction(()=>service.mcpReadSkill(uri.href)));
     server.registerResource("run-input-skill",new ResourceTemplate("skill://runs/{teamId}/{runId}/{+path}",{list:undefined}),{description:"Pinned skill input files belonging to the active run"},uri=>skillAction(()=>service.mcpReadSkill(uri.href)));
+    server.registerResource("proxy-response",new ResourceTemplate("proxy://responses/{handle}",{list:undefined}),{mimeType:"application/json",description:"Bounded authorized retained response byte range; use query_api_response for filtering."},async uri=>({contents:[{uri:uri.href,mimeType:"application/json",text:JSON.stringify(await service.queryApiResponse({handle:uri.pathname.slice(1),mode:"bytes",limit:256}))}]}));
     server.registerResource("run-outcome",new ResourceTemplate("factorize://runs/{runId}/outcome",{list:undefined}),
       {mimeType:"application/json",description:"Pending or terminal outcome of an authorized run"},async uri=>({
         contents:[{uri:uri.href,mimeType:"application/json",text:JSON.stringify(await service.runOutcome(outcomeRunId(uri.href)))}],
       }));
-    const tool = <T>(name: string, description: string, schema: any, action: (input: T,signal?:AbortSignal) => Promise<unknown>,rawContent=false) => server.registerTool(name, { description, inputSchema: schema }, async (input: T,context:{mcpReq:{signal:AbortSignal}}) => {
-      try { const requestSignal=mcpSignals.get(service);const result=await action(input,requestSignal?AbortSignal.any([context.mcpReq.signal,requestSignal]):context.mcpReq.signal);return rawContent?result as any:structured(result); }
+    const tool = <T>(name: string, description: string, schema: any, action: (input: T,signal?:AbortSignal) => Promise<unknown>,rawContent=false) => server.registerTool(name, { description, inputSchema: schema }, async (input: T,context:{mcpReq:{signal:AbortSignal;_meta?:{progressToken?:string|number};notify:(value:any)=>Promise<void>}}) => {
+      try { const requestSignal=mcpSignals.get(service);const token=context.mcpReq._meta?.progressToken;
+        if(token!==undefined)await context.mcpReq.notify({method:"notifications/progress",params:{progressToken:token,progress:0,total:1,message:"Processing request"}}).catch(()=>{});
+        const result=await action(input,requestSignal?AbortSignal.any([context.mcpReq.signal,requestSignal]):context.mcpReq.signal);if(token!==undefined)await context.mcpReq.notify({method:"notifications/progress",params:{progressToken:token,progress:1,total:1,message:"Result available; poll operation handles for upstream progress"}}).catch(()=>{});return rawContent?result as any:structured(result); }
       catch (error) { const response = errorResponse(error), detail = await response.json() as any; throw new Error(`${detail.error?.code ?? "operation_failed"}: ${detail.error?.message ?? "Operation failed"}`); }
     });
     tool("rename_mcp_client", "Set the display name of this OAuth connection in Authorized clients.", clientNameInput, input => service.renameMcpClient(input));
     tool("fetch_media","Fetch unchanged image bytes from an authorized integration API into this run's scratch space. Use read_media to inspect the returned artifactId. The pinned Pi framework accepts image content.",fetchMediaInput,(input,signal)=>service.fetchMedia(input,signal));
     tool("read_media","Read an authorized input or scratch image as an MCP image content block.",mediaRef,input=>service.readMedia(mediaRef.parse(input).artifactId),true);
     tool("vm_exec","Execute a shell command in this run's server-bound workspace VM. Reflect first. Commands run in the VM; Pi itself runs in Factorize. No arbitrary VM selection.",vmExecInput,(input,signal)=>service.vmExec(vmExecInput.parse(input),signal));
-    tool("get_api_reflection", "Discover this agent identity, effective Factorize scopes, and granted/requestable integration APIs. Availability describes connection state, not verified credential health.", z.object({}), () => service.getApiReflection());
-    tool("request_api","Make an authorized HTTP request through a selected integration. Credentials stay in Factorize; OAuth requires proxy:use.",requestApiInput,(input,signal)=>service.requestApi(input,signal));
-    tool("read_api_response","Read a retained integration response chunk with the same authorization as the original request.",readApiResponseInput,input=>service.readApiResponse(input));
+    tool("get_api_reflection", "Use this first to discover authorized integration APIs and request_api examples. Call request_api with the returned integration ID; no shell or raw credential is needed. Availability is not a credential health check.", z.object({}), () => service.getApiReflection());
+    tool("request_api","Call an integration discovered by get_api_reflection. Use its integration ID and relative path; no VM, shell or credential is needed. Credentials stay in Factorize. OAuth requires proxy:use. Use read_api_response for retained response handles.",requestApiInput,(input:any,signal)=>service.requestApiMcp({...input,maxResultBytes:input.maxResultBytes??4096},signal));
+    tool("read_api_response","Read a retained integration response chunk with the same authorization as the original request.",readApiResponseInput,(input:any)=>service.readApiResponse({...input,limit:Math.min(input.limit??384,384)}));
+    tool("create_payload","Reserve a temporary request body. Open browserUploadUrl to upload an existing file without a run, or append/finalize generated text in chunks. Pass the finalized handle to request_api bodySource.",createPayloadInput,input=>service.createProxyPayload(input));
+    tool("append_payload_chunk","Append a small generated UTF8/base64 chunk at the returned payload byte size. Identical retries are safe.",appendPayloadInput,input=>service.appendProxyPayload(input));
+    tool("finalize_payload","Finalize an immutable request payload; optional SHA256 verifies exact bytes.",finalizePayloadInput,input=>service.finalizeProxyPayload(input));
+    server.registerTool("import_attachment",{description:"Import a user-attached ChatGPT file directly into temporary artifact storage. Returns a payload handle for request_api. Missing native download URLs require create_payload and its browserUploadUrl.",inputSchema:attachmentInput,_meta:{"openai/fileParams":["file"]}},async input=>structured(await service.importProxyAttachment(input)));
+    tool("fetch_payload","Import unchanged file bytes from an authorized integration into a temporary request payload.",z.object({integration:z.uuid(),path:z.string().min(1).max(8192),name:z.string().optional(),mediaType:z.string().optional()}),(input:any)=>service.fetchProxyPayload(input));
+    tool("get_api_operation","Poll a durable HTTP operation. Does not repeat the upstream request.",operationRef,input=>service.getApiOperation(input));
+    tool("read_api_operation","Read bounded incremental response bytes, including partial bytes after failure. Poll get_api_operation for status.",operationRead,input=>service.readApiOperation(input));
+    tool("cancel_api_operation","Cancel an HTTP operation. Upstream writes may already have taken effect.",operationRef,input=>service.cancelApiOperation(input));
+    tool("query_api_response","Query a retained response without loading it into context. JSON supports bounded JMESPath fields/projections/filters, text uses line offsets, bytes uses byte offsets. Parsing is limited to 1 MiB; use byte ranges for larger bodies.",queryApiResponseInput,input=>service.queryApiResponse(input));
     tool("grant_vm", "Delegate selected proxy integrations to a VM on a supported provider connection.", grantVmInput, (input) => service.grantVm(input));
     tool("revoke_vm_grant", "Revoke proxy access for an externally managed VM.", revokeVmInput, ({grantId}: any) => service.revokeVmGrant(grantId));
     tool("list_exe_connections", "List safe metadata for saved exe.dev connections. API tokens are never returned.", z.object({}), () => service.listExeConnections());

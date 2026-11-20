@@ -2111,11 +2111,373 @@ export interface paths {
         put?: never;
         /**
          * Make an authorized credential-injected API request
-         * @description OAuth requires proxy:use. An external VM sends its short-lived exe.dev WIF bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
+         * @description OAuth requires proxy:use. An external VM sends its short-lived exe.dev WIF bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 30 minutes and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_agent_requests"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{runId}/telemetry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read paginated run spans and live usage/cost totals
+         * @description Local telemetry remains available without Phoenix. Model input counts include cached tokens; reasoning is a subset of output. Unreported usage and unknown pricing remain unavailable. Wall time comes from the root span and does not sum overlapping child durations.
+         *
+         *     Requires the runs:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_runs_runId_telemetry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{runId}/telemetry/{spanId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a bounded chunk of span input/output and its pricing snapshot
+         * @description Requires the runs:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_runs_runId_telemetry_spanId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/phoenix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect credential-safe team Phoenix settings
+         * @description Requires the integrations:read scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        get: operations["get_api_v1_integrations_phoenix"];
+        /**
+         * Configure automatic new-run telemetry export to Phoenix Cloud
+         * @description Requires an owner session and expectedRevision. API key is encrypted and never returned. Omit it to retain the existing key. Disabling cancels pending exports. Destination changes apply only to newly created runs; no historical backfill.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_integrations_phoenix"];
+        post?: never;
+        /**
+         * Disconnect Phoenix and cancel pending exports
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        delete: operations["delete_api_v1_integrations_phoenix"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/phoenix/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Phoenix authentication and destination project lookup
+         * @description Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        post: operations["post_api_v1_integrations_phoenix_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/model-pricing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read versioned catalog provenance and team model price overrides
+         * @description Requires the integrations:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_model_pricing"];
+        /**
+         * Set per-integration/model USD prices per million tokens
+         * @description Requires an interactive owner session and expectedRevision. Set rates null to revert to the catalog. Historical estimates retain their original pricing snapshot.
+         *
+         *     Requires the integrations:write scope.
+         *
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
+         */
+        put: operations["put_api_v1_model_pricing"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proxy-payloads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reserve a temporary connection/run-bound request body
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_proxy_payloads"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proxy-payloads/{handle}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect an authorized temporary upload
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_proxy_payloads_handle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proxy-payloads/{handle}/bytes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Stream a generic file into an authorized payload
+         * @description An authenticated owner browser can upload for its originating OAuth connection. Immutable finalized bytes; fixed 32 MiB limit. No run is required.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        put: operations["put_api_v1_proxy_payloads_handle_bytes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proxy-payloads/append": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Append a bounded idempotent payload chunk
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_proxy_payloads_append"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proxy-payloads/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finalize and checksum a staged body
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_proxy_payloads_finalize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proxy-payloads/attachment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import a native ChatGPT attachment
+         * @description Accepts documented OpenAI file parameters. Temporary signed URLs are never returned; imports require trusted public HTTPS file origins and disallow redirects.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_proxy_payloads_attachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start an identity-bound durable HTTP operation
+         * @description Fixed 32 MiB request, 64 MiB response and 15 minute upstream limits. An idempotencyKey safely reuses an accepted operation; interrupted dispatch is never automatically replayed. Poll/read/cancel using the operation ID.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_agent_operations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/operations/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poll an authorized HTTP operation
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_agent_operations_status"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/operations/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel an authorized HTTP operation
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_agent_operations_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/operations/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read bounded incremental operation bytes
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_agent_operations_read"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent/responses/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Query bounded retained JSON, text lines or binary byte ranges
+         * @description Rechecks proxy authorization and identity/tenant/integration expiry. JSON/text parsing is limited to 1 MiB; larger bodies remain available through byte ranges. JMESPath functions, root references and constructors are excluded to bound intermediate allocations.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_agent_responses_query"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2133,7 +2495,7 @@ export interface paths {
         put?: never;
         /**
          * Read up to 64 KiB of an identity-bound retained response
-         * @description Accepts the same OAuth, run or external VM authentication as the request endpoint. Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.
+         * @description Accepts the same OAuth, run or external VM authentication as the request endpoint. Rechecks authorization, integration revocation epoch, tenant, identity and 30-minute expiry. Chunks are always base64 so arbitrary byte offsets are safe.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -9159,6 +9521,10 @@ export interface operations {
                             requestUrl: string;
                             /** Format: uri */
                             readResponseUrl: string;
+                            /** @constant */
+                            requestTool: "request_api";
+                            /** @constant */
+                            readResponseTool: "read_api_response";
                             authentication: string;
                         };
                         integrations: {
@@ -9177,6 +9543,17 @@ export interface operations {
                             /** @enum {string} */
                             access: "granted" | "requestable" | "unavailable";
                             instructions: string;
+                            requestExample: {
+                                /** Format: uuid */
+                                integration: string;
+                                /** @enum {string} */
+                                method: "GET" | "POST";
+                                path: string;
+                                headers?: {
+                                    [key: string]: string;
+                                };
+                                body?: string;
+                            };
                             /** @constant */
                             vmGrantProvider?: "exe.dev";
                         }[];
@@ -9212,6 +9589,52 @@ export interface operations {
                     headers?: {
                         [key: string]: string;
                     };
+                    /** @enum {string} */
+                    execution?: "sync" | "async";
+                    idempotencyKey?: string;
+                    maxResultBytes?: number;
+                    bodySource?: {
+                        /** @constant */
+                        kind: "payload";
+                        /** Format: uuid */
+                        handle: string;
+                    } | {
+                        /** @constant */
+                        kind: "response";
+                        /** Format: uuid */
+                        handle: string;
+                    } | {
+                        /** @constant */
+                        kind: "artifact";
+                        /** Format: uuid */
+                        runId: string;
+                        /** Format: uuid */
+                        artifactId: string;
+                    };
+                    multipart?: {
+                        name: string;
+                        text?: string;
+                        source?: {
+                            /** @constant */
+                            kind: "payload";
+                            /** Format: uuid */
+                            handle: string;
+                        } | {
+                            /** @constant */
+                            kind: "response";
+                            /** Format: uuid */
+                            handle: string;
+                        } | {
+                            /** @constant */
+                            kind: "artifact";
+                            /** Format: uuid */
+                            runId: string;
+                            /** Format: uuid */
+                            artifactId: string;
+                        };
+                        filename?: string;
+                        mediaType?: string;
+                    }[];
                     body?: string;
                     /**
                      * @default utf8
@@ -9240,6 +9663,1040 @@ export interface operations {
                         /** Format: uuid */
                         handle?: string;
                         expiresAt?: string;
+                        preview?: string;
+                        instructions?: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_runs_runId_telemetry: {
+        parameters: {
+            query?: {
+                cursor?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Telemetry page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        available: boolean;
+                        traceId: string | null;
+                        items: {
+                            id: string;
+                            key: string;
+                            traceId: string;
+                            parentId: string | null;
+                            kind: string;
+                            name: string;
+                            model: string | null;
+                            /** @enum {string} */
+                            status: "running" | "ok" | "error" | "canceled" | "uncertain";
+                            startedAt: string;
+                            endedAt: string | null;
+                            durationMs: number;
+                            usage: {
+                                input: number | null;
+                                uncachedInput: number | null;
+                                output: number | null;
+                                cacheRead: number | null;
+                                cacheWrite: number | null;
+                                reasoning: number | null;
+                                total: number | null;
+                            };
+                            costUsd: number | null;
+                        }[];
+                        nextCursor: number | null;
+                        phoenix?: {
+                            url: string | null;
+                            pending: number;
+                            sent: number;
+                            failed: number;
+                            canceled: number;
+                            lastError: string | null;
+                        };
+                        summary: {
+                            durationMs: number | null;
+                            modelCalls: number;
+                            toolCalls: number;
+                            unreportedCalls: number;
+                            unpricedCalls: number;
+                            usage: {
+                                input: number | null;
+                                uncachedInput: number | null;
+                                output: number | null;
+                                cacheRead: number | null;
+                                cacheWrite: number | null;
+                                reasoning: number | null;
+                                total: number | null;
+                            };
+                            costUsd: number | null;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_runs_runId_telemetry_spanId: {
+        parameters: {
+            query?: {
+                field?: "input" | "output";
+                chunk?: number;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                runId: string;
+                spanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description At most 2048 characters of encrypted-at-rest content */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        text: string;
+                        /** @enum {string} */
+                        field: "input" | "output";
+                        next: {
+                            chunk: number;
+                            offset: number;
+                        } | null;
+                        pricing: unknown;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_integrations_phoenix: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Phoenix configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        configured: boolean;
+                        endpoint: string;
+                        projectName: string;
+                        projectId: string | null;
+                        credentialConfigured: boolean;
+                        enabled: boolean;
+                        revision: number;
+                        lastTestAt: string | null;
+                        lastError: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_integrations_phoenix: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uri */
+                    endpoint: string;
+                    projectName: string;
+                    apiKey?: string;
+                    /** @default true */
+                    enabled?: boolean;
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        configured: boolean;
+                        endpoint: string;
+                        projectName: string;
+                        projectId: string | null;
+                        credentialConfigured: boolean;
+                        enabled: boolean;
+                        revision: number;
+                        lastTestAt: string | null;
+                        lastError: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_integrations_phoenix: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Disconnected configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        configured: boolean;
+                        endpoint: string;
+                        projectName: string;
+                        projectId: string | null;
+                        credentialConfigured: boolean;
+                        enabled: boolean;
+                        revision: number;
+                        lastTestAt: string | null;
+                        lastError: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_integrations_phoenix_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connection result without credentials */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        connected: boolean;
+                        projectFound: boolean;
+                        error: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_model_pricing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pricing settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        catalogVersion: string;
+                        source: string;
+                        items: {
+                            /** Format: uuid */
+                            integrationId: string;
+                            model: string;
+                            rates: {
+                                input: number;
+                                output: number;
+                                cacheRead?: number;
+                                cacheWrite?: number;
+                            } | null;
+                            revision: number;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_model_pricing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    integrationId: string;
+                    model: string;
+                    rates: {
+                        input: number;
+                        output: number;
+                        cacheRead?: number;
+                        cacheWrite?: number;
+                    } | null;
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved override revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        integrationId: string;
+                        model: string;
+                        rates: {
+                            input: number;
+                            output: number;
+                            cacheRead?: number;
+                            cacheWrite?: number;
+                        } | null;
+                        revision: number;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_proxy_payloads: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @default payload */
+                    name?: string;
+                    /** @default application/octet-stream */
+                    mediaType?: string;
+                    byteSize?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Upload/staging receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        handle: string;
+                        name: string;
+                        mediaType: string;
+                        size: number;
+                        /** @enum {string} */
+                        state: "pending" | "uploading" | "finalizing" | "ready";
+                        sha256: string | null;
+                        expiresAt: string;
+                        /** Format: uri */
+                        uploadUrl: string;
+                        /** Format: uri */
+                        browserUploadUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_proxy_payloads_handle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                handle: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Payload receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        handle: string;
+                        name: string;
+                        mediaType: string;
+                        size: number;
+                        /** @enum {string} */
+                        state: "pending" | "uploading" | "finalizing" | "ready";
+                        sha256: string | null;
+                        expiresAt: string;
+                        /** Format: uri */
+                        uploadUrl: string;
+                        /** Format: uri */
+                        browserUploadUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_proxy_payloads_handle_bytes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                handle: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Finalized payload receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        handle: string;
+                        name: string;
+                        mediaType: string;
+                        size: number;
+                        /** @enum {string} */
+                        state: "pending" | "uploading" | "finalizing" | "ready";
+                        sha256: string | null;
+                        expiresAt: string;
+                        /** Format: uri */
+                        uploadUrl: string;
+                        /** Format: uri */
+                        browserUploadUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_proxy_payloads_append: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    handle: string;
+                    offset: number;
+                    body: string;
+                    /**
+                     * @default utf8
+                     * @enum {string}
+                     */
+                    encoding?: "utf8" | "base64";
+                };
+            };
+        };
+        responses: {
+            /** @description Payload progress */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        handle: string;
+                        name: string;
+                        mediaType: string;
+                        size: number;
+                        /** @enum {string} */
+                        state: "pending" | "uploading" | "finalizing" | "ready";
+                        sha256: string | null;
+                        expiresAt: string;
+                        /** Format: uri */
+                        uploadUrl: string;
+                        /** Format: uri */
+                        browserUploadUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_proxy_payloads_finalize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    handle: string;
+                    sha256?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Immutable payload receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        handle: string;
+                        name: string;
+                        mediaType: string;
+                        size: number;
+                        /** @enum {string} */
+                        state: "pending" | "uploading" | "finalizing" | "ready";
+                        sha256: string | null;
+                        expiresAt: string;
+                        /** Format: uri */
+                        uploadUrl: string;
+                        /** Format: uri */
+                        browserUploadUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_proxy_payloads_attachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    file: {
+                        /** Format: uri */
+                        download_url: string;
+                        file_id: string;
+                        mime_type?: string;
+                        file_name?: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Imported file handle */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        handle: string;
+                        name: string;
+                        mediaType: string;
+                        size: number;
+                        /** @enum {string} */
+                        state: "pending" | "uploading" | "finalizing" | "ready";
+                        sha256: string | null;
+                        expiresAt: string;
+                        /** Format: uri */
+                        uploadUrl: string;
+                        /** Format: uri */
+                        browserUploadUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_agent_operations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    integration: string;
+                    /** @enum {string} */
+                    method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+                    path: string;
+                    /** @default {} */
+                    headers?: {
+                        [key: string]: string;
+                    };
+                    /** @enum {string} */
+                    execution?: "sync" | "async";
+                    idempotencyKey?: string;
+                    maxResultBytes?: number;
+                    bodySource?: {
+                        /** @constant */
+                        kind: "payload";
+                        /** Format: uuid */
+                        handle: string;
+                    } | {
+                        /** @constant */
+                        kind: "response";
+                        /** Format: uuid */
+                        handle: string;
+                    } | {
+                        /** @constant */
+                        kind: "artifact";
+                        /** Format: uuid */
+                        runId: string;
+                        /** Format: uuid */
+                        artifactId: string;
+                    };
+                    multipart?: {
+                        name: string;
+                        text?: string;
+                        source?: {
+                            /** @constant */
+                            kind: "payload";
+                            /** Format: uuid */
+                            handle: string;
+                        } | {
+                            /** @constant */
+                            kind: "response";
+                            /** Format: uuid */
+                            handle: string;
+                        } | {
+                            /** @constant */
+                            kind: "artifact";
+                            /** Format: uuid */
+                            runId: string;
+                            /** Format: uuid */
+                            artifactId: string;
+                        };
+                        filename?: string;
+                        mediaType?: string;
+                    }[];
+                    body?: string;
+                    /**
+                     * @default utf8
+                     * @enum {string}
+                     */
+                    encoding?: "utf8" | "base64";
+                };
+            };
+        };
+        responses: {
+            /** @description Durable operation state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        operationId: string;
+                        /** @enum {string} */
+                        state: "queued" | "running" | "complete" | "failed" | "canceled" | "uncertain";
+                        status: number | null;
+                        size: number;
+                        partial: boolean;
+                        effectsUncertain: boolean;
+                        error: {
+                            code: string;
+                            message: string;
+                        } | null;
+                        /** Format: uuid */
+                        responseHandle?: string;
+                        expiresAt: string;
+                        instructions: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_agent_operations_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    operationId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Operation state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        operationId: string;
+                        /** @enum {string} */
+                        state: "queued" | "running" | "complete" | "failed" | "canceled" | "uncertain";
+                        status: number | null;
+                        size: number;
+                        partial: boolean;
+                        effectsUncertain: boolean;
+                        error: {
+                            code: string;
+                            message: string;
+                        } | null;
+                        /** Format: uuid */
+                        responseHandle?: string;
+                        expiresAt: string;
+                        instructions: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_agent_operations_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    operationId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Cancellation state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        operationId: string;
+                        /** @enum {string} */
+                        state: "queued" | "running" | "complete" | "failed" | "canceled" | "uncertain";
+                        status: number | null;
+                        size: number;
+                        partial: boolean;
+                        effectsUncertain: boolean;
+                        error: {
+                            code: string;
+                            message: string;
+                        } | null;
+                        /** Format: uuid */
+                        responseHandle?: string;
+                        expiresAt: string;
+                        instructions: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_agent_operations_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    operationId: string;
+                    /** @default 0 */
+                    offset?: number;
+                    /** @default 384 */
+                    limit?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Partial or completed byte range */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        operationId: string;
+                        offset: number;
+                        nextOffset: number;
+                        body: string;
+                        /** @constant */
+                        encoding: "base64";
+                        size: number;
+                        state: string;
+                        done: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_agent_responses_query: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    handle: string;
+                    /**
+                     * @default json
+                     * @enum {string}
+                     */
+                    mode?: "json" | "text" | "bytes";
+                    /** @default @ */
+                    expression?: string;
+                    /** @default 0 */
+                    offset?: number;
+                    /** @default 25 */
+                    limit?: number;
+                    /** @default 4096 */
+                    maxResultBytes?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Bounded selected data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        handle: string;
+                        /** @enum {string} */
+                        mode: "json" | "text" | "bytes";
+                        data: unknown;
+                        offset: number;
+                        nextOffset: number;
+                        done: boolean;
+                        /** @enum {string} */
+                        encoding: "json" | "utf8" | "base64";
                     };
                 };
             };
@@ -9268,6 +10725,7 @@ export interface operations {
                     handle: string;
                     /** @default 0 */
                     offset?: number;
+                    limit?: number;
                 };
             };
         };

@@ -1,3 +1,7 @@
+import {proxyRequestBody} from "./proxy-payloads";
+import {search} from "@jmespath-community/jmespath";
+import {proxyResultSize,proxyReceipt} from "./proxy-result";
+import {queryApiResponseInput,requestApiResponse} from "./agent-api-contracts";
 import {AgentApiError} from "./agent-api-error";
 export {AgentApiError} from "./agent-api-error";
 import {activeHostedRunIdentity} from "./hosted-run-auth";
@@ -58,7 +62,7 @@ export async function integrationConsentLabels(env: Env, tenantId: string, scope
 }
 
 export class AgentApiService {
-  constructor(private env: Env, private auth: OAuthProps) {}
+  constructor(private env: Env, private auth: OAuthProps, private durableRunOperation=false) {}
   private get database() { return databaseFor(this.env); }
   async identity() {
     const auth = this.auth;
@@ -66,7 +70,10 @@ export class AgentApiService {
     if (member?.role !== "owner" || member.sessionVersion !== auth.sessionVersion) throw invalidIdentity();
     let kind: "run" | "oauth" | "vm", subject: string, config: Record<string, any> | null = null;
     if(auth.authMethod==="hosted_pi" && auth.runId){
-      if(!await activeHostedRunIdentity(this.database,auth))throw invalidIdentity();
+      if(this.durableRunOperation){
+        const active=await this.database.pool.query("SELECT 1 FROM app.runs r JOIN app.run_authorizations a ON a.tenant_id=r.tenant_id AND a.run_id=r.id WHERE r.tenant_id=$1 AND r.id=$2 AND r.state IN ('starting','running','blocked') AND a.user_id=$3 AND a.session_version=$4",[auth.tenantId,auth.runId,auth.userId,auth.sessionVersion]);
+        if(!active.rowCount)throw invalidIdentity();
+      }else if(!await activeHostedRunIdentity(this.database,auth))throw invalidIdentity();
       kind="run";subject=auth.runId;
       config=(await this.database.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2",[auth.tenantId,auth.runId])).rows[0]?.execution_config;
       if(!config)throw invalidIdentity();
@@ -142,12 +149,16 @@ export class AgentApiService {
         if (!(error instanceof AgentApiError) || error.status === 401) throw error;
         access = error.code === "insufficient_scope" ? "requestable" : "unavailable";
       }
-      result.push({...publicIntegration(row), access, ...(row.kind === "exe" && identity.kind === "oauth" && access === "granted" ? {vmGrantProvider: "exe.dev" as const} : {}), instructions: row.kind === "x" ? "Use the HTTP request endpoint with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use the HTTP request endpoint with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use the HTTP request endpoint with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use the HTTP request endpoint with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use the HTTP request endpoint with a path relative to /api/v2." : row.kind === "fly" ? "Use the HTTP request endpoint with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use the HTTP request endpoint with an OpenAI-compatible path relative to /v1." : "Use the HTTP request endpoint with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions."});
+      const path = row.kind === "linear" ? "/graphql" : row.kind === "x" ? "/2/users/me" : row.kind === "fly" ? "/v1/apps" : row.kind === "exe" ? "/exec" : "/";
+      const method = row.kind === "linear" || row.kind === "exe" ? "POST" : "GET";
+      const requestExample = {integration:row.id,method,path,...(row.kind === "linear" ? {headers:{"Content-Type":"application/json"},body:JSON.stringify({query:"query { viewer { id name } }"})} : row.kind === "exe" ? {headers:{"Content-Type":"text/plain"},body:"help"} : {})};
+      result.push({...publicIntegration(row), access, requestExample, ...(row.kind === "exe" && identity.kind === "oauth" && access === "granted" ? {vmGrantProvider: "exe.dev" as const} : {}), instructions: "Call MCP request_api with this integration ID and requestExample; no shell, local VM, raw HTTP client or access token is needed. Read retained results with read_api_response. " + (row.kind === "x" ? "Use the HTTP request endpoint with an X API v2 path, such as /2/users/me. Only granted OAuth scopes and supported resources are available." : row.kind === "linear" ? "Use the HTTP request endpoint with path /graphql and a JSON GraphQL body." : row.kind === "exe" ? "Use the HTTP request endpoint with POST /exec and a text/plain exe.dev command body." : row.kind === "amp" ? "Use the HTTP request endpoint with a path relative to the configured Amp API base." : row.kind === "clickup" ? "Use the HTTP request endpoint with a path relative to /api/v2." : row.kind === "fly" ? "Use the HTTP request endpoint with a Fly Machines API path, such as /v1/apps." : row.kind === "model" ? "Use the HTTP request endpoint with an OpenAI-compatible path relative to /v1." : "Use the HTTP request endpoint with a relative API path and query. Access covers this integration, bounded by the upstream credential permissions.")});
     }
     return {identity: {id: identity.id, kind: identity.kind}, scopes: normalizeScopes(this.auth.scopes).filter(scope => !identity.policy.disabled_scopes.includes(scope)), proxy: {
       requestUrl: this.env.APP_ORIGIN + "/api/v1/agent/requests",
       readResponseUrl: this.env.APP_ORIGIN + "/api/v1/agent/responses/read",
-      authentication: identity.kind === "run" ? "Use MCP request_api and read_api_response with this run identity." : "POST JSON with integration, method, and path. Use the agent OAuth credential with proxy:use. With the Factorize device launcher, curl -H @\"$FACTORIZE_AGENT_AUTH_FILE\" reads the authorization header.",
+      requestTool: "request_api", readResponseTool: "read_api_response",
+      authentication: "Call MCP request_api with integration, method and relative path (see each requestExample). MCP supplies authorization; never request or construct a credential. OAuth connections require proxy:use; renew consent if missing. read_api_response retrieves retained response handles. If these tools are missing from the client catalog, refresh/reconnect the connector and compare server tools/list; an HTTP URL alone is not usable by a tool-only client.",
     }, integrations: result};
   }
   async forward(integration: string, path: string, request: Request) {
@@ -211,7 +222,7 @@ export class AgentApiService {
     try { return await forwardRunOutbound(request, { origin: "https://api.x.com", path: path, credential: accessToken }); }
     catch { throw new AgentApiError(502, "proxy_failed", "The X API request failed. Check X API access, credits, and rate limits, then retry if safe."); }
   }
-  async request(input: z.infer<typeof requestApiInput>, signal?: AbortSignal) {
+  async request(input: z.infer<typeof requestApiInput>, signal?: AbortSignal):Promise<z.infer<typeof requestApiResponse>> {
     if(this.auth.authMethod==="oauth"&&!this.auth.scopes.includes("proxy:use"))throw new AgentApiError(403,"insufficient_scope","The proxy:use scope is required.","proxy:use");
     const parsed = requestApiInput.parse(input);
     // Decode and size-check before any upstream operation.
@@ -219,10 +230,13 @@ export class AgentApiService {
     try { bytes = parsed.body === undefined ? undefined : parsed.encoding === "base64" ? decodeBase64(parsed.body) : new TextEncoder().encode(parsed.body); }
     catch { throw new AgentApiError(400, "invalid_request", "Invalid base64 request body."); }
     if (bytes && bytes.byteLength > 32*1024*1024) throw new AgentApiError(413, "request_too_large", "Request body exceeds the proxy limit.");
-    const response = await this.forward(parsed.integration, parsed.path, new Request(`${this.env.APP_ORIGIN}/mcp`, {method: parsed.method, headers: parsed.headers, body: bytes as Uint8Array<ArrayBuffer> | undefined, signal}));
+    const outbound=await proxyRequestBody(this.env,this.auth,parsed,this.durableRunOperation);
+    const response = await this.forward(parsed.integration, parsed.path, new Request(`${this.env.APP_ORIGIN}/mcp`, {method:parsed.method,headers:outbound.headers,body:outbound.body,signal,duplex:"half"} as RequestInit));
     const headers: Record<string,string> = {}; response.headers.forEach((value,key) => {headers[key]=value;});
     const reader = response.body?.getReader(), chunks: Uint8Array[] = [];
     let size = 0, buffered = 0, block = 0;
+    let preview="";
+    const inlineLimit=parsed.maxResultBytes ? Math.min(32768,Math.floor(parsed.maxResultBytes/4)) : 32768;
     let handle: string | undefined, expiresAt: string | undefined, key: string | undefined;
     // R2 accepts known-length byte buffers. Store bounded 1 MiB blocks while
     // consuming upstream, rather than buffering the complete response in memory.
@@ -237,12 +251,13 @@ export class AgentApiService {
     try {
       if (reader) for (;;) {
         const {done,value} = await reader.read(); if (done) break;
+        if(!size)preview=new TextDecoder().decode(value.subarray(0,160));
         size += value.byteLength;
         if (size > 64*1024*1024) throw new Error("Proxy response exceeds limit");
-        if (!key && size > 32768) {
+        if (!key && size > inlineLimit) {
           if (!this.env.RUN_ARTIFACTS) throw new Error("Response storage unavailable");
           const grant = await this.authorize(parsed.integration);
-          handle = crypto.randomUUID(); expiresAt = new Date(Date.now()+86400_000).toISOString();
+          handle = crypto.randomUUID(); expiresAt = new Date(Date.now()+1800_000).toISOString();
           key = `agent-responses/${this.auth.tenantId}/${grant.identity.id}/${handle}`;
           await this.database.pool.query(`INSERT INTO app.agent_proxy_responses(tenant_id,id,identity_id,integration_id,integration_epoch,object_key,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, [this.auth.tenantId,handle,grant.identity.id,parsed.integration,grant.integration.epoch,key,expiresAt]);
           // Start the maintenance heartbeat even on otherwise idle tenants.
@@ -256,18 +271,64 @@ export class AgentApiService {
         if(pendingSize) await this.env.RUN_ARTIFACTS!.put(`${key}/${block++}`,pending.slice(0,pendingSize).buffer);
         await this.authorize(parsed.integration);
         await this.database.pool.query("UPDATE app.agent_proxy_responses SET size=$3 WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId,handle,size]);
-        return {status: response.status,headers,size,encoding: "base64" as const,handle,expiresAt};
+        const receipt={status:response.status,headers,size,encoding:"base64" as const,handle:handle!,expiresAt:expiresAt!};
+        return parsed.maxResultBytes ? proxyReceipt(receipt,parsed.maxResultBytes,preview) : receipt;
       }
       const body = new Uint8Array(buffered); let offset = 0; for (const chunk of chunks) {body.set(chunk,offset);offset+=chunk.byteLength;}
       await this.authorize(parsed.integration);
-      try { return {status: response.status,headers,size,encoding: "utf8" as const,body: new TextDecoder("utf-8",{fatal:true,ignoreBOM:true}).decode(body)}; }
-      catch { return {status: response.status,headers,size,encoding: "base64" as const,body: encodeBase64(body)}; }
+      let result:{status:number;headers:Record<string,string>;size:number;encoding:"utf8"|"base64";body:string};
+      try { result={status:response.status,headers,size,encoding:"utf8",body:new TextDecoder("utf-8",{fatal:true,ignoreBOM:true}).decode(body)}; }
+      catch { result={status:response.status,headers,size,encoding:"base64",body:encodeBase64(body)}; }
+      if(!parsed.maxResultBytes || proxyResultSize(result)<=parsed.maxResultBytes)return result;
+      if(!this.env.RUN_ARTIFACTS)throw new Error("Response storage unavailable");
+      const grant=await this.authorize(parsed.integration);handle=crypto.randomUUID();expiresAt=new Date(Date.now()+1800_000).toISOString();key=`agent-responses/${this.auth.tenantId}/${grant.identity.id}/${handle}`;
+      await this.database.pool.query("INSERT INTO app.agent_proxy_responses(tenant_id,id,identity_id,integration_id,integration_epoch,object_key,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)",[this.auth.tenantId,handle,grant.identity.id,parsed.integration,grant.integration.epoch,key,expiresAt]);
+      await write(body);if(pendingSize)await this.env.RUN_ARTIFACTS.put(`${key}/${block++}`,pending.slice(0,pendingSize).buffer);
+      await this.authorize(parsed.integration);await this.database.pool.query("UPDATE app.agent_proxy_responses SET size=$3 WHERE tenant_id=$1 AND id=$2",[this.auth.tenantId,handle,size]);
+      if(this.env.SCHEDULER)await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake",{method:"POST"});
+      return proxyReceipt({status:response.status,headers,size,encoding:"base64",handle,expiresAt},parsed.maxResultBytes,preview);
     } catch (error) {
       await reader?.cancel().catch(() => {});
       if (error instanceof AgentApiError) throw error;
       throw new AgentApiError(502,"proxy_failed","The upstream response could not be retained.");
     }
   }
+  async query(input:z.infer<typeof queryApiResponseInput>) {
+    const value=queryApiResponseInput.parse(input),row=await this.authorizeRead({handle:value.handle,offset:0});
+    if(this.auth.authMethod==="oauth"&&!this.auth.scopes.includes("proxy:use"))throw new AgentApiError(403,"insufficient_scope","The proxy:use scope is required.","proxy:use");
+    const readBytes=async(offset:number,length:number)=>{
+      const parts:Uint8Array[]=[];let size=0;
+      while(size<length){const chunk=await this.read({handle:value.handle,offset:offset+size,limit:Math.min(65536,length-size)});const bytes=decodeBase64(chunk.body);if(!bytes.length)break;parts.push(bytes);size+=bytes.length;}
+      const bytes=new Uint8Array(size);let at=0;for(const part of parts){bytes.set(part,at);at+=part.length;}return bytes;
+    };
+    if(value.mode==="bytes"){
+      if(value.offset>row.size)throw new AgentApiError(400,"invalid_request","Offset exceeds response size.");
+      const bytes=await readBytes(value.offset,Math.min(value.limit,row.size-value.offset));
+      let length=bytes.length;
+      const result=()=>({handle:value.handle,mode:value.mode,data:encodeBase64(bytes.subarray(0,length)),offset:value.offset,nextOffset:value.offset+length,done:value.offset+length>=row.size,encoding:"base64" as const});
+      while(length&&proxyResultSize(result())>value.maxResultBytes)length--;
+      return result();
+    }
+    // Bounded parsing protects the Worker from arbitrary-size JSON and lines.
+    if(row.size>1024*1024)throw new AgentApiError(413,"query_too_large","JSON/text query parsing is limited to 1 MiB. Use bounded byte ranges instead.");
+    let text:string;try{text=new TextDecoder("utf-8",{fatal:true}).decode(await readBytes(0,row.size));}catch{throw new AgentApiError(400,"invalid_encoding","Response is binary; use mode bytes.");}
+    let selected:unknown;
+    if(value.mode==="text")selected=text.split("\n");
+    else {
+      // No root reference, function calls or multi-select constructors: those can
+      // amplify a small document into quadratic/exponential intermediate data.
+      if(/[(${},]/.test(value.expression))throw new AgentApiError(400,"query_not_supported","Use JMESPath field/index projections, slices and filters; functions, root references and constructors are not supported.");
+      try{selected=search(JSON.parse(text),value.expression);}catch{throw new AgentApiError(400,"invalid_query","Response must be valid JSON and expression valid JMESPath.");}
+    }
+    const array=Array.isArray(selected),items=array?selected as unknown[]:[selected];
+    if(value.offset>items.length)throw new AgentApiError(400,"invalid_request","Offset exceeds selected result length.");
+    let count=Math.min(value.limit,items.length-value.offset);
+    const result=()=>({handle:value.handle,mode:value.mode,data:array?items.slice(value.offset,value.offset+count):items[value.offset]??null,offset:value.offset,nextOffset:value.offset+count,done:value.offset+count>=items.length,encoding:value.mode==="text"?"utf8" as const:"json" as const});
+    while(count>0&&proxyResultSize(result())>value.maxResultBytes)count--;
+    if(!count&&value.offset<items.length)throw new AgentApiError(413,"query_result_too_large","A selected value exceeds the result budget. Select narrower fields or use byte ranges.");
+    await this.authorizeRead({handle:value.handle,offset:0});return result();
+  }
+
   async authorizeRead(input: z.infer<typeof readApiResponseInput>) {
     const {handle,offset} = readApiResponseInput.parse(input), identity = await this.identity();
     const row = (await this.database.pool.query<{object_key: string; size: number; integration_id: string; integration_epoch: number}>("SELECT object_key,size,integration_id,integration_epoch FROM app.agent_proxy_responses WHERE tenant_id=$1 AND id=$2 AND identity_id=$3 AND expires_at>clock_timestamp() AND size IS NOT NULL", [this.auth.tenantId,handle,identity.id])).rows[0];
@@ -280,7 +341,7 @@ export class AgentApiService {
   async read(input: z.infer<typeof readApiResponseInput>) {
     if(this.auth.authMethod==="oauth"&&!this.auth.scopes.includes("proxy:use"))throw new AgentApiError(403,"insufficient_scope","The proxy:use scope is required.","proxy:use");
     const {handle,offset} = readApiResponseInput.parse(input), row = await this.authorizeRead(input);
-    const length = Math.min(65536,row.size-offset), body = new Uint8Array(length);
+    const length = Math.min(input.limit ?? 65536,row.size-offset), body = new Uint8Array(length);
     let copied=0;
     while(copied<length) {
       const absolute=offset+copied, part=Math.floor(absolute/STORAGE_BLOCK_BYTES), within=absolute%STORAGE_BLOCK_BYTES, count=Math.min(length-copied,STORAGE_BLOCK_BYTES-within);

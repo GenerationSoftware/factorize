@@ -35,6 +35,15 @@ The inventory below lists the scope required by each tool. Scopes are explicit. 
 | `fetch_media` | Selected integration and active run, or runs:start plus proxy access | Capture unchanged image bytes from an integration-relative GET path; returns an artifactId for read_media. |
 | `read_media` | Own active run input/scratch, or own upload with runs:read | Read original image content from an artifactId using standard MCP image blocks. |
 | `vm_exec` | Active hosted run with a bound workspace | Execute `command` and optional absolute `cwd` in the verified current VM; returns output and exitCode. No arbitrary VM selector. |
+| `create_payload` | proxy:use for OAuth; active run identity | Reserve a temporary file body and authenticated browser upload link; optional name, mediaType and byteSize |
+| `append_payload_chunk` | Originating connection/run | Required handle, byte offset and bounded body; optional utf8/base64 encoding |
+| `finalize_payload` | Originating connection/run | Required handle; optional SHA-256; finalizes immutable bytes |
+| `import_attachment` | proxy:use for OAuth; active run identity | Native OpenAI file object with download_url, file_id and optional mime_type/file_name |
+| `fetch_payload` | Selected authorized integration | Integration ID and relative path; optional name/mediaType; imports exact bytes |
+| `get_api_operation` | Originating authorized proxy identity | Required operationId; polls durable state without repeating the HTTP request |
+| `read_api_operation` | Originating authorized proxy identity | Required operationId; optional offset/limit; bounded incremental base64 bytes |
+| `cancel_api_operation` | Originating authorized proxy identity | Required operationId; cancellation cannot undo upstream writes |
+| `query_api_response` | Same access as the original request | Retained handle; mode json/text/bytes, bounded expression/offset/limit/maxResultBytes |
 | `request_api` | proxy:use for OAuth; selected integration for runs | Credential-injected HTTP request with integration, method, relative path, optional headers/body and encoding |
 | `read_api_response` | Same identity and integration grant | Read a retained response handle at an optional byte offset |
 | `grant_vm` | vm:grant and proxy:use | OAuth agent delegates explicit integration IDs to a VM on an eligible exe.dev connection. Requires providerIntegrationId, vm, integrationIds and idempotencyKey. |
@@ -263,3 +272,65 @@ Fly.io, exe.dev, Amp, ClickUp, and X. Credentials stay on the server.
 
 Cloudflare Tail connections contain inbound webhook signing secrets, not
 Cloudflare API credentials, so they do not expose an outbound API.
+
+### Bounded proxy responses
+
+MCP `request_api` defaults to a 4 KiB complete serialized result, including text
+and structured content. `maxResultBytes` accepts 2048–32768 bytes. Larger bodies
+are streamed into bounded object-storage blocks and returned as an identity-bound
+handle/resource link with a preview. Original bytes are preserved. Handles expire
+after 30 minutes; every read rechecks current integration access and revocation.
+
+Use `query_api_response` with `mode: json` and a JMESPath field/projection/filter,
+`mode: text` for paged lines, or `mode: bytes` for byte ranges. `offset` and `limit`
+page the selected results. JSON/text parsing is limited to 1 MiB; larger or binary
+responses remain readable as byte ranges. Functions, root references and
+constructors are excluded to bound intermediate query allocations. A value that
+cannot fit requests narrower selection rather than silently dropping fields.
+
+`read_api_response` retains its REST base64 byte-chunk contract; MCP reads use
+smaller bounded chunks. Standard resource reads are optional conveniences; no
+client must support resources to retrieve the same data. Upstream pagination and
+field projection remain explicit API path/query parameters.
+
+### Slow requests and upstream streams
+
+For external OAuth MCP clients, `request_api` starts a durable operation by
+default. Supply a stable `idempotencyKey` to safely recover an interrupted
+submission. Use `get_api_operation`, `read_api_operation` and
+`cancel_api_operation`; completed operations expose a `responseHandle` for
+`query_api_response`. Hosted Pi retains synchronous calls by default while
+holding its execution lease; any client may explicitly choose
+`execution: async` or `execution: sync`.
+
+Polling works without progress notifications or resource subscriptions. Optional
+progress notifications describe the MCP call; upstream progress is the persisted
+operation size/state. SSE and chunked HTTP bodies are retained as original bytes,
+so event boundaries can span reads. A non-2xx response is a completed HTTP request
+with its upstream status, not a claim that the upstream action succeeded.
+
+Limits are fixed at 32 MiB request, 64 MiB response and 15 minutes upstream time.
+Failures surface a code, retained-byte count, partial flag and uncertain-effect
+flag. Cancellation cannot undo an upstream write. Interrupted dispatch is never
+replayed automatically; retrying the same operation ID does not issue it again.
+
+### File and generated request bodies
+
+Call `create_payload` to reserve a temporary connection/run-bound handle. For an
+existing file, open its authenticated `browserUploadUrl`, upload directly, and
+return to chat with the handle. No run is required. ChatGPT clients supporting
+native file parameters can instead call `import_attachment`; other clients use
+the same upload-page fallback. Malformed or expired native download URLs produce
+an actionable error rather than an attempt to reconstruct file bytes.
+
+For generated text, use `append_payload_chunk` at the returned byte size, then
+`finalize_payload`. Identical chunks at the same offset are idempotent. Finalized
+payloads are immutable and have a SHA-256 checksum. `fetch_payload` imports file
+bytes from an authorized integration without passing them through the model.
+
+Pass `bodySource: {"kind":"payload","handle":"..."}` to `request_api` for a raw body.
+Sources can also be authorized retained `response` handles or `artifact`
+references containing `runId` and `artifactId`. Use `multipart` parts with names,
+optional filenames/media types, and a source or small text value for form uploads.
+The 32 MiB request limit includes multipart framing. Payloads expire after 30
+minutes; reads and writes recheck the originating identity.

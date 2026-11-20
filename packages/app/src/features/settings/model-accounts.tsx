@@ -1,3 +1,4 @@
+import {ModelPricing} from "./model-pricing";
 import {modelAccountsQuery} from "./queries";
 import {useState} from "react";
 import {useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
@@ -36,5 +37,5 @@ export function useModelAccounts(){
    <Label>API key (optional)<Input aria-label="API key (optional)" type="password" autoComplete="off" maxLength={32768} value={key} onChange={event=>setKey(event.target.value)}/><span className="text-xs">Blank saves a keyless integration. Enter the replacement key when editing an authenticated provider.</span></Label>
    <details><summary>Model limits</summary><Label>Context window (tokens)<Input required type="number" min={1024} max={2000000} value={contextWindow} onChange={event=>setContextWindow(event.target.valueAsNumber)}/></Label><Label>Maximum output tokens<Input required type="number" min={1} max={200000} value={maxTokens} onChange={event=>setMaxTokens(event.target.valueAsNumber)}/></Label></details>
    <Button variant="primary" disabled={save.isPending||accounts.isPending||Boolean(accounts.error)}>{save.isPending?"Saving…":"Save model integration"}</Button>
-  </form>{error&&<p role="alert">{error}</p>}</Dialog>};
+  </form>{editId&&<ModelPricing integrationId={editId}/ >}{error&&<p role="alert">{error}</p>}</Dialog>};
 }

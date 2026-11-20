@@ -85,7 +85,7 @@ responses use `base64`. Larger responses are consumed into R2 and return a
 
 POST JSON to `proxy.readResponseUrl` with the handle and a byte `offset` (initially zero).
 Chunks are always base64, up to 64 KiB; use `nextOffset` until `done` is true.
-Handles are tenant/identity bound, expire after 24 hours, and recheck access on
+Handles are tenant/identity bound, expire after 30 minutes, and recheck access on
 every read. Revocation blocks subsequent calls and reads but cannot undo an
 upstream action already accepted. Existing VM proxy URLs retain true streaming.
 

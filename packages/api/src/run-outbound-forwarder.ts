@@ -16,7 +16,7 @@ function filteredHeaders(input: Headers, request: boolean): Headers {
   const connectionTokens = new Set((input.get("connection") ?? "").toLowerCase().split(",").map(s => s.trim()));
   input.forEach((value, key) => {
     const name = key.toLowerCase();
-    if (hop.has(name) || connectionTokens.has(name) || (request && (privateHeaders.has(name) || name.startsWith("x-forwarded-") || name.startsWith("sec-") || name.startsWith("cf-") || name === "origin" || name === "referer")) || (!request && (name === "set-cookie" || name === "authorization" || name === "proxy-authorization"))) return;
+    if ((!request && /(?:authorization|cookie|api[-_]?key|token|secret)/i.test(name)) || hop.has(name) || connectionTokens.has(name) || (request && (privateHeaders.has(name) || name.startsWith("x-forwarded-") || name.startsWith("sec-") || name.startsWith("cf-") || name === "origin" || name === "referer")) || (!request && (name === "set-cookie" || name === "authorization" || name === "proxy-authorization"))) return;
     result.set(key, value);
   });
   return result;

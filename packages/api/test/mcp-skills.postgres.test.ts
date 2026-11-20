@@ -21,7 +21,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("authorized MCP Skills exte
  });
  afterAll(async()=>{await f?.cleanup();});
  async function rpc(method:string,params:Record<string,unknown>={},identity=auth){
-  const response=await protectedApiFetch(new Request(f.env.APP_ORIGIN+"/mcp",{method:"POST",headers:{"Mcp-Method":method,...(method==="resources/read"?{"Mcp-Name":String(params.uri)}:{}),Host:"factorize.test","Content-Type":"application/json",Accept:"application/json, text/event-stream"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params:{_meta:meta,...params}})}),f.env,identity,{} as any);
+  const response=await protectedApiFetch(new Request(f.env.APP_ORIGIN+"/mcp",{method:"POST",headers:{"Mcp-Method":method,...(method==="resources/read"?{"Mcp-Name":String(params.uri)}:method==="tools/call"?{"Mcp-Name":String(params.name)}:{}),Host:"factorize.test","Content-Type":"application/json",Accept:"application/json, text/event-stream"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params:{_meta:meta,...params}})}),f.env,identity,{} as any);
   const text=await response.text();expect(response.status,text).toBe(200);return JSON.parse(text.startsWith("{")?text:text.split("\n").find(line=>line.startsWith("data: "))!.slice(6));
  }
  it("advertises the extension and paginates complete authorized manifests",async()=>{
@@ -39,6 +39,11 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("authorized MCP Skills exte
    const bytes=file.text!==undefined?new TextEncoder().encode(file.text):Uint8Array.from(atob(file.blob),c=>c.charCodeAt(0));expect(bytes.length).toBe(resource.size);
    expect(resource.digest).toBe("sha256:"+Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),v=>v.toString(16).padStart(2,"0")).join(""));
   }
+ });
+ it("keeps legacy skill tools visible and usable without extension negotiation",async()=>{
+  const tools=await rpc("tools/list");expect(tools.result.tools.map((tool:any)=>tool.name)).toEqual(expect.arrayContaining(["list_skills","get_skill"]));
+  const list=await rpc("tools/call",{name:"list_skills",arguments:{}});expect(list.result.isError).not.toBe(true);expect(JSON.stringify(list.result)).toContain("guide");
+  const skill=await rpc("tools/call",{name:"get_skill",arguments:{skillId:id}});expect(skill.result.isError).not.toBe(true);expect(skill.result.structuredContent.body).toBe(body);
  });
  it("enforces scopes, membership, canonical paths and Team isolation on every method",async()=>{
   for(const method of ["skills/list","skills/get","resources/read"]){
