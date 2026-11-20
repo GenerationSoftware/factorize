@@ -1,3 +1,4 @@
+import { bearerIntegrationsQuery } from "./queries";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
@@ -8,13 +9,6 @@ import { Dialog } from "../../shared/dialog";
 import { IntegrationRow, ProviderTile } from "./integration-ui";
 
 type BearerRecord = { id: string; name: string; origin: string; description: string | null; revision: number };
-const recordsQuery = { queryKey: ["settings", "bearer-integrations"], queryFn: async ({ signal }: { signal: AbortSignal }) => {
-  const { data, error } = await api.GET("/api/v1/integrations/bearer", { signal });
-  if (!data || error) throw new Error(messageOf(error));
-  if (!Array.isArray(data.integrations) || !Number.isSafeInteger(data.revision)) throw new Error("Bearer integrations could not be loaded. Reload the page to try again.");
-  return data;
-} };
-
 function validOrigin(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -33,7 +27,7 @@ function validOrigin(value: string): boolean {
 }
 
 export function useBearerIntegrations() {
-  const cache = useQueryClient(), records = useQuery(recordsQuery);
+  const cache = useQueryClient(), records = useQuery(bearerIntegrationsQuery);
   const [editing, setEditing] = useState<string | null>(null), [name, setName] = useState(""), [origin, setOrigin] = useState(""), [description, setDescription] = useState(""), [token, setToken] = useState("");
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState("");

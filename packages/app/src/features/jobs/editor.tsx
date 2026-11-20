@@ -1,3 +1,4 @@
+import { bearerIntegrationsQuery, modelAccountsQuery } from "../settings/queries";
 import { PresetPicker } from "../settings/preset-picker";
 import type { VmPreset } from "../settings/preset-queries";
 import { RunPermissions, defaultRunScopes } from "./run-permissions";
@@ -46,8 +47,8 @@ function EditorForm({ initial, section }: { initial?: Job; section?: string }) {
   const flyConnection = useQuery(flyConnectionQuery), flyConfigurations = useQuery(flyConfigurationsQuery);
   const flyConfiguration = flyConfigurations.data?.find(item => item.id === draft.executionConfigId);
   const isFly = draft.executionConfigId === "fly-new" || Boolean(flyConfiguration);
-  const bearers=useQuery({queryKey:["settings","bearer-integrations"],queryFn:async({signal})=>{const {data,error}=await api.GET("/api/v1/integrations/bearer",{signal});if(!data||error)throw new Error(messageOf(error));return data.integrations;}});
-  const accounts = useQuery({ enabled: (draft.executionType ?? "agent") === "agent", queryKey: ["settings", "model-accounts"], queryFn: async ({ signal }) => { const { data, error } = await api.GET("/api/v1/model-accounts", { signal }); if (!data || error) throw new Error(messageOf(error)); return data.accounts; } });
+  const bearers = useQuery({ ...bearerIntegrationsQuery, select: data => data.integrations });
+  const accounts = useQuery({ ...modelAccountsQuery, enabled: (draft.executionType ?? "agent") === "agent", select: data => data.accounts });
   const target = targets.data?.find(t => t.id === draft.executionConfigId);
   const verificationFingerprint = JSON.stringify([draft.executionConfigId, canonicalizeVmImage(draft.vmImage ?? ""), draft.tags ?? [], target?.agentKind ?? ""]);
   const verificationKey = `factorize-vm-image-verification:${initial?.id ?? "new"}`;
