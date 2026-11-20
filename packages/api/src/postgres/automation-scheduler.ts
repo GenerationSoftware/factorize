@@ -11,7 +11,7 @@ import { adaptWebhook, type WebhookEventConfig } from "../webhook-trigger";
 import { evaluateWebhookConditions } from "../webhook-conditions";
 
 function skipFullQueue(error: unknown): void {
-  if (!(error instanceof InvocationError) || error.code !== "queue_full") throw error;
+  if (!(error instanceof InvocationError) || !["queue_full","trigger_disabled"].includes(error.code)) throw error;
 }
 
 const DEFAULT_LIFECYCLE_BATCH_SIZE = 100;
@@ -22,7 +22,7 @@ export class AutomationScheduler {
     if (!Number.isSafeInteger(lifecycleBatchSize) || lifecycleBatchSize < 1) throw new RangeError("Lifecycle batch size must be a positive integer");
   }
   async process(): Promise<void> { await this.githubVerifications(); await this.schedules(); await this.triggerEdits(); await this.lifecycle(); await this.triggerIdle(); }
-  private repository(tenantId: string) { return new PostgresTriggerRepository(this.database, tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(this.database,tenantId,this.env.CREDENTIAL_ENCRYPTION_KEY))); }
+  private repository(tenantId: string) { return new PostgresTriggerRepository(this.database, tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(this.database,tenantId,this.env.CREDENTIAL_ENCRYPTION_KEY)),this.env); }
   private async schedules() {
     for (let count = 0; count < 50; count++) {
       const due = await this.database.transaction(async client => {
@@ -53,7 +53,7 @@ export class AutomationScheduler {
       await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.trigger_id, {
         source: "triggerLifecycle", eventId: row.event_id, claimKey: `trigger-edited:${row.event_id}:${row.delivery_id}`,
         context: { [row.slug]: context }, occurrence: { occurredAt: context.edited_at, externalId: row.delivery_id, metadata: context },
-      });
+      }).catch(skipFullQueue);
       await this.database.pool.query("DELETE FROM app.trigger_edit_deliveries WHERE tenant_id=$1 AND delivery_id=$2 AND event_id=$3", [row.tenant_id, row.delivery_id, row.event_id]);
     }
   }
@@ -162,6 +162,7 @@ export class AutomationScheduler {
         const result = await new InvocationService(this.repository(row.tenant_id), value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY)).invoke(row.trigger_id, { source: "webhook", eventId: row.event_id, claimKey: `webhook:${row.event_id}:${invocation.claimKey}`, context: { [row.event_slug]: context }, occurrence: { ...invocation.occurrence, metadata: { ...invocation.occurrence.metadata, eventId: row.event_id, mergeable: false } } });
         await finish(result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Verified occurrence was already claimed." : "Merge-conflicted pull request queued through canonical trigger invocation.");
       } catch (error) {
+        if(error instanceof InvocationError && error.code==="trigger_disabled"){await finish("ignored","Skill is disabled; occurrence skipped.");continue;}
         if (error instanceof InvocationError && error.code === "queue_full") { await finish("queue_full", "Trigger has no free execution slot and already has a waiting run; occurrence skipped."); continue; }
         const attempt = Number(row.attempt) + 1, detail = error instanceof Error ? error.message : "GitHub verification failed";
         if (attempt >= 8) await finish("verification_failed", detail); else await this.database.pool.query("UPDATE app.pending_verifications SET attempt=$3,next_attempt_at=now()+make_interval(secs=>least(60,5*$3)) WHERE tenant_id=$1 AND id=$2", [row.tenant_id, row.id, attempt]);

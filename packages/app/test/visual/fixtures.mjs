@@ -56,7 +56,7 @@ export async function mockApi(page, { legacy = false, authenticated = true, empt
     else if (path === "/api/v1/model-accounts") json = {revision:0,accounts:[]};
     else if (path === "/api/v1/integration-api-policies") json = {integrations:[{id:"00000000-0000-4000-8000-000000000050",kind:"linear",credentialId:"linear",name:"Linear",available:true,policy:"requestable",revision:1}]};
     else if (path === "/api/v1/integrations") json = integrations;
-    else if (path === "/api/v1/search") json = { items: [{ kind: "trigger", id: triggerId, title: trigger.name, subtitle: "Manual · codex", url: "/triggers/" + triggerId, source: { kind: "trigger", label: trigger.name, id: triggerId }, match: { text: trigger.name, ranges: [{ start: 7, end: 14 }] } }] };
+    else if (path === "/api/v1/search") json = { items: [{ kind: "skill", id: triggerId, title: trigger.name, subtitle: "Manual · codex", url: "/triggers/" + triggerId, source: { kind: "skill", label: trigger.name, id: triggerId }, match: { text: trigger.name, ranges: [{ start: 7, end: 14 }] } }] };
     else if (path.endsWith("/consent/preview")) json = { clientName: "Release CLI", scopes: ["team:read", "triggers:read", "integrations:read", "runs:read"], request: "fixture", signature: "fixture", expiresAt: time };
     else if (path.endsWith("/device/preview")) json = { clientName: "Release CLI", scopes: ["team:read", "triggers:read", "integrations:read"], userCode: "ABCD-EFGH" };
     else json = [];

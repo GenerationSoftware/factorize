@@ -69,8 +69,8 @@ test("loading, search, error and no-result states are actionable", async ({ page
   mode = "error";
   await pending.fulfill({ status: 403, json: { error: { code: "forbidden", message: "This workspace is unavailable." } } });
   await expect(page.getByRole("alert")).toContainText("This workspace is unavailable.");
-  await page.getByRole("button", { name: "Search triggers, runs, and messages", exact: true }).click();
-  const input = page.getByRole("combobox", { name: "Search triggers and runs by name, title, or issue identifier", exact: true });
+  await page.getByRole("button", { name: "Search skills and runs", exact: true }).click();
+  const input = page.getByRole("combobox", { name: "Search skill names and run names", exact: true });
   await expect(input).toBeFocused();
   await input.fill("release");
   await expect(page.getByRole("listbox", { name: "Search results" }).getByRole("option")).toBeVisible();

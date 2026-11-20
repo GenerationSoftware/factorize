@@ -1,3 +1,4 @@
+import { presetSlug } from "./skill-definition";
 import {mediaRef} from "./media-contracts";
 import Mustache from "mustache";
 import { z } from "zod";
@@ -68,9 +69,9 @@ export const triggerInputSchema = z.object({
   executionType: z.enum(["agent", "code"]).optional(),
   requiresVm:z.boolean().optional(),
   prompt: z.string().max(50_000).default(""),
-  script: z.string().max(50_000).optional(),
+  script: z.string().max(50_000).optional().describe("Retired: new script runs are rejected. Historical reads remain supported.").meta({deprecated:true}),
   runNameTemplate: z.string().max(500).optional(),
-  concurrencyLimit: z.number().int().min(1).max(50).optional(),
+  concurrencyLimit: z.number().int().nonnegative().max(50).optional(),
   runScopes: z.array(scopeSchema).max(scopeSchema.options.length).refine(scopes => new Set(scopes).size === scopes.length, "Run scopes must be unique").optional().describe("Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes."),
   executionConfigId: z.string().min(1).optional(),
   tags: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/)).max(20).optional(),
@@ -113,10 +114,11 @@ export type TriggerInput = z.infer<typeof triggerInputSchema>;
 export type ManualInvocationInput = z.infer<typeof manualInvocationSchema>;
 
 export const startRunInput = z.object({
+  vmPreset:presetSlug.optional(),permissionPreset:presetSlug.optional(),modelPreset:presetSlug.optional(),
   attachments:z.array(mediaRef).max(16).optional(),
   requiresVm:z.boolean().optional(),
   prompt: z.string().min(1).max(50_000).refine(value => !!value.trim()).optional(),
-  script: z.string().min(1).max(200_000).refine(value => !!value.trim()).optional(),
+  script: z.string().min(1).max(200_000).refine(value => !!value.trim()).optional().describe("Retired: returns scripts_retired. Use an agent skill to execute code.").meta({deprecated:true}),
   skill: z.string().min(1).max(64).optional(),
   name: z.string().trim().min(1).max(120).optional(),
   executionConfigId: z.string().min(1).optional(),
@@ -140,7 +142,7 @@ export const projectRunDefaults = z.object({
   portableIntegrationIds: triggerInputSchema.shape.portableIntegrationIds, githubInstallationIds: triggerInputSchema.shape.githubInstallationIds,
   linearConnectionId: triggerInputSchema.shape.linearConnectionId, xConnectionIds: triggerInputSchema.shape.xConnectionIds,
   runScopes: triggerInputSchema.shape.runScopes, capacity: z.number().int().min(1).max(50).default(4),
-  concurrencyLimit: z.number().int().min(1).max(50).optional(),
+  concurrencyLimit: z.number().int().nonnegative().optional(),
 }).strict();
 
 export const storedRunDefaults = projectRunDefaults.extend({vmImage:z.string().optional()});
@@ -150,4 +152,4 @@ export const teamRunDefaults = projectRunDefaults.partial().extend({
   capacity: z.number().int().min(1).max(50).optional(),
   allowedTriggerIds: z.array(z.guid()).max(100).refine(ids => new Set(ids).size === ids.length, "Destination triggers must be unique").optional(),
 }).strict();
-export const teamResponse = z.object({ id: z.guid(), name: z.string().nullable(), runDefaults: teamRunDefaults.extend({ vmImage: z.string().optional() }) });
+export const teamResponse = z.object({ id: z.guid(), name: z.string().nullable(), presetDefaults:z.object({vm:z.string().nullable(),permission:z.string().nullable(),model:z.string().nullable()}).optional(), runDefaults: teamRunDefaults.extend({ vmImage: z.string().optional() }) });

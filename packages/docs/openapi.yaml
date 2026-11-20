@@ -1416,6 +1416,8 @@ components:
           type: string
           maxLength: 50000
         script:
+          description: "Retired: new script runs are rejected. Historical reads remain supported."
+          deprecated: true
           type: string
           maxLength: 50000
         runNameTemplate:
@@ -1423,7 +1425,7 @@ components:
           maxLength: 500
         concurrencyLimit:
           type: integer
-          minimum: 1
+          minimum: 0
           maximum: 50
         runScopes:
           description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
@@ -1923,6 +1925,12 @@ components:
             $ref: "#/components/schemas/Error"
     Error503:
       description: Service unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Error410:
+      description: Operation retired; use skill frontmatter and team presets
       content:
         application/json:
           schema:
@@ -5497,6 +5505,1660 @@ paths:
                 - token
                 - organizationSlug
               additionalProperties: false
+  /api/v1/presets:
+    get:
+      summary: List team VM, permission and model presets with defaults and immutable revisions
+      responses:
+        "200":
+          description: Presets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presets:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: object
+                          properties:
+                            slug:
+                              type: string
+                              maxLength: 120
+                              pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                            name:
+                              type: string
+                              minLength: 1
+                              maxLength: 120
+                            kind:
+                              type: string
+                              const: vm
+                            settings:
+                              anyOf:
+                                - oneOf:
+                                    - type: object
+                                      properties:
+                                        image:
+                                          type: string
+                                          minLength: 1
+                                          maxLength: 512
+                                          pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                                        region:
+                                          type: string
+                                          pattern: ^[a-z0-9]{3}$
+                                        size:
+                                          type: string
+                                          pattern: ^[a-z0-9-]{1,64}$
+                                        provider:
+                                          type: string
+                                          const: fly
+                                      required:
+                                        - image
+                                        - region
+                                        - size
+                                        - provider
+                                      additionalProperties: false
+                                    - type: object
+                                      properties:
+                                        provider:
+                                          type: string
+                                          const: exe
+                                        connectionId:
+                                          type: string
+                                          minLength: 1
+                                          maxLength: 256
+                                        image:
+                                          type: string
+                                        tags:
+                                          maxItems: 20
+                                          type: array
+                                          items:
+                                            type: string
+                                            pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                                      required:
+                                        - provider
+                                        - connectionId
+                                        - image
+                                        - tags
+                                      additionalProperties: false
+                                - type: object
+                                  properties:
+                                    provider:
+                                      type: string
+                                      const: none
+                                  required:
+                                    - provider
+                                  additionalProperties: false
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            revision:
+                              type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                            isDefault:
+                              type: boolean
+                            executionConfigId:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - slug
+                            - name
+                            - kind
+                            - settings
+                            - id
+                            - revision
+                            - isDefault
+                            - executionConfigId
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            slug:
+                              type: string
+                              maxLength: 120
+                              pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                            name:
+                              type: string
+                              minLength: 1
+                              maxLength: 120
+                            kind:
+                              type: string
+                              const: permission
+                            settings:
+                              type: object
+                              properties:
+                                runScopes:
+                                  description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
+                                  maxItems: 13
+                                  type: array
+                                  items:
+                                    type: string
+                                    enum:
+                                      - team:read
+                                      - team:write
+                                      - triggers:read
+                                      - triggers:write
+                                      - runs:read
+                                      - runs:invoke
+                                      - runs:start
+                                      - runs:cancel
+                                      - runs:write
+                                      - integrations:read
+                                      - integrations:write
+                                      - skills:read
+                                      - skills:write
+                                portableIntegrationIds:
+                                  maxItems: 100
+                                  type: array
+                                  items:
+                                    type: string
+                                    format: uuid
+                                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                githubInstallationIds:
+                                  maxItems: 100
+                                  type: array
+                                  items:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 9007199254740991
+                                linearConnectionId:
+                                  anyOf:
+                                    - type: string
+                                      const: linear
+                                    - type: "null"
+                                xConnectionIds:
+                                  maxItems: 100
+                                  type: array
+                                  items:
+                                    type: string
+                                    format: uuid
+                                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                allowedTriggerIds:
+                                  maxItems: 100
+                                  type: array
+                                  items:
+                                    type: string
+                                    format: uuid
+                                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              additionalProperties: false
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            revision:
+                              type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                            isDefault:
+                              type: boolean
+                            executionConfigId:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - slug
+                            - name
+                            - kind
+                            - settings
+                            - id
+                            - revision
+                            - isDefault
+                            - executionConfigId
+                          additionalProperties: false
+                        - type: object
+                          properties:
+                            slug:
+                              type: string
+                              maxLength: 120
+                              pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                            name:
+                              type: string
+                              minLength: 1
+                              maxLength: 120
+                            kind:
+                              type: string
+                              const: model
+                            settings:
+                              type: object
+                              properties:
+                                modelAccountId:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                model:
+                                  type: string
+                                  maxLength: 120
+                                effort:
+                                  type: string
+                                  enum:
+                                    - ""
+                                    - minimal
+                                    - low
+                                    - medium
+                                    - high
+                                    - xhigh
+                              additionalProperties: false
+                            id:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                            revision:
+                              type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                            isDefault:
+                              type: boolean
+                            executionConfigId:
+                              type:
+                                - string
+                                - "null"
+                          required:
+                            - slug
+                            - name
+                            - kind
+                            - settings
+                            - id
+                            - revision
+                            - isDefault
+                            - executionConfigId
+                          additionalProperties: false
+                required:
+                  - presets
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_presets
+      tags:
+        - presets
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: integrations:read
+      x-owner-session-required: false
+    post:
+      summary: Create a preset with a team-unique immutable slug
+      responses:
+        "200":
+          description: Preset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preset:
+                    oneOf:
+                      - type: object
+                        properties:
+                          slug:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          name:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                          kind:
+                            type: string
+                            const: vm
+                          settings:
+                            anyOf:
+                              - oneOf:
+                                  - type: object
+                                    properties:
+                                      image:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 512
+                                        pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                                      region:
+                                        type: string
+                                        pattern: ^[a-z0-9]{3}$
+                                      size:
+                                        type: string
+                                        pattern: ^[a-z0-9-]{1,64}$
+                                      provider:
+                                        type: string
+                                        const: fly
+                                    required:
+                                      - image
+                                      - region
+                                      - size
+                                      - provider
+                                    additionalProperties: false
+                                  - type: object
+                                    properties:
+                                      provider:
+                                        type: string
+                                        const: exe
+                                      connectionId:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 256
+                                      image:
+                                        type: string
+                                      tags:
+                                        maxItems: 20
+                                        type: array
+                                        items:
+                                          type: string
+                                          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                                    required:
+                                      - provider
+                                      - connectionId
+                                      - image
+                                      - tags
+                                    additionalProperties: false
+                              - type: object
+                                properties:
+                                  provider:
+                                    type: string
+                                    const: none
+                                required:
+                                  - provider
+                                additionalProperties: false
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                          revision:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          isDefault:
+                            type: boolean
+                          executionConfigId:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - slug
+                          - name
+                          - kind
+                          - settings
+                          - id
+                          - revision
+                          - isDefault
+                          - executionConfigId
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          slug:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          name:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                          kind:
+                            type: string
+                            const: permission
+                          settings:
+                            type: object
+                            properties:
+                              runScopes:
+                                description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
+                                maxItems: 13
+                                type: array
+                                items:
+                                  type: string
+                                  enum:
+                                    - team:read
+                                    - team:write
+                                    - triggers:read
+                                    - triggers:write
+                                    - runs:read
+                                    - runs:invoke
+                                    - runs:start
+                                    - runs:cancel
+                                    - runs:write
+                                    - integrations:read
+                                    - integrations:write
+                                    - skills:read
+                                    - skills:write
+                              portableIntegrationIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              githubInstallationIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                              linearConnectionId:
+                                anyOf:
+                                  - type: string
+                                    const: linear
+                                  - type: "null"
+                              xConnectionIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              allowedTriggerIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            additionalProperties: false
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                          revision:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          isDefault:
+                            type: boolean
+                          executionConfigId:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - slug
+                          - name
+                          - kind
+                          - settings
+                          - id
+                          - revision
+                          - isDefault
+                          - executionConfigId
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          slug:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          name:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                          kind:
+                            type: string
+                            const: model
+                          settings:
+                            type: object
+                            properties:
+                              modelAccountId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              model:
+                                type: string
+                                maxLength: 120
+                              effort:
+                                type: string
+                                enum:
+                                  - ""
+                                  - minimal
+                                  - low
+                                  - medium
+                                  - high
+                                  - xhigh
+                            additionalProperties: false
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                          revision:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          isDefault:
+                            type: boolean
+                          executionConfigId:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - slug
+                          - name
+                          - kind
+                          - settings
+                          - id
+                          - revision
+                          - isDefault
+                          - executionConfigId
+                        additionalProperties: false
+                required:
+                  - preset
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: post_api_v1_presets
+      tags:
+        - presets
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  properties:
+                    slug:
+                      type: string
+                      maxLength: 120
+                      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 120
+                    expectedRevision:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    kind:
+                      type: string
+                      const: vm
+                    settings:
+                      anyOf:
+                        - oneOf:
+                            - type: object
+                              properties:
+                                image:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 512
+                                  pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                                region:
+                                  type: string
+                                  pattern: ^[a-z0-9]{3}$
+                                size:
+                                  type: string
+                                  pattern: ^[a-z0-9-]{1,64}$
+                                provider:
+                                  type: string
+                                  const: fly
+                              required:
+                                - image
+                                - region
+                                - size
+                                - provider
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                provider:
+                                  type: string
+                                  const: exe
+                                connectionId:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 256
+                                image:
+                                  type: string
+                                  maxLength: 512
+                                  pattern: ^(?:(?:(?:[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\/)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?))?$
+                                tags:
+                                  maxItems: 20
+                                  type: array
+                                  items:
+                                    type: string
+                                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                              required:
+                                - provider
+                                - connectionId
+                                - image
+                                - tags
+                              additionalProperties: false
+                        - type: object
+                          properties:
+                            provider:
+                              type: string
+                              const: none
+                          required:
+                            - provider
+                          additionalProperties: false
+                  required:
+                    - slug
+                    - name
+                    - kind
+                    - settings
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    slug:
+                      type: string
+                      maxLength: 120
+                      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 120
+                    expectedRevision:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    kind:
+                      type: string
+                      const: permission
+                    settings:
+                      type: object
+                      properties:
+                        runScopes:
+                          description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
+                          maxItems: 13
+                          type: array
+                          items:
+                            type: string
+                            enum:
+                              - team:read
+                              - team:write
+                              - triggers:read
+                              - triggers:write
+                              - runs:read
+                              - runs:invoke
+                              - runs:start
+                              - runs:cancel
+                              - runs:write
+                              - integrations:read
+                              - integrations:write
+                              - skills:read
+                              - skills:write
+                        portableIntegrationIds:
+                          maxItems: 100
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        githubInstallationIds:
+                          maxItems: 100
+                          type: array
+                          items:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                        linearConnectionId:
+                          anyOf:
+                            - type: string
+                              const: linear
+                            - type: "null"
+                        xConnectionIds:
+                          maxItems: 100
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        allowedTriggerIds:
+                          maxItems: 100
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      additionalProperties: false
+                  required:
+                    - slug
+                    - name
+                    - kind
+                    - settings
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    slug:
+                      type: string
+                      maxLength: 120
+                      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 120
+                    expectedRevision:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    kind:
+                      type: string
+                      const: model
+                    settings:
+                      type: object
+                      properties:
+                        modelAccountId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        model:
+                          type: string
+                          maxLength: 120
+                        effort:
+                          type: string
+                          enum:
+                            - ""
+                            - minimal
+                            - low
+                            - medium
+                            - high
+                            - xhigh
+                      additionalProperties: false
+                  required:
+                    - slug
+                    - name
+                    - kind
+                    - settings
+                  additionalProperties: false
+  /api/v1/presets/{id}:
+    put:
+      summary: Create a new revision of a preset
+      responses:
+        "200":
+          description: Preset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preset:
+                    oneOf:
+                      - type: object
+                        properties:
+                          slug:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          name:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                          kind:
+                            type: string
+                            const: vm
+                          settings:
+                            anyOf:
+                              - oneOf:
+                                  - type: object
+                                    properties:
+                                      image:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 512
+                                        pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                                      region:
+                                        type: string
+                                        pattern: ^[a-z0-9]{3}$
+                                      size:
+                                        type: string
+                                        pattern: ^[a-z0-9-]{1,64}$
+                                      provider:
+                                        type: string
+                                        const: fly
+                                    required:
+                                      - image
+                                      - region
+                                      - size
+                                      - provider
+                                    additionalProperties: false
+                                  - type: object
+                                    properties:
+                                      provider:
+                                        type: string
+                                        const: exe
+                                      connectionId:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 256
+                                      image:
+                                        type: string
+                                      tags:
+                                        maxItems: 20
+                                        type: array
+                                        items:
+                                          type: string
+                                          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                                    required:
+                                      - provider
+                                      - connectionId
+                                      - image
+                                      - tags
+                                    additionalProperties: false
+                              - type: object
+                                properties:
+                                  provider:
+                                    type: string
+                                    const: none
+                                required:
+                                  - provider
+                                additionalProperties: false
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                          revision:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          isDefault:
+                            type: boolean
+                          executionConfigId:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - slug
+                          - name
+                          - kind
+                          - settings
+                          - id
+                          - revision
+                          - isDefault
+                          - executionConfigId
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          slug:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          name:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                          kind:
+                            type: string
+                            const: permission
+                          settings:
+                            type: object
+                            properties:
+                              runScopes:
+                                description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
+                                maxItems: 13
+                                type: array
+                                items:
+                                  type: string
+                                  enum:
+                                    - team:read
+                                    - team:write
+                                    - triggers:read
+                                    - triggers:write
+                                    - runs:read
+                                    - runs:invoke
+                                    - runs:start
+                                    - runs:cancel
+                                    - runs:write
+                                    - integrations:read
+                                    - integrations:write
+                                    - skills:read
+                                    - skills:write
+                              portableIntegrationIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              githubInstallationIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                              linearConnectionId:
+                                anyOf:
+                                  - type: string
+                                    const: linear
+                                  - type: "null"
+                              xConnectionIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              allowedTriggerIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            additionalProperties: false
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                          revision:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          isDefault:
+                            type: boolean
+                          executionConfigId:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - slug
+                          - name
+                          - kind
+                          - settings
+                          - id
+                          - revision
+                          - isDefault
+                          - executionConfigId
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          slug:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          name:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                          kind:
+                            type: string
+                            const: model
+                          settings:
+                            type: object
+                            properties:
+                              modelAccountId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              model:
+                                type: string
+                                maxLength: 120
+                              effort:
+                                type: string
+                                enum:
+                                  - ""
+                                  - minimal
+                                  - low
+                                  - medium
+                                  - high
+                                  - xhigh
+                            additionalProperties: false
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                          revision:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          isDefault:
+                            type: boolean
+                          executionConfigId:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - slug
+                          - name
+                          - kind
+                          - settings
+                          - id
+                          - revision
+                          - isDefault
+                          - executionConfigId
+                        additionalProperties: false
+                required:
+                  - preset
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: put_api_v1_presets_id
+      tags:
+        - presets
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  properties:
+                    slug:
+                      type: string
+                      maxLength: 120
+                      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 120
+                    expectedRevision:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    kind:
+                      type: string
+                      const: vm
+                    settings:
+                      anyOf:
+                        - oneOf:
+                            - type: object
+                              properties:
+                                image:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 512
+                                  pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                                region:
+                                  type: string
+                                  pattern: ^[a-z0-9]{3}$
+                                size:
+                                  type: string
+                                  pattern: ^[a-z0-9-]{1,64}$
+                                provider:
+                                  type: string
+                                  const: fly
+                              required:
+                                - image
+                                - region
+                                - size
+                                - provider
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                provider:
+                                  type: string
+                                  const: exe
+                                connectionId:
+                                  type: string
+                                  minLength: 1
+                                  maxLength: 256
+                                image:
+                                  type: string
+                                  maxLength: 512
+                                  pattern: ^(?:(?:(?:[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*\/)?[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?))?$
+                                tags:
+                                  maxItems: 20
+                                  type: array
+                                  items:
+                                    type: string
+                                    pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                              required:
+                                - provider
+                                - connectionId
+                                - image
+                                - tags
+                              additionalProperties: false
+                        - type: object
+                          properties:
+                            provider:
+                              type: string
+                              const: none
+                          required:
+                            - provider
+                          additionalProperties: false
+                  required:
+                    - slug
+                    - name
+                    - kind
+                    - settings
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    slug:
+                      type: string
+                      maxLength: 120
+                      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 120
+                    expectedRevision:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    kind:
+                      type: string
+                      const: permission
+                    settings:
+                      type: object
+                      properties:
+                        runScopes:
+                          description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
+                          maxItems: 13
+                          type: array
+                          items:
+                            type: string
+                            enum:
+                              - team:read
+                              - team:write
+                              - triggers:read
+                              - triggers:write
+                              - runs:read
+                              - runs:invoke
+                              - runs:start
+                              - runs:cancel
+                              - runs:write
+                              - integrations:read
+                              - integrations:write
+                              - skills:read
+                              - skills:write
+                        portableIntegrationIds:
+                          maxItems: 100
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        githubInstallationIds:
+                          maxItems: 100
+                          type: array
+                          items:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                        linearConnectionId:
+                          anyOf:
+                            - type: string
+                              const: linear
+                            - type: "null"
+                        xConnectionIds:
+                          maxItems: 100
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        allowedTriggerIds:
+                          maxItems: 100
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      additionalProperties: false
+                  required:
+                    - slug
+                    - name
+                    - kind
+                    - settings
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    slug:
+                      type: string
+                      maxLength: 120
+                      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                    name:
+                      type: string
+                      minLength: 1
+                      maxLength: 120
+                    expectedRevision:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    kind:
+                      type: string
+                      const: model
+                    settings:
+                      type: object
+                      properties:
+                        modelAccountId:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                        model:
+                          type: string
+                          maxLength: 120
+                        effort:
+                          type: string
+                          enum:
+                            - ""
+                            - minimal
+                            - low
+                            - medium
+                            - high
+                            - xhigh
+                      additionalProperties: false
+                  required:
+                    - slug
+                    - name
+                    - kind
+                    - settings
+                  additionalProperties: false
+    delete:
+      summary: Delete an unused, non-default preset while retaining historical revisions
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                required:
+                  - deleted
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the integrations:write scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: delete_api_v1_presets_id
+      tags:
+        - presets
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: integrations:write
+      x-owner-session-required: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+  /api/v1/presets/{id}/default:
+    post:
+      summary: Select the team default for this preset type
+      responses:
+        "200":
+          description: Default preset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  preset:
+                    oneOf:
+                      - type: object
+                        properties:
+                          slug:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          name:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                          kind:
+                            type: string
+                            const: vm
+                          settings:
+                            anyOf:
+                              - oneOf:
+                                  - type: object
+                                    properties:
+                                      image:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 512
+                                        pattern: ^[A-Za-z0-9][A-Za-z0-9._/:@-]*$
+                                      region:
+                                        type: string
+                                        pattern: ^[a-z0-9]{3}$
+                                      size:
+                                        type: string
+                                        pattern: ^[a-z0-9-]{1,64}$
+                                      provider:
+                                        type: string
+                                        const: fly
+                                    required:
+                                      - image
+                                      - region
+                                      - size
+                                      - provider
+                                    additionalProperties: false
+                                  - type: object
+                                    properties:
+                                      provider:
+                                        type: string
+                                        const: exe
+                                      connectionId:
+                                        type: string
+                                        minLength: 1
+                                        maxLength: 256
+                                      image:
+                                        type: string
+                                      tags:
+                                        maxItems: 20
+                                        type: array
+                                        items:
+                                          type: string
+                                          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                                    required:
+                                      - provider
+                                      - connectionId
+                                      - image
+                                      - tags
+                                    additionalProperties: false
+                              - type: object
+                                properties:
+                                  provider:
+                                    type: string
+                                    const: none
+                                required:
+                                  - provider
+                                additionalProperties: false
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                          revision:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          isDefault:
+                            type: boolean
+                          executionConfigId:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - slug
+                          - name
+                          - kind
+                          - settings
+                          - id
+                          - revision
+                          - isDefault
+                          - executionConfigId
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          slug:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          name:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                          kind:
+                            type: string
+                            const: permission
+                          settings:
+                            type: object
+                            properties:
+                              runScopes:
+                                description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
+                                maxItems: 13
+                                type: array
+                                items:
+                                  type: string
+                                  enum:
+                                    - team:read
+                                    - team:write
+                                    - triggers:read
+                                    - triggers:write
+                                    - runs:read
+                                    - runs:invoke
+                                    - runs:start
+                                    - runs:cancel
+                                    - runs:write
+                                    - integrations:read
+                                    - integrations:write
+                                    - skills:read
+                                    - skills:write
+                              portableIntegrationIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              githubInstallationIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                              linearConnectionId:
+                                anyOf:
+                                  - type: string
+                                    const: linear
+                                  - type: "null"
+                              xConnectionIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              allowedTriggerIds:
+                                maxItems: 100
+                                type: array
+                                items:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                            additionalProperties: false
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                          revision:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          isDefault:
+                            type: boolean
+                          executionConfigId:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - slug
+                          - name
+                          - kind
+                          - settings
+                          - id
+                          - revision
+                          - isDefault
+                          - executionConfigId
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          slug:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          name:
+                            type: string
+                            minLength: 1
+                            maxLength: 120
+                          kind:
+                            type: string
+                            const: model
+                          settings:
+                            type: object
+                            properties:
+                              modelAccountId:
+                                type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              model:
+                                type: string
+                                maxLength: 120
+                              effort:
+                                type: string
+                                enum:
+                                  - ""
+                                  - minimal
+                                  - low
+                                  - medium
+                                  - high
+                                  - xhigh
+                            additionalProperties: false
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                          revision:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          isDefault:
+                            type: boolean
+                          executionConfigId:
+                            type:
+                              - string
+                              - "null"
+                        required:
+                          - slug
+                          - name
+                          - kind
+                          - settings
+                          - id
+                          - revision
+                          - isDefault
+                          - executionConfigId
+                        additionalProperties: false
+                required:
+                  - preset
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the team:write scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: post_api_v1_presets_id_default
+      tags:
+        - presets
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: team:write
+      x-owner-session-required: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
   /api/v1/vm-presets:
     get:
       summary: List VM presets
@@ -8608,6 +10270,26 @@ paths:
                     type:
                       - string
                       - "null"
+                  presetDefaults:
+                    type: object
+                    properties:
+                      vm:
+                        type:
+                          - string
+                          - "null"
+                      permission:
+                        type:
+                          - string
+                          - "null"
+                      model:
+                        type:
+                          - string
+                          - "null"
+                    required:
+                      - vm
+                      - permission
+                      - model
+                    additionalProperties: false
                   runDefaults:
                     type: object
                     properties:
@@ -8692,8 +10374,8 @@ paths:
                         maximum: 50
                       concurrencyLimit:
                         type: integer
-                        minimum: 1
-                        maximum: 50
+                        minimum: 0
+                        maximum: 9007199254740991
                       allowedTriggerIds:
                         maxItems: 100
                         type: array
@@ -8828,8 +10510,8 @@ paths:
                     maximum: 50
                   concurrencyLimit:
                     type: integer
-                    minimum: 1
-                    maximum: 50
+                    minimum: 0
+                    maximum: 9007199254740991
                   allowedTriggerIds:
                     maxItems: 100
                     type: array
@@ -8957,8 +10639,8 @@ paths:
                   maximum: 50
                 concurrencyLimit:
                   type: integer
-                  minimum: 1
-                  maximum: 50
+                  minimum: 0
+                  maximum: 9007199254740991
                 allowedTriggerIds:
                   maxItems: 100
                   type: array
@@ -11064,7 +12746,7 @@ paths:
               additionalProperties: false
   /api/v1/skills/{skillId}/settings:
     get:
-      summary: Read skill execution defaults
+      summary: Read effective defaults resolved from skill frontmatter and presets
       responses:
         "200":
           description: Skill settings
@@ -11159,8 +12841,8 @@ paths:
                             - skills:write
                       concurrencyLimit:
                         type: integer
-                        minimum: 1
-                        maximum: 50
+                        minimum: 0
+                        maximum: 9007199254740991
                       allowedTriggerIds:
                         maxItems: 100
                         type: array
@@ -11228,7 +12910,8 @@ paths:
             format: uuid
             pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
     put:
-      summary: Save skill execution defaults for future manual and triggered runs
+      summary: "Retired: update skill frontmatter and presets instead"
+      deprecated: true
       responses:
         "200":
           description: Saved skill settings
@@ -11323,8 +13006,8 @@ paths:
                             - skills:write
                       concurrencyLimit:
                         type: integer
-                        minimum: 1
-                        maximum: 50
+                        minimum: 0
+                        maximum: 9007199254740991
                       allowedTriggerIds:
                         maxItems: 100
                         type: array
@@ -11363,6 +13046,9 @@ paths:
           $ref: "#/components/responses/Error404"
         "409":
           $ref: "#/components/responses/Error409"
+        "410":
+          $ref: "#/components/responses/Error410"
+          description: "Retired: edit SKILL.md frontmatter and team presets instead"
         "415":
           $ref: "#/components/responses/Error415"
         "429":
@@ -11488,8 +13174,8 @@ paths:
                           - skills:write
                     concurrencyLimit:
                       type: integer
-                      minimum: 1
-                      maximum: 50
+                      minimum: 0
+                      maximum: 9007199254740991
                     allowedTriggerIds:
                       maxItems: 100
                       type: array
@@ -11549,6 +13235,42 @@ paths:
                           type: string
                         updatedAt:
                           type: string
+                        description:
+                          default: ""
+                          type: string
+                        factorize:
+                          default:
+                            concurrency: 0
+                            disabled: false
+                          type: object
+                          properties:
+                            vm-preset:
+                              type: string
+                              maxLength: 120
+                              pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                            permission-preset:
+                              type: string
+                              maxLength: 120
+                              pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                            model-preset:
+                              type: string
+                              maxLength: 120
+                              pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                            concurrency:
+                              default: 0
+                              type: integer
+                              minimum: 0
+                              maximum: 2147483647
+                            disabled:
+                              default: false
+                              type: boolean
+                          required:
+                            - concurrency
+                            - disabled
+                          additionalProperties: {}
+                        hasTriggers:
+                          default: false
+                          type: boolean
                         trigger:
                           anyOf:
                             - type: object
@@ -11575,6 +13297,9 @@ paths:
                         - usageCount
                         - createdAt
                         - updatedAt
+                        - description
+                        - factorize
+                        - hasTriggers
                       additionalProperties: false
                   nextCursor:
                     anyOf:
@@ -11660,6 +13385,52 @@ paths:
                     maximum: 9007199254740991
                   body:
                     type: string
+                  definition:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        maxLength: 64
+                        pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                      description:
+                        type: string
+                        maxLength: 1024
+                      factorize:
+                        type: object
+                        properties:
+                          vm-preset:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          permission-preset:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          model-preset:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          concurrency:
+                            default: 0
+                            type: integer
+                            minimum: 0
+                            maximum: 2147483647
+                          disabled:
+                            default: false
+                            type: boolean
+                        required:
+                          - concurrency
+                          - disabled
+                        additionalProperties: {}
+                      markdown:
+                        type: string
+                        maxLength: 100000
+                    required:
+                      - name
+                      - description
+                      - factorize
+                      - markdown
+                    additionalProperties: false
                   usageCount:
                     type: integer
                     minimum: 0
@@ -11722,9 +13493,50 @@ paths:
                 body:
                   type: string
                   maxLength: 100000
+                definition:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      maxLength: 64
+                      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                    description:
+                      type: string
+                      maxLength: 1024
+                    factorize:
+                      type: object
+                      properties:
+                        vm-preset:
+                          type: string
+                          maxLength: 120
+                          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                        permission-preset:
+                          type: string
+                          maxLength: 120
+                          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                        model-preset:
+                          type: string
+                          maxLength: 120
+                          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                        concurrency:
+                          default: 0
+                          type: integer
+                          minimum: 0
+                          maximum: 2147483647
+                        disabled:
+                          default: false
+                          type: boolean
+                      additionalProperties: {}
+                    markdown:
+                      type: string
+                      maxLength: 100000
+                  required:
+                    - name
+                    - description
+                    - factorize
+                    - markdown
               required:
                 - key
-                - body
               additionalProperties: false
   /api/v1/triggers/preview:
     post:
@@ -11869,6 +13681,52 @@ paths:
                     maximum: 9007199254740991
                   body:
                     type: string
+                  definition:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        maxLength: 64
+                        pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                      description:
+                        type: string
+                        maxLength: 1024
+                      factorize:
+                        type: object
+                        properties:
+                          vm-preset:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          permission-preset:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          model-preset:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          concurrency:
+                            default: 0
+                            type: integer
+                            minimum: 0
+                            maximum: 2147483647
+                          disabled:
+                            default: false
+                            type: boolean
+                        required:
+                          - concurrency
+                          - disabled
+                        additionalProperties: {}
+                      markdown:
+                        type: string
+                        maxLength: 100000
+                    required:
+                      - name
+                      - description
+                      - factorize
+                      - markdown
+                    additionalProperties: false
                   usageCount:
                     type: integer
                     minimum: 0
@@ -11945,6 +13803,52 @@ paths:
                     maximum: 9007199254740991
                   body:
                     type: string
+                  definition:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        maxLength: 64
+                        pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                      description:
+                        type: string
+                        maxLength: 1024
+                      factorize:
+                        type: object
+                        properties:
+                          vm-preset:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          permission-preset:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          model-preset:
+                            type: string
+                            maxLength: 120
+                            pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                          concurrency:
+                            default: 0
+                            type: integer
+                            minimum: 0
+                            maximum: 2147483647
+                          disabled:
+                            default: false
+                            type: boolean
+                        required:
+                          - concurrency
+                          - disabled
+                        additionalProperties: {}
+                      markdown:
+                        type: string
+                        maxLength: 100000
+                    required:
+                      - name
+                      - description
+                      - factorize
+                      - markdown
+                    additionalProperties: false
                   usageCount:
                     type: integer
                     minimum: 0
@@ -12014,6 +13918,48 @@ paths:
                 body:
                   type: string
                   maxLength: 100000
+                definition:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      maxLength: 64
+                      pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                    description:
+                      type: string
+                      maxLength: 1024
+                    factorize:
+                      type: object
+                      properties:
+                        vm-preset:
+                          type: string
+                          maxLength: 120
+                          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                        permission-preset:
+                          type: string
+                          maxLength: 120
+                          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                        model-preset:
+                          type: string
+                          maxLength: 120
+                          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                        concurrency:
+                          default: 0
+                          type: integer
+                          minimum: 0
+                          maximum: 2147483647
+                        disabled:
+                          default: false
+                          type: boolean
+                      additionalProperties: {}
+                    markdown:
+                      type: string
+                      maxLength: 100000
+                  required:
+                    - name
+                    - description
+                    - factorize
+                    - markdown
                 expectedRevision:
                   type: integer
                   exclusiveMinimum: 0
@@ -17933,6 +19879,9 @@ paths:
           $ref: "#/components/responses/Error404"
         "409":
           $ref: "#/components/responses/Error409"
+        "410":
+          $ref: "#/components/responses/Error410"
+          description: Skill-backed triggers use permission presets; update that preset instead
         "415":
           $ref: "#/components/responses/Error415"
         "429":
@@ -19412,6 +21361,8 @@ paths:
                   type: string
                   maxLength: 50000
                 script:
+                  description: "Retired: new script runs are rejected. Historical reads remain supported."
+                  deprecated: true
                   type: string
                   maxLength: 50000
                 runNameTemplate:
@@ -19419,7 +21370,7 @@ paths:
                   maxLength: 500
                 concurrencyLimit:
                   type: integer
-                  minimum: 1
+                  minimum: 0
                   maximum: 50
                 runScopes:
                   description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
@@ -19866,7 +21817,7 @@ paths:
     post:
       summary: Start a Team run from an optional skill and prompt, or a script
       description: |-
-        Supply a skill, a prompt, or both for an agent run, or a script without an agent skill or prompt. Omitted settings use Team defaults. Default scopes, integrations and invocation destinations are bounded by the caller's effective access. Explicit unauthorized permissions fail. Explicit empty selections grant none.
+        Supply a skill, a prompt, or images for an agent run. Script-based runs are retired. Skill frontmatter selects VM, permission and model presets; omitted selections inherit team defaults. Resolved preset revisions and the skill commit are snapshotted before queueing. Default scopes, integrations and invocation destinations are bounded by the caller's effective access. Explicit unauthorized permissions fail. Explicit empty selections grant none.
 
         Requires the runs:start scope.
 
@@ -19931,6 +21882,18 @@ paths:
             schema:
               type: object
               properties:
+                vmPreset:
+                  type: string
+                  maxLength: 120
+                  pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                permissionPreset:
+                  type: string
+                  maxLength: 120
+                  pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                modelPreset:
+                  type: string
+                  maxLength: 120
+                  pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
                 attachments:
                   maxItems: 16
                   type: array
@@ -19951,6 +21914,8 @@ paths:
                   minLength: 1
                   maxLength: 50000
                 script:
+                  description: "Retired: returns scripts_retired. Use an agent skill to execute code."
+                  deprecated: true
                   type: string
                   minLength: 1
                   maxLength: 200000
@@ -20157,11 +22122,11 @@ paths:
             minLength: 1
   /api/v1/search:
     get:
-      summary: Search triggers and runs by approximate metadata matches
+      summary: Search skill names and run names
       description: |-
-        Search uses PostgreSQL pg_trgm approximate matching over trigger names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.
+        Search skill names and run names only, using case-insensitive substring and PostgreSQL pg_trgm word matching. Exact names rank first, then prefixes, then other matches by similarity with deterministic ties. Results are tenant-scoped and limited to 100. Triggers, descriptions, instruction bodies, issue fields and trace content are excluded. Blank or punctuation-only queries return no results.
 
-        Requires the triggers:read and runs:read scopes.
+        Requires the skills:read and runs:read scopes.
 
         Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
       responses:
@@ -20180,9 +22145,8 @@ paths:
                         kind:
                           type: string
                           enum:
-                            - trigger
+                            - skill
                             - run
-                            - trace
                         id:
                           type: string
                         title:
@@ -20197,9 +22161,8 @@ paths:
                             kind:
                               type: string
                               enum:
-                                - trigger
+                                - skill
                                 - run
-                                - trace
                             label:
                               type: string
                             id:
@@ -20271,7 +22234,7 @@ paths:
         - vendorRunIdentity: []
           runIdentityHeader: []
         - cookieAuth: []
-      x-required-scope: triggers:read+runs:read
+      x-required-scope: skills:read+runs:read
       x-owner-session-required: false
       parameters:
         - name: q

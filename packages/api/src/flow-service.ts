@@ -1,3 +1,8 @@
+import { migratePresetSkills } from "./preset-migration";
+import { resolveSkillPresets, assertPresetSnapshot } from "./preset-resolution";
+import { presetInput } from "./presets";
+import { PresetRepository } from "./postgres/preset-repository";
+import { readSkillDefinition, writeSkillDefinition, type SkillDefinition } from "./skill-definition";
 import { markdown, validPath } from "./skill-files";
 import { PostgresSkillContentCache } from "./postgres/skill-content-cache";
 import { skillTriggerInput } from "./skill-trigger";
@@ -105,7 +110,7 @@ export class ApiService {
   authorizationDuration = 0;
   constructor(private env: Env, private auth: OAuthProps, private ctx?: ExecutionContext, private flyMetadata: FlyExecutionMetadataLoader = getFlyExecutionMetadata) {}
 
-  private triggers() { return new PostgresTriggerRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(databaseFor(this.env),this.auth.tenantId,this.env.CREDENTIAL_ENCRYPTION_KEY))); }
+  private triggers() { return new PostgresTriggerRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(databaseFor(this.env),this.auth.tenantId,this.env.CREDENTIAL_ENCRYPTION_KEY)),this.env); }
   private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private flyConnections() { return new FlyConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private skills() { return new SkillRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY, undefined, new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(databaseFor(this.env),this.auth.tenantId,this.env.CREDENTIAL_ENCRYPTION_KEY))); }
@@ -362,7 +367,7 @@ export class ApiService {
     catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; }
   }
   async syncSkillLibrary() { await this.authorize("skills:write"); const library=this.library(); await library.sync(); return library.status(); }
-  async listSkills(query: { q: string; limit: number; cursor?: string }) { await this.authorize("skills:read"); return publicValue(skillPage, await this.skills().list(query.q, query.limit, query.cursor)); }
+  async listSkills(query: { q: string; limit: number; cursor?: string }) { await this.authorize("skills:read"); await migratePresetSkills(this.env,this.auth.tenantId); return publicValue(skillPage, await this.skills().list(query.q, query.limit, query.cursor)); }
   private async pinnedSkills() {
     if(!this.auth.runId)return [];
     const row=(await databaseFor(this.env).pool.query(`SELECT j.encrypted_skill_snapshot FROM app.trigger_runs j JOIN app.runs r ON r.tenant_id=j.tenant_id AND r.id=j.id
@@ -408,7 +413,7 @@ export class ApiService {
     if(!skill)throw new SkillContentError("Unknown skill resource.");
     return {contents:[skillResource(this.auth.tenantId,skill,path)],ttlMs:0,cacheScope:"private" as const};
   }
-  async getSkill(id: string) { await this.authorize("skills:read"); const value = await this.skills().get(id); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); }
+  async getSkill(id: string) { await this.authorize("skills:read"); await migratePresetSkills(this.env,this.auth.tenantId); const value = await this.skills().get(id); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); }
   async getSkillDirectory(id:string){
     await this.authorize("skills:read");const skill=await this.skills().get(id);
     if(!skill)throw new ServiceError(404,"not_found","Skill not found");
@@ -418,50 +423,36 @@ export class ApiService {
   }
   async getSkillSettings(id: string) { await this.authorize("skills:read"); return this.readSkillSettings(id); }
   private async readSkillSettings(id:string) {
-    const row=(await databaseFor(this.env).pool.query("SELECT run_defaults,encrypted_prompt,encrypted_script,settings_revision FROM app.skills WHERE tenant_id=$1 AND id=$2",[this.auth.tenantId,id])).rows[0];
-    if(!row)throw new ServiceError(404,"not_found","Skill not found");
-    const legacyScript=!row.encrypted_script && row.run_defaults.executionType==="code" ? (await databaseFor(this.env).pool.query("SELECT execution_config->>'script' script FROM app.triggers t JOIN app.trigger_skills ts ON ts.tenant_id=t.tenant_id AND ts.trigger_id=t.id WHERE ts.tenant_id=$1 AND ts.skill_id=$2",[this.auth.tenantId,id])).rows[0]?.script : undefined;
-    return {revision:row.settings_revision,defaults:skillDefaults.parse({...row.run_defaults,prompt:row.encrypted_prompt?await decrypt(row.encrypted_prompt,this.env.CREDENTIAL_ENCRYPTION_KEY):"",...(row.encrypted_script?{script:await decrypt(row.encrypted_script,this.env.CREDENTIAL_ENCRYPTION_KEY)}:legacyScript?{script:legacyScript}:{})})};
+    await migratePresetSkills(this.env,this.auth.tenantId);
+    const skill=await this.skills().get(id);if(!skill)throw new ServiceError(404,"not_found","Skill not found.");
+    const resolved=await resolveSkillPresets(databaseFor(this.env).pool,this.auth.tenantId,skill.definition,skill.version?.commit);
+    return {revision:skill.revision,defaults:skillDefaults.parse({...resolved.defaults,executionType:"agent",prompt:"",concurrencyLimit:skill.definition?.factorize.concurrency??0})};
   }
-  async setSkillSettings(id:string,request:unknown) {
+
+  async setSkillSettings(id:string,request:unknown):Promise<{revision:number;defaults:z.infer<typeof skillDefaults>}> {
     await this.authorize("skills:write"); await this.authorize("triggers:write");
-    const input=skillSettingsInput.parse(request), defaults=input.defaults;
-    const executionType=defaults.executionType;
-    if(defaults.executionConfigId && defaults.requiresVm===false)throw new ServiceError(400,"invalid_request","A VM configuration requires a VM.");
-    if(defaults.allowedTriggerIds?.length){const found=await databaseFor(this.env).pool.query("SELECT id FROM app.triggers WHERE tenant_id=$1 AND id=ANY($2::uuid[])",[this.auth.tenantId,defaults.allowedTriggerIds]);if(found.rowCount!==defaults.allowedTriggerIds.length)throw new ServiceError(400,"invalid_request","Destinations must belong to this team.");}
-    const config=await this.workspaceConfiguration(defaults.executionConfigId,executionType==="code"||Boolean(defaults.requiresVm),executionType,defaults.tags);
-    const portable=await this.portableSelections(config,executionType,defaults);
-    const {prompt,script,...stored}=defaults;
-    const encryptedPrompt=await encrypt(prompt,this.env.CREDENTIAL_ENCRYPTION_KEY),encryptedScript=script?await encrypt(script,this.env.CREDENTIAL_ENCRYPTION_KEY):null;
-    const projected={...config,...portable,executionType,...(script?{script}:{}),...(defaults.vmImage?{image:canonicalizeVmImage(defaults.vmImage)}:{})};
-    await databaseFor(this.env).transaction(async client=>{
-      const updated=await client.query("UPDATE app.skills SET run_defaults=$3,encrypted_prompt=$4,encrypted_script=$5,settings_revision=settings_revision+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND settings_revision=$6 RETURNING id",[this.auth.tenantId,id,stored,encryptedPrompt,encryptedScript,input.expectedRevision]);
-      if(!updated.rowCount)throw new ServiceError(409,"stale_skill","Skill settings changed; reload before saving.");
-      // Trigger execution columns are a projection for existing schedulers and external clients.
-      await client.query(`UPDATE app.triggers t SET execution_config=$3,encrypted_prompt=$4,model=$5,effort=$6,tags=$7,run_scopes=$8,concurrency_limit=$9,updated_at=now()
-        FROM app.trigger_skills ts WHERE ts.tenant_id=t.tenant_id AND ts.trigger_id=t.id AND ts.skill_id=$2 AND t.tenant_id=$1`,[this.auth.tenantId,id,projected,encryptedPrompt,executionType==="code"?"":defaults.model??"",defaults.effort??"",JSON.stringify(defaults.tags??[]),JSON.stringify(defaults.runScopes??DEFAULT_RUN_SCOPES),defaults.concurrencyLimit??1]);
-      if(defaults.allowedTriggerIds!==undefined){
-        const linked=(await client.query("SELECT trigger_id FROM app.trigger_skills WHERE tenant_id=$1 AND skill_id=$2",[this.auth.tenantId,id])).rows;
-        for(const {trigger_id} of linked){await client.query("DELETE FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_trigger_id=$2",[this.auth.tenantId,trigger_id]);for(const destination of defaults.allowedTriggerIds)await client.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_trigger_id,destination_trigger_id) VALUES($1,$2,$3)",[this.auth.tenantId,trigger_id,destination]);}
-      }
-    });
-    return {revision:input.expectedRevision+1,defaults};
+    throw new ServiceError(410,"settings_retired","Edit SKILL.md metadata and team presets instead of skill execution settings.");
   }
-  async createSkill(input: unknown) { await this.authorize("skills:write"); const parsed = skillInput.parse(input); try { return publicValue(skillResponse, await this.library().edit(store => store.create(parsed.key,parsed.body))); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; } }
-  async updateSkill(id: string, input: unknown) { await this.authorize("skills:write"); try { const value = await this.library().edit(store => store.update(id, skillUpdateInput.parse(input))); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
+
+  private async authorizeDefinitionChange(next:SkillDefinition,previous?:SkillDefinition){
+    const baseline=previous?.factorize??{concurrency:0,disabled:false};
+    if((["vm-preset","permission-preset","model-preset","concurrency","disabled"] as const).some(field=>JSON.stringify(next.factorize[field])!==JSON.stringify(baseline[field])))await this.authorize("triggers:write");
+  }
+  async createSkill(input: unknown) { await this.authorize("skills:write"); const parsed = skillInput.parse(input); await this.authorizeDefinitionChange(parsed.definition??readSkillDefinition(parsed.body??"",parsed.key)); await migratePresetSkills(this.env,this.auth.tenantId); try { return publicValue(skillResponse, await this.library().edit(store => store.create(parsed.key,parsed.definition ? writeSkillDefinition(parsed.body ?? "",parsed.definition) : parsed.body ?? ""))); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; } }
+  async updateSkill(id: string, input: unknown) { await this.authorize("skills:write"); await migratePresetSkills(this.env,this.auth.tenantId); try { const value = await this.library().edit(async store => { const parsed=skillUpdateInput.parse(input); if(parsed.definition){const current=await store.get(id); if(!current)return null; parsed.body=writeSkillDefinition(parsed.body??current.body??"",parsed.definition);} if(parsed.body!==undefined){const current=await store.get(id);if(!current)return null;await this.authorizeDefinitionChange(readSkillDefinition(parsed.body,parsed.key??current.key),current.definition);} return store.update(id,parsed); }); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
   async deleteSkill(id: string, expectedRevision: number) { await this.authorize("skills:write"); try { if (!await this.library().edit(store => store.remove(id, expectedRevision))) throw new ServiceError(404, "not_found", "Skill not found"); return { id, deleted: true }; } catch (e) { if (e instanceof SkillReferenced) throw new ServiceError(409, "skill_referenced", `${e.message} Triggers: ${e.triggers.map(trigger => trigger.name).join(", ")}`); if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
   async getSkillTrigger(id:string){
     await this.authorize("skills:read");await this.authorize("triggers:read");
     await this.readSkillSettings(id);
     const linked=await this.skills().triggers(id);
     const trigger=linked.length?await this.getTrigger(linked[0].id):null;
-    return {trigger:trigger?{...trigger,name:trigger.skill?.key??trigger.name}:null};
+    return {trigger:trigger?{...trigger,events:trigger.events.filter(event=>event.kind!=="manual"),name:trigger.skill?.key??trigger.name}:null};
   }
   async saveSkillTrigger(id:string,request:unknown){
     await this.authorize("skills:write");await this.authorize("triggers:write");
     const input=skillTriggerInput.parse(request),settings=await this.readSkillSettings(id),linked=await this.skills().triggers(id);
     const existing=linked.length?await this.triggers().getTrigger(linked[0].id):null;
-    const fields={...settings.defaults,name:existing?.name??("trigger-"+crypto.randomUUID()),skillId:id,events:input.events,runNameTemplate:existing?.runNameTemplate??""};
+    const fields={...settings.defaults,name:existing?.name??("trigger-"+crypto.randomUUID()),skillId:id,events:[...(existing?.events.filter(event=>event.kind==="manual").map(({id,slug,enabled,template})=>({id,slug,enabled,template,kind:"manual" as const,config:{}}))??[{kind:"manual" as const,slug:"manual",enabled:true,config:{}}]),...input.events.filter(event=>event.kind!=="manual")],runNameTemplate:existing?.runNameTemplate??""};
     const trigger=existing?await this.updateTrigger(existing.id,{...fields,expectedUpdatedAt:input.expectedUpdatedAt}):await this.createTrigger(fields);
     if(trigger.enabled!==input.enabled)await this.setTriggerEnabled(trigger.id,input.enabled);
     return this.getSkillTrigger(id);
@@ -647,37 +638,49 @@ export class ApiService {
     } catch (error) { this.throwFlyAccountError(error); }
   }
   async removeFlyConnection() { await this.authorizeOwnerSession("integrations:write"); return { deleted: await this.flyConnections().remove() }; }
+  private presets() { return new PresetRepository(databaseFor(this.env),this.auth.tenantId); }
+  async listPresets() { await this.authorize("integrations:read"); await migratePresetSkills(this.env,this.auth.tenantId); return {presets:await this.presets().list()}; }
+  async savePreset(body:unknown,id?:string) {
+    await this.authorize("integrations:write"); const input=presetInput.parse(body);if(input.kind==="permission")await this.authorize("triggers:write");let configId:string|undefined;
+    if(input.kind==="vm" && input.settings.provider!=="none"){
+      if(input.settings.provider==="exe"){
+        const connectionId=input.settings.connectionId;
+        const connection=(await this.integrations().status()).exeConnections.find(item=>item.connectionId===connectionId);
+        if(!connection || input.settings.tags.some(tag=>!connection.accountTags.includes(tag)))throw new ServiceError(400,"invalid_preset","Choose an available exe.dev connection and tags.");
+        configId=input.settings.connectionId;
+      } else {
+        if(!await this.flyConnections().get())throw new ServiceError(409,"fly_connection_required","Connect Fly.io first.");
+        await this.validateFlySize(input.settings);
+        const configuration=await this.flyExecutionConfigs().save({name:crypto.randomUUID(),image:input.settings.image,region:input.settings.region,size:input.settings.size});
+        configId=configuration.id;
+      }
+    }
+    if(input.kind==="permission"||input.kind==="model"){
+      const settings=input.settings;
+      await this.portableSelections({connectionId:""},"agent",settings);
+      if(input.kind==="permission" && input.settings.allowedTriggerIds?.length){const found=await databaseFor(this.env).pool.query("SELECT id FROM app.triggers WHERE tenant_id=$1 AND id=ANY($2::uuid[])",[this.auth.tenantId,input.settings.allowedTriggerIds]);if(found.rowCount!==input.settings.allowedTriggerIds.length)throw new ServiceError(400,"invalid_preset","Invocation destinations must belong to this team.");}
+    }
+    return {preset:await this.presets().save(input,id,configId)};
+  }
+  async defaultPreset(id:string){await this.authorize("team:write");return {preset:await this.presets().makeDefault(id)};}
+  async deletePreset(id:string){await this.authorize("integrations:write");return this.presets().remove(id);}
   private vmPresets() { return new VmPresetRepository(databaseFor(this.env), this.auth.tenantId); }
   async listVmPresets() {
     await this.authorizeOwnerSession("integrations:read");
-    return { presets: await this.vmPresets().list() };
+    const presets=(await this.listPresets()).presets.filter(p=>p.kind==="vm"&&p.settings.provider!=="none");
+    return {presets:presets.map(p=>({id:p.id,name:p.name,settings:p.settings,executionConfigId:p.executionConfigId??""}))};
   }
-  async saveVmPreset(body: unknown, id?: string) {
-    await this.authorizeOwnerSession("integrations:write");
-    const input = vmPresetInput.parse(body);
-    const settings = input.settings;
-    if (settings.provider === "fly") {
-      if (!await this.flyConnections().get()) throw new ServiceError(409, "fly_connection_required", "Connect Fly.io before saving this preset.");
-      await this.validateFlySize(settings);
-    } else {
-      const status = await this.integrations().status();
-      const connection = status.exeConnections.find(item => item.connectionId === settings.connectionId);
-      if (!connection || settings.tags.some(tag => !connection.accountTags.includes(tag))) throw new ServiceError(400, "invalid_vm_preset", "Choose an available exe.dev connection and VM tags.");
-    }
-    try {
-      const preset = await this.vmPresets().save(input, id);
-      if (!preset) throw new ServiceError(404, "not_found", "VM preset not found.");
-      return { preset };
-    } catch (error) {
-      if ((error as {constraint?: string}).constraint === "vm_presets_name") throw new ServiceError(409, "duplicate_name", "A VM preset already uses this name.");
-      throw error;
-    }
+  async saveVmPreset(body:unknown,id?:string){
+    await this.authorizeOwnerSession("integrations:write");const input=vmPresetInput.parse(body);
+    await migratePresetSkills(this.env,this.auth.tenantId);
+    const all=(await this.presets().list()).filter(p=>p.kind==="vm");
+    if(all.some(p=>p.id!==id&&p.name.toLowerCase()===input.name.toLowerCase()))throw new ServiceError(409,"duplicate_name","A VM preset already uses this name.");
+    const current=id?all.find(p=>p.id===id):undefined;if(id&&!current)throw new ServiceError(404,"not_found","VM preset not found.");
+    const slug=current?.slug??(input.name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"vm");
+    const {preset}=await this.savePreset({kind:"vm",slug,name:input.name,settings:input.settings},id);
+    return {preset:{id:preset.id,name:preset.name,settings:preset.settings,executionConfigId:preset.executionConfigId??""}};
   }
-  async removeVmPreset(id: string) {
-    await this.authorizeOwnerSession("integrations:write");
-    if (!await this.vmPresets().remove(id)) throw new ServiceError(404, "not_found", "VM preset not found.");
-    return { deleted: true };
-  }
+  async removeVmPreset(id:string){await this.authorizeOwnerSession("integrations:write");return this.deletePreset(id);}
   private async validateFlySize(settings: {region: string; size: string}) {
     const metadata = await this.flyMetadata();
     if (!metadata.regions.includes(settings.region) || !metadata.sizes.includes(settings.size)) throw new ServiceError(400, "invalid_fly_configuration", "The selected Fly region or VM size is unavailable.");
@@ -707,7 +710,7 @@ export class ApiService {
     }));
     return publicValue(runPageResponse,JSON.parse(JSON.stringify({...page,items})));
   }
-  async search(query: string) { await this.authorize("triggers:read"); await this.authorize("runs:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
+  async search(query: string) { await this.authorize("skills:read"); await this.authorize("runs:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
   async eventContextMetadata() { await this.authorize("triggers:read"); return eventContextCatalog; }
   async getRunStatus(runId: string) { await this.authorize("runs:read"); const status = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).status(runId); if (!status) throw new ServiceError(404, "not_found", "Run not found"); return status; }
   async reportRunError(runId: string, input: unknown) {
@@ -960,6 +963,8 @@ export class ApiService {
   async getWebhookDelivery(deliveryId: string) { await this.authorize("runs:read"); const value = await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).delivery(deliveryId); if (!value) throw new ServiceError(404,"not_found","Webhook delivery not found"); return value; }
   async testTriggerConditions(input: unknown) { await this.authorize("triggers:write"); const parsed = triggerConditionsTestSchema.parse(input); return evaluateWebhookConditions(parsed.conditions, parsed.webhook); }
   async createTrigger(request: TriggerInput) {
+    if(request.executionType==="code"||Boolean(request.script?.trim()))throw new ServiceError(400,"scripts_retired","Script-based runs are retired. Use an agent skill to execute code.");
+    request={...request,script:undefined};
     await this.authorize("triggers:write");
     const team = await new TeamRepository(databaseFor(this.env), this.auth.tenantId).get();
     if (!team) throw new ServiceError(404, "not_found", "Team not found");
@@ -973,7 +978,7 @@ export class ApiService {
       ...Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined)) as TriggerInput,
       executionConfigId,
       concurrencyLimit: request.concurrencyLimit ?? defaults.concurrencyLimit ?? 1,
-      modelAccountId: request.executionType === "code" ? undefined : request.modelAccountId ?? defaults.modelAccountId,
+      modelAccountId: request.modelAccountId ?? defaults.modelAccountId,
     };
     const timestamp = new Date().toISOString(),
       id = crypto.randomUUID();
@@ -1024,6 +1029,8 @@ export class ApiService {
     }
   }
   async updateTrigger(triggerId: string, request: TriggerInput & { expectedUpdatedAt?: string }) {
+    if(request.executionType==="code"||Boolean(request.script?.trim()))throw new ServiceError(400,"scripts_retired","Script-based runs are retired. Use an agent skill to execute code.");
+    request={...request,script:undefined};
     await this.authorize("triggers:write");
     const repository = this.triggers(),
       current = await repository.getTrigger(triggerId);
@@ -1144,7 +1151,9 @@ export class ApiService {
     await this.authorize("team:read");
     const team = await new TeamRepository(databaseFor(this.env), this.auth.tenantId).get();
     if (!team) throw new ServiceError(404, "not_found", "Team not found");
-    return team;
+    await migratePresetSkills(this.env,this.auth.tenantId);
+    const presets=await this.presets().list();
+    return {...team,presetDefaults:Object.fromEntries(["vm","permission","model"].map(kind=>[kind,presets.find(p=>p.kind===kind&&p.isDefault)?.slug??null]))};
   }
 
   async setTeamRunDefaults(input: z.infer<typeof teamRunDefaults>) {
@@ -1159,9 +1168,30 @@ export class ApiService {
       await this.validateSelectedCredentials(input);
     }
     if (!input.executionConfigId) await this.validateSelectedCredentials(input);
+    const previous=await new TeamRepository(databaseFor(this.env),this.auth.tenantId).get();
     const saved = await new TeamRepository(databaseFor(this.env), this.auth.tenantId).setRunDefaults(input);
     if (!saved) throw new ServiceError(404, "not_found", "Team not found");
-    return {...INITIAL_TEAM_DEFAULTS,...input};
+    const merged={...INITIAL_TEAM_DEFAULTS,...input};
+    await migratePresetSkills(this.env,this.auth.tenantId);
+    // Compatibility writes update the referenced team defaults. Capacity-only
+    // writes leave presets alone; old clients never save ignored settings.
+    const presets=await this.presets().list();
+    for(const kind of ["vm","permission","model"] as const){
+      const keys=kind==="vm"?["requiresVm","executionConfigId","vmImage","tags"]:kind==="model"?["modelAccountId","model","effort"]:["runScopes","portableIntegrationIds","githubInstallationIds","linearConnectionId","xConnectionIds","allowedTriggerIds"];
+      if(!keys.some(key=>JSON.stringify((previous?.runDefaults as any)?.[key])!==JSON.stringify((merged as any)[key])))continue;
+      const current=presets.find(p=>p.kind===kind&&p.isDefault);if(!current)continue;
+      let settings:Record<string,unknown>={},configId:string|undefined;
+      if(kind==="vm"){
+        if(!merged.requiresVm)settings={provider:"none"};
+        else {
+          const config=merged.executionConfigId?await this.flyExecutionConfigs().get(merged.executionConfigId):null;
+          settings=config?{provider:"fly",image:merged.vmImage||config.image,region:config.region,size:config.size}:{provider:"exe",connectionId:merged.executionConfigId??"",image:merged.vmImage??"",tags:merged.tags??[]};
+          configId=merged.executionConfigId;
+        }
+      }else for(const key of keys)if((merged as any)[key]!==undefined)settings[key]=(merged as any)[key];
+      await this.presets().save(presetInput.parse({kind,name:current.name,slug:current.slug,settings,expectedRevision:current.revision}),current.id,configId);
+    }
+    return merged;
   }
 
   private async resolveRunDefaults(input: z.infer<typeof projectRunDefaults>, executionType: "agent" | "code" = "agent") {
@@ -1181,6 +1211,7 @@ export class ApiService {
   }
 
   async startRun(input: z.infer<typeof startRunInput>) {
+    if(input.script!==undefined)throw new ServiceError(400,"scripts_retired","Script-based runs are retired. Use an agent skill to execute code.");
     await this.authorize("runs:start");
     if(input.script && input.skill)throw new ServiceError(400,"invalid_request","Explicit scripts cannot include an agent skill; select the script skill alone to use its saved script.");
     const db = databaseFor(this.env),
@@ -1226,12 +1257,14 @@ export class ApiService {
     if (prior) return prior;
     const team = await new TeamRepository(db, auth.tenantId).get();
     if (!team) throw new ServiceError(404, "not_found", "Team not found");
+    await migratePresetSkills(this.env,auth.tenantId);
     const skill = input.skill ? await this.skills().get(input.skill) : null;
     if(input.skill && !skill)throw new ServiceError(404,"not_found","Launch skill not found");
-    const skillSettingsSnapshot = skill ? await this.readSkillSettings(skill.id) : undefined;
-    const owned = skillSettingsSnapshot?.defaults;
-    if(owned?.executionType==="code" && input.script===undefined)input={...input,script:owned.script};
-    const defaults = owned ? {...owned,capacity:team.runDefaults.capacity} : team.runDefaults;
+    const currentSkill=skill;
+    const resolvedPresets=await resolveSkillPresets(db.pool,auth.tenantId,{...(currentSkill?.definition??readSkillDefinition("","run")),factorize:{...(currentSkill?.definition?.factorize??{concurrency:0,disabled:false}),...(input.vmPreset?{"vm-preset":input.vmPreset}:{}),...(input.permissionPreset?{"permission-preset":input.permissionPreset}:{}),...(input.modelPreset?{"model-preset":input.modelPreset}:{})}},currentSkill?.version?.commit);
+    if(currentSkill?.definition?.factorize.disabled)throw new ServiceError(409,"skill_disabled","This skill is disabled.");
+    const owned=resolvedPresets.defaults;
+    const defaults={...owned,capacity:team.runDefaults.capacity};
     const selectedModelAccountId=input.modelAccountId ?? defaults.modelAccountId;
     const executionConfigId = input.executionConfigId ?? defaults.executionConfigId;
     if(input.executionConfigId && input.requiresVm===false)throw new ServiceError(400,"invalid_request","A VM override requires requiresVm=true.");
@@ -1283,13 +1316,15 @@ export class ApiService {
     }, input.script ? "code" : "agent");
     const config = {
       ...resolved,
+      presetSnapshot:resolvedPresets.snapshot,
+      skillConcurrencyLimit:skill?.definition?.factorize.concurrency??0,
       runScopes,
-      allowedTriggerIds: [] as string[],
+      allowedTriggerIds: defaults.allowedTriggerIds??[] as string[],
       ...(inheritConfigured ? {} : {agentIntegrationIds: integrationIds}),
       inputMediaIds:input.attachments?.map(item=>item.artifactId) ?? [],
       ...(input.script ? {script: input.script} : {}),
     };
-    const text=[owned?.prompt ?? "",input.prompt ?? "", input.inputs && Object.keys(input.inputs).length ? "Inputs (JSON)\n"+JSON.stringify(input.inputs) : ""].filter(Boolean).join("\n\n");
+    const text=[input.prompt ?? "", input.inputs && Object.keys(input.inputs).length ? "Inputs (JSON)\n"+JSON.stringify(input.inputs) : ""].filter(Boolean).join("\n\n");
     const prompt = composePrompt(skill && !input.script ? {body:skill.body!} : undefined,text);
     const encryptedPrompt = await encrypt(prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const encryptedSkills = skill
@@ -1302,7 +1337,8 @@ export class ApiService {
       : undefined;
     const result = await db.transaction(async (client) => {
       const locked = await client.query("SELECT run_defaults IS NOT DISTINCT FROM $2::jsonb matches FROM app.team_settings WHERE tenant_id=$1 FOR UPDATE", [auth.tenantId, team.runDefaults]);
-      if(skill){const current=(await client.query("SELECT revision,settings_revision FROM app.skills WHERE tenant_id=$1 AND id=$2 FOR SHARE",[auth.tenantId,skill.id])).rows[0];if(!current || current.revision!==skill.revision || current.settings_revision!==skillSettingsSnapshot!.revision)throw new ServiceError(409,"configuration_changed","Skill changed. Retry this request.");}
+      if(skill){const current=(await client.query("SELECT revision FROM app.skills WHERE tenant_id=$1 AND id=$2 FOR SHARE",[auth.tenantId,skill.id])).rows[0];if(!current || current.revision!==skill.revision)throw new ServiceError(409,"configuration_changed","Skill changed. Retry this request.");}
+      await assertPresetSnapshot(client,auth.tenantId,resolvedPresets.snapshot);
       const duplicate = await existing(client);
       if (duplicate) return duplicate;
       if (!locked.rows[0]?.matches)
@@ -1318,7 +1354,7 @@ export class ApiService {
         );
         if (!active.rowCount) throw new ServiceError(403, "forbidden", "The parent run is no longer active.");
         const parent=active.rows[0];
-        const destinations=parent.trigger_id
+        const destinations=parent.trigger_id && !parent.execution_config.presetSnapshot
           ? (await client.query("SELECT destination_trigger_id FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_trigger_id=$2 FOR SHARE",[auth.tenantId,parent.trigger_id])).rows.map(row=>row.destination_trigger_id)
           : parent.execution_config.allowedTriggerIds ?? [];
         config.allowedTriggerIds=(defaults.allowedTriggerIds ?? []).filter(id=>destinations.includes(id));
@@ -1399,8 +1435,8 @@ export class ApiService {
           JOIN app.triggers destination ON destination.tenant_id=r.tenant_id AND destination.id=$3
           WHERE r.tenant_id=$1 AND r.id=$2 AND r.state IN ('starting','running','blocked')
             AND ($5::boolean OR EXISTS(SELECT 1 FROM app.vendor_run_identity_bindings b WHERE b.tenant_id=r.tenant_id AND b.run_id=r.id AND b.provider=$4 AND b.revoked_at IS NULL))
-            AND ((r.trigger_id IS NULL AND COALESCE(r.execution_config->'allowedTriggerIds','[]'::jsonb) ? $3::text)
-              OR EXISTS(SELECT 1 FROM app.manual_invocation_permissions p WHERE p.tenant_id=r.tenant_id AND p.source_trigger_id=r.trigger_id AND p.destination_trigger_id=$3))`, [this.auth.tenantId, this.auth.runId, triggerId, this.auth.runIdentityProvider ?? null,this.auth.authMethod==="hosted_pi"]);
+            AND (COALESCE(r.execution_config->'allowedTriggerIds','[]'::jsonb) ? $3::text
+              OR (r.execution_config->'presetSnapshot' IS NULL AND r.trigger_id IS NOT NULL AND EXISTS(SELECT 1 FROM app.manual_invocation_permissions p WHERE p.tenant_id=r.tenant_id AND p.source_trigger_id=r.trigger_id AND p.destination_trigger_id=$3)))`, [this.auth.tenantId, this.auth.runId, triggerId, this.auth.runIdentityProvider ?? null,this.auth.authMethod==="hosted_pi"]);
       if (!permission.rowCount) throw new ServiceError(403, "forbidden", "This run is no longer active or its source trigger is not authorized to invoke the destination.");
     }
     const event = trigger.events.find(value => value.kind === "manual" && value.enabled); if (!event) throw new ServiceError(409, "operation_failed", "The manual event is disabled");
@@ -1423,6 +1459,7 @@ export class ApiService {
     await this.authorize("triggers:write");
     // A run with triggers:write still cannot expand its invocation destinations.
     if (["vendor_identity","hosted_pi"].includes(this.auth.authMethod ?? "")) throw new ServiceError(403, "insufficient_scope", "Run credentials cannot change invocation permissions.");
+    if((await databaseFor(this.env).pool.query("SELECT 1 FROM app.trigger_skills WHERE tenant_id=$1 AND trigger_id=$2 LIMIT 1",[this.auth.tenantId,sourceTriggerId])).rowCount)throw new ServiceError(410,"permissions_retired","Update the skill permission preset instead of trigger invocation permissions.");
     const unique = [...new Set(destinationTriggerIds)];
     if (unique.length !== destinationTriggerIds.length) throw new ServiceError(400, "invalid_request", "Destination triggers must be unique.");
     const db = databaseFor(this.env);

@@ -1,3 +1,4 @@
+import { presetInput, presetResponse, presetList } from "./presets";
 import { skillTriggerInput, skillTriggerResponse } from "./skill-trigger";
 import { skillSettings, skillSettingsInput } from "./skill-settings";
 import { profileInput, profileResponse } from "./usernames";
@@ -441,6 +442,11 @@ export const API_ROUTES: RouteContract[] = [
     description: "Owner browser session only. Deletes the tenant's encrypted provisioning token.",
     responses: { "200": { description: "Deletion result", content: { "application/json": { schema: jsonSchema(z.object({ deleted: z.boolean() }), "output") } } } },
   }, service => service.removeFlyConnection(), { ownerSession: true }),
+  route("GET", "/api/v1/presets", "integrations:read", {summary:"List team VM, permission and model presets with defaults and immutable revisions",responses:{"200":{description:"Presets",content:{"application/json":{schema:jsonSchema(presetList,"output")}}}}},service=>service.listPresets()),
+  route("POST", "/api/v1/presets", "integrations:write", {summary:"Create a preset with a team-unique immutable slug",responses:{"200":{description:"Preset",content:{"application/json":{schema:jsonSchema(z.object({preset:presetResponse}),"output")}}}}},(service,{body})=>service.savePreset(body),{body:presetInput}),
+  route("PUT", "/api/v1/presets/{id}", "integrations:write", {summary:"Create a new revision of a preset",responses:{"200":{description:"Preset",content:{"application/json":{schema:jsonSchema(z.object({preset:presetResponse}),"output")}}}}},(service,{body,params})=>service.savePreset(body,params.id),{body:presetInput,parameters:z.object({id:z.uuid()})}),
+  route("POST", "/api/v1/presets/{id}/default", "team:write", {summary:"Select the team default for this preset type",responses:{"200":{description:"Default preset",content:{"application/json":{schema:jsonSchema(z.object({preset:presetResponse}),"output")}}}}},(service,{params})=>service.defaultPreset(params.id),{parameters:z.object({id:z.uuid()})}),
+  route("DELETE", "/api/v1/presets/{id}", "integrations:write", {summary:"Delete an unused, non-default preset while retaining historical revisions",responses:{"200":{description:"Deleted",content:{"application/json":{schema:jsonSchema(z.object({deleted:z.boolean()}),"output")}}}}},(service,{params})=>service.deletePreset(params.id),{parameters:z.object({id:z.uuid()})}),
   route("GET", "/api/v1/vm-presets", "integrations:read", {
     summary: "List VM presets", responses: { "200": { description: "List VM presets", content: { "application/json": { schema: jsonSchema(z.object({ presets: z.array(vmPreset) }), "output") } } } },
   }, service => service.listVmPresets(), { ownerSession: true }),
@@ -823,8 +829,8 @@ export const API_ROUTES: RouteContract[] = [
   route("GET", "/api/v1/skills/{skillId}/files", "skills:read", {summary:"Browse the published skill directory at its immutable revision",responses:{"200":{description:"Published files, with base64 encoded contents",content:{"application/json":{schema:jsonSchema(skillDirectoryResponse,"output")}}}}},(service,{params})=>service.getSkillDirectory(params.skillId),{parameters:z.object({skillId:z.uuid()})}),
   route("GET", "/api/v1/skills/{skillId}/trigger", ["skills:read","triggers:read"], {summary:"Read a skill's optional trigger",responses:{"200":{description:"Optional trigger",content:{"application/json":{schema:jsonSchema(skillTriggerResponse,"output")}}}}},(service,{params})=>service.getSkillTrigger(params.skillId),{parameters:z.object({skillId:z.uuid()})}),
   route("PUT", "/api/v1/skills/{skillId}/trigger", ["skills:write","triggers:write"], {summary:"Configure a skill's event sources and enabled state",responses:{"200":{description:"Saved trigger",content:{"application/json":{schema:jsonSchema(skillTriggerResponse,"output")}}}}},(service,{params,body})=>service.saveSkillTrigger(params.skillId,body),{parameters:z.object({skillId:z.uuid()}),body:skillTriggerInput,maxBodyBytes:1_000_000}),
-  route("GET", "/api/v1/skills/{skillId}/settings", "skills:read", {summary:"Read skill execution defaults",responses:{"200":{description:"Skill settings",content:{"application/json":{schema:jsonSchema(skillSettings,"output")}}}}},(service,{params})=>service.getSkillSettings(params.skillId),{parameters:z.object({skillId:z.uuid()})}),
-  route("PUT", "/api/v1/skills/{skillId}/settings", ["skills:write","triggers:write"], {summary:"Save skill execution defaults for future manual and triggered runs",responses:{"200":{description:"Saved skill settings",content:{"application/json":{schema:jsonSchema(skillSettings,"output")}}}}},(service,{params,body})=>service.setSkillSettings(params.skillId,body),{parameters:z.object({skillId:z.uuid()}),body:skillSettingsInput,maxBodyBytes:300_000}),
+  route("GET", "/api/v1/skills/{skillId}/settings", "skills:read", {summary:"Read effective defaults resolved from skill frontmatter and presets",responses:{"200":{description:"Skill settings",content:{"application/json":{schema:jsonSchema(skillSettings,"output")}}}}},(service,{params})=>service.getSkillSettings(params.skillId),{parameters:z.object({skillId:z.uuid()})}),
+  route("PUT", "/api/v1/skills/{skillId}/settings", ["skills:write","triggers:write"], {summary:"Retired: update skill frontmatter and presets instead",deprecated:true,responses:{"410":{description:"Retired: edit SKILL.md frontmatter and team presets instead",content:{"application/json":{schema:{$ref:"#/components/schemas/Error"}}}},"200":{description:"Saved skill settings",content:{"application/json":{schema:jsonSchema(skillSettings,"output")}}}}},(service,{params,body})=>service.setSkillSettings(params.skillId,body),{parameters:z.object({skillId:z.uuid()}),body:skillSettingsInput,maxBodyBytes:300_000}),
   route("GET", "/api/v1/skills", "skills:read", { summary: "Search global skills", responses: { "200": { description: "Skills", content: { "application/json": { schema: jsonSchema(skillPage, "output") } } } } }, (service, { query }) => service.listSkills(query), { query: skillQuery }),
   route("POST", "/api/v1/skills", "skills:write", { summary: "Create a global skill", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { body }) => service.createSkill(body), { body: skillInput }),
   route("POST", "/api/v1/triggers/preview", "skills:read", { summary: "Preview one skill, a literal prompt and optional Event template", responses: { "200": { description: "Prompt preview", content: { "application/json": { schema: jsonSchema(previewPromptResponse, "output") } } } } }, (service, { body }) => service.previewTriggerPrompt(body), { body: previewSkillInput }),
@@ -949,7 +955,7 @@ export const API_ROUTES: RouteContract[] = [
   service => service.getRuntimeContext()),
   route("GET", "/api/v1/runtime-integrations", [], { summary: "Discover this run's selected integration endpoints", description: "Requires vendor-verified run identity. Returns only snapshotted selections, safe connection metadata, X OAuth scopes, and current availability, without origins or credentials. X connections use /x/{connectionId}/ for supported API v2 resources; each resource is checked against selected and granted OAuth scopes. Selection authorization is independent of the run's Factorize API scopes.", responses: { "200": { description: "Selected run integrations", content: { "application/json": { schema: jsonSchema(runtimeIntegrationsResponse, "output") } } } } }, service => service.getRuntimeIntegrations()),
   route("GET", "/api/v1/triggers/{triggerId}/invocation-permissions", "triggers:read", { summary: "List a source trigger's manual invocation destinations", responses: { "200": { description: "Configured destination triggers in the same project", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params }) => service.getInvocationPermissions(params.triggerId)),
-  route("PUT", "/api/v1/triggers/{triggerId}/invocation-permissions", "triggers:write", { summary: "Replace a source trigger's manual invocation destinations", description: "Requires an owner session, scoped API key, or authorized OAuth client with triggers:write. Destinations must belong to the source trigger's project; self-invocation is allowed. A run token may invoke a configured destination only while both triggers remain in the same project. Lifecycle subscriptions do not create permissions.", responses: { "200": { description: "Saved manual invocation permissions", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params, body }) => service.setInvocationPermissions(params.triggerId, body.destinationTriggerIds), { body: invocationPermissionsInput }),
+  route("PUT", "/api/v1/triggers/{triggerId}/invocation-permissions", "triggers:write", { summary: "Replace a source trigger's manual invocation destinations", description: "Requires an owner session, scoped API key, or authorized OAuth client with triggers:write. Destinations must belong to the source trigger's project; self-invocation is allowed. A run token may invoke a configured destination only while both triggers remain in the same project. Lifecycle subscriptions do not create permissions.", responses: { "410": {description:"Skill-backed triggers use permission presets; update that preset instead",content:{"application/json":{schema:{$ref:"#/components/schemas/Error"}}}}, "200": { description: "Saved manual invocation permissions", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params, body }) => service.setInvocationPermissions(params.triggerId, body.destinationTriggerIds), { body: invocationPermissionsInput }),
   route(
     "GET",
     "/api/v1/triggers/{triggerId}/events",
@@ -1016,7 +1022,7 @@ export const API_ROUTES: RouteContract[] = [
   ),
   route("POST","/api/v1/runs","runs:start",{
     summary:"Start a Team run from an optional skill and prompt, or a script",
-    description:"Supply a skill, a prompt, or both for an agent run, or a script without an agent skill or prompt. Omitted settings use Team defaults. Default scopes, integrations and invocation destinations are bounded by the caller's effective access. Explicit unauthorized permissions fail. Explicit empty selections grant none.",
+    description:"Supply a skill, a prompt, or images for an agent run. Script-based runs are retired. Skill frontmatter selects VM, permission and model presets; omitted selections inherit team defaults. Resolved preset revisions and the skill commit are snapshotted before queueing. Default scopes, integrations and invocation destinations are bounded by the caller's effective access. Explicit unauthorized permissions fail. Explicit empty selections grant none.",
     responses:{"202":{description:"Accepted run",content:{"application/json":{schema:jsonSchema(startRunReceipt,"output")}}}},
   },(service,{body})=>service.startRun(body),{body:startRunInput,maxBodyBytes:256_000}),
   route(
@@ -1043,10 +1049,10 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/search",
-    "triggers:read+runs:read",
+    "skills:read+runs:read",
     {
-      summary: "Search triggers and runs by approximate metadata matches",
-      description: "Search uses PostgreSQL pg_trgm approximate matching over trigger names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.",
+      summary: "Search skill names and run names",
+      description: "Search skill names and run names only, using case-insensitive substring and PostgreSQL pg_trgm word matching. Exact names rank first, then prefixes, then other matches by similarity with deterministic ties. Results are tenant-scoped and limited to 100. Triggers, descriptions, instruction bodies, issue fields and trace content are excluded. Blank or punctuation-only queries return no results.",
       responses: { "200": { description: "Search results", content: { "application/json": { schema: jsonSchema(searchResponse, "output") } } } },
     },
     (service, { query }) => service.search(query.q),
@@ -1315,6 +1321,7 @@ export function generateOpenApi() {
       { description, content: errorContent },
     ]),
   );
+  errorResponses.Error410={description:"Operation retired; use skill frontmatter and team presets",content:errorContent};
   const namedBodies: Record<string, z.ZodType> = {
     TriggerInput: triggerInputSchema,
     ManualInvocation: manualInvocationSchema,

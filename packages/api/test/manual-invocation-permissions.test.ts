@@ -17,6 +17,7 @@ function fixture(options: { member?: boolean; activeToken?: boolean } = {}) {
   const query = async (sql: string, values: unknown[] = []) => {
     if (sql.includes("SELECT m.user_id,m.email")) return { rows: options.member === false ? [] : [{ user_id: "owner", email: "owner@example.com", role: "owner", session_version: 1 }], rowCount: options.member === false ? 0 : 1 };
     if (sql.includes("SELECT 1 FROM app.access_tokens")) return { rows: options.activeToken === false ? [] : [{ ok: 1 }], rowCount: options.activeToken === false ? 0 : 1 };
+    if (sql.includes("SELECT 1 FROM app.trigger_skills")) return {rows:[],rowCount:0};
     if (sql.includes("SELECT id FROM app.triggers") && sql.includes("FOR UPDATE")) return { rows: values[1] === sourceId ? [{ id: sourceId }] : [], rowCount: values[1] === sourceId ? 1 : 0 };
     if (sql.includes("SELECT id FROM app.triggers")) {
       const ids = (values[1] as string[]).filter(id => id === destinationId || id === sourceId || id === crossProjectId);

@@ -181,36 +181,60 @@ receipt. A failed run still owns that key. Inspect external effects before
 starting a new run. After a successful manual review, add a
 [schedule](https://docs.factorize.sh/recipes/scheduled-review) or [provider Event](https://docs.factorize.sh/integrations/events).
 
-## Skills and settings
+## Skills and presets
 Source: https://docs.factorize.sh/work/skills
 
-The team navigation contains **Skills**, **Runs**, **Integrations**, and **Settings**. Click the team name beside the bee to open Skills. A personal team's name is its owner's username; changing **Account settings → Profile** updates both together.
+The team navigation contains **Skills**, **Runs**, **Integrations**, and **Settings**. Skills appear in a table with description, VM preset, permission preset, model preset and **Triggers**. Triggers is Yes when any non-manual event exists, including disabled events. Global search matches only skill names and run names.
 
-## Skill pages
+## Skill definition
 
-Each skill has **Overview**, **Runs**, and **Settings** tabs. Overview shows its instructions and directory, supports editing its name and instructions, and starts manual runs. Runs includes both manual and event-triggered runs for that skill.
+`SKILL.md` is the source of truth. The editor provides frontmatter controls and plain text editing of the Markdown body. Unrelated frontmatter is preserved. Overview renders the body as Markdown and retains the directory browser.
 
-Settings has four sections:
+```yaml
+---
+name: review-pr
+description: Review a pull request
+metadata:
+  factorize:
+    vm-preset: development
+    permission-preset: repository-write
+    model-preset: careful
+    concurrency: 0
+    disabled: false
+---
+Review the pull request and report findings.
+```
 
-- **General:** agent or script execution mode, prompt, and script body.
-- **VM:** VM requirement/configuration, model integration/model, image and concurrency defaults.
-- **Permissions:** Factorize scopes, provider access and permitted destination triggers.
-- **Trigger:** an optional trigger's enabled state and event sources. One trigger can contain several sources.
+Preset references are human-readable slugs, unique within preset type and team. Omit a preset key to inherit that type's team default. Overview selectors update and commit these same fields immediately. Inside the editor, all controls and the body save together in one conditional revision. A stale save fails without overwriting another edit; reload before reapplying it.
 
-New skills copy team defaults. Later skill changes apply to future manual and event-triggered runs. Existing runs retain accepted content and configuration. Scripts require a VM. Supported explicit launch overrides take precedence over saved skill defaults.
+`concurrency` is a nonnegative integer and defaults to **0**, meaning unlimited simultaneous runs of that skill. Team capacity still bounds total running work. `disabled` defaults to false. Disabled skills cannot start new manual or automated runs; existing accepted runs continue. Script-based run creation is retired. A skill can use its agent tools to execute code.
 
-## Files and revisions
+## Team presets
 
-The directory browser displays nested text files and identifies binary files. Supporting files remain intact when instructions are edited. Published content is cached by tenant, repository and immutable commit; saves and syncs select a new revision. A failed browser refresh retains previously loaded files with a notice. Historical runs retain their pinned content.
+**Team Settings → VM**, **Permissions**, and **Models** each contain a preset list. Add and Edit open dedicated pages. The action menu also selects a team default or deletes a preset after confirmation. Each type has one team default. Default presets cannot be deleted; select another default first. Skills referencing a preset block deletion until those references are changed. Display names can change; slugs stay fixed.
 
-Manage Git repository selection, folder configuration and sync under **Team Settings → Skills**. The Skills list also provides the existing trigger workflow graph. Old trigger links resolve to their owning skill.
+VM presets select a provider, connection, image, and provider-specific size/region or tags, or explicitly select no VM. Permission presets select application scopes, integration access and permitted invocation destinations. Model presets select a model account/provider, model and effort. Team capacity remains editable under VM.
 
-Run detail and full trace use team navigation with **Runs** selected. Skill-filtered run links remain supported; skill selection is available in **Start run**.
+Presets are references. Every edit creates an immutable preset revision. When a run is created, before queueing, Factorize freezes the resolved configuration, each preset's ID/slug/revision, whether it was inherited, and the skill commit. Editing a preset or switching team defaults affects future runs. Accepted runs retain their original configuration and skill files.
+
+## Automation and files
+
+Each skill has **Overview**, **Runs**, and **Triggers** tabs. Triggers configures only automatic event sources. Manual events are hidden legacy details; manual runs remain available from Runs and API/MCP. Old skill Settings links redirect to Overview or Triggers.
+
+The directory browser displays nested text files and identifies binary files. Supporting files remain intact when instructions are edited. Published content is cached by tenant, repository and immutable commit. Manage repository selection and sync under **Team Settings → Skills**.
+
+## Migration and API clients
+
+Existing distinct configurations become presets, with equivalent configurations reused. Existing extra saved prompts are preserved in the Markdown body. Legacy script automation is disabled; historical runs remain readable. Migration can resume after a failed file publication without duplicating presets or instructions.
+
+REST clients use `/api/v1/presets` for listing/creation, `/api/v1/presets/{id}` for updates/deletion, and `/api/v1/presets/{id}/default` to select defaults. Preset updates accept `expectedRevision`; omitting it preserves last-writer-wins compatibility. Skill writes accept a complete `body` or structured `definition`, with `expectedRevision` on updates. Changing a skill’s execution metadata also requires `triggers:write`. Legacy team run-default writes update the corresponding default preset revisions; capacity-only writes leave presets unchanged. The former skill execution-settings write returns `settings_retired`; update frontmatter or presets instead.
+
+MCP exposes `list_presets`, `create_preset`, `update_preset`, `set_default_preset`, `delete_preset`, `get_skill`, `create_skill`, `update_skill`, `get_skill_trigger` and `save_skill_trigger`. Direct `start_run` may select `vmPreset`, `permissionPreset` and `modelPreset` slugs for that run. Direct-run permissions remain bounded by the caller's effective access.
 
 ## Create and edit triggers
 Source: https://docs.factorize.sh/work/triggers
 
-In the browser, open a [skill](https://docs.factorize.sh/work/skills), then **Settings → Trigger**. Each skill has at most one optional trigger, which can contain several event sources. Execution defaults belong to the skill, and the browser uses its name to label the trigger.
+In the browser, open a [skill](https://docs.factorize.sh/work/skills), then **Triggers**. Each skill has at most one optional trigger, which can contain several event sources. Execution configuration belongs to SKILL.md and its referenced presets, and the browser uses its name to label the trigger.
 
 The following describes the compatible REST/MCP trigger interface. Existing trigger IDs, names and write omission semantics remain available to external clients.
 
@@ -230,9 +254,7 @@ The browser displays the owning skill name and has no separate trigger-name fiel
 
 ## Team and skill defaults
 
-Team settings has **VM**, **Permissions**, and **Skills** sections. VM contains execution/model/concurrency defaults and presets; Permissions contains application scopes, provider access and invocation destinations; Skills contains Git repository configuration and sync.
-
-New skills copy team defaults. Each skill then owns its execution mode, VM/model, prompt, concurrency and permissions. Both manual and event-triggered launches use those saved settings; accepted runs keep their snapshots. Runs without a selected skill use team defaults. Direct runs narrow permissions to their caller's access, and explicit requests beyond that access fail.
+Skills select VM, permission and model presets through SKILL.md frontmatter. Missing selections inherit the corresponding team default. Preset configurations are resolved and frozen before a run queues. Configure only automation on the skill Triggers page; legacy manual events are hidden. See [Skills and presets](https://docs.factorize.sh/work/skills) for metadata, concurrency, disabled behavior and migration.
 
 ## Write Trigger context
 Source: https://docs.factorize.sh/work/prompts
@@ -241,7 +263,7 @@ An agent Trigger has one optional skill and one optional prompt. The skill body 
 
 Each Event has an optional Mustache `template`. Only the firing Event's template contributes text. A missing or blank template contributes nothing, regardless of payload size. Use selected fields for salient details, for example `Issue {{issue.identifier}}: {{issue.title}}`. `{{webhook}}` explicitly inserts the full normalized webhook Event object. It is never included automatically.
 
-Agent input is composed in this order: skill instructions, Trigger prompt, rendered Event text, and manual caller instructions. Empty sections are omitted. A skill-only run is valid. An agent invocation with no skill or effective instructions fails before a run is queued or a VM is provisioned. Script Triggers retain their script editor and structured input context.
+Agent input is composed in this order: skill instructions, Trigger prompt, rendered Event text, and manual caller instructions. Empty sections are omitted. A skill-only run is valid. An agent invocation with no skill or effective instructions fails before a run is queued or a VM is provisioned. Script-based run creation is retired. Skill instructions come from the Markdown body of SKILL.md; its frontmatter controls execution configuration.
 
 Inside an Event template, fields are available directly. Manual Events have `prompt` and `data`; scheduled Events have `occurredAt`, `externalId`, and `metadata.timezone`; provider Events include prepared delivery fields such as Linear `issue` and ClickUp `task`. Terminal lifecycle Events have `sourceTriggerId`, `sourceRunId`, `state`, `completedAt`, and `outputs`. Edited Events have `source_trigger_id`, `event`, and `edited_at`. Idle Events have `source_trigger_id`, `event`, and `completed_at`.
 
@@ -291,7 +313,7 @@ Roll forward with the additive migration before serving the new UI/API. Roll bac
 
 ## Background runs
 
-Set the team's model, optional workspace, permissions and capacity with an owner session using `PUT /api/v1/team/run-defaults`. Requires VM defaults off for agents; scripts require a VM. Explicit settings precede Team defaults. Direct launches require the separate `runs:start` scope. A verified parent run can launch within its team, bounded by its own permissions. Run execution defaults belong to the team. Finishing the parent leaves the child running.
+Select team VM, permission and model defaults through the preset API or Team Settings. Team capacity uses `PUT /api/v1/team/run-defaults`. Script-based run creation is retired. Skill frontmatter references presets; missing selections inherit team defaults. Direct launches require the separate `runs:start` scope. A verified parent run can launch within its team, bounded by its own permissions. Run execution defaults belong to the team. Finishing the parent leaves the child running.
 
 Call `start_run` with a literal prompt, optional skill key or ID, and a client-generated idempotency key. Supply `projectId` when an external client has multiple projects. Retrying the same request returns the same run. A launch skill is captured by ID, key and revision. Filter `list_runs` by `skillId`, using `none` for unclassified runs.
 
@@ -439,53 +461,9 @@ Available states are `succeeded`, `failed`, `stopped`, and `edited`. **Edited** 
 ## Manual trigger invocation permissions
 Source: https://docs.factorize.sh/work/manual-invocation-permissions
 
-Manual invocation permissions are separate from lifecycle subscriptions. Configure the allowed destination triggers in a source trigger's editor. The public API can read them with `GET /api/v1/triggers/{triggerId}/invocation-permissions` and replace them with a `PUT` containing `{"destinationTriggerIds":["..."]}`. The write requires `triggers:write` and accepts a browser owner session, scoped API key, or authorized OAuth client. Destinations must belong to the source trigger's project; a trigger can include itself to opt in to explicitly requested successor runs. A verified run can invoke a configured destination only while the source and destination remain in the same project. Deleting either trigger removes its permission edges. Revocation takes effect on the next invocation request.
+For preset-backed skills, configure allowed destination triggers in a **permission preset**. Every accepted run captures those destinations, bounded by its caller or parent run. Later preset edits affect future runs. Direct and automated runs use the same captured grants; disabling a skill prevents new runs without modifying accepted ones.
 
-Permissions are project-local. The editor searches only the source trigger's project, and the API rejects cross-project permission writes. Existing cross-project permission rows are hidden from reads and cannot authorize run invocation. Existing lifecycle, edited, idle, schedule, and webhook events remain independent and do not grant manual invocation.
-
-Each execution VM runs a localhost helper at `http://127.0.0.1:18180` (also
-available as `FACTORIZE_PROXY_URL`). It requests fresh vendor-signed proof and
-forwards authorized requests to Factorize. exe.dev uses an exclusively attached
-per-run WIF integration; Fly uses its Machine OIDC Unix socket. Factorize binds
-that identity to the provisioned VM, tenant, owner session and active run. No
-Factorize-issued VM bearer or upstream credential enters guest configuration.
-
-The trigger's Run permissions (`runScopes`) are snapshotted with its execution
-configuration. Default scopes allow tenant reads of projects, triggers, runs, safe
-integration metadata and skills, plus explicitly authorized invocation. Writes
-do not imply reads. An explicit empty
-scope list grants no application-resource access. `GET /api/v1/runtime-context`
-(MCP `get_runtime_context`) returns verified source run/trigger identity and effective
-scopes, including for zero-scope runs. The service derives source identity from
-the vendor binding; the guest cannot choose a different source run.
-
-Use the normal manual invocation endpoint, which is also the `invoke_trigger` MCP tool:
-
-```sh
-curl --fail-with-body -X POST 'http://127.0.0.1:18180/api/v1/triggers/DESTINATION_JOB_ID/invocations' \
-  -H 'Content-Type: application/json' \
-  --data '{"prompt":"Run the authorized follow-up","data":{"key":"value"},"idempotencyKey":"source-run-step-1"}'
-```
-
-Only explicitly configured destinations may be invoked by a verified run. Factorize checks the permission, active source run, destination enabled state, enabled manual event, and queue capacity at invocation time. Reuse the same `idempotencyKey` when retrying an uncertain request. Destination run details expose `invocation.source_trigger_id` and `invocation.source_run_id`; human and external invocations leave these values null.
-
-Shared Factorize HTTP integrations must remain on operator-only attachments.
-exe.dev launch and renewal reject broader shared proxies for the configured
-Factorize origin. Do not attach external API credentials to execution VMs.
-
-Backend checks remove normal API and outbound access as soon as cancellation
-starts, or the run becomes terminal. Provider cleanup retries cannot restore
-access. Disconnecting a selected credential permanently revokes its use by
-existing runs; rotation of a live credential is transparent. Keep destination
-permissions narrow because an agent can use all operations you authorize.
-
-## Configuring privileged orchestration triggers
-
-In a trigger’s editor, select Run permissions and save its configuration. API/MCP clients can supply `runScopes` when creating or updating the trigger. Omitting `runScopes` on update preserves the existing setting; an explicit empty array grants no application API scopes. Both agent and code triggers use the same vendor identity helper.
-
-For example, an orchestration trigger that reads and repairs trigger configuration needs `triggers:read` and `triggers:write`. A trigger granted `triggers:write` may also change its own or other triggers’ run scopes, using the normal tenant-local trigger update API. This is administrative authority over future trigger execution; grant it only when intended. Manual invocation still needs `runs:invoke` and an explicitly authorized destination.
-
-Scopes are snapshotted when the invocation is created and stored in immutable token-free authorization metadata. Updating a trigger does not add or remove authority from existing queued or active runs; cancel existing runs when immediate revocation is required. Launch retry and credential rotation preserve the original scope snapshot. Runtime context reports the effective scopes. Browser-only API-key management, authorized-client management, and trace replay retain their existing session requirements.
+The legacy standalone trigger API can read destinations with `GET /api/v1/triggers/{triggerId}/invocation-permissions` and replace them using `PUT` with `{"destinationTriggerIds":["..."]}`. Destinations must belong to the same team. For a skill-backed trigger, reads expose effective preset destinations and writes return `permissions_retired`; update the permission preset instead. Run credentials cannot edit invocation permissions. [Skills and presets](https://docs.factorize.sh/work/skills) describes defaults and run snapshots.
 
 ## Connect your accounts
 Source: https://docs.factorize.sh/integrations/oauth
@@ -511,7 +489,7 @@ After changing access, create one controlled event and use `list_webhook_deliver
 In Integrations, add custom bearer credentials with a fixed HTTPS
 origin. Add model integrations with an OpenAI-compatible provider URL and an optional API key. Factorize encrypts credentials on the server. Stored secrets cannot be viewed. A keyless provider requires only its URL. Model IDs and optional effort are selected in Team defaults, Triggers, or direct run overrides, independently of VM configuration.
 
-Select only the bearer integrations, GitHub installations, Linear connection and model integration that each Trigger needs. Pi runs in Factorize and uses MCP tools. VM scripts retain their own workload lifecycle.
+Select only the bearer integrations, GitHub installations, Linear connection and model integration that each Trigger needs. Pi runs in Factorize and uses MCP tools. Skills can use their VM tools to execute code.
 Each run uses its saved selection and Factorize API scope snapshot; later trigger
 edits affect future runs. Disconnect revokes existing run access permanently,
 even after reconnecting the same account. Select a replacement explicitly for
@@ -741,7 +719,14 @@ The inventory below lists the scope required by each tool. Scopes are explicit. 
 | `rename_run` | runs:write | Required `runId` and `name`; optional `expectedName` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
 | `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
-| `start_run` | runs:start | Optional literal `prompt` and one optional `skill` (at least one effective input), `inputs`, `requiresVm`, `executionConfigId`, `modelAccountId`, `name` and `idempotencyKey`. Scripts use `script` and always require a VM. Returns `runId`, the browser `url`, `outcomeUri`, and `duplicate`. |
+| `list_presets` | integrations:read | List all team preset types, immutable slugs/revisions, and defaults. |
+| `create_preset` | integrations:write | `kind`, immutable `slug`, display `name`, and type-specific `settings`. Permission presets also require triggers:write. |
+| `update_preset` | integrations:write | `presetId` and `preset` with the same fields plus optional `expectedRevision`. Creates a new revision. |
+| `set_default_preset` | team:write | `presetId`; affects future inherited runs. |
+| `delete_preset` | integrations:write | `presetId`; defaults and referenced presets are protected. |
+| `get_skill_trigger` | skills:read, triggers:read | `skillId`; returns automatic events only. |
+| `save_skill_trigger` | skills:write, triggers:write | `skillId` and `trigger` containing events, enabled and optional expectedUpdatedAt. |
+| `start_run` | runs:start | Optional literal `prompt` and one optional `skill` (at least one effective input), `inputs`, `requiresVm`, `executionConfigId`, `modelAccountId`, `name` and `idempotencyKey`. Optional `vmPreset`, `permissionPreset` and `modelPreset` select preset slugs. Script-based run creation is retired. Returns `runId`, the browser `url`, `outcomeUri`, and `duplicate`. |
 | `invoke_trigger` | runs:invoke | Required string `triggerId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
 | `rename_mcp_client` | Authenticated OAuth connection | `{ "name": "Release assistant" }`. Sets this connection’s display name in Settings → Authorized clients. Names are trimmed and accept 1–120 characters. |
 | `get_api_reflection` | Authenticated OAuth/run identity | `{}`. Discover the authorization identity, effective scopes, and granted/requestable integration APIs, including instructions, required OAuth scope, and connection availability. |

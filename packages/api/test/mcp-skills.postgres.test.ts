@@ -43,7 +43,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("authorized MCP Skills exte
  it("keeps legacy skill tools visible and usable without extension negotiation",async()=>{
   const tools=await rpc("tools/list");expect(tools.result.tools.map((tool:any)=>tool.name)).toEqual(expect.arrayContaining(["list_skills","get_skill"]));
   const list=await rpc("tools/call",{name:"list_skills",arguments:{}});expect(list.result.isError).not.toBe(true);expect(JSON.stringify(list.result)).toContain("guide");
-  const skill=await rpc("tools/call",{name:"get_skill",arguments:{skillId:id}});expect(skill.result.isError).not.toBe(true);expect(skill.result.structuredContent.body).toBe(body);
+  const skill=await rpc("tools/call",{name:"get_skill",arguments:{skillId:id}});expect(skill.result.isError).not.toBe(true);expect(skill.result.structuredContent.definition.markdown).toBe("Reflect, then read references/example.txt.");expect(skill.result.structuredContent.body).toContain("author: local");
  });
  it("enforces scopes, membership, canonical paths and Team isolation on every method",async()=>{
   for(const method of ["skills/list","skills/get","resources/read"]){

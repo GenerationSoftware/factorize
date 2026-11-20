@@ -1,26 +1,6 @@
 import type { Database } from "./database";
 import { rankField, searchMatches } from "../search";
 
-const HIGHLIGHT_START = "<<<FACTORIZE_MATCH>>>";
-const HIGHLIGHT_END = "<<<FACTORIZE_END>>>";
-
-function markedMatch(value: string, fallback: string, query: string) {
-  const text = value || fallback, ranges: { start: number; end: number }[] = [];
-  let output = "", cursor = 0, start = text.indexOf(HIGHLIGHT_START);
-  while (start >= 0) {
-    const end = text.indexOf(HIGHLIGHT_END, start + HIGHLIGHT_START.length);
-    if (end < 0) break;
-    output += text.slice(cursor, start);
-    const matchStart = output.length;
-    output += text.slice(start + HIGHLIGHT_START.length, end);
-    ranges.push({ start: matchStart, end: output.length });
-    cursor = end + HIGHLIGHT_END.length;
-    start = text.indexOf(HIGHLIGHT_START, cursor);
-  }
-  output += text.slice(cursor);
-  return { text: output || fallback, ranges: ranges.length ? ranges : searchMatches(output || fallback, query) };
-}
-
 export class OperationsRepository {
   constructor(private database: Database, private tenantId: string) {}
   async triggerEvents(triggerId: string, limit: number) { return (await this.database.pool.query(`SELECT id,provider,delivery_id "deliveryId",outcome,detail,received_at "receivedAt" FROM app.trigger_events WHERE tenant_id=$1 AND trigger_id=$2 ORDER BY received_at DESC,id DESC LIMIT $3`, [this.tenantId, triggerId, limit])).rows; }
@@ -40,33 +20,17 @@ export class OperationsRepository {
   async search(query: string) {
     const needle = query.trim(); if (!needle || !/[\p{L}\p{N}]/u.test(needle)) return { items: [] };
     const rows = await this.database.pool.query<any>(`SELECT * FROM (
-      SELECT 'trigger' kind,j.id::text id,j.name title,j.slug subtitle,'/triggers/'||j.id url,j.id::text source_id,j.name source_label,
-        CASE WHEN word_similarity($2,j.name) >= word_similarity($2,j.slug) THEN j.name ELSE j.slug END match_text,
-        GREATEST(word_similarity($2,j.name),word_similarity($2,j.slug)) score,
-        CASE WHEN lower(j.name)=$2 OR lower(j.slug)=$2 THEN 1 ELSE 2 END category,j.id::text stable_key,NULL match_excerpt
-      FROM app.triggers j WHERE j.tenant_id=$1 AND ($2 <% j.name OR $2 <% j.slug)
+      SELECT 'skill' kind,s.id::text id,s.key title,'' subtitle,'/skills/'||s.id url,s.id::text source_id,s.key source_label,s.key match_text,
+        GREATEST(word_similarity($2,s.key),similarity($2,s.key)) score,CASE WHEN lower(s.key)=$2 THEN 0 WHEN starts_with(lower(s.key),$2) THEN 1 ELSE 2 END category,s.id::text stable_key
+      FROM app.skills s WHERE s.tenant_id=$1 AND (strpos(lower(s.key),$2)>0 OR $2 <% s.key OR similarity($2,s.key)>0.3 OR strpos(regexp_replace(lower(s.key),'[^[:alnum:]]','','g'),regexp_replace($2,'[^[:alnum:]]','','g'))>0)
       UNION ALL
-      SELECT 'run',r.id::text,coalesce(nullif(r.run_name,''),nullif(r.issue_title,''),'Run '||left(r.id::text,8)),r.state,'/runs/'||r.id,r.id::text,
-        coalesce(nullif(r.run_name,''),nullif(r.issue_title,''),'Run '||left(r.id::text,8)),
-        CASE WHEN r.issue_id % $2 THEN r.issue_id
-          WHEN word_similarity($2,r.run_name) >= word_similarity($2,r.issue_title) THEN coalesce(nullif(r.run_name,''),r.issue_id)
-          ELSE coalesce(nullif(r.issue_title,''),r.issue_id) END match_text,
-        GREATEST(similarity(r.issue_id,$2),word_similarity($2,r.run_name),word_similarity($2,r.issue_title)) score,
-        CASE WHEN lower(r.issue_id)=$2 THEN 0 WHEN lower(r.run_name)=$2 OR lower(r.issue_title)=$2 THEN 1 ELSE 2 END category,r.id::text stable_key,NULL match_excerpt
-      FROM app.runs r WHERE r.tenant_id=$1 AND (r.issue_id % $2 OR $2 <% r.run_name OR $2 <% r.issue_title)
-      UNION ALL
-      SELECT 'trace',e.id,e.title,left(e.preview_text,120),'/runs/'||e.run_id,e.run_id::text,
-        coalesce(nullif(r.run_name,''),nullif(r.issue_title,''),'Run '||left(r.id::text,8)),e.title,
-        ts_rank(e.search_vector,websearch_to_tsquery('english',$2)),2,e.run_id::text||':'||e.sequence,
-        ts_headline('english',e.title||' '||e.preview_text,websearch_to_tsquery('english',$2),
-          'StartSel=<<<FACTORIZE_MATCH>>>,StopSel=<<<FACTORIZE_END>>>,MaxFragments=1,MaxWords=32,MinWords=8')
-      FROM app.run_trace_events e JOIN app.runs r ON r.tenant_id=e.tenant_id AND r.id=e.run_id
-      WHERE e.tenant_id=$1 AND e.search_vector @@ websearch_to_tsquery('english',$2)
+      SELECT 'run',r.id::text,r.run_name,r.state,'/runs/'||r.id,r.id::text,r.run_name,r.run_name,
+        GREATEST(word_similarity($2,r.run_name),similarity($2,r.run_name)),CASE WHEN lower(r.run_name)=$2 THEN 0 WHEN starts_with(lower(r.run_name),$2) THEN 1 ELSE 2 END,r.id::text
+      FROM app.runs r WHERE r.tenant_id=$1 AND (strpos(lower(r.run_name),$2)>0 OR $2 <% r.run_name OR similarity($2,r.run_name)>0.3 OR strpos(regexp_replace(lower(r.run_name),'[^[:alnum:]]','','g'),regexp_replace($2,'[^[:alnum:]]','','g'))>0)
     ) found ORDER BY category,score DESC,kind,stable_key LIMIT 100`, [this.tenantId, needle.toLowerCase()]);
     return { items: rows.rows.map(row => {
-      const ranked = row.kind === "trace" ? null : rankField(row.match_text, needle, row.kind === "trigger" ? "trigger" : "run");
-      const match = row.kind === "trace" ? markedMatch(row.match_excerpt, row.title, needle) : { text: row.match_text, ranges: ranked?.range ? [ranked.range] : searchMatches(row.match_text, needle) };
-      return { kind: row.kind, id: row.id, title: row.title, subtitle: row.subtitle, url: row.url, source: { kind: row.kind, label: row.source_label, id: row.source_id }, match };
+      const ranked=rankField(row.match_text,needle,row.kind);
+      return {kind:row.kind,id:row.id,title:row.title,subtitle:row.subtitle,url:row.url,source:{kind:row.kind,label:row.source_label,id:row.source_id},match:{text:row.match_text,ranges:ranked?.range?[ranked.range]:searchMatches(row.match_text,needle)}};
     }) };
   }
 }

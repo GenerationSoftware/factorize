@@ -69,6 +69,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("complete local hosted work
   const receipt=await json("POST",`/api/v1/triggers/${trigger.id}/invocations`,{data:{detail:"event data"},idempotencyKey:"workflow-event"},202);runId=receipt.runId;expect(modelRequests).toHaveLength(0);
   expect((await json("POST",`/api/v1/triggers/${trigger.id}/invocations`,{data:{detail:"event data"},idempotencyKey:"workflow-event"},202)).runId).toBe(runId);
   const runs=new RunRepository(f.db);expect((await runs.claimNext())!.id).toBe(runId);await new RunScheduler(f.db,f.env).processHosted(owner.tenantId,runId);expect(modelRequests).toHaveLength(0);
+  expect((await runs.find(owner.tenantId,runId))?.state,JSON.stringify((await json("GET","/api/v1/runs/"+runId)).failure)).toBe("running");
   for(let index=0;index<4;index++){const run=(await runs.find(owner.tenantId,runId))!;await new HostedPi(f.db,f.env,(run,lease)=>createPiMcpTools(f.env,run,lease)).advance(run);}
   const detail=await json("GET","/api/v1/runs/"+runId);expect(detail).toMatchObject({state:"succeeded",source:"workflow-trigger",context_prompt:"Complete the workflow\n\nSelected event data",trigger_result:{summary:"Workflow completed"}});
   expect(JSON.stringify(modelRequests[1])).toContain('factorize');expect(JSON.stringify(modelRequests[1])).toContain('exe.dev');expect(JSON.stringify(modelRequests[1])).toContain('workflow-guide');

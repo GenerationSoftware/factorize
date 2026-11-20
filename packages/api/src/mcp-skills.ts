@@ -18,7 +18,7 @@ export function skillDocument(key:string,body:string|undefined):{frontmatter:Ski
     frontmatter=value;instructions=body.slice(header[0].length);
   }
   // Names are authoritative in the shared Team namespace, including migrated/renamed skills.
-  frontmatter={...frontmatter,name:key,description:frontmatter.description ?? `Instructions for the ${key} team skill.`};
+  frontmatter={...frontmatter,name:key,description:frontmatter.description || `Instructions for the ${key} team skill.`};
   if(typeof frontmatter.description!=="string" || !frontmatter.description.trim() || frontmatter.description.length>1024)throw new SkillContentError("Skill description must contain 1 to 1024 characters.");
   return {frontmatter:frontmatter as SkillFrontmatter,text:`---\n${stringify(frontmatter)}---\n${instructions}`};
 }

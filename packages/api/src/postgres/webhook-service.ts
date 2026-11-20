@@ -16,7 +16,7 @@ export class WebhookService {
   private triggers: PostgresTriggerRepository;
   constructor(private database: Database, private env: Env, private tenantId: string) {
     this.connections = new ConnectionRepository(database, tenantId, env.CREDENTIAL_ENCRYPTION_KEY);
-    this.triggers = new PostgresTriggerRepository(database, tenantId, value => encrypt(value, env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(env.SKILL_ARTIFACTS,new PostgresSkillContentCache(database,tenantId,env.CREDENTIAL_ENCRYPTION_KEY)));
+    this.triggers = new PostgresTriggerRepository(database, tenantId, value => encrypt(value, env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(env.SKILL_ARTIFACTS,new PostgresSkillContentCache(database,tenantId,env.CREDENTIAL_ENCRYPTION_KEY)),env);
   }
   private async candidates(provider: WebhookProvider): Promise<Array<{ trigger: Trigger; eventId: string; eventSlug: string; config: WebhookEventConfig }>> {
     const rows = await this.database.pool.query<any>(`SELECT j.*,t.id event_id,t.slug event_slug,t.config event_config FROM app.triggers j JOIN app.events t ON t.tenant_id=j.tenant_id AND t.trigger_id=j.id WHERE j.tenant_id=$1 AND j.enabled AND t.enabled AND t.removed_at IS NULL AND t.kind='webhook' AND t.config->>'provider'=$2`, [this.tenantId, provider]);
@@ -52,6 +52,7 @@ export class WebhookService {
         const result = await service.invoke(candidate.trigger.id, { source: "webhook", eventId: candidate.eventId, claimKey: `webhook:${candidate.eventId}:${invocation.claimKey}`, context: { [candidate.eventSlug]: context }, occurrence: { ...invocation.occurrence, metadata: { ...invocation.occurrence?.metadata, eventId: candidate.eventId } } });
         await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, result.duplicate ? "duplicate" : "accepted", result.duplicate ? "Webhook occurrence was already claimed." : "Webhook occurrence queued through canonical trigger invocation.");
       } catch (error) {
+        if(error instanceof InvocationError && error.code==="trigger_disabled"){await this.event(deliveryPk,candidate.trigger.id,provider,deliveryId,"ignored","Skill is disabled; occurrence skipped.");continue;}
         if (!(error instanceof InvocationError) || error.code !== "queue_full") throw error;
         await this.event(deliveryPk, candidate.trigger.id, provider, deliveryId, "queue_full", "Trigger has no free execution slot and already has a waiting run; occurrence skipped.");
       }

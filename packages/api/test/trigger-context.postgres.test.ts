@@ -56,7 +56,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("Trigger context contract a
   const receipt=await invoked.json() as any;
   const row=(await f.db.pool.query("SELECT encrypted_prompt,encrypted_skill_snapshot,run_name FROM app.trigger_runs WHERE tenant_id=$1 AND id=$2",[f.tenantId,receipt.runId])).rows[0];
   expect(await decrypt(row.encrypted_prompt,f.env.CREDENTIAL_ENCRYPTION_KEY)).toBe(body+"\n\nBase {{literal}}\n\nSelected 7\n\nCaller {{literal}}");expect(row.run_name).toBe("Name 7");
-  expect(JSON.parse(await decrypt(row.encrypted_skill_snapshot,f.env.CREDENTIAL_ENCRYPTION_KEY))).toMatchObject([{id:skillId,body}]);
+  expect(JSON.parse(await decrypt(row.encrypted_skill_snapshot,f.env.CREDENTIAL_ENCRYPTION_KEY))).toMatchObject([{id:skillId,body:expect.stringContaining(body)}]);
   expect((await f.db.pool.query("SELECT skill_id FROM app.trigger_skills WHERE tenant_id=$1 AND trigger_id=$2",[f.tenantId,trigger.id])).rows).toEqual([{skill_id:skillId}]);
  });
  it("rejects empty effective invocation input without queuing or waking a VM and supports skill-only direct runs",async()=>{

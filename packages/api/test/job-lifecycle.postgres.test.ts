@@ -1,3 +1,4 @@
+import { submitRun } from "../src/postgres/run-submission";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { readFile, readdir } from "node:fs/promises";
 import { Database } from "../src/postgres/database";
@@ -244,11 +245,17 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("trigger lifecycle delivery
     expect((await database.pool.query("SELECT * FROM app.lifecycle_events WHERE tenant_id=$1 AND event_id=$2", [a, replacement.id])).rows).toHaveLength(1);
   });
 
-  it("snapshots a code script and structured event context when queued", async () => {
+  it("retains historical code snapshots and rejects new script invocations", async () => {
     const a = await tenant(), id = crypto.randomUUID(), timestamp = new Date().toISOString();
     const event: Event = { id: crypto.randomUUID(), triggerId: id, kind: "manual", slug: "event-1", enabled: true, config: {}, createdAt: timestamp, updatedAt: timestamp };
     const code = await repository(a).create({ id, runScopes: ["triggers:write"], name: `code-${id}`, slug: `code-${id}`, executionType: "code", script: "echo original", prompt: "", runNameTemplate: "", model: "", executionConfig: { connectionId: "exe", agentKind: "codex", executionType: "code", script: "echo original" }, concurrencyLimit: 1, enabled: true, events: [event], createdAt: timestamp, updatedAt: timestamp } as Trigger);
-    const invocation = await new InvocationService(repository(a), value => encrypt(value, key)).invoke(id, { source: "manual", eventId: event.id, claimKey: crypto.randomUUID(), context: { "event-1": { outputs: { count: 3 } } } });
+    await expect(new InvocationService(repository(a), value => encrypt(value,key)).invoke(id,{source:"manual",eventId:event.id,claimKey:"retired",context:{}})).rejects.toMatchObject({code:"invalid_invocation"});
+    const runId=crypto.randomUUID(),invocationId=crypto.randomUUID();
+    await database.transaction(async client=>{
+      await client.query("INSERT INTO app.invocations(tenant_id,id,trigger_id,source,claim_key,event_id,context) VALUES($1,$2,$3,'manual','historical',$4,$5)",[a,invocationId,id,event.id,{"event-1":{outputs:{count:3}}}]);
+      await submitRun(client,a,{id:runId,invocationId,triggerId:id,name:"Historical script",source:"manual",claim:"historical",encryptedPrompt:await encrypt("",key),config:{...code.executionConfig,runScopes:["triggers:write"],inputContext:{"event-1":{outputs:{count:3}}}},workspaceName:"",createdAt:timestamp});
+    });
+    const invocation={run:{id:runId}};
     const snapshot = await database.pool.query<{ execution_config: any; result_protocol_version: number }>("SELECT execution_config,result_protocol_version FROM app.runs WHERE tenant_id=$1 AND id=$2", [a, invocation.run.id]);
     expect(snapshot.rows[0]).toMatchObject({ execution_config: { runScopes: ["triggers:write"], executionType: "code", script: "echo original", inputContext: { "event-1": { outputs: { count: 3 } } } }, result_protocol_version: 1 });
     await repository(a).update({ ...code, runScopes: [], script: "echo edited", executionConfig: { ...code.executionConfig, script: "echo edited" }, updatedAt: new Date().toISOString() });

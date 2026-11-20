@@ -217,11 +217,11 @@ test("provider editor fetches only the selected provider and submits project/mat
 test("search dialog keeps keyboard focus, escapes results and leaves a draft intact after chunk failure", async () => {
   const { context, page } = await setup();
   await page.route("**/api/v1/triggers/" + id, route => route.request().method() === "PUT" ? route.fulfill({ json: { ...initial, ...route.request().postDataJSON() } }) : route.fulfill({ json: initial }));
-  await page.route("**/api/v1/search?**", route => route.fulfill({ json: { items: [{ kind: "trigger", id, title: "<script>unsafe</script> Build", subtitle: "Matching trigger", url: "/triggers/" + id, source: { kind: "trigger", label: "<script>unsafe</script> Build", id }, match: { text: "<script>unsafe</script> Build", ranges: [{ start: 24, end: 29 }] } }] } }));
+  await page.route("**/api/v1/search?**", route => route.fulfill({ json: { items: [{ kind: "skill", id, title: "<script>unsafe</script> Build", subtitle: "Matching skill", url: "/triggers/" + id, source: { kind: "skill", label: "<script>unsafe</script> Build", id }, match: { text: "<script>unsafe</script> Build", ranges: [{ start: 24, end: 29 }] } }] } }));
   await page.goto(origin + "/triggers/" + id + "/settings/general");
   await page.getByLabel("Name", { exact: true }).fill("unsaved-draft");
-  await page.getByRole("button", { name: "Search triggers, runs, and messages", exact: true }).click();
-  await page.getByRole("combobox", { name: "Search triggers and runs by name, title, or issue identifier", exact: true }).fill("build");
+  await page.getByRole("button", { name: "Search skills and runs", exact: true }).click();
+  await page.getByRole("combobox", { name: "Search skill names and run names", exact: true }).fill("build");
   await page.getByRole("listbox", { name: "Search results" }).getByRole("option").waitFor();
   assert.match(await page.getByRole("listbox", { name: "Search results" }).getByRole("option").innerText(), /<script>unsafe<\/script>/);
   assert.equal(await page.getByRole("listbox", { name: "Search results" }).getByRole("option").locator("strong").innerText(), "Build");
@@ -360,7 +360,7 @@ test("delayed autosave preserves newer edits and saves them with the acknowledge
   assert.equal(await page.getByLabel("Description", {exact:true}).count(), 0);
 });
 
-for (const executionType of ["agent", "code"]) test(`Fly.io ${executionType} trigger selects image, region and size, saves and reloads without provider calls`, async t => {
+for (const executionType of ["agent"]) test(`Fly.io ${executionType} trigger selects image, region and size, saves and reloads without provider calls`, async t => {
   const { context, page } = await setup({ viewport: { width: 390, height: 844 } });
   t.after(() => context.close());
   const configId = "00000000-0000-4000-8000-000000000091", accountId = "00000000-0000-4000-8000-000000000092";
@@ -386,7 +386,7 @@ for (const executionType of ["agent", "code"]) test(`Fly.io ${executionType} tri
   });
   await page.route(`**/api/v1/triggers/${id}`, route => route.fulfill({ json: current }));
   await page.goto(origin + "/triggers/new");
-  await page.getByLabel("Name", { exact: true }).fill("fly-trigger"); await page.getByRole("combobox", { name: /^Run type/ }).selectOption(executionType);
+  await page.getByLabel("Name", { exact: true }).fill("fly-trigger"); assert.equal(await page.getByRole("combobox", { name: /^Run type/ }).count(),0);
   await page.getByLabel("Requires VM",{exact:true}).check();
   await page.getByRole("combobox", { name: /^Integration/ }).selectOption("fly-new");
   assert.equal(await page.getByRole("button", { name: "Verify image", exact: true }).count(), 0);
@@ -517,13 +517,13 @@ test("Event template preview sends selected data and literal context while prese
   assert.equal(await page.locator("main script").count(),0);
 });
 
-test("agent Triggers default to VM-free and script Triggers require the VM control",async t=>{
+test("agent Triggers default to VM-free and no longer expose script execution mode",async t=>{
  const {context,page}=await setup();t.after(()=>context.close());
  await page.goto(origin+"/triggers/new");
  assert.equal(await page.getByLabel("Requires VM",{exact:true}).isChecked(),false);
  assert.equal(await page.getByRole("combobox",{name:/^Integration/}).isDisabled(),true);
- await page.getByRole("combobox",{name:/^Run type/}).selectOption("code");
- assert.equal(await page.getByLabel("Requires VM",{exact:true}).isChecked(),true);
- assert.equal(await page.getByLabel("Requires VM",{exact:true}).isDisabled(),true);
+ assert.equal(await page.getByRole("combobox",{name:/^Run type/}).count(),0);
+ assert.equal(await page.getByLabel("Script",{exact:true}).count(),0);
+ await page.getByLabel("Requires VM",{exact:true}).check();
  assert.equal(await page.getByRole("combobox",{name:/^Integration/}).isDisabled(),false);
 });

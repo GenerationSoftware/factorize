@@ -9,6 +9,7 @@ describe.skipIf(!url)("global search trigram matching (PostgreSQL)", () => {
   let db: Database, admin: Database;
   const databaseName = `search_test_${crypto.randomUUID().replaceAll("-", "")}`;
   const tenant = crypto.randomUUID(), otherTenant = crypto.randomUUID();
+  const skill=crypto.randomUUID();
   const trigger = crypto.randomUUID(), otherTrigger = crypto.randomUUID();
   const run = crypto.randomUUID(), typoRun = crypto.randomUUID(), privateRun = crypto.randomUUID();
   const invocation = crypto.randomUUID(), typoInvocation = crypto.randomUUID(), privateInvocation = crypto.randomUUID();
@@ -34,6 +35,9 @@ describe.skipIf(!url)("global search trigram matching (PostgreSQL)", () => {
       VALUES ($1,$2,$3,$4,'manual','GEN-2157','Fix punctuation in issue identifiers','Deploy GEN-2157','codex','succeeded',$11),
              ($1,$5,$3,$6,'manual','GEN-2158','A nearby but weaker identifier','Deploy GEN-2158','codex','succeeded',$11),
              ($7,$8,$9,$10,'manual','GEN-2157','Private issue','Private GEN-2157','codex','succeeded',$11)`, [tenant, run, trigger, invocation, typoRun, typoInvocation, otherTenant, privateRun, otherTrigger, privateInvocation, { agentKind: "codex", connectionId: "local" }]);
+    await db.pool.query("INSERT INTO app.skills(tenant_id,id,key,encrypted_body,definition) VALUES($1,$2,'release-review','encrypted',$3)",[tenant,skill,{description:"secret-description-token"}]);
+    await db.pool.query("INSERT INTO app.skills(tenant_id,id,key) SELECT $1,gen_random_uuid(),'bulk-'||n FROM generate_series(1,120) n",[tenant]);
+    await db.pool.query("UPDATE app.runs SET issue_id='HIDDEN-999' WHERE tenant_id=$1 AND id=$2",[tenant,run]);
     await db.pool.query(`INSERT INTO app.run_trace_events(tenant_id,run_id,sequence,id,event_type,title,preview_text)
       VALUES ($1,$2,1,'trace-search','assistant_message','Rollback summary','The rollback completed successfully')`, [tenant, run]);
   });
@@ -51,9 +55,16 @@ describe.skipIf(!url)("global search trigram matching (PostgreSQL)", () => {
     expect(exact[0]?.id).toBe(run);
   });
 
-  it("matches a representative trigger-name typo without substring filtering", async () => {
-    const items = (await new OperationsRepository(db, tenant).search("deplyment")).items;
-    expect(items.some(item => item.kind === "trigger" && item.id === trigger)).toBe(true);
+  it("matches a skill-name typo and excludes trigger names", async () => {
+    const items = (await new OperationsRepository(db, tenant).search("releas-reveiw")).items;
+    expect(items.some(item => item.kind === "skill" && item.id === skill)).toBe(true);
+  });
+
+  it("bounds results, highlights names and orders repeated searches deterministically",async()=>{
+    const store=new OperationsRepository(db,tenant);
+    const items=(await store.search("bulk")).items;expect(items).toHaveLength(100);
+    expect((await store.search("bulk")).items.map(item=>item.id)).toEqual(items.map(item=>item.id));
+    expect((await store.search("release-review")).items[0].match.ranges.length).toBeGreaterThan(0);
   });
 
   it("excludes unrelated rows and preserves tenant isolation", async () => {
@@ -62,8 +73,9 @@ describe.skipIf(!url)("global search trigram matching (PostgreSQL)", () => {
     expect(items.every(item => item.id !== privateRun)).toBe(true);
   });
 
-  it("keeps trace full-text search available", async () => {
+  it("excludes trace content, descriptions and issue fields", async () => {
     const items = (await new OperationsRepository(db, tenant).search("rollback")).items;
-    expect(items).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "trace", id: "trace-search" })]));
+    expect(items).toEqual([]);
+    for(const query of ["deplyment","secret-description-token","HIDDEN-999","punctuation"]){expect((await new OperationsRepository(db,tenant).search(query)).items).toEqual([]);}
   });
 });

@@ -28,7 +28,14 @@ The inventory below lists the scope required by each tool. Scopes are explicit. 
 | `rename_run` | runs:write | Required `runId` and `name`; optional `expectedName` |
 | `get_run_diagnostics` | runs:read | Required string `runId` |
 | `report_run_error` | runs:write | Required `runId` and `reason`; records an error without stopping execution |
-| `start_run` | runs:start | Optional literal `prompt` and one optional `skill` (at least one effective input), `inputs`, `requiresVm`, `executionConfigId`, `modelAccountId`, `name` and `idempotencyKey`. Scripts use `script` and always require a VM. Returns `runId`, the browser `url`, `outcomeUri`, and `duplicate`. |
+| `list_presets` | integrations:read | List all team preset types, immutable slugs/revisions, and defaults. |
+| `create_preset` | integrations:write | `kind`, immutable `slug`, display `name`, and type-specific `settings`. Permission presets also require triggers:write. |
+| `update_preset` | integrations:write | `presetId` and `preset` with the same fields plus optional `expectedRevision`. Creates a new revision. |
+| `set_default_preset` | team:write | `presetId`; affects future inherited runs. |
+| `delete_preset` | integrations:write | `presetId`; defaults and referenced presets are protected. |
+| `get_skill_trigger` | skills:read, triggers:read | `skillId`; returns automatic events only. |
+| `save_skill_trigger` | skills:write, triggers:write | `skillId` and `trigger` containing events, enabled and optional expectedUpdatedAt. |
+| `start_run` | runs:start | Optional literal `prompt` and one optional `skill` (at least one effective input), `inputs`, `requiresVm`, `executionConfigId`, `modelAccountId`, `name` and `idempotencyKey`. Optional `vmPreset`, `permissionPreset` and `modelPreset` select preset slugs. Script-based run creation is retired. Returns `runId`, the browser `url`, `outcomeUri`, and `duplicate`. |
 | `invoke_trigger` | runs:invoke | Required string `triggerId`; optional `name`, `prompt`, `data`, `idempotencyKey` |
 | `rename_mcp_client` | Authenticated OAuth connection | `{ "name": "Release assistant" }`. Sets this connection’s display name in Settings → Authorized clients. Names are trimmed and accept 1–120 characters. |
 | `get_api_reflection` | Authenticated OAuth/run identity | `{}`. Discover the authorization identity, effective scopes, and granted/requestable integration APIs, including instructions, required OAuth scope, and connection availability. |

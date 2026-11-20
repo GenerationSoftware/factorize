@@ -35,7 +35,8 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("immutable run Source and P
   const skillOnly=await api.startRun(startRunInput.parse({skill}));expect((await api.getRun(skillOnly.runId)).prompt_preview).toBe("");
  });
  it("shows a shortened script instead of an agent prompt and preserves old rows without previews",async()=>{
-  const script="printf '%s\\n' hello\n".repeat(80),receipt=await api.startRun(startRunInput.parse({script,executionConfigId:"local"}));
+  const script="printf '%s\\n' hello\n".repeat(80),receipt=await api.startRun(startRunInput.parse({prompt:"Historical row fixture"}));
+  await f.db.pool.query("UPDATE app.runs SET encrypted_prompt_preview=NULL,execution_config=execution_config||$3::jsonb WHERE tenant_id=$1 AND id=$2",[f.tenantId,receipt.runId,{executionType:"code",script}]);
   const item=(await api.listRuns(new URLSearchParams())).items.find((item:any)=>item.id===receipt.runId)!;expect(item.execution_type).toBe("code");expect(item.prompt_preview).toContain("printf");expect(item.prompt_preview.endsWith("…")).toBe(true);expect((await api.getRun(receipt.runId)).execution_script).toBe(script);
   const legacy=(await api.listRuns(new URLSearchParams())).items.find((item:any)=>item.id===f.runId)!;expect(legacy.prompt_preview).toBe("Prompt");expect(legacy.source).toBeTruthy();
  });

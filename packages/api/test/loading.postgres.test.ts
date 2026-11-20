@@ -144,8 +144,7 @@ describe.skipIf(!url)("request loading with PostgreSQL", () => {
       const omitted = await service.updateTrigger(trigger.id, { ...base });
       expect(omitted).toMatchObject({ portableIntegrationIds: [bearerB], modelAccountId: accountB });
       await expect(service.createTrigger({ ...base, portableIntegrationIds: [foreignAccount] })).rejects.toMatchObject({ status: 400 });
-      const code = await service.createTrigger({ ...base, name: `code-${crypto.randomUUID().slice(0, 8)}`,  executionType: "code", script: "echo ok" });
-      expect(code).toMatchObject({ portableIntegrationIds: [] });
+      await expect(service.createTrigger({ ...base, name: `code-${crypto.randomUUID().slice(0, 8)}`, executionType:"code",script:"echo ok" })).rejects.toMatchObject({code:"scripts_retired"});
       expect(await service.createTrigger({...base,name:`need-${crypto.randomUUID().slice(0,8)}`})).not.toHaveProperty("modelAccess");
     } finally {
       await db.pool.query("DELETE FROM app.triggers WHERE tenant_id=$1 AND (slug LIKE 'portable-%' OR slug LIKE 'code-%' OR slug LIKE 'need-%')", [tenantId]);

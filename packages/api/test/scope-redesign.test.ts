@@ -24,6 +24,6 @@ describe("GEN-2418 permission boundaries", () => {
     expect(scope("PUT", "/api/v1/integrations/exe")).toBe("integrations:write");
     expect(scope("POST", "/api/v1/triggers/{triggerId}/invocations")).toBe("runs:invoke");
     expect(scope("POST", "/api/v1/runs/{runId}/kill")).toBe("runs:cancel");
-    expect(scope("GET", "/api/v1/search")).toBe("triggers:read+runs:read");
+    expect(scope("GET", "/api/v1/search")).toBe("skills:read+runs:read");
   });
 });

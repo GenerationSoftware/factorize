@@ -24,7 +24,7 @@ After changing access, create one controlled event and use `list_webhook_deliver
 In Integrations, add custom bearer credentials with a fixed HTTPS
 origin. Add model integrations with an OpenAI-compatible provider URL and an optional API key. Factorize encrypts credentials on the server. Stored secrets cannot be viewed. A keyless provider requires only its URL. Model IDs and optional effort are selected in Team defaults, Triggers, or direct run overrides, independently of VM configuration.
 
-Select only the bearer integrations, GitHub installations, Linear connection and model integration that each Trigger needs. Pi runs in Factorize and uses MCP tools. VM scripts retain their own workload lifecycle.
+Select only the bearer integrations, GitHub installations, Linear connection and model integration that each Trigger needs. Pi runs in Factorize and uses MCP tools. Skills can use their VM tools to execute code.
 Each run uses its saved selection and Factorize API scope snapshot; later trigger
 edits affect future runs. Disconnect revokes existing run access permanently,
 even after reconnecting the same account. Select a replacement explicitly for

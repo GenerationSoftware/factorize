@@ -34,13 +34,15 @@ describe.skipIf(!url)("run credential repair and cancellation (PostgreSQL)", () 
     expect((await call(`/api/v1/runs/${f.runId}/stop`)).status).toBe(200);
     const stopped = (await f.db.pool.query("SELECT state,claim_released,vm_cleanup_complete FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, f.runId])).rows[0];
     expect(stopped).toEqual({state: "stopped", claim_released: true, vm_cleanup_complete: true});
+    const model=crypto.randomUUID();
+    await records.write({id:model,kind:"model",name:"Repaired model",origin:null,description:null,managedModelPayload:JSON.stringify({providerUrl:"https://models.example/v1"}),expectedRevision:1,idempotencyKey:crypto.randomUUID(),operation:"upsert"});
+    await f.db.pool.query("UPDATE app.triggers SET model='fixture',execution_config=$3 WHERE tenant_id=$1 AND id=$2",[f.tenantId,f.triggerIds[0],{agentKind:"pi",executionType:"agent",requiresVm:false,connectionId:"",modelAccess:"portable",modelAccountId:model,portableIntegrationIds:[replacement]}]);
     const invoked = await call(`/api/v1/triggers/${f.triggerIds[0]}/invocations`, {prompt: "repaired run", idempotencyKey: "repaired-future-run"});
     expect(invoked.status).toBe(202);
     const next = await invoked.json() as {runId: string};
     await scheduler.process();
-    expect(launch).toHaveBeenCalledTimes(1);
-    expect(launch.mock.calls[0]![0].runIdentity).toEqual({backendOrigin: f.env.APP_ORIGIN});
-    expect(launch.mock.calls[0]![0]).not.toHaveProperty("runProxy");
+    expect(launch).not.toHaveBeenCalled();
+    expect((await f.db.pool.query("SELECT state FROM app.runs WHERE tenant_id=$1 AND id=$2",[f.tenantId,next.runId])).rows[0].state).toBe("running");
     const saved = (await f.db.pool.query("SELECT r.execution_config,a.scopes FROM app.runs r JOIN app.run_authorizations a ON a.tenant_id=r.tenant_id AND a.run_id=r.id WHERE r.tenant_id=$1 AND r.id=$2", [f.tenantId, next.runId])).rows[0];
     expect(saved.execution_config.portableIntegrationIds).toEqual([replacement]);
     expect(saved.scopes).toEqual([]);

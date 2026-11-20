@@ -38,7 +38,7 @@ Roll forward with the additive migration before serving the new UI/API. Roll bac
 
 ## Background runs
 
-Set the team's model, optional workspace, permissions and capacity with an owner session using `PUT /api/v1/team/run-defaults`. Requires VM defaults off for agents; scripts require a VM. Explicit settings precede Team defaults. Direct launches require the separate `runs:start` scope. A verified parent run can launch within its team, bounded by its own permissions. Run execution defaults belong to the team. Finishing the parent leaves the child running.
+Select team VM, permission and model defaults through the preset API or Team Settings. Team capacity uses `PUT /api/v1/team/run-defaults`. Script-based run creation is retired. Skill frontmatter references presets; missing selections inherit team defaults. Direct launches require the separate `runs:start` scope. A verified parent run can launch within its team, bounded by its own permissions. Run execution defaults belong to the team. Finishing the parent leaves the child running.
 
 Call `start_run` with a literal prompt, optional skill key or ID, and a client-generated idempotency key. Supply `projectId` when an external client has multiple projects. Retrying the same request returns the same run. A launch skill is captured by ID, key and revision. Filter `list_runs` by `skillId`, using `none` for unclassified runs.
 

@@ -1,118 +1,147 @@
-# MCP proxy, skills, Pi telemetry, and Phoenix
+# Preset-based skills
 
 ## Execution instructions
 
-Complete each item in sequence, from top to bottom. Do not move on until every acceptance criterion for the current item has been met. Check each criterion off only after verification passes, record commands and evidence below the item, and then move to the next item. Do not stop until all items are complete.
+Complete each item in sequence, from top to bottom. As its acceptance criteria are met, check them off and record the exact verification command and result under that item. Check off the item only after all its criteria pass. Continue until all items are complete, then push the branch and open a new pull request with the implementation and validation evidence. PR publication is the handoff, not an acceptance criterion requiring an external service.
 
-All acceptance criteria must be achievable by an agent in this VM. Use isolated loopback PostgreSQL, local workerd/R2, Chromium, controlled clocks, and deterministic HTTP/model/Phoenix/client fixtures. No criterion requires production deployment, live credentials, an external client account, mobile hardware, an external registry update, or a live Phoenix service. Wire-contract fixtures do not establish that an external client's current release has been manually verified. Keep external discovery observations separate from proven local defects.
+Every acceptance criterion below must be achievable by an agent in this VM. Use the pinned validation runner image, Node 24.12.0, npm 11.19.0, isolated loopback PostgreSQL, local Worker/artifact fixtures, deterministic model/integration fixtures, and Chromium. Do not require production deployment, live provider credentials, a real external model call, a live Git service for skill publication tests, or external approval. Never use production/shared databases. Use npm ci, preserve package boundaries, document JSON application endpoints under /api/v1 in OpenAPI, and regenerate the public client. Run the complete root npm test after the final code change. Do not mark unverified work complete.
 
-Use the pinned validation image, Node 24.12.0 and npm 11.19.0; install with npm ci. Preserve package boundaries, external REST/MCP compatibility and accepted run snapshots. Document new public application operations under /api/v1 in OpenAPI and regenerate the public client. Run the complete root npm test after the final code change.
+## 1. [x] Frontmatter contract and round-trip editing primitives
 
-## 1. MCP proxy discovery and actionable reflection
-
-Investigate tools/list and protocol compatibility against the observed connector catalog (reflection available, proxy tools missing). Do not assume a production defect from that observation. Keep request_api and read_api_response discoverable independently of proxy consent, with execution authorization enforced. Connect reflection services to exact tool names, integration IDs, relative-path conventions, example arguments and permission requirements. Distinguish permission failures from unavailable credentials. Add a local catalog diagnostic; document external refresh/deployment investigation without making it an acceptance gate.
+Make SKILL.md the source of truth. Support name, description, and metadata.factorize with optional vm-preset, permission-preset, model-preset slugs; concurrency (nonnegative integer, default 0 = unlimited); and disabled (boolean, default false). Missing preset keys mean team defaults. Preserve unrelated frontmatter and the literal Markdown body. Slugs are human-readable, immutable, and unique within preset type/team. Retain internal IDs for identity and historical references.
 
 Acceptance:
-- [x] Authenticated local MCP discovery lists reflection, request_api and read_api_response even without proxy:use.
-- [x] A fixture client follows reflection's example into request_api and reaches its authorized upstream.
-- [x] Missing scope, blocked integration and unavailable credentials produce distinct actionable errors without secrets.
-- [x] Local diagnostic/tests distinguish missing client tools from server authorization errors.
+- [x] Local tests parse/validate all fields, omitted defaults, malformed YAML, invalid slugs/types, and zero/unlimited concurrency.
+- [x] Round-trip tests preserve unknown frontmatter, unrelated metadata, and Markdown content when changing only Factorize controls.
+- [x] Structured metadata is available through the public skill contract; generated client and backend/frontend package boundaries pass.
 
-Evidence: pinned-image npm ci completed; AUTH_TEST_DATABASE_URL pointing to isolated loopback PostgreSQL, vitest run test/proxy-discovery.postgres.test.ts: 3 passed, including real MCP discovery/calls, fixture-only HTTP, permission and damaged-credential failures. Backend tsc --noEmit passed; npm run generate completed. External connector refresh is documented, not claimed performed.
+Evidence: In pinned runner factorize-proxy-validation-final (Node 24.12.0/npm 11.19.0): skill-definition.test.ts 8 passed; npm run generate passed; npm run check:boundaries 11 passed; API tsc --noEmit passed.
 
-## 2. Bounded proxy results, retained responses and queries
+## 2. [x] Versioned VM, permission, and model presets with team defaults
 
-Stream original upstream bytes into bounded artifact blocks. Default serialized model-facing proxy results to 4 KiB, allowing explicit increases up to a hard 32 KiB ceiling, accounting for encoding and both MCP content representations. Spill large results to storage and return safe status/headers, bounded preview, size, handle, expiry and read instructions. Offer companion tools and optional resource links. Add bounded JMESPath JSON filtering, text line ranges and binary byte ranges; retain range reads when JSON exceeds parser limits. Do not silently discard fields or invent upstream pagination. Temporary handles last 30 minutes and remain scoped to the authenticated OAuth connection or run.
-
-Acceptance:
-- [x] JSON, Unicode, escaped text and binary fixtures respect default/hard serialized budgets and retain exact original bytes.
-- [x] Filtering, line/byte pagination, invalid queries and query/output limits pass local tests.
-- [x] Downloads cross storage-block boundaries with bounded buffering.
-- [x] Expiry, tenant/connection/run isolation, revocation and integration-epoch rechecks pass deterministic tests.
-- [x] Existing REST response/chunk contracts remain compatible; sensitive headers are excluded.
-
-Evidence: pinned-image vitest proxy-results.postgres.test.ts, agent-api.postgres.test.ts and hosted-pi-mcp.postgres.test.ts: 14 passed; discovery/forwarder regression run: 18 passed. Tests cover exact Unicode/control/binary bytes, measured duplicated result budgets, 1 MiB storage blocks and boundary reads, filtering/pagination/parser limits, connection isolation, TTL/epoch/revocation, active-run authorization and legacy 64 KiB REST reads. Backend tsc --noEmit and contract generation passed.
-
-## 3. Durable HTTP operations and streaming
-
-Use existing scheduling/storage infrastructure for durable slow operations, not request-lifetime waitUntil as a durability guarantee. Fast requests may complete inline; slow/chunked/SSE bodies return handles with poll/read/cancel tools. Clients need no persistent connection, resource subscription or progress support. Provide progress as an optional enhancement. Preserve operations across reconnects and fence recovery; never blindly replay uncertain mutating calls. Fixed limits: request 32 MiB, response 64 MiB, upstream duration 15 minutes. Surface errors, partial-data state and uncertain upstream side effects; no configuration UI.
+Retain VM provider/image/size/region/tags configuration, add permission presets (application scopes, integrations and invocation permissions), and model presets (model account/provider, model and effort). Each preset has name, immutable slug, stable ID and immutable revision. Team settings select one default of each type. Editing creates a revision rather than mutating historical configuration. Block deletion of defaults and presets referenced by skills, returning useful reference details. Enforce tenant isolation and write authorization. Validate referenced integrations/accounts using deterministic fixtures.
 
 Acceptance:
-- [x] Slow/chunked/SSE fixtures expose bounded handles and incremental reads, completing across disconnect/reconnect.
-- [x] Restart/recovery and duplicate submissions cannot blindly repeat mutating requests.
-- [x] Cancellation, revocation, disconnect/non-2xx and size/time limits surface explicit state and partial-data information.
-- [x] Ordinary tool-only clients complete operations; supported progress clients receive optional progress.
+- [x] Local database/API tests cover CRUD for all three types, immutable slug validation, per-type/team uniqueness, revision history, and default replacement.
+- [x] Tests reject deleting defaults or referenced presets and allow deleting unused presets; historical snapshots/revisions survive deletion.
+- [x] Tests reject cross-team IDs/slugs, unavailable connections, unauthorized mutations, and stale writes without leaking secrets.
+- [x] New operations are registered in protected-api.ts, documented in OpenAPI, and present in the regenerated public client.
 
-Evidence: pinned-image proxy-operations.postgres.test.ts: 4 passed, exercising persisted dispatch, reconnect SSE reads, non-2xx status, interrupted-write idempotency, partial disconnect/cancel/timeout states, 32/64 MiB limits and revocation. proxy-discovery.postgres.test.ts plus run-alarm.test.ts: 8 passed, including actual legacy Streamable HTTP progress frames and alarm-object recreation. Backend tsc --noEmit and contract generation passed.
+Evidence: Pinned runner presets.postgres.test.ts passed: all three kinds, revisions/default replacement, default/reference deletion guards, tenant isolation, stale/invalid writes and unavailable connections. npm run generate and API tsc --noEmit passed.
 
-## 4. Generic artifacts, staged request bodies and attachments
+## 3. [x] Migrate legacy configurations without losing instructions
 
-Reuse artifact storage with generic temporary payload metadata, preserving image-specific media semantics. Support authorized artifact/response references, streaming integration imports, bounded staged chunks with immutable finalization, and raw/multipart request assembly. OAuth clients need no run. Payloads expire in 30 minutes with connection/run isolation. Add a dedicated ChatGPT attachment import tool with the documented top-level OpenAI file schema and openai/fileParams metadata. Stream temporary download URLs without integration credentials; validate public origins/redirects and exclude signed URLs from logs. Add an authenticated static-frontend upload page and documented upload operations returning a handle for clients without native handoff. Do not depend on the experimental MCP files extension.
-
-Acceptance:
-- [x] File-parameter fixtures import exact bytes and reject malformed, missing, expired and oversized files with actionable errors.
-- [x] Generic uploads, authorized artifacts, retained responses and integration imports become raw/multipart bodies without model-generated base64.
-- [x] Staging ordering/idempotency/finalization and rejection of foreign, expired, incomplete or revoked handles pass tests.
-- [x] Chromium completes the authenticated upload fallback without a run and rejects unauthorized access.
-- [x] SSRF/redirect/isolation fixtures prove imports cannot reach private origins or leak credentials or signed URLs.
-
-Evidence: pinned-image proxy-payloads.postgres.test.ts and proxy-discovery.postgres.test.ts: 8 passed (native file schema/metadata, exact binary import, URL/redirect/expiry/oversize failures, staged ordering/idempotency/checksum, raw/multipart bodies, authorized artifact/retained-response/integration sources, browser API authorization, identity expiry/revocation). App build and backend tsc passed. Chromium proxy-upload.browser.test.mjs: 3 passed at 390/1280px plus anonymous redirect, with exact uploaded binary bytes and usable handle.
-
-## 5. Default MCP Skills publishing with tool fallback
-
-Publish every active authorized team skill through io.modelcontextprotocol/skills by default, preserving existing tools for clients without extension support. Verify manifests/hashes, supporting resources, pagination and library updates. Preserve immutable accepted run packages; publishing does not execute or activate a skill.
+Create/reuse presets for distinct team/skill VM, permission, and model configurations, select team defaults and link skills by slug in SKILL.md. Preserve extra saved prompts in the Markdown body. Preserve auxiliary skill files and Git publication semantics. Disable existing script automation and remove it from future execution; retain historical runs. Make migration resumable/idempotent and avoid external service calls in SQL migrations or test acceptance.
 
 Acceptance:
-- [x] Discovery/list/get/read expose all authorized active packages with correct hashes and sizes.
-- [x] Existing skill tools remain visible and usable without extension support.
-- [x] Pagination, edits, rename/delete, failed publication, invalid paths and tenant isolation pass tests.
-- [x] Pinned run packages and supporting files survive library edits, rename and deletion unchanged.
+- [x] Local legacy-fixture tests verify distinct configurations become distinct presets and equivalent configurations are reused.
+- [x] Team defaults and skill references preserve effective non-script settings, concurrency semantics, prompts and supporting files.
+- [x] Repeating/resuming migration neither duplicates presets/instructions nor loses committed content after a simulated failure.
+- [x] Legacy script automation cannot create new runs, while historical run details and traces remain readable.
 
-Evidence: pinned-image vitest mcp-skills.test.ts, mcp-skills.postgres.test.ts, skill-library.postgres.test.ts and hosted-pi-mcp.postgres.test.ts: 16 passed. Includes extension discovery/pagination, exact per-file digest/size, legacy tool fallback without extension negotiation, scopes/member/tenant/path isolation, edit/rename/delete, Git publication preservation, and immutable pinned run supporting files. Existing default publishing implementation retained.
+Evidence: Pinned runner preset-migration.postgres.test.ts 2 passed, including local Git publication failure/recovery, idempotence, prompt/configuration/file preservation, disabled legacy script automation and retained run rows.
 
-## 6. Durable Pi OpenTelemetry/OpenInference capture
+## 4. [x] Central preset resolution, immutable run snapshots, disabled and concurrency
 
-Instrument pinned hosted Pi model/agent boundaries using OpenTelemetry and Arize OpenInference conventions; verify rather than assume auto-instrumentor coverage. Persist independently of Phoenix: stable run trace, turn/model/tool spans, assistant/tool content, timings, retries, recovery, compaction, errors, finish reason, model/provider and reported input/output/cache/reasoning usage. Preserve trace IDs across scheduler leases and avoid duplicate accounting. Exclude credentials and temporary URLs; retain large content by reference with bounded reads and existing run retention.
-
-Acceptance:
-- [x] Deterministic Pi fixture records correlated run/turn/model/tool spans with content, timings and terminal status.
-- [x] Model and compaction usage are persisted once; unavailable fields remain unavailable and cache/reasoning counts are not double-counted.
-- [x] Retry, recovery, cancellation and failure preserve trace identity without duplicate spans or usage.
-- [x] Authorization, tenant isolation, redaction and retention cleanup pass locally.
-- [x] Capture works without Phoenix and emits valid OpenInference span attributes.
-
-Evidence: pinned-image pi-telemetry.postgres.test.ts and hosted-pi-mcp.postgres.test.ts: 10 passed, including real five-turn Pi execution with four tools, SDK-generated OTLP spans, reported cache/reasoning usage, stable IDs/idempotent recovery, compaction/retry/error/cancel spans, encrypted bounded Unicode content, secret/URL redaction, tenant isolation and cascading run retention. scripts/hosted-pi-runtime.test.mjs passed in workerd; backend tsc passed. No Phoenix connection used.
-
-## 7. Run telemetry UI and cost estimates
-
-Expose authorized paginated telemetry through documented /api/v1 contracts and generated client. Add live run totals and expandable turn/model/tool details with duration, usage, estimated cost and errors. Use a maintained versioned pricing catalog plus per-model overrides. Snapshot source/rates with estimates; unknown prices/usage remain unavailable rather than zero. Do not sum overlapping durations as wall time.
+Resolve skill preset references or team defaults when creating a run, before it queues. Snapshot resolved settings plus preset IDs/slugs/revisions, inheritance flags and skill commit. Never re-resolve queued/existing runs. Apply consistent behavior to direct/manual, automated and MCP launches. Reject all new runs of disabled skills but let existing runs finish. Default skill concurrency to 0/unlimited; positive limits constrain execution. Retire script-based run creation from browser, REST and MCP; preserve historical read contracts and harmless omission compatibility. Keep credentials server-side and authorization ceilings intact.
 
 Acceptance:
-- [x] API tests verify authorization, pagination, bounded details and usage/cost reconciliation.
-- [x] Pricing fixtures cover catalog models, overrides, unknown models, cache/reasoning semantics and immutable historical estimates.
-- [x] Desktop/mobile Chromium shows live totals, expandable details, errors/cancellation and unavailable fields.
-- [x] Large content uses bounded detail reads; historical runs lacking telemetry remain readable.
+- [x] Local integration tests prove explicit/inherited resolution, queued-run freezing and provenance for all three preset types.
+- [x] Changing defaults, editing/deleting presets or editing skills cannot change accepted run snapshots or supporting files.
+- [x] Disabled skills reject new manual/automated/MCP runs while existing runs can complete; positive concurrency limits and zero/unlimited work with scheduler fixtures.
+- [x] Permission tests prove a preset cannot exceed the caller/delegation ceiling or bypass tenant/integration authorization.
+- [x] New script requests fail actionably across supported launch paths; historical script runs remain readable.
 
-Evidence: pinned-image model-pricing.test.ts, run-telemetry.postgres.test.ts, pi-telemetry.postgres.test.ts and hosted-pi-mcp.postgres.test.ts: 14 passed. Covers catalog tiers, custom overrides, unknown usage/prices, non-duplicated cache/reasoning charges, immutable pricing snapshots, API scope/404/pagination/content limits and reconciled totals. Four targeted runs.browser.test.mjs Chromium scenarios passed (390/1280px, lazy bounded detail reads, live polling, canceled/error and historical/no-telemetry states). App build, generated contracts and backend tsc passed.
+Evidence: Pinned runner preset-runs.postgres.test.ts passed: direct and scheduled admission, inherited/explicit revisions, positive and unlimited concurrency, queued snapshots claimed after edits/disable, permission ceiling rejection and script retirement. API tsc and generated contracts passed. MCP start_run delegates to the same tested service; discovery/call coverage follows in item 10.
 
-## 8. Phoenix Cloud integration and reliable export
+## 5. [x] Team Settings preset list and dedicated editor pages
 
-Add team-scoped endpoint, encrypted API key and destination project with connection testing. Export newly captured telemetry/content through a durable batched queue independent of execution. Reuse IDs, implement bounded transient retries and visible export state, and verify ingestion with a local receiver; do not promise exactly-once provider ingestion. Store destination/trace identifiers for a precise View in Phoenix link. Disable/disconnect stops future export and keeps keys server-side. Historical backfill is out of scope.
-
-Acceptance:
-- [x] Local API/browser tests configure, test, update, disable and disconnect the integration without exposing its key.
-- [x] Local OTLP/Phoenix receiver validates authenticated destination and correlated multi-turn/tool spans.
-- [x] Transient/permanent failures, retry, restart and disconnect preserve run success/local telemetry and expose export state.
-- [x] Run page links to the fixture destination's exact trace using stored identifiers.
-- [x] No integration means no export; tenant isolation and redaction hold.
-
-Evidence: pinned-image phoenix.postgres.test.ts, run-alarm.test.ts and hosted-pi-mcp.postgres.test.ts: 12 passed. Independent local HTTP receiver decodes actual OTLP protobuf and verifies authentication/project/trace IDs, multi-turn/tool spans and usage. Tests cover accepted-but-failed acknowledgement retries, stale sending leases, eight-attempt cap, permanent errors/key repair, link lookup repair without retransmission, disabling/disconnection, no backfill and tenant isolation. Four Chromium scenarios passed for 390/1280px configuration/test/update/disable/disconnect and exact run trace links/export status. Local telemetry remains independent of export.
-
-## 9. Complete validation and handoff
+VM, Permissions and Models left navigation each open their preset list. Show names/slugs, useful summaries and Default badges. Add opens a dedicated creation page. Each row's accessible ellipsis menu offers Edit, Make team default and Delete. Edit opens a dedicated page; Delete uses an application confirmation modal. Default/reference restrictions are explained. Preserve existing provider/image verification behavior with local fixtures. Team capacity remains a team setting.
 
 Acceptance:
-- [x] OpenAPI/client, package boundaries and documentation checks pass.
-- [x] Complete root npm test passes after the final code change in the pinned image with isolated databases and deterministic providers.
-- [x] Every preceding criterion has recorded local evidence and the final diff has been reviewed; no external service/client action is needed to reproduce acceptance.
+- [x] Chromium tests complete list/add/edit/default/delete flows for each type at desktop and mobile widths using local fixtures.
+- [x] Add/edit have navigable URLs, Cancel returns to the correct list, and reload preserves routing.
+- [x] Ellipsis menus and confirmation modals support keyboard/focus behavior; cancel does not mutate; errors retain input.
+- [x] Default deletion is unavailable/rejected and referenced deletion lists blocking references; capacity remains editable.
 
-Evidence: complete root npm test exited 0 on 2026-11-20 after the final code change. All backend, browser, proxy and Docker validation steps passed in ghcr.io/generationsoftware/factorize-validation-runner@sha256:1333c4a7bb49c4cbcdd28ca2b57331dfcbff7cf611db1aaeaa4830517aacf6d4, using Node 24.12.0, npm 11.19.0 and isolated loopback PostgreSQL on port 55434. Backend: 140 files, 862 tests passed, five existing optional tests skipped; compiled app/API/PostgreSQL: 40 passed; browser application suite: 128 passed, one skipped; proxy protocol: 32 passed plus four harness checks; Docker: two passed. Contract generation/drift, package boundaries, documentation, builds and Worker-runtime checks all passed. The Worker fixture explicitly verifies synchronous proxy compatibility and the actionable error when durable scheduling is unavailable. Final diff reviewed and git diff --check passed. Full local log: /tmp/factorize-complete-validation-final.log. All preceding items have local evidence; no production deployment, client refresh or live Phoenix ingestion is claimed.
+Evidence: npm run build:app passed in pinned runner; presets.browser.test.mjs 6 passed (all three types at 390/1280px), covering reloadable add/edit routes, immutable slugs, default switching/protection, confirmation cancel/delete, blocking-reference errors, keyboard Escape, cancel navigation and team capacity controls.
+
+## 6. [x] Structured skill editor and rendered overview
+
+Replace literal-file editing with controls for name, description, autocomplete VM/permission/model presets, concurrency and disabled, plus generic text editing of the Markdown body. Save the entire SKILL.md in one conditional revision, preserving unrelated metadata. Use the same editor for new skills. Overview displays a compact three-selector preset box above safely rendered Markdown; inherited values identify the resolved team default. Overview selector changes immediately save/commit only their metadata field with pending/error/conflict feedback. Remove Instructions heading and Start run. Retain the skill directory browser.
+
+Acceptance:
+- [x] Chromium creates/edits a skill via controls and body text, then verifies serialized frontmatter and Markdown rendering.
+- [x] Autocomplete supports filtering, keyboard selection, clearing to Team default, and unavailable-reference feedback.
+- [x] Overview autosave changes the actual skill file/revision, preserves unrelated metadata/body/files, and handles failed/stale writes without overwriting concurrent edits.
+- [x] Markdown links/code/lists render safely; no Instructions heading or overview Start run button remains; directory browsing still works.
+
+Evidence: Pinned runner skill-editor.postgres.test.ts passed for actual Git-backed file commits, unknown YAML preservation and stale revision rejection; skills-presets.browser.test.mjs 2 passed at 390/1280px for structured create/edit, Markdown safety/rendering, autocomplete/default clearing, autosave conflict/reload and supporting-file browsing. npm run build:app passed.
+
+## 7. [x] Replace skill Settings with Triggers
+
+Use Overview, Runs and Triggers subnavigation. Remove General/VM/Permissions settings pages and their controls. Triggers contains only non-manual trigger configuration, including disabled triggers; manual events are legacy implementation details and cannot appear in or be added through the editor. Retain independent manual invocation. Redirect old skill settings URLs to the appropriate replacement. Disabled skill messaging does not erase trigger configuration.
+
+Acceptance:
+- [x] Chromium verifies new navigation, legacy URL redirects, empty state, and add/edit/disable/remove non-manual triggers.
+- [x] No manual trigger option/row or execution settings form is visible; API tests cover empty and legacy manual-only trigger configurations.
+- [x] Editing triggers does not overwrite skill metadata or resolved preset choices, and disabled skills retain trigger configuration.
+
+Evidence: skill-triggers.browser.test.mjs passed for navigation/legacy redirects, manual-only empty state and add/disable/remove schedule configuration. preset-runs.postgres.test.ts passed again, including empty visible configuration, retained independent manual invocation and unchanged SKILL.md. App build passed.
+
+## 8. [x] Skills table
+
+Use the shared table conventions with Skill name, Description, VM preset, Permission preset, Model preset and Triggers columns. Show Yes if any non-manual trigger exists, including disabled triggers; otherwise No. Resolve inherited preset labels. Keep New skill, existing pagination and useful loading/error/empty states. Remove the page title/subtitle, local search and List/Graph toggle.
+
+Acceptance:
+- [x] Local API fixtures and Chromium verify all columns, explicit/default labels, description, navigation, pagination and empty/error/loading states.
+- [x] Disabled non-manual triggers produce Yes; absent/manual-only triggers produce No.
+- [x] Desktop/mobile layouts remain usable and contain no removed title/subtitle/search/toggle.
+
+Evidence: skill-table.postgres.test.ts passed for descriptions, body omission, trigger flags and pagination. skills-table.browser.test.mjs 2 passed at 390/1280px for columns, explicit/inherited labels, Yes/No, pagination, empty/error states and removal of title/search/toggle. App build passed.
+
+## 9. [x] Global search for skill names and run names only
+
+Replace trigger and trace search with skill-name and run-name matching. Do not match descriptions, skill instructions, issue identifiers/titles or message/trace contents independently. Keep useful exact/prefix/fuzzy ranking, highlighting, bounded tenant-scoped results and keyboard navigation. Link skills to their overview and runs to their detail page. Update launcher, dialog and accessibility labels.
+
+Acceptance:
+- [x] Local PostgreSQL tests verify matching/ranking/highlighting of skill and run names, deterministic ordering, isolation and bounded results.
+- [x] Negative tests prove trigger names, descriptions, bodies, issue identifiers/titles and trace content alone produce no results.
+- [x] Chromium verifies click/keyboard navigation for both result kinds plus empty/loading/error and stale-response states.
+
+Evidence: search.postgres.test.ts + search.test.ts 10 passed for skill/run names, punctuation/typo matching, excluded trigger/issue/body/trace fields, tenant isolation, highlighting, 100-result bound and deterministic ordering. skill-search.browser.test.mjs passed for keyboard/click navigation, stale selection prevention and empty/loading/error states. App build passed.
+
+## 10. [x] REST/MCP consistency and documentation
+
+Expose consistent preset management, default selection and frontmatter-backed skill configuration to external clients. Remove obsolete script/execution-settings mutation paths or return actionable retirement errors without silently accepting ignored fields. Preserve historical read/full-list/detail/trace and conditional-write omission compatibility. Explain defaults, slug references, concurrency, disabled behavior, snapshot timing and provenance in product/API/MCP documentation.
+
+Acceptance:
+- [x] Local MCP discovery/call tests manage presets, edit skill metadata, launch and inspect a preset-backed run with the same semantics as REST/browser.
+- [x] Contract/boundary tests verify authorization, validation, retired inputs, omission compatibility and historical run reads.
+- [x] npm run generate, contract drift checks, package boundaries and documentation validation pass locally.
+
+Evidence: preset-mcp.postgres.test.ts passed through real MCP discovery/calls; focused regression run passed 71 tests with one historical-preview fixture subsequently corrected and verified. preset-final-targeted.log: 7 files/17 tests passed. Worker agent-api-runtime.test.mjs: 2 passed including background acceptance. npm run generate, documentation generation/validation, package boundaries and API type checks passed. The final root suite in item 11 rechecks all contracts and historical reads together.
+
+## 11. [x] Complete validation, review and PR handoff preparation
+
+Acceptance:
+- [x] All preceding criteria are checked with reproducible local commands/evidence; no acceptance relies on external deployment or provider availability.
+- [x] The complete root npm test passes after the final code change using pinned tooling and isolated databases.
+- [x] git diff --check passes; final diff review covers migration failure safety, authorization, accepted-run immutability, and removed UI/routes/contracts.
+- [x] A PR title/body describing behavior, migration, test results and limitations is prepared locally for publication.
+
+Evidence: Complete root suite passed after the final implementation/test change on 2026-11-20 in factorize-proxy-validation-final (pinned runner digest sha256:1333c4a7bb49c4cbcdd28ca2b57331dfcbff7cf611db1aaeaa4830517aacf6d4; Node 24.12.0/npm 11.19.0). Reproduce from the repository root after npm ci and isolated database bootstrap:
+
+```sh
+docker exec -u exedev -w /work \
+  -e DATABASE_URL=postgresql://postgres:local-validation-only@127.0.0.1:55434/factorize_presets_validation \
+  -e AUTH_TEST_DATABASE_URL=postgresql://postgres:local-validation-only@127.0.0.1:55434/factorize_presets_validation \
+  -e QUEUE_TEST_DATABASE_URL=postgresql://postgres:local-validation-only@127.0.0.1:55434/factorize_presets_validation \
+  factorize-proxy-validation-final npm test
+git diff --check
+git diff --cached --check
+```
+
+Result: every root validation step passed (generated contracts/drift, build, backend, compiled app/API/PostgreSQL integration, functional/browser, portable proxy, Docker). Backend: 147 files, 877 passed/5 existing skips; compiled integration: 40 passed; functional Chromium: 6 passed; app: 139 passed/1 existing skip; proxy protocol: 32 passed plus 4 harness tests; Docker: 2 passed. Worker runtime, docs, package boundaries and type checks passed within the root suite. Local log: /tmp/factorize-presets-root-final.log. Final diff review covered tenant/scope authorization, default/reference deletion guards, immutable run snapshots and queued execution, encrypted/restart-safe migration checkpoints, legacy-route redirects and retired mutations. Runtime fixtures use unique artifact namespaces to avoid local Git socket collisions. Both diff whitespace checks passed. All criteria above are exercised locally without external providers or deployments.
+
+After every item is complete: commit, push this branch and open a new PR. Record the PR URL in the handoff; report external publication failures honestly without changing local acceptance results.

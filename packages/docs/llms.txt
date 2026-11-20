@@ -17,7 +17,7 @@ Current MCP does not return execution output; inspect browser traces or REST tra
 
 ## Work with your agent
 
-- [Skills and settings](https://docs.factorize.sh/work/skills): Instructions, execution defaults, files, and optional automation in one place.
+- [Skills and presets](https://docs.factorize.sh/work/skills): Define skills in SKILL.md and reuse team VM, permission and model presets.
 - [Create and edit triggers](https://docs.factorize.sh/work/triggers): Configure skill event sources and retain compatibility with trigger clients.
 - [Write Trigger context](https://docs.factorize.sh/work/prompts): Combine one optional skill, a literal prompt, and selected Event data.
 - [Inspect results](https://docs.factorize.sh/work/results): Read run state, output, prompt, and event context.

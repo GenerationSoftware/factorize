@@ -122,7 +122,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     await new Promise(resolve=>site.listen(0,'127.0.0.1',resolve));origin='https://localhost:'+site.address().port;
     mf=new Miniflare(convertV4MiniflareOptions({name:"factorize",modules:true,modulesRoot:directory,scriptPath:directory+'/agent-api-runtime-worker.js',compatibilityDate:'2026-09-10',compatibilityFlags:['nodejs_compat','global_fetch_strictly_public'],
       bindings:{LINEAR_CLIENT_ID:'fixture-client',LINEAR_CLIENT_SECRET:'fixture-secret',APP_ORIGIN:origin,SESSION_SIGNING_SECRET:secret,CREDENTIAL_ENCRYPTION_KEY:key.toString('base64'),GITHUB_APP_ID:'1',GITHUB_APP_PRIVATE_KEY:privateKey.export({format:'pem',type:'pkcs8'}).toString()},
-      artifacts:{SKILL_ARTIFACTS:{namespace:'factorize-skills'}},
+      artifacts:{SKILL_ARTIFACTS:{namespace:'factorize-skills-'+name}},
       kvNamespaces:['OAUTH_KV'],r2Buckets:['RUN_ARTIFACTS'],hyperdrives:{HYPERDRIVE:address.href},
       serviceBindings:{MAINTENANCE:{name:"factorize",entrypoint:"AgentApiMaintenance"},ASSETS:async request=>{
         const path=new URL(request.url).pathname;
@@ -130,7 +130,7 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
       }},
       outboundService:async request=>{
         const target=new URL(request.url);
-        if (target.protocol === 'http:' && target.hostname === '127.0.0.1' && target.pathname.startsWith('/git/factorize-skills/')) {
+        if (target.protocol === 'http:' && target.hostname === '127.0.0.1' && target.pathname.startsWith('/git/factorize-skills-'+name+'/')) {
           return fetch(target, {method:request.method, headers:request.headers, body:request.method === 'POST' ? await request.arrayBuffer() : undefined, redirect:'manual'});
         }
         assert.ok(['fixture.upstream.com','api.github.com','github.com','raw.githubusercontent.com','codeload.github.com','api.linear.app','api.openai.com','oidc.fly.io','auth.openai.com','chatgpt.com','exe.dev','ampcode.com','api.clickup.com','api.machines.dev','custom.amp.upstream.com','api.x.com'].includes(target.hostname),'Unexpected upstream '+target.hostname);
@@ -397,19 +397,19 @@ test('agent API OAuth, policy, connection isolation, run identity and response l
     await db.query("INSERT INTO app.events(tenant_id,id,trigger_id,kind,slug) VALUES($1,gen_random_uuid(),$2,'manual','manual')",[tenant,triggerId]);
     await db.query("INSERT INTO app.invocations(tenant_id,id,trigger_id,source,claim_key,context,event_id) VALUES($1,$2,$3,'manual','fixture','{}',(SELECT id FROM app.events WHERE tenant_id=$1 AND trigger_id=$3))",[tenant,invocationId,triggerId]);
     await db.query("INSERT INTO app.trigger_runs(tenant_id,id,trigger_id,invocation_id,state,encrypted_prompt) VALUES($1,$2,$3,$4,'running','cipher')",[tenant,runId,triggerId,invocationId]);
-    await db.query("INSERT INTO app.runs(tenant_id,id,trigger_id,invocation_id,provider,issue_id,agent_name,state,execution_config,execution_handle) VALUES($1,$2,$3,$4,'manual','fixture','codex','running',$5,$6)",[tenant,runId,triggerId,invocationId,{portableIntegrationIds:[baseline.credential_id]},{id:'fixture-app/machine'}]);
+    await db.query("INSERT INTO app.runs(tenant_id,id,trigger_id,invocation_id,provider,issue_id,agent_name,state,execution_config,execution_handle) VALUES($1,$2,$3,$4,'manual','fixture','codex','running',$5,$6)",[tenant,runId,triggerId,invocationId,{portableIntegrationIds:[baseline.credential_id],modelAccess:'portable',modelAccountId:model.credential_id},{id:'fixture-app/machine'}]);
     await db.query("INSERT INTO app.fly_connections(tenant_id,organization_slug,organization_name,encrypted_token) VALUES($1,'fixture','Fixture','cipher')",[tenant]);
     await db.query("INSERT INTO app.run_authorizations(tenant_id,run_id,user_id,session_version,scopes) VALUES($1,$2,$3,1,'[]')",[tenant,runId,user]);
     const subject='fixture:fixture-app:machine';
     await db.query("INSERT INTO app.vendor_run_identity_bindings(tenant_id,run_id,provider,vm_id,issuer,subject,audience,issued_at,expires_at) VALUES($1,$2,'fly.io','machine','https://oidc.fly.io/fixture',$3,$4,now(),now()+interval '1 hour')",[tenant,runId,subject,origin]);
     const runHeaders={'X-Factorize-Run-Id':runId,Authorization:'Bearer '+jwt({machine_id:'machine',iss:'https://oidc.fly.io/fixture',sub:subject,aud:origin,iat:now,exp:now+300})};
-    const runResponse=await send('/api/v1/agent/reflection','GET',undefined,runHeaders);assert.equal(runResponse.status,200,await runResponse.clone().text());assert.equal((await runResponse.json()).integrations.length,1);
-    const nestedRequest={script:'echo Background review'};
+    const runResponse=await send('/api/v1/agent/reflection','GET',undefined,runHeaders);assert.equal(runResponse.status,200,await runResponse.clone().text());assert.equal((await runResponse.json()).integrations.length,2);
+    const nestedRequest={prompt:'Background review'};
     assert.equal((await json('/api/v1/runs','POST',nestedRequest,runHeaders)).status,403);
     await db.query("UPDATE app.run_authorizations SET scopes=$3 WHERE tenant_id=$1 AND run_id=$2",[tenant,runId,JSON.stringify(['runs:start'])]);
     const nestedTarget=randomUUID();
     await db.query('INSERT INTO app.connections(tenant_id,kind,encrypted_value) VALUES($1,$2,$3)',[tenant,'exe:'+nestedTarget,encrypt(JSON.stringify({agentKind:'codex',connectionId:nestedTarget}))]);
-    assert.equal((await json('/api/v1/team/run-defaults','PUT',{executionConfigId:nestedTarget,requiresVm:true},owner)).status,200);
+    assert.equal((await json('/api/v1/team/run-defaults','PUT',{executionConfigId:nestedTarget,requiresVm:true,modelAccountId:model.credential_id,model:'fixture'},owner)).status,200);
     assert.equal((await json('/api/v1/runs','POST',{...nestedRequest,projectId:randomUUID()},runHeaders)).status,400);
     const child=await json('/api/v1/runs','POST',nestedRequest,runHeaders);
     assert.ok(child.body.runId,JSON.stringify(child.body));

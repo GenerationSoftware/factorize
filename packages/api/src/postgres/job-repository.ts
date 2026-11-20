@@ -1,3 +1,7 @@
+import type { Env } from "../types";
+import { migratePresetSkills } from "../preset-migration";
+import { readSkillDefinition } from "../skill-definition";
+import { resolveSkillPresets, presetExecution, assertPresetSnapshot } from "../preset-resolution";
 import { SkillContent } from "../skill-content";
 import { DEFAULT_RUN_SCOPES } from "../run-scopes";
 import { submitRun } from "./run-submission";
@@ -16,7 +20,8 @@ type TriggerRow = typeof triggers.$inferSelect;
 type EventRow = typeof events.$inferSelect;
 
 export class PostgresTriggerRepository implements TriggerRepository {
-  constructor(private database: Database, private tenantId: string, private encrypt: Crypt, private decrypt: Crypt, private content = new SkillContent()) {
+  private readiness?:Promise<void>;
+  constructor(private database: Database, private tenantId: string, private encrypt: Crypt, private decrypt: Crypt, private content = new SkillContent(),private env?:Env) {
     if (!tenantId) throw new Error("tenantId is required");
   }
 
@@ -50,11 +55,19 @@ export class PostgresTriggerRepository implements TriggerRepository {
     const skills = await Promise.all(skillRows.map(async skill => ({
       id:skill.id, key:skill.key, revision:skill.revision, position:skill.position, ...await this.content.read(skill, this.decrypt),
     })));
-    const skill = skills[0]; // The unique relational selection is authoritative.
+    const skill = skills[0];
+    if(skill && (await this.database.pool.query("SELECT 1 FROM app.presets WHERE tenant_id=$1 AND is_default LIMIT 1",[this.tenantId])).rowCount){
+      const definition=readSkillDefinition(skill.body,skill.key);
+      const resolved=await resolveSkillPresets(this.database.pool,this.tenantId,definition,skill.version?.commit);
+      const projected=presetExecution(resolved);
+      Object.assign(row,{executionConfig:{...projected,skillId:skill.id},model:resolved.defaults.model??"",effort:resolved.defaults.effort??"",tags:resolved.defaults.tags??[],runScopes:resolved.defaults.runScopes??[],concurrencyLimit:definition.factorize.concurrency});
+    }
+    // // The unique relational selection is authoritative.
     return { id: row.id, requiresVm:row.executionConfig.requiresVm ?? (row.executionConfig.executionType==="code" || Boolean(row.executionConfig.connectionId)), runScopes: row.runScopes ?? [...DEFAULT_RUN_SCOPES], name: row.name, description: row.description ?? "", slug: row.slug, prompt: row.encryptedPrompt ? await this.decrypt(row.encryptedPrompt) : "", executionType: row.executionConfig.executionType ?? "agent", script: row.executionConfig.script, runNameTemplate: row.encryptedRunNameTemplate ? await (row.contextVersion<2 ? this.decryptTemplate(row.encryptedRunNameTemplate,eventRows) : this.decrypt(row.encryptedRunNameTemplate)) : "", tags: row.tags ?? [], model: row.model, ...(row.effort ? { effort: row.effort } : {}), executionConfig: row.executionConfig, portableIntegrationIds: row.executionConfig.portableIntegrationIds ?? [], modelAccess: row.executionConfig.modelAccess ?? "native", modelAccountId: row.executionConfig.modelAccountId, githubInstallationIds: row.executionConfig.githubInstallationIds ?? [], linearConnectionId: row.executionConfig.linearConnectionId, xConnectionIds: row.executionConfig.xConnectionIds ?? [], concurrencyLimit: row.concurrencyLimit, enabled: row.enabled, events: await Promise.all(eventRows.map(value => this.event(value,eventRows))), skill, contextReviewRequired:row.contextReviewRequired, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
   }
 
   async getTrigger(id: string): Promise<Trigger | null> {
+    if(this.env)await (this.readiness??=migratePresetSkills({...this.env,DATABASE:this.database},this.tenantId));
     const row = (await this.database.orm.select().from(triggers).where(and(eq(triggers.tenantId, this.tenantId), eq(triggers.id, id))).limit(1))[0];
     return row ? this.mapped(row) : null;
   }
@@ -180,6 +193,8 @@ export class PostgresTriggerRepository implements TriggerRepository {
   }
   async insertInvocationAndRun(invocation: Invocation, run: TriggerRun): Promise<boolean> {
     return this.database.transaction(async client => {
+      if(run.executionConfig?.presetSnapshot)await assertPresetSnapshot(client,this.tenantId,run.executionConfig.presetSnapshot);
+      if(run.skill){const row=(await client.query("SELECT revision,definition FROM app.skills WHERE tenant_id=$1 AND id=$2 FOR SHARE",[this.tenantId,run.skill.id])).rows[0];if(!row||row.revision!==run.skill.revision||row.definition?.factorize?.disabled)throw new Error("Skill changed or is disabled; retry invocation.");}
       const concurrencyLimit = await lockTriggerQueue(client, this.tenantId, invocation.triggerId);
       const inserted = await client.query("INSERT INTO app.invocations(tenant_id,id,trigger_id,source,claim_key,event_id,context,occurrence,source_trigger_id,source_run_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (tenant_id,trigger_id,claim_key) DO NOTHING", [this.tenantId, invocation.id, invocation.triggerId, invocation.source, invocation.claimKey, invocation.eventId, invocation.context, invocation.occurrence ?? null, invocation.sourceTriggerId ?? null, invocation.sourceRunId ?? null, invocation.createdAt]);
       if (!inserted.rowCount) return false;
@@ -187,8 +202,8 @@ export class PostgresTriggerRepository implements TriggerRepository {
       run.state = await submitRun(client, this.tenantId, {
         id: run.id, triggerId: invocation.triggerId, invocationId: invocation.id, name: run.runName ?? "",
         source: invocation.source, claim: invocation.claimKey, encryptedPrompt: run.encryptedPrompt, encryptedSkills: run.encryptedSkillSnapshot,encryptedPromptPreview:run.encryptedPromptPreview,encryptedContextPrompt:run.encryptedContextPrompt,
-        skill: run.skill, workspaceName: trigger.slug, triggerLimit: concurrencyLimit, createdAt: run.createdAt,
-        config: {...trigger.execution_config, model: trigger.model, effort: trigger.effort, tags: trigger.tags, inputContext: invocation.context, runScopes: trigger.run_scopes},
+        skill: run.skill, workspaceName: trigger.slug, triggerLimit: run.executionConfig?.presetSnapshot?0:concurrencyLimit, createdAt: run.createdAt,
+        config: {...(run.executionConfig??{...trigger.execution_config,model:trigger.model,effort:trigger.effort,tags:trigger.tags,runScopes:trigger.run_scopes}),inputContext:invocation.context},
       });
       return true;
     });

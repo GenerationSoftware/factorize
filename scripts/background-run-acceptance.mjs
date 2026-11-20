@@ -175,10 +175,6 @@ export async function backgroundRunAcceptance({
   const ambiguous = await rpc(token, "start_run", { ...args, script: "echo ambiguous" });
   assert.ok(!ambiguous.result?.runId, ambiguous.text);
   const directScript = await rpc(token, "start_run", { script: "echo direct", requiresVm: true, executionConfigId: connectionId, integrationIds: [], runScopes: [] });
-  assert.ok(directScript.result?.runId, directScript.text);
-  const snapshot = (await db.query("SELECT trigger_id, execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenant, directScript.result.runId])).rows[0];
-  assert.equal(snapshot.trigger_id, null);
-  assert.equal(snapshot.execution_config.script, "echo direct");
-  assert.equal(snapshot.execution_config.executionType, "code");
-  await rpc(token, "stop_run", { runId: directScript.result.runId });
+  assert.ok(!directScript.result?.runId,directScript.text);
+  assert.match(directScript.text,/scripts_retired/);
 }
