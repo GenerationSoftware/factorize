@@ -58,6 +58,26 @@ describe.skipIf(!url)("direct run defaults and integration access", { timeout: 3
     } finally { await f.cleanup(); }
   });
 
+  it("inherits effective MCP scopes, accepts an empty subset, and rejects disabled scopes", async () => {
+    const f = await loadingFixture(url!);
+    try {
+      await f.db.pool.query("INSERT INTO app.user_run_defaults(tenant_id,user_id,run_defaults) VALUES($1,$2,$3)", [f.tenantId, f.userId, defaults("ghcr.io/factorize/direct-run:test")]);
+      await f.db.pool.query("INSERT INTO app.agent_identities(tenant_id,kind,subject,user_id,session_version,disabled_scopes) VALUES($1,'oauth','test-grant',$2,$3,$4)", [f.tenantId, f.userId, f.auth.sessionVersion, ["jobs:write"]]);
+      const service = new ApiService(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "test-grant", oauthClientId: "test-client", oauthExpiresAt: Math.floor(Date.now() / 1000) + 3600, scopes: ["runs:start", "projects:read", "integrations:read", "jobs:write"] });
+
+      const inherited = await service.startRun({ projectId: f.projectId, prompt: "inherit effective access", idempotencyKey: "effective-scopes" });
+      const inheritedConfig = (await f.db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, inherited.runId])).rows[0].execution_config;
+      expect(inheritedConfig.runScopes).toContain("runs:start");
+      expect(inheritedConfig.runScopes).not.toContain("jobs:write");
+
+      const empty = await service.startRun({ projectId: f.projectId, script: "echo no permissions", integrationIds: [], runScopes: [], idempotencyKey: "empty-scopes" });
+      const emptyConfig = (await f.db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, empty.runId])).rows[0].execution_config;
+      expect(emptyConfig.runScopes).toEqual([]);
+
+      await expect(service.startRun({ projectId: f.projectId, prompt: "cannot delegate disabled scope", runScopes: ["jobs:write"], idempotencyKey: "denied-scope" })).rejects.toMatchObject({ status: 403, code: "forbidden" } satisfies Partial<ServiceError>);
+    } finally { await f.cleanup(); }
+  });
+
   it("validates the resolved agent model against the selected execution provider", async () => {
     const f = await loadingFixture(url!);
     try {
