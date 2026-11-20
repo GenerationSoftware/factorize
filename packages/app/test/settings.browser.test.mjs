@@ -215,45 +215,27 @@ test("Fly setup opens from its tile, verifies and saves, then appears in the uni
   await context.close();
 });
 
-test("dashboard VM presets use dialogs for creation, editing, and deletion", async () => {
+test("dashboard VM presets use dedicated editors and confirmed deletion", async () => {
   const { context, page } = await setup();
   let presets = [];
   const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   await page.route("**/api/v1/integrations", route => route.fulfill({ json: { exeConnections: [{ connectionId: "dev", accountTags: ["work"] }], ampConnections: [] } }));
   await page.route("**/api/v1/fly/execution-configurations", route => route.fulfill({ json: { configurations: [] } }));
-  await page.route("**/api/v1/vm-presets", route => {
-    if (route.request().method() === "GET") return route.fulfill({ json: { presets } });
-    const body = route.request().postDataJSON();
-    assert.deepEqual(body, { name: "Build", settings: { provider: "exe", connectionId: "dev", image: "", tags: ["work"] } });
-    presets = [{ ...body, id, executionConfigId: "dev" }];
-    return route.fulfill({ json: { preset: presets[0] } });
+  await page.route("**/api/v1/presets", route => {
+    if (route.request().method() === "GET") return route.fulfill({json:{presets}});
+    const body=route.request().postDataJSON();assert.deepEqual(body,{kind:"vm",name:"Build",slug:"build",settings:{provider:"exe",connectionId:"dev",image:"",tags:["work"]}});
+    presets=[{...body,id,executionConfigId:"dev",revision:1,isDefault:false}];return route.fulfill({json:{preset:presets[0]}});
   });
-  await page.route("**/api/v1/vm-presets/" + id, route => {
-    if (route.request().method() === "DELETE") {
-      presets = [];
-      return route.fulfill({ json: { deleted: true } });
-    }
-    presets = [{ ...presets[0], ...route.request().postDataJSON() }];
-    return route.fulfill({ json: { preset: presets[0] } });
+  await page.route("**/api/v1/presets/"+id,route=>{
+    if(route.request().method()==="DELETE"){presets=[];return route.fulfill({json:{deleted:true}});}
+    presets=[{...presets[0],...route.request().postDataJSON(),revision:2}];return route.fulfill({json:{preset:presets[0]}});
   });
-  try {
-    await page.goto(origin + "/settings/vm-presets");
-    await page.getByText("No VM presets yet.").waitFor();
-    assert.equal(await page.locator("main form").count(), 0);
-    await page.getByRole("button", { name: "Add preset" }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("Preset name").fill("Build");
-    await dialog.getByLabel("work", { exact: true }).check();
-    await dialog.getByRole("button", { name: "Save preset" }).click();
-    await page.getByRole("button", { name: "Edit Build", exact: true }).click();
-    assert.equal(await dialog.getByLabel("work", { exact: true }).isChecked(), true);
-    await dialog.getByLabel("Preset name").fill("Release");
-    await dialog.getByRole("button", { name: "Save preset" }).click();
-    await page.getByRole("button", { name: "Edit Release" }).click();
-    page.once("dialog", confirm => confirm.accept());
-    await dialog.getByRole("button", { name: "Delete preset" }).click();
-    await page.getByText("No VM presets yet.").waitFor();
-  } finally { await context.close(); }
+  try{
+    await page.goto(origin+"/settings/vm-presets");await page.getByText("No presets yet.",{exact:true}).waitFor();assert.equal(new URL(page.url()).pathname,"/settings/vm");
+    await page.getByRole("link",{name:"Add preset",exact:true}).click();await page.getByLabel("Preset name",{exact:true}).fill("Build");await page.getByLabel("Execution provider",{exact:true}).selectOption("exe");await page.getByLabel("Connection",{exact:true}).selectOption("dev");await page.getByLabel("work",{exact:true}).check();await page.getByRole("button",{name:"Save preset",exact:true}).click();
+    await page.getByLabel("Actions for Build",{exact:true}).click();await page.getByRole("menuitem",{name:"Edit",exact:true}).click();assert.equal(await page.getByLabel("work",{exact:true}).isChecked(),true);await page.getByLabel("Preset name",{exact:true}).fill("Release");await page.getByRole("button",{name:"Save preset",exact:true}).click();
+    await page.getByLabel("Actions for Release",{exact:true}).click();await page.getByRole("menuitem",{name:"Delete",exact:true}).click();await page.getByRole("dialog").getByRole("button",{name:"Delete preset",exact:true}).click();await page.getByText("No presets yet.",{exact:true}).waitFor();
+  }finally{await context.close();}
 });
 
 test("owner edits one MCP connection’s scopes and integration access", async () => {
@@ -298,11 +280,12 @@ test("team settings can be saved before connecting a VM provider", async () => {
   });
   await page.route("**/api/v1/integrations", route => route.fulfill({ json: { exeConnections: [], ampConnections: [] } }));
   await page.route("**/api/v1/fly/execution-configurations", route => route.fulfill({ json: { configurations: [] } }));
+  await page.route("**/api/v1/presets",route=>route.fulfill({json:{presets:[]}}));
   await page.goto(origin + "/settings");
-  await page.getByRole("heading", { name: "VM settings", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "VM presets", exact: true }).waitFor();
   await page.getByLabel("Team concurrency limit").fill("7");
-  await page.getByRole("button", { name: "Save run defaults" }).click();
-  await page.getByRole("status").filter({ hasText: "Run defaults saved." }).waitFor();
+  await page.getByRole("button", { name: "Save team capacity" }).click();
+  await page.getByRole("status").filter({ hasText: "Team capacity saved." }).waitFor();
   assert.equal(submitted.capacity, 7);
   assert.equal(submitted.executionConfigId, undefined);
   await context.close();

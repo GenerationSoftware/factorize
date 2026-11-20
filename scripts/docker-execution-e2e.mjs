@@ -27,7 +27,7 @@ try {
   run('openssl', ['x509', '-req', '-in', join(tls,'server.csr'), '-CA', join(tls,'ca.crt'), '-CAkey', join(tls,'ca.key'), '-CAcreateserial', '-out', join(tls,'server.crt'), '-days', '1', '-extfile', join(tls,'server.ext')]);
   // Only synthetic fixture TLS files are shared with the proxy/fake service, never the trigger.
   await chmod(tls, 0o755); await chmod(join(tls,'server.key'), 0o644);
-  console.log('Preparing the isolated trigger image (no registry publication).');
+  console.log('Preparing the isolated historical script image (no registry publication).');
   run('docker', ['build', '-f', 'packages/api/test/fixtures/Dockerfile.code-trigger', '-t', 'factorize-test-code-local', '.']);
   const triggerImage = run('docker', ['image', 'inspect', '--format', '{{.Id}}', 'factorize-test-code-local']);
   const result = await runProcess('npm', ['exec', '--workspace=factorize', '--', 'vitest', 'run', '--config', 'scripts/docker-code-job.config.ts'], {

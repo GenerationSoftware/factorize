@@ -3,50 +3,6 @@ title: Manual trigger invocation permissions
 description: Authorize triggers to start other triggers with run-scoped credentials and manage destination permissions.
 ---
 
-Manual invocation permissions are separate from lifecycle subscriptions. Configure the allowed destination triggers in a source trigger's editor. The public API can read them with `GET /api/v1/triggers/{triggerId}/invocation-permissions` and replace them with a `PUT` containing `{"destinationTriggerIds":["..."]}`. The write requires `triggers:write` and accepts a browser owner session, scoped API key, or authorized OAuth client. Destinations must belong to the source trigger's project; a trigger can include itself to opt in to explicitly requested successor runs. A verified run can invoke a configured destination only while the source and destination remain in the same project. Deleting either trigger removes its permission edges. Revocation takes effect on the next invocation request.
+For preset-backed skills, configure allowed destination triggers in a **permission preset**. Every accepted run captures those destinations, bounded by its caller or parent run. Later preset edits affect future runs. Direct and automated runs use the same captured grants; disabling a skill prevents new runs without modifying accepted ones.
 
-Permissions are project-local. The editor searches only the source trigger's project, and the API rejects cross-project permission writes. Existing cross-project permission rows are hidden from reads and cannot authorize run invocation. Existing lifecycle, edited, idle, schedule, and webhook events remain independent and do not grant manual invocation.
-
-Each execution VM runs a localhost helper at `http://127.0.0.1:18180` (also
-available as `FACTORIZE_PROXY_URL`). It requests fresh vendor-signed proof and
-forwards authorized requests to Factorize. exe.dev uses an exclusively attached
-per-run WIF integration; Fly uses its Machine OIDC Unix socket. Factorize binds
-that identity to the provisioned VM, tenant, owner session and active run. No
-Factorize-issued VM bearer or upstream credential enters guest configuration.
-
-The trigger's Run permissions (`runScopes`) are snapshotted with its execution
-configuration. Default scopes allow tenant reads of projects, triggers, runs, safe
-integration metadata and skills, plus explicitly authorized invocation. Writes
-do not imply reads. An explicit empty
-scope list grants no application-resource access. `GET /api/v1/runtime-context`
-(MCP `get_runtime_context`) returns verified source run/trigger identity and effective
-scopes, including for zero-scope runs. The service derives source identity from
-the vendor binding; the guest cannot choose a different source run.
-
-Use the normal manual invocation endpoint, which is also the `invoke_trigger` MCP tool:
-
-```sh
-curl --fail-with-body -X POST 'http://127.0.0.1:18180/api/v1/triggers/DESTINATION_JOB_ID/invocations' \
-  -H 'Content-Type: application/json' \
-  --data '{"prompt":"Run the authorized follow-up","data":{"key":"value"},"idempotencyKey":"source-run-step-1"}'
-```
-
-Only explicitly configured destinations may be invoked by a verified run. Factorize checks the permission, active source run, destination enabled state, enabled manual event, and queue capacity at invocation time. Reuse the same `idempotencyKey` when retrying an uncertain request. Destination run details expose `invocation.source_trigger_id` and `invocation.source_run_id`; human and external invocations leave these values null.
-
-Shared Factorize HTTP integrations must remain on operator-only attachments.
-exe.dev launch and renewal reject broader shared proxies for the configured
-Factorize origin. Do not attach external API credentials to execution VMs.
-
-Backend checks remove normal API and outbound access as soon as cancellation
-starts, or the run becomes terminal. Provider cleanup retries cannot restore
-access. Disconnecting a selected credential permanently revokes its use by
-existing runs; rotation of a live credential is transparent. Keep destination
-permissions narrow because an agent can use all operations you authorize.
-
-## Configuring privileged orchestration triggers
-
-In a trigger’s editor, select Run permissions and save its configuration. API/MCP clients can supply `runScopes` when creating or updating the trigger. Omitting `runScopes` on update preserves the existing setting; an explicit empty array grants no application API scopes. Both agent and code triggers use the same vendor identity helper.
-
-For example, an orchestration trigger that reads and repairs trigger configuration needs `triggers:read` and `triggers:write`. A trigger granted `triggers:write` may also change its own or other triggers’ run scopes, using the normal tenant-local trigger update API. This is administrative authority over future trigger execution; grant it only when intended. Manual invocation still needs `runs:invoke` and an explicitly authorized destination.
-
-Scopes are snapshotted when the invocation is created and stored in immutable token-free authorization metadata. Updating a trigger does not add or remove authority from existing queued or active runs; cancel existing runs when immediate revocation is required. Launch retry and credential rotation preserve the original scope snapshot. Runtime context reports the effective scopes. Browser-only API-key management, authorized-client management, and trace replay retain their existing session requirements.
+The legacy standalone trigger API can read destinations with `GET /api/v1/triggers/{triggerId}/invocation-permissions` and replace them using `PUT` with `{"destinationTriggerIds":["..."]}`. Destinations must belong to the same team. For a skill-backed trigger, reads expose effective preset destinations and writes return `permissions_retired`; update the permission preset instead. Run credentials cannot edit invocation permissions. [Skills and presets](/work/skills) describes defaults and run snapshots.

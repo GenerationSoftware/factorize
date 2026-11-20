@@ -792,6 +792,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List team VM, permission and model presets with defaults and immutable revisions
+         * @description Requires the integrations:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_presets"];
+        put?: never;
+        /**
+         * Create a preset with a team-unique immutable slug
+         * @description Requires the integrations:write scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_presets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/presets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Create a new revision of a preset
+         * @description Requires the integrations:write scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        put: operations["put_api_v1_presets_id"];
+        post?: never;
+        /**
+         * Delete an unused, non-default preset while retaining historical revisions
+         * @description Requires the integrations:write scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        delete: operations["delete_api_v1_presets_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/presets/{id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Select the team default for this preset type
+         * @description Requires the team:write scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_presets_id_default"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/vm-presets": {
         parameters: {
             query?: never;
@@ -1676,14 +1754,15 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read skill execution defaults
+         * Read effective defaults resolved from skill frontmatter and presets
          * @description Requires the skills:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         get: operations["get_api_v1_skills_skillId_settings"];
         /**
-         * Save skill execution defaults for future manual and triggered runs
+         * Retired: update skill frontmatter and presets instead
+         * @deprecated
          * @description Requires the skills:write and triggers:write scopes.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
@@ -2747,7 +2826,7 @@ export interface paths {
         put?: never;
         /**
          * Start a Team run from an optional skill and prompt, or a script
-         * @description Supply a skill, a prompt, or both for an agent run, or a script without an agent skill or prompt. Omitted settings use Team defaults. Default scopes, integrations and invocation destinations are bounded by the caller's effective access. Explicit unauthorized permissions fail. Explicit empty selections grant none.
+         * @description Supply a skill, a prompt, or images for an agent run. Script-based runs are retired. Skill frontmatter selects VM, permission and model presets; omitted selections inherit team defaults. Resolved preset revisions and the skill commit are snapshotted before queueing. Default scopes, integrations and invocation destinations are bounded by the caller's effective access. Explicit unauthorized permissions fail. Explicit empty selections grant none.
          *
          *     Requires the runs:start scope.
          *
@@ -2768,10 +2847,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search triggers and runs by approximate metadata matches
-         * @description Search uses PostgreSQL pg_trgm approximate matching over trigger names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.
+         * Search skill names and run names
+         * @description Search skill names and run names only, using case-insensitive substring and PostgreSQL pg_trgm word matching. Exact names rank first, then prefixes, then other matches by similarity with deterministic ties. Results are tenant-scoped and limited to 100. Triggers, descriptions, instruction bodies, issue fields and trace content are excluded. Blank or punctuation-only queries return no results.
          *
-         *     Requires the triggers:read and runs:read scopes.
+         *     Requires the skills:read and runs:read scopes.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -3533,6 +3612,10 @@ export interface components {
             requiresVm?: boolean;
             /** @default  */
             prompt: string;
+            /**
+             * @deprecated
+             * @description Retired: new script runs are rejected. Historical reads remain supported.
+             */
             script?: string;
             runNameTemplate?: string;
             concurrencyLimit?: number;
@@ -3760,6 +3843,15 @@ export interface components {
         };
         /** @description Service unavailable */
         Error503: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Operation retired; use skill frontmatter and team presets */
+        Error410: {
             headers: {
                 [name: string]: unknown;
             };
@@ -5647,6 +5739,520 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_presets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Presets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        presets: ({
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "vm";
+                            settings: ({
+                                image: string;
+                                region: string;
+                                size: string;
+                                /** @constant */
+                                provider: "fly";
+                            } | {
+                                /** @constant */
+                                provider: "exe";
+                                connectionId: string;
+                                image: string;
+                                tags: string[];
+                            }) | {
+                                /** @constant */
+                                provider: "none";
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        } | {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "permission";
+                            settings: {
+                                /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                                runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                                portableIntegrationIds?: string[];
+                                githubInstallationIds?: number[];
+                                linearConnectionId?: "linear" | null;
+                                xConnectionIds?: string[];
+                                allowedTriggerIds?: string[];
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        } | {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "model";
+                            settings: {
+                                /** Format: uuid */
+                                modelAccountId?: string;
+                                model?: string;
+                                /** @enum {string} */
+                                effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        })[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_presets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    slug: string;
+                    name: string;
+                    expectedRevision?: number;
+                    /** @constant */
+                    kind: "vm";
+                    settings: ({
+                        image: string;
+                        region: string;
+                        size: string;
+                        /** @constant */
+                        provider: "fly";
+                    } | {
+                        /** @constant */
+                        provider: "exe";
+                        connectionId: string;
+                        image: string;
+                        tags: string[];
+                    }) | {
+                        /** @constant */
+                        provider: "none";
+                    };
+                } | {
+                    slug: string;
+                    name: string;
+                    expectedRevision?: number;
+                    /** @constant */
+                    kind: "permission";
+                    settings: {
+                        /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                        runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        portableIntegrationIds?: string[];
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
+                        allowedTriggerIds?: string[];
+                    };
+                } | {
+                    slug: string;
+                    name: string;
+                    expectedRevision?: number;
+                    /** @constant */
+                    kind: "model";
+                    settings: {
+                        /** Format: uuid */
+                        modelAccountId?: string;
+                        model?: string;
+                        /** @enum {string} */
+                        effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Preset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        preset: {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "vm";
+                            settings: ({
+                                image: string;
+                                region: string;
+                                size: string;
+                                /** @constant */
+                                provider: "fly";
+                            } | {
+                                /** @constant */
+                                provider: "exe";
+                                connectionId: string;
+                                image: string;
+                                tags: string[];
+                            }) | {
+                                /** @constant */
+                                provider: "none";
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        } | {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "permission";
+                            settings: {
+                                /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                                runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                                portableIntegrationIds?: string[];
+                                githubInstallationIds?: number[];
+                                linearConnectionId?: "linear" | null;
+                                xConnectionIds?: string[];
+                                allowedTriggerIds?: string[];
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        } | {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "model";
+                            settings: {
+                                /** Format: uuid */
+                                modelAccountId?: string;
+                                model?: string;
+                                /** @enum {string} */
+                                effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_presets_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    slug: string;
+                    name: string;
+                    expectedRevision?: number;
+                    /** @constant */
+                    kind: "vm";
+                    settings: ({
+                        image: string;
+                        region: string;
+                        size: string;
+                        /** @constant */
+                        provider: "fly";
+                    } | {
+                        /** @constant */
+                        provider: "exe";
+                        connectionId: string;
+                        image: string;
+                        tags: string[];
+                    }) | {
+                        /** @constant */
+                        provider: "none";
+                    };
+                } | {
+                    slug: string;
+                    name: string;
+                    expectedRevision?: number;
+                    /** @constant */
+                    kind: "permission";
+                    settings: {
+                        /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                        runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        portableIntegrationIds?: string[];
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
+                        allowedTriggerIds?: string[];
+                    };
+                } | {
+                    slug: string;
+                    name: string;
+                    expectedRevision?: number;
+                    /** @constant */
+                    kind: "model";
+                    settings: {
+                        /** Format: uuid */
+                        modelAccountId?: string;
+                        model?: string;
+                        /** @enum {string} */
+                        effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Preset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        preset: {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "vm";
+                            settings: ({
+                                image: string;
+                                region: string;
+                                size: string;
+                                /** @constant */
+                                provider: "fly";
+                            } | {
+                                /** @constant */
+                                provider: "exe";
+                                connectionId: string;
+                                image: string;
+                                tags: string[];
+                            }) | {
+                                /** @constant */
+                                provider: "none";
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        } | {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "permission";
+                            settings: {
+                                /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                                runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                                portableIntegrationIds?: string[];
+                                githubInstallationIds?: number[];
+                                linearConnectionId?: "linear" | null;
+                                xConnectionIds?: string[];
+                                allowedTriggerIds?: string[];
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        } | {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "model";
+                            settings: {
+                                /** Format: uuid */
+                                modelAccountId?: string;
+                                model?: string;
+                                /** @enum {string} */
+                                effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    delete_api_v1_presets_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        deleted: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_presets_id_default: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Default preset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        preset: {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "vm";
+                            settings: ({
+                                image: string;
+                                region: string;
+                                size: string;
+                                /** @constant */
+                                provider: "fly";
+                            } | {
+                                /** @constant */
+                                provider: "exe";
+                                connectionId: string;
+                                image: string;
+                                tags: string[];
+                            }) | {
+                                /** @constant */
+                                provider: "none";
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        } | {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "permission";
+                            settings: {
+                                /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                                runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                                portableIntegrationIds?: string[];
+                                githubInstallationIds?: number[];
+                                linearConnectionId?: "linear" | null;
+                                xConnectionIds?: string[];
+                                allowedTriggerIds?: string[];
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        } | {
+                            slug: string;
+                            name: string;
+                            /** @constant */
+                            kind: "model";
+                            settings: {
+                                /** Format: uuid */
+                                modelAccountId?: string;
+                                model?: string;
+                                /** @enum {string} */
+                                effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                            };
+                            /** Format: uuid */
+                            id: string;
+                            revision: number;
+                            isDefault: boolean;
+                            executionConfigId: string | null;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_vm_presets: {
         parameters: {
             query?: never;
@@ -7172,6 +7778,11 @@ export interface operations {
                         /** Format: uuid */
                         id: string;
                         name: string | null;
+                        presetDefaults?: {
+                            vm: string | null;
+                            permission: string | null;
+                            model: string | null;
+                        };
                         runDefaults: {
                             executionConfigId?: string;
                             requiresVm?: boolean;
@@ -8186,6 +8797,8 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
+            /** @description Retired: edit SKILL.md frontmatter and team presets instead */
+            410: components["responses"]["Error410"];
             415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
@@ -8220,6 +8833,27 @@ export interface operations {
                             usageCount: number;
                             createdAt: string;
                             updatedAt: string;
+                            /** @default  */
+                            description: string;
+                            /**
+                             * @default {
+                             *       "concurrency": 0,
+                             *       "disabled": false
+                             *     }
+                             */
+                            factorize: {
+                                "vm-preset"?: string;
+                                "permission-preset"?: string;
+                                "model-preset"?: string;
+                                /** @default 0 */
+                                concurrency: number;
+                                /** @default false */
+                                disabled: boolean;
+                            } & {
+                                [key: string]: unknown;
+                            };
+                            /** @default false */
+                            hasTriggers: boolean;
                             trigger?: {
                                 /** Format: uuid */
                                 id: string;
@@ -8252,7 +8886,23 @@ export interface operations {
             content: {
                 "application/json": {
                     key: string;
-                    body: string;
+                    body?: string;
+                    definition?: {
+                        name: string;
+                        description: string;
+                        factorize: {
+                            "vm-preset"?: string;
+                            "permission-preset"?: string;
+                            "model-preset"?: string;
+                            /** @default 0 */
+                            concurrency?: number;
+                            /** @default false */
+                            disabled?: boolean;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                        markdown: string;
+                    };
                 };
             };
         };
@@ -8269,6 +8919,22 @@ export interface operations {
                         key: string;
                         revision: number;
                         body: string;
+                        definition?: {
+                            name: string;
+                            description: string;
+                            factorize: {
+                                "vm-preset"?: string;
+                                "permission-preset"?: string;
+                                "model-preset"?: string;
+                                /** @default 0 */
+                                concurrency: number;
+                                /** @default false */
+                                disabled: boolean;
+                            } & {
+                                [key: string]: unknown;
+                            };
+                            markdown: string;
+                        };
                         usageCount: number;
                         createdAt: string;
                         updatedAt: string;
@@ -8369,6 +9035,22 @@ export interface operations {
                         key: string;
                         revision: number;
                         body: string;
+                        definition?: {
+                            name: string;
+                            description: string;
+                            factorize: {
+                                "vm-preset"?: string;
+                                "permission-preset"?: string;
+                                "model-preset"?: string;
+                                /** @default 0 */
+                                concurrency: number;
+                                /** @default false */
+                                disabled: boolean;
+                            } & {
+                                [key: string]: unknown;
+                            };
+                            markdown: string;
+                        };
                         usageCount: number;
                         createdAt: string;
                         updatedAt: string;
@@ -8399,6 +9081,22 @@ export interface operations {
                 "application/json": {
                     key?: string;
                     body?: string;
+                    definition?: {
+                        name: string;
+                        description: string;
+                        factorize: {
+                            "vm-preset"?: string;
+                            "permission-preset"?: string;
+                            "model-preset"?: string;
+                            /** @default 0 */
+                            concurrency?: number;
+                            /** @default false */
+                            disabled?: boolean;
+                        } & {
+                            [key: string]: unknown;
+                        };
+                        markdown: string;
+                    };
                     expectedRevision: number;
                 };
             };
@@ -8416,6 +9114,22 @@ export interface operations {
                         key: string;
                         revision: number;
                         body: string;
+                        definition?: {
+                            name: string;
+                            description: string;
+                            factorize: {
+                                "vm-preset"?: string;
+                                "permission-preset"?: string;
+                                "model-preset"?: string;
+                                /** @default 0 */
+                                concurrency: number;
+                                /** @default false */
+                                disabled: boolean;
+                            } & {
+                                [key: string]: unknown;
+                            };
+                            markdown: string;
+                        };
                         usageCount: number;
                         createdAt: string;
                         updatedAt: string;
@@ -11023,6 +11737,8 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
+            /** @description Skill-backed triggers use permission presets; update that preset instead */
+            410: components["responses"]["Error410"];
             415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
@@ -11351,6 +12067,10 @@ export interface operations {
                     requiresVm?: boolean;
                     /** @default  */
                     prompt?: string;
+                    /**
+                     * @deprecated
+                     * @description Retired: new script runs are rejected. Historical reads remain supported.
+                     */
                     script?: string;
                     runNameTemplate?: string;
                     concurrencyLimit?: number;
@@ -11757,12 +12477,19 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    vmPreset?: string;
+                    permissionPreset?: string;
+                    modelPreset?: string;
                     attachments?: {
                         /** Format: uuid */
                         artifactId: string;
                     }[];
                     requiresVm?: boolean;
                     prompt?: string;
+                    /**
+                     * @deprecated
+                     * @description Retired: returns scripts_retired. Use an agent skill to execute code.
+                     */
                     script?: string;
                     skill?: string;
                     name?: string;
@@ -11829,14 +12556,14 @@ export interface operations {
                     "application/json": {
                         items: {
                             /** @enum {string} */
-                            kind: "trigger" | "run" | "trace";
+                            kind: "skill" | "run";
                             id: string;
                             title: string;
                             subtitle: string;
                             url: string;
                             source: {
                                 /** @enum {string} */
-                                kind: "trigger" | "run" | "trace";
+                                kind: "skill" | "run";
                                 label: string;
                                 id: string;
                             };

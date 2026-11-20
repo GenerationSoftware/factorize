@@ -9,6 +9,7 @@ export async function lockTriggerQueue(client: DatabaseClient, tenantId: string,
 
 /** Check after claiming the occurrence so duplicate retries still return their original run. */
 export async function reserveExecutionSlot(client: DatabaseClient, tenantId: string, triggerId: string, run: { state: string }, concurrencyLimit: number, available = Number.POSITIVE_INFINITY): Promise<void> {
+  if(concurrencyLimit===0)concurrencyLimit=Number.POSITIVE_INFINITY;
   const activeStates = "('reserved','starting','running','blocked','stopping')";
 
   // A newly free slot belongs to the oldest waiter before it belongs to a new arrival.

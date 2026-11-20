@@ -53,8 +53,10 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("optional, bound workspace 
  it("fails explicit and selected Team defaults without fallback or a model turn",async()=>{
   const count=modelRequests;
   await expect(service.startRun(startRunInput.parse({prompt:"Work",executionConfigId:"absent"}))).rejects.toMatchObject({status:400});
-  await f.db.pool.query("UPDATE app.team_settings SET run_defaults=run_defaults||'{\"requiresVm\":true}'::jsonb WHERE tenant_id=$1",[f.tenantId]);
+  const defaultVm=(await service.listPresets()).presets.find(p=>p.kind==="vm"&&p.isDefault)!;
+  await f.db.pool.query("UPDATE app.presets SET settings=$3,revision=revision+1 WHERE tenant_id=$1 AND id=$2",[f.tenantId,defaultVm.id,{provider:"exe",connectionId:"absent",executionConfigId:"absent",image:"",tags:[]}]);
   await expect(service.startRun(startRunInput.parse({prompt:"Work"}))).rejects.toMatchObject({status:400});
+  await f.db.pool.query("UPDATE app.presets SET settings=$3,revision=revision+1 WHERE tenant_id=$1 AND id=$2",[f.tenantId,defaultVm.id,{provider:"none"}]);
   const run=await launch({executionConfigId:"local"}),vm=new WorkspaceVm(f.db,f.env,async()=>adapter([],true));
   await expect(vm.ensure(run)).rejects.toThrow("Selected VM");expect((await vm.row(f.tenantId,run.id))!.status).toBe("failed");expect(modelRequests).toBe(count);
   await vm.cleanup(f.tenantId,run.id);

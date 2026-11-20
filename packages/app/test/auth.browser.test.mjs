@@ -249,6 +249,7 @@ test("profile edits username, reports conflicts, and retains the saved value on 
     return route.fulfill({json:{username,email:"owner@example.test"}});
   });
   await page.route("**/api/v1/skills?*",route=>route.fulfill({json:{items:[],nextCursor:null}}));
+  await page.route("**/api/v1/presets",route=>route.fulfill({json:{presets:[]}}));
   await page.goto(origin+"/settings/profile");
   assert.equal(await page.getByRole("navigation",{name:"Main navigation",exact:true}).getByRole("link",{name:"profile-owner",exact:true}).getAttribute("href"),"/skills");
   await page.getByLabel("Username",{exact:true}).fill("updated-owner");
@@ -263,6 +264,6 @@ test("profile edits username, reports conflicts, and retains the saved value on 
   await page.reload();
   assert.equal(await page.getByLabel("Username",{exact:true}).inputValue(),"updated-owner");
   await page.getByRole("navigation",{name:"Main navigation",exact:true}).getByRole("link",{name:"updated-owner",exact:true}).click();
-  await page.getByRole("heading",{name:"Skills",exact:true}).waitFor();
+  await page.getByRole("table",{name:"Skills",exact:true}).waitFor();
   await context.close();
 });

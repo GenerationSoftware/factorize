@@ -1,3 +1,6 @@
+import { DEFAULT_RUN_SCOPES } from "../src/run-scopes";
+import { submitRun } from "../src/postgres/run-submission";
+import { encrypt } from "../src/crypto";
 import {expect,it,vi} from "vitest";
 import {execFileSync} from "node:child_process";
 import {generateKeyPairSync,randomUUID} from "node:crypto";
@@ -22,7 +25,7 @@ const wait=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 
 // Signed provider fixtures exercise the production verifier, helper, backend and
 // scheduler. They are test-local, and do not constitute live Fly verification.
-it("runs saved code through vendor identity, selected backend egress, artifacts and cleanup",async()=>{
+it("continues historical script runs through vendor identity, selected backend egress, artifacts and cleanup",async()=>{
   const url=process.env.AUTH_TEST_DATABASE_URL!,tls=process.env.FACTORIZE_E2E_TLS_DIR!,namespace=process.env.FACTORIZE_E2E_NAMESPACE!;
   if(!url||!tls||!namespace)throw new Error("Use npm run test:docker");
   const databaseName=process.env.FACTORIZE_E2E_DATABASE!;
@@ -77,8 +80,16 @@ while(!fs.existsSync('/tmp/finish-test'))await new Promise(r=>setTimeout(r,100))
 fs.writeFileSync(process.env.FACTORIZE_RESULT_PATH,JSON.stringify({status:'succeeded',outputs:{marker:${JSON.stringify(marker)}}}));
 JS
 `;
-    const trigger=await json("/triggers","POST",{name:"docker-code",executionType:"code",script,executionConfigId:"docker",portableIntegrationIds:[integrationId],events:[{kind:"manual",slug:"event-1",config:{}}]});
-    const invoked=await json(`/triggers/${trigger.id}/invocations`,"POST",{}),runId=invoked.runId;
+    const retired=await request("/triggers","POST",{name:"docker-code",executionType:"code",script,executionConfigId:"docker"});expect(retired.status).toBe(400);
+    const trigger=await json("/triggers","POST",{name:"docker-history",prompt:"Historical compatibility fixture",events:[{kind:"manual",slug:"event-1",config:{}}]});
+    // Seed a run accepted before script retirement. Its execution and cleanup
+    // must remain compatible even though no public API can create another one.
+    const runId=randomUUID(),invocationId=randomUUID();
+    await db.transaction(async client=>{
+      const event=(await client.query("SELECT id FROM app.events WHERE tenant_id=$1 AND trigger_id=$2 LIMIT 1",[tenantId,trigger.id])).rows[0];
+      await client.query("INSERT INTO app.invocations(tenant_id,id,trigger_id,source,claim_key,event_id,context) VALUES($1,$2,$3,'manual','historical',$4,'{}')",[tenantId,invocationId,trigger.id,event.id]);
+      await submitRun(client,tenantId,{id:runId,triggerId:trigger.id,invocationId,name:"Historical Docker run",source:"manual",claim:"historical",workspaceName:"",createdAt:new Date().toISOString(),encryptedPrompt:await encrypt("",env.CREDENTIAL_ENCRYPTION_KEY),config:{targetId:"docker",connectionId:"docker",workspace:"",cwd:"",agentKind:"code",tags:[],requiresVm:true,executionProvider:"docker",image:env.TEST_DOCKER_EXECUTION!.image,executionType:"code",script,portableIntegrationIds:[integrationId],modelAccess:"native",runScopes:[...DEFAULT_RUN_SCOPES],inputContext:{}}});
+    });
     const infrastructure=createDockerTriggerInfrastructure({testMode:true,namespace:app,network,beforeDestroy:async id=>{
       const r=(await db.pool.query("SELECT trigger_result,artifact_state FROM app.runs WHERE tenant_id=$1 AND id=$2",[tenantId,runId])).rows[0];destructionEvidence={marker:r.trigger_result?.outputs?.marker,artifactState:r.artifact_state};
     }});
@@ -123,12 +134,15 @@ JS
     const artifacts=(await db.pool.query("SELECT object_key FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2",[tenantId,runId])).rows;expect(artifacts.length).toBeGreaterThan(0);
     for(const artifact of artifacts){const object=await env.RUN_ARTIFACTS!.get(artifact.object_key);expect(await object!.text()).not.toContain(secret);}
 
-    const direct = await json("/runs", "POST", {
-      executionConfigId: "docker", integrationIds: [], runScopes: [],
-      script: `#!/bin/bash
+    const directScript=`#!/bin/bash
 set -eu
 printf '%s' '{"status":"succeeded","outputs":{"mode":"direct"}}' > "$FACTORIZE_RESULT_PATH"
-`,
+`;
+    expect((await request("/runs","POST",{script:directScript,executionConfigId:"docker"})).status).toBe(400);
+    const direct={runId:randomUUID()},directInvocation=randomUUID();
+    await db.transaction(async client=>{
+      await client.query("INSERT INTO app.invocations(tenant_id,id,source,claim_key,context) VALUES($1,$2,'direct','historical-direct','{}')",[tenantId,directInvocation]);
+      await submitRun(client,tenantId,{id:direct.runId,triggerId:null,invocationId:directInvocation,name:"Historical direct script",source:"direct",claim:"historical-direct",workspaceName:"",createdAt:new Date().toISOString(),encryptedPrompt:await encrypt("",env.CREDENTIAL_ENCRYPTION_KEY),config:{targetId:"docker",connectionId:"docker",workspace:"",cwd:"",agentKind:"code",tags:[],requiresVm:true,executionProvider:"docker",image:env.TEST_DOCKER_EXECUTION!.image,executionType:"code",script:directScript,portableIntegrationIds:[],modelAccess:"native",runScopes:[],inputContext:{}}});
     });
     let directRun;
     const directDeadline = Date.now() + 60_000;

@@ -1,3 +1,7 @@
+import { presetInput } from "./presets";
+import { skillTriggerInput } from "./skill-trigger";
+import { skillInput,skillUpdateInput } from "./skills";
+import { PresetError } from "./postgres/preset-repository";
 import {createPayloadInput,appendPayloadInput,finalizePayloadInput,attachmentInput} from "./proxy-payloads";
 import {operationRef,operationRead} from "./proxy-operations";
 import {proxyToolResult} from "./proxy-result";
@@ -30,6 +34,7 @@ import { matchApiOperation } from "./api-contract";
 import { normalizeScopes } from "./access-tokens";
 
 function errorResponse(error: unknown, origin?: string): Response {
+  if (error instanceof PresetError) return Response.json({error:{code:error.code,message:error.message}},{status:error.status});
   if (error instanceof SkillContentError) return Response.json({ error: { code: "invalid_skill_directory", message: error.message } }, {status:409});
   if (error instanceof AgentApiError) return Response.json({error: {code: error.code, message: error.message}}, {status: error.status, headers: error.code === "insufficient_scope" ? {"WWW-Authenticate": `Bearer error="insufficient_scope", scope="${error.scope}", resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`} : undefined});
   if (error instanceof ExeIntegrationError) return Response.json({ error: { code: "invalid_request", message: error.message } }, { status: 400 });
@@ -207,11 +212,18 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     tool("list_triggers", "List triggers with their current run count and maximum concurrency", z.object({}), () => service.listTriggers());
     tool("list_skills", "List searchable team skill metadata. Shared edits affect every trigger using the skill; bodies are omitted.", z.object({ q: z.string().optional(), limit: z.number().int().min(1).max(100).default(30), cursor: z.string().optional() }), (input: any) => service.listSkills({ q: input.q ?? "", limit: input.limit, cursor: input.cursor }));
     tool("get_skill", "Read a team skill by stable ID or key. Shared edits affect every trigger using it.", z.object({ skillId: z.string().min(1) }), ({ skillId }: any) => service.getSkill(skillId));
-    tool("create_skill", "Create a reusable literal team skill body.", z.object({ key: z.string().min(1), body: z.string() }), (input: any) => service.createSkill(input));
-    tool("update_skill", "Update a shared team skill with optimistic concurrency; the change affects all referencing triggers.", z.object({ skillId: z.string().min(1), key: z.string().optional(), body: z.string().optional(), expectedRevision: z.number().int().positive() }), ({ skillId, ...input }: any) => service.updateSkill(skillId, input));
+    tool("create_skill", "Create a SKILL.md with literal Markdown and frontmatter configuration. Supply body or a structured definition; omitted preset slugs inherit team defaults.", skillInput, (input: any) => service.createSkill(input));
+    tool("update_skill", "Update a shared team skill with optimistic concurrency; the change affects all referencing triggers.", skillUpdateInput.extend({skillId:z.string().min(1)}), ({ skillId, ...input }: any) => service.updateSkill(skillId, input));
     tool("delete_skill", "Delete an unused team skill; referenced triggers block deletion.", z.object({ skillId: z.string().min(1), expectedRevision: z.number().int().positive() }), ({ skillId, expectedRevision }: any) => service.deleteSkill(skillId, expectedRevision));
     tool("list_skill_triggers", "List enabled and disabled triggers affected by a shared skill.", z.object({ skillId: z.string().min(1) }), ({ skillId }: any) => service.listSkillTriggers(skillId));
     tool("preview_trigger_prompt", "Preview one skill, literal prompt, Event template and manual instructions without saving or executing.", previewSkillInput, (input: any) => service.previewTriggerPrompt(input));
+    tool("list_presets","List team VM, permission and model presets, defaults, immutable slugs and revisions.",z.object({}),()=>service.listPresets());
+    tool("create_preset","Create a team preset. Slugs are immutable and unique within preset type/team.",presetInput,(input:any)=>service.savePreset(input));
+    tool("update_preset","Update a preset by creating an immutable revision; existing runs retain snapshots.",z.object({presetId:z.uuid(),preset:presetInput}),({presetId,preset}:any)=>service.savePreset(preset,presetId));
+    tool("set_default_preset","Select the team default for the preset's type. Future inherited runs use it.",z.object({presetId:z.uuid()}),({presetId}:any)=>service.defaultPreset(presetId));
+    tool("delete_preset","Delete an unused non-default preset; historical revisions and accepted runs remain.",z.object({presetId:z.uuid()}),({presetId}:any)=>service.deletePreset(presetId));
+    tool("get_skill_trigger","Read a skill's automatic trigger configuration. Legacy manual events are hidden.",z.object({skillId:z.uuid()}),({skillId}:any)=>service.getSkillTrigger(skillId));
+    tool("save_skill_trigger","Save only non-manual automation for a skill. SKILL.md owns all execution configuration.",z.object({skillId:z.uuid(),trigger:skillTriggerInput}),({skillId,trigger}:any)=>service.saveSkillTrigger(skillId,trigger));
     tool("get_team", "Inspect the current team and its run defaults", z.object({}), () => service.getTeam());
     tool("get_trigger", "Get a trigger with its current run count and maximum concurrency", triggerIdSchema, ({ triggerId }: any) => service.getTrigger(triggerId));
     tool("create_trigger", "Create a trigger using a saved execution integration ID. Credentials are never accepted or returned.", triggerInputSchema, (input: any) => service.createTrigger(input));
@@ -219,7 +231,7 @@ function createMcpServer(service: ApiService, subscriptions = true): McpServer {
     tool("delete_trigger", "Delete a saved trigger and its events, retaining its runs", triggerIdSchema, ({ triggerId }: any) => service.deleteTrigger(triggerId));
     tool("enable_trigger", "Enable a trigger", triggerIdSchema, ({ triggerId }: any) => service.setTriggerEnabled(triggerId, true));
     tool("disable_trigger", "Disable a trigger", triggerIdSchema, ({ triggerId }: any) => service.setTriggerEnabled(triggerId, false));
-    tool("start_run","Start a detached team run with optional skill and prompt, or a shell script. Agent VMs are optional; scripts require a VM. Omitted execution settings use Team defaults. Omitted integrationIds inherit this MCP client's effective integration access; explicit IDs select a subset, including an empty set. Omitted runScopes inherit this MCP client's effective Factorize permissions. Subscribe to the returned outcome URI.",startRunInput,(input:any)=>service.startRun(input));
+    tool("start_run","Start an agent run with optional skill, prompt and images. Skill frontmatter selects VM, permission and model presets; omitted selections inherit team defaults. Freeze resolved preset revisions and skill commit before queueing. Disabled skills cannot start, concurrency 0 is unlimited, and scripts are retired. Caller permissions bound direct run access. Subscribe to the returned outcome URI.",startRunInput,(input:any)=>service.startRun(input));
     tool("invoke_trigger", "Invoke a trigger's manual event with an optional display name, prompt, and JSON data exposed beneath that event's stable slug. Manual invocations are never coalesced; a full trigger queue returns queue_full. idempotencyKey is a client value and must not include the internal manual: claim-key prefix; reuse invocation.idempotency_key from get_run.", manualInvocationSchema.extend({ triggerId: z.string().min(1) }), ({ triggerId, ...input }: any) => service.invokeTrigger(triggerId, input));
     tool("get_trigger_invocation_permissions", "List the destinations a source trigger may manually invoke.", triggerIdSchema, ({ triggerId }: any) => service.getInvocationPermissions(triggerId));
     tool("set_trigger_invocation_permissions", "Replace manual invocation destinations for a source trigger. Requires an owner session, scoped API key, or authorized OAuth client with triggers:write; destination IDs must belong to the same tenant.", z.object({ triggerId: z.string().min(1), destinationTriggerIds: z.array(z.string().uuid()).max(1000) }).strict(), ({ triggerId, destinationTriggerIds }: any) => service.setInvocationPermissions(triggerId, destinationTriggerIds));

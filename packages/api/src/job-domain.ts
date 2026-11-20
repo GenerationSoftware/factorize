@@ -1,3 +1,4 @@
+import { readSkillDefinition } from "./skill-definition";
 import {runPromptPreview} from "./run-prompt";
 import Mustache from "mustache";
 import { renderTextTemplate } from "./text-template";
@@ -7,6 +8,9 @@ export type InvocationSource = "manual" | EventKind;
 export type TriggerRunState = "queued" | "reserved" | "running" | "succeeded" | "failed" | "stopped";
 
 export interface ExecutionConfig {
+  presetSnapshot?:import("./preset-resolution").PresetSnapshot;
+  skillConcurrencyLimit?:number;
+  skillDisabled?:boolean;
   executionType?: "agent" | "code";
   requiresVm?:boolean;
   skillId?: string;
@@ -100,6 +104,7 @@ export interface Invocation {
 }
 
 export interface TriggerRun {
+  executionConfig?:ExecutionConfig & Record<string,unknown>;
   id: string;
   triggerId: string;
   invocationId: string;
@@ -145,7 +150,7 @@ export function eventRenderingContext(trigger: Pick<Trigger,"events">, context: 
 export function composeTriggerContext(prompt:string, template:string|undefined, eventData:Record<string,unknown>, instructions="", skill?:{body:string}) {
   try {
     const eventText=template ? renderTextTemplate(template,eventData) : "";
-    return {eventText,prompt:[skill?.body ?? "",prompt,eventText,instructions].filter(text=>text.trim()).join("\n\n")};
+    return {eventText,prompt:[skill ? readSkillDefinition(skill.body,"skill").markdown : "",prompt,eventText,instructions].filter(text=>text.trim()).join("\n\n")};
   } catch {
     throw new InvocationError("invalid_template","The Event template is not valid Mustache.");
   }
@@ -189,15 +194,17 @@ export class InvocationService {
     if (existing) return { ...existing, duplicate: true };
 
     if (!input.eventId || !input.context || typeof input.context !== "object" || Array.isArray(input.context)) throw new InvocationError("invalid_invocation", "A event and structured context are required.");
+    if(trigger.executionType==="code")throw new InvocationError("invalid_invocation","Script-based runs are retired. Use an agent skill.");
+    if(trigger.executionConfig.skillDisabled)throw new InvocationError("trigger_disabled","This skill is disabled.");
     const createdAt = this.clock();
     const invocation: Invocation = { id: this.makeId(), triggerId, source: input.source, claimKey: input.claimKey, eventId: input.eventId, context: input.context, ...(input.sourceTriggerId ? { sourceTriggerId: input.sourceTriggerId } : {}), ...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}), ...(input.occurrence ? { occurrence: input.occurrence } : {}), createdAt };
     const selectedSkills = promptSkills(trigger);
     const event=trigger.events.find(event=>event.id===input.eventId);
     if (!event || !event.enabled) throw new InvocationError("invalid_invocation","The Event is missing or disabled.");
     const effectivePrompt=renderTriggerPrompt(trigger,input.context,input.eventId,input.source === "manual" ? undefined : "");
-    if (trigger.executionType !== "code" && !trigger.skill && !effectivePrompt.trim()) throw new InvocationError("invalid_invocation","Choose a skill or provide a prompt, Event template, or manual instructions before starting a run.");
-    const contextPrompt=trigger.executionType==="code"?trigger.script??"":renderTriggerPrompt({...trigger,skill:undefined},input.context,input.eventId,input.source==="manual"?undefined:"");
-    const run: TriggerRun = { id: this.makeId(), triggerId, invocationId: invocation.id, state: "queued", skill: trigger.skill, encryptedPrompt: await this.encryptPrompt(effectivePrompt),encryptedPromptPreview:await this.encryptPrompt(runPromptPreview(contextPrompt)),encryptedContextPrompt:await this.encryptPrompt(contextPrompt), encryptedSkillSnapshot: selectedSkills.length ? await this.encryptSnapshot(JSON.stringify(selectedSkills.map((skill,order) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: skill.body, version: skill.version, order })))) : undefined, runName: (input.source === "manual" ? input.name?.trim() : undefined) || renderRunName(trigger.runNameTemplate ?? "", eventRenderingContext(trigger,input.context,input.eventId).values, trigger.skill && /^trigger-[a-f0-9-]{36}$/.test(trigger.name) ? trigger.skill.key : trigger.name), createdAt, updatedAt: createdAt };
+    if (!trigger.skill && !effectivePrompt.trim()) throw new InvocationError("invalid_invocation","Choose a skill or provide a prompt, Event template, or manual instructions before starting a run.");
+    const contextPrompt=renderTriggerPrompt({...trigger,skill:undefined},input.context,input.eventId,input.source==="manual"?undefined:"");
+    const run: TriggerRun = { executionConfig:{...trigger.executionConfig,model:trigger.model,effort:trigger.effort,tags:trigger.tags,runScopes:trigger.runScopes}, id: this.makeId(), triggerId, invocationId: invocation.id, state: "queued", skill: trigger.skill, encryptedPrompt: await this.encryptPrompt(effectivePrompt),encryptedPromptPreview:await this.encryptPrompt(runPromptPreview(contextPrompt)),encryptedContextPrompt:await this.encryptPrompt(contextPrompt), encryptedSkillSnapshot: selectedSkills.length ? await this.encryptSnapshot(JSON.stringify(selectedSkills.map((skill,order) => ({ id: skill.id, key: skill.key, revision: skill.revision, body: skill.body, version: skill.version, order })))) : undefined, runName: (input.source === "manual" ? input.name?.trim() : undefined) || renderRunName(trigger.runNameTemplate ?? "", eventRenderingContext(trigger,input.context,input.eventId).values, trigger.skill && /^trigger-[a-f0-9-]{36}$/.test(trigger.name) ? trigger.skill.key : trigger.name), createdAt, updatedAt: createdAt };
     if (!await this.repository.insertInvocationAndRun(invocation, run)) {
       const winner = await this.repository.findInvocation(triggerId, input.claimKey);
       if (!winner) throw new Error("Invocation claim was lost without a persisted winner.");
@@ -209,7 +216,7 @@ export class InvocationService {
   async startIfCapacity(run: TriggerRun): Promise<TriggerRun | null> {
     const trigger = await this.repository.getTrigger(run.triggerId);
     if (!trigger || !trigger.enabled || run.state !== "queued") return null;
-    if (await this.repository.countActiveRuns(trigger.id) >= trigger.concurrencyLimit) return null;
+    if (trigger.concurrencyLimit>0 && await this.repository.countActiveRuns(trigger.id) >= trigger.concurrencyLimit) return null;
     return this.repository.markRunRunning(run.id, this.clock());
   }
 }

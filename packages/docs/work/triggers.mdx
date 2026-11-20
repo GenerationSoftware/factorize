@@ -3,7 +3,7 @@ title: Create and edit triggers
 description: Configure skill event sources and retain compatibility with trigger clients.
 ---
 
-In the browser, open a [skill](/work/skills), then **Settings → Trigger**. Each skill has at most one optional trigger, which can contain several event sources. Execution defaults belong to the skill, and the browser uses its name to label the trigger.
+In the browser, open a [skill](/work/skills), then **Triggers**. Each skill has at most one optional trigger, which can contain several event sources. Execution configuration belongs to SKILL.md and its referenced presets, and the browser uses its name to label the trigger.
 
 The following describes the compatible REST/MCP trigger interface. Existing trigger IDs, names and write omission semantics remain available to external clients.
 
@@ -23,6 +23,4 @@ The browser displays the owning skill name and has no separate trigger-name fiel
 
 ## Team and skill defaults
 
-Team settings has **VM**, **Permissions**, and **Skills** sections. VM contains execution/model/concurrency defaults and presets; Permissions contains application scopes, provider access and invocation destinations; Skills contains Git repository configuration and sync.
-
-New skills copy team defaults. Each skill then owns its execution mode, VM/model, prompt, concurrency and permissions. Both manual and event-triggered launches use those saved settings; accepted runs keep their snapshots. Runs without a selected skill use team defaults. Direct runs narrow permissions to their caller's access, and explicit requests beyond that access fail.
+Skills select VM, permission and model presets through SKILL.md frontmatter. Missing selections inherit the corresponding team default. Preset configurations are resolved and frozen before a run queues. Configure only automation on the skill Triggers page; legacy manual events are hidden. See [Skills and presets](/work/skills) for metadata, concurrency, disabled behavior and migration.

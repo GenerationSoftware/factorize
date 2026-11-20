@@ -28,7 +28,7 @@ export async function submitRun(client: DatabaseClient, tenant: string, run: Sub
   ).rows[0];
   if (!team) throw new Error("Run team is unavailable");
   const capacity = team.run_defaults?.capacity;
-  let available = Number.POSITIVE_INFINITY;
+  let available = Number.POSITIVE_INFINITY, waiting = 0;
   if (capacity) {
     const { rows } = await client.query(
       `SELECT count(*) FILTER (WHERE jr.state IN ('reserved','starting','running','blocked','stopping'))::int active,
@@ -37,9 +37,14 @@ export async function submitRun(client: DatabaseClient, tenant: string, run: Sub
       [tenant],
     );
     available = Math.max(0, capacity - rows[0].active);
-    if (!available && rows[0].waiting >= capacity)
-      throw new InvocationError("queue_full", "The team's run queue is full.");
+    waiting=rows[0].waiting;
   }
+  const skillLimit=Number(run.config.skillConcurrencyLimit??0);
+  if(run.skill && skillLimit>0){
+    const active=(await client.query("SELECT count(*)::int n FROM app.runs WHERE tenant_id=$1 AND launch_skill_id=$2 AND state IN ('reserved','starting','running','blocked','stopping')",[tenant,run.skill.id])).rows[0].n;
+    if(active>=skillLimit)available=0;
+  }
+  if(!available && capacity && waiting>=capacity)throw new InvocationError("queue_full","The team's run queue is full.");
   const reservation = { state: available ? "reserved" : "queued" };
   if (run.triggerId)
     await reserveExecutionSlot(client, tenant, run.triggerId, reservation, run.triggerLimit ?? 1, available);

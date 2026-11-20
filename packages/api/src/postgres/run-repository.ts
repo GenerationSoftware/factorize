@@ -51,7 +51,9 @@ export class RunRepository {
             OR r.state='reserved'
             OR (r.state='queued' AND (p.run_defaults->>'capacity' IS NULL OR
               (SELECT count(*) FROM app.runs a JOIN app.trigger_runs ar ON ar.tenant_id=a.tenant_id AND ar.id=a.id WHERE a.tenant_id=p.tenant_id AND ar.state IN ('reserved','starting','running','blocked','stopping')) < (p.run_defaults->>'capacity')::int)
-              AND (r.trigger_id IS NULL OR (SELECT count(*) FROM app.trigger_runs active WHERE active.tenant_id=r.tenant_id AND active.trigger_id=r.trigger_id AND active.state IN ('reserved','starting','running','blocked','stopping')) < j.concurrency_limit)))`;
+              AND (x.launch_skill_id IS NULL OR coalesce((x.execution_config->>'skillConcurrencyLimit')::int,0)=0 OR
+                (SELECT count(*) FROM app.runs a WHERE a.tenant_id=x.tenant_id AND a.launch_skill_id=x.launch_skill_id AND a.state IN ('reserved','starting','running','blocked','stopping')) < (x.execution_config->>'skillConcurrencyLimit')::int)
+              AND (x.execution_config ? 'presetSnapshot' OR r.trigger_id IS NULL OR j.concurrency_limit=0 OR (SELECT count(*) FROM app.trigger_runs active WHERE active.tenant_id=r.tenant_id AND active.trigger_id=r.trigger_id AND active.state IN ('reserved','starting','running','blocked','stopping')) < j.concurrency_limit)))`;
       const candidate = (await client.query(`SELECT p.tenant_id ${eligible}
         ORDER BY r.created_at,r.id FOR UPDATE OF p SKIP LOCKED LIMIT 1`)).rows[0];
       if (!candidate) return null;

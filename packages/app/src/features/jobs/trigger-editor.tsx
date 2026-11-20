@@ -25,7 +25,7 @@ function ScheduleFields({ event, onChange }: { event: Extract<Event, { kind: "sc
     <Button type="button" disabled={preview.isPending} onClick={() => preview.mutate()}>Preview schedule</Button>
     {preview.data && <p role="status">Next run: {preview.data.nextRunAt}</p>}{preview.error && <p role="alert">{preview.error.message}</p>}</>;
 }
-export function EventEditor({ events, onChange, onValidityChange }: { events: Event[]; onChange: (value: Event[]) => void; onValidityChange?: (invalid: boolean) => void }) {
+export function EventEditor({ events, onChange, onValidityChange,addLabel="Add event" }: { addLabel?:string; events: Event[]; onChange: (value: Event[]) => void; onValidityChange?: (invalid: boolean) => void }) {
   const availability = useQuery(availabilityQuery), [kind, setKind] = useState<Event["kind"]>("schedule");
   const replace = (index: number, value: Event) => onChange(events.map((item, i) => i === index ? value : item));
   return <Card>
@@ -42,6 +42,6 @@ export function EventEditor({ events, onChange, onValidityChange }: { events: Ev
       {event.kind !== "manual" && <Button type="button" onClick={() => onChange(events.filter((_, i) => i !== index))}>Remove event</Button>}
     </fieldset>)}
     <Label>New event kind <Select value={kind} onChange={e => setKind(e.target.value as Event["kind"])}><option value="schedule">Schedule</option><option value="triggerLifecycle">Trigger lifecycle</option><option value="triggerIdle">All runs complete</option><option value="webhook">Provider webhook</option></Select></Label>
-    <Button type="button" disabled={events.length >= 50} onClick={() => (() => { const used = new Set(events.map(t => t.slug)); let next = 1; while (used.has(`event-${next}`)) next++; onChange([...events, { ...structuredClone(defaults[kind]), slug: `event-${next}` }]); })()}>Add event</Button>
+    <Button type="button" disabled={events.length >= 50} onClick={() => (() => { const used = new Set(events.map(t => t.slug)); let next = 1; while (used.has(`event-${next}`)) next++; onChange([...events, { ...structuredClone(defaults[kind]), slug: `event-${next}` }]); })()}>{addLabel}</Button>
   </Card>;
 }

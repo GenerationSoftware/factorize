@@ -1,3 +1,4 @@
+import { readSkillDefinition,skillDefinitionIndex } from "./skill-definition";
 import { PostgresSkillContentCache } from "./postgres/skill-content-cache";
 import {publishedFiles} from "./mcp-skills";
 import { SkillContent, repositoryToken, type ArtifactVersion } from "./skill-content";
@@ -250,10 +251,10 @@ export class SkillLibrary {
         continue;
       const pointer: ArtifactVersion = { repo: row.repo, remote: row.remote, commit, key: dir.key };
       await client.query(
-        `INSERT INTO app.skills(tenant_id,id,key,artifact_version) VALUES($1,$2,$3,$4)
-         ON CONFLICT(tenant_id,key) DO UPDATE SET encrypted_body=NULL,encrypted_directory=NULL,artifact_version=excluded.artifact_version,legacy_context='[]'::jsonb,
+        `INSERT INTO app.skills(tenant_id,id,key,artifact_version,definition) VALUES($1,$2,$3,$4,$6)
+         ON CONFLICT(tenant_id,key) DO UPDATE SET encrypted_body=NULL,encrypted_directory=NULL,artifact_version=excluded.artifact_version,legacy_context='[]'::jsonb,definition=excluded.definition,
          revision=app.skills.revision+$5,updated_at=CASE WHEN $5=0 THEN app.skills.updated_at ELSE now() END`,
-        [this.tenant, previous?.id ?? crypto.randomUUID(), dir.key, pointer, same ? 0 : 1],
+        [this.tenant, previous?.id ?? crypto.randomUUID(), dir.key, pointer, same ? 0 : 1, skillDefinitionIndex(readSkillDefinition(bodyOf(dir),dir.key))],
       );
     }
     await client.query(
@@ -265,6 +266,14 @@ export class SkillLibrary {
   private async validateNames(client: DatabaseClient, directories: Directory[]) {
     validateLibrary(directories);
     for(const directory of directories)publishedFiles({key:directory.key,body:bodyOf(directory),version:{commit:"candidate",files:directory.files}});
+    for(const directory of directories){
+      const definition=readSkillDefinition(bodyOf(directory),directory.key);
+      for(const kind of ["vm","permission","model"] as const){
+        const slug=definition.factorize[`${kind}-preset`];if(!slug)continue;
+        const found=await client.query("SELECT 1 FROM app.presets WHERE tenant_id=$1 AND kind=$2 AND slug=$3 AND NOT deleted",[this.tenant,kind,slug]);
+        if(!found.rowCount)throw new SkillConflict(`Unknown ${kind} preset: ${slug}`);
+      }
+    }
     const collisions = await client.query<{name: string}>(
       "SELECT name FROM app.resource_names WHERE tenant_id=$1 AND kind='trigger' AND name=ANY($2::text[])",
       [this.tenant, directories.map(directory => directory.key)],
@@ -417,8 +426,8 @@ export class SkillLibrary {
       for (const dir of after) {
         const pointer: ArtifactVersion = { repo: row.repo, remote: row.remote, commit, key: dir.key };
         await client.query(
-          "UPDATE app.skills SET artifact_version=$3,encrypted_directory=NULL,encrypted_body=NULL,legacy_context='[]'::jsonb,migration_pending=false WHERE tenant_id=$1 AND id=$2",
-          [this.tenant, dir.id, pointer],
+          "UPDATE app.skills SET artifact_version=$3,encrypted_directory=NULL,encrypted_body=NULL,legacy_context='[]'::jsonb,migration_pending=false,preset_migration_pending=false,encrypted_preset_migration_body=NULL,preset_migration_source_hash=NULL,definition=$4 WHERE tenant_id=$1 AND id=$2",
+          [this.tenant, dir.id, pointer, skillDefinitionIndex(readSkillDefinition(dir.body,dir.key))],
         );
       }
       await client.query(
