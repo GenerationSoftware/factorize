@@ -91,7 +91,8 @@ JS
         await raw.upload!("/tmp/fixture-ca.crt",new Uint8Array(await readFile(join(tls,"ca.crt"))));
         // This signing key exists only inside this isolated fixture. Production
         // trusts Fly's JWKS; it cannot accept this test issuer key.
-        const source=`const http=require('node:http'),crypto=require('node:crypto');const key=${JSON.stringify(pair.privateKey.export({type:"pkcs8",format:"pem"}).toString())};require('node:fs').mkdirSync('/.fly',{recursive:true});http.createServer((req,res)=>{let body='';req.on('data',c=>body+=c);req.on('end',()=>{const now=Math.floor(Date.now()/1000),h=Buffer.from(JSON.stringify({alg:'RS256',kid:'docker-fixture'})).toString('base64url'),p=Buffer.from(JSON.stringify({iss:${JSON.stringify(issuer)},sub:${JSON.stringify(org+":"+app+":"+app+"-"+runId)},aud:JSON.parse(body).aud,machine_id:${JSON.stringify(id)},iat:now,exp:now+120})).toString('base64url'),data=h+'.'+p;res.end(data+'.'+crypto.sign('RSA-SHA256',Buffer.from(data),key).toString('base64url'));});}).listen('/.fly/api');`;
+        const machine = await infrastructure.machines.inspectMachine(app, id);
+        const source=`const http=require('node:http'),crypto=require('node:crypto');const key=${JSON.stringify(pair.privateKey.export({type:"pkcs8",format:"pem"}).toString())};require('node:fs').mkdirSync('/.fly',{recursive:true});http.createServer((req,res)=>{let body='';req.on('data',c=>body+=c);req.on('end',()=>{const now=Math.floor(Date.now()/1000),h=Buffer.from(JSON.stringify({alg:'RS256',kid:'docker-fixture'})).toString('base64url'),p=Buffer.from(JSON.stringify({iss:${JSON.stringify(issuer)},sub:${JSON.stringify(org+":"+app+":"+machine.name)},aud:JSON.parse(body).aud,machine_id:${JSON.stringify(id)},iat:now,exp:now+120})).toString('base64url'),data=h+'.'+p;res.end(data+'.'+crypto.sign('RSA-SHA256',Buffer.from(data),key).toString('base64url'));});}).listen('/.fly/api');`;
         await raw.upload!("/tmp/vendor-fixture.cjs",new TextEncoder().encode(source));
         const started=await raw.run(["sh","-c","nohup node /tmp/vendor-fixture.cjs >/tmp/vendor-fixture.log 2>&1 </dev/null & sleep 0.3"]);expect(started.ok).toBe(true);
       })();
@@ -134,11 +135,11 @@ printf '%s' '{"status":"succeeded","outputs":{"mode":"direct"}}' > "$FACTORIZE_R
     const directDeadline = Date.now() + 60_000;
     do {
       await runner.tick();
-      directRun = (await db.pool.query("SELECT job_id,state,job_result FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenantId,direct.runId])).rows[0];
+      directRun = (await db.pool.query("SELECT job_id,state,job_result,failure_reason FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenantId,direct.runId])).rows[0];
       if (["succeeded", "failed", "stopped"].includes(directRun.state)) break;
       await wait(200);
     } while (Date.now() < directDeadline);
-    expect(directRun).toMatchObject({job_id: null, state: "succeeded", job_result: {outputs: {mode: "direct"}}});
+    expect(directRun, directRun.failure_reason).toMatchObject({job_id: null, state: "succeeded", job_result: {outputs: {mode: "direct"}}});
   }finally{
     await runner?.close();await api?.close();vi.unstubAllGlobals();
     for(const id of docker("ps","-aq","--filter",`label=sh.factorize.test.namespace=${app}`).split("\n").filter(Boolean))docker("rm","-f",id);
