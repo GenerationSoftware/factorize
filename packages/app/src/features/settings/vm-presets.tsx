@@ -1,8 +1,9 @@
+import { TeamSettingsLayout } from "./team";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
-import { Button, Input, Label, Page, PageHeader, Select } from "../../shared/ui";
+import { Button, Input, Label, Select } from "../../shared/ui";
 import { Dialog } from "../../shared/dialog";
 import { messageOf } from "../auth/session";
 import { integrationsQuery } from "./queries";
@@ -19,9 +20,9 @@ function summary({ settings }: VmPreset) {
 export function VmPresets() {
   const presets = useQuery(vmPresetsQuery);
   const [editor, setEditor] = useState<VmPreset | "new" | null>(null);
-  return <Page><PageHeader title="VM presets" description="Save VM settings to reuse across triggers.">
+  return <TeamSettingsLayout title="VM presets"><div className="mb-6 flex flex-wrap items-center justify-between gap-4"><p>Save VM settings to reuse across skills.</p>
     <Button variant="primary" onClick={() => setEditor("new")}>Add preset</Button>
-  </PageHeader>
+  </div>
     {presets.isPending && <p role="status">Loading VM presets…</p>}
     {presets.error && <p role="alert">{presets.error.message}</p>}
     {presets.data?.length === 0 && <p>No VM presets yet.</p>}
@@ -32,7 +33,7 @@ export function VmPresets() {
       </li>)}
     </ul>}
     {editor && <PresetEditor initial={editor === "new" ? undefined : editor} presets={presets.data ?? []} close={() => setEditor(null)} />}
-  </Page>;
+  </TeamSettingsLayout>;
 }
 
 function PresetEditor({ initial, presets, close }: { initial?: VmPreset; presets: VmPreset[]; close: () => void }) {

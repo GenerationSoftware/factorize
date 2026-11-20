@@ -334,6 +334,8 @@ it.skipIf(!process.env.AUTH_TEST_DATABASE_URL)(
       mirrorHead = "e".repeat(40);
       mirrored = [{ key: "renamed", files: [markdown("Managed push")] }];
       snapshots.set(mirrorHead, mirrored);
+      const migratedId=crypto.randomUUID();
+      await f.db.pool.query("INSERT INTO app.skills(tenant_id,id,key,encrypted_body,migration_pending) VALUES($1,$2,'migrated-context',$3,true)",[f.tenantId,migratedId,await encrypt("Preserved migration context",f.env.CREDENTIAL_ENCRYPTION_KEY)]);
       const workflow = Object.assign(Object.create(SkillPushWorkflow.prototype), { env: f.env });
       await workflow.run(
         {
@@ -345,6 +347,10 @@ it.skipIf(!process.env.AUTH_TEST_DATABASE_URL)(
         { do: (_label: string, run: () => Promise<void>) => run() },
       );
       expect(await store.get("renamed")).toMatchObject({ body: "Managed push", revision: 1 });
+      expect(await store.get(migratedId)).toMatchObject({body:"Preserved migration context"});
+      mirrorHead="f".repeat(40);mirrored=[{key:"renamed",files:[markdown("Another upstream push")]}];snapshots.set(mirrorHead,structuredClone(mirrored));
+      await library.sync();
+      expect(await store.get(migratedId)).toMatchObject({body:"Preserved migration context"});
     } finally {
       await f.cleanup();
     }

@@ -1,11 +1,11 @@
 # Factorize
 
-Hosted workflow: connect your agent → create a trigger → run it → inspect the result → automate it.
+Hosted workflow: connect your agent → create a skill → run it → inspect the result → configure its trigger.
 
 Application: https://app.factorize.sh
 MCP (Streamable HTTP + OAuth): https://app.factorize.sh/mcp
 
-Browser: email/password signup, verification, execution/provider connections and consent.
+Browser: unique username signup, username or email/password login, skill settings, execution/provider connections and consent.
 MCP: discover targets, manage triggers, invoke with retained idempotency keys, inspect state/context/diagnostics.
 Current MCP does not return execution output; inspect browser traces or REST trace pages. REST is not full MCP parity.
 
@@ -87,16 +87,16 @@ Factorize-managed Pi uses this same MCP session boundary. Its short-lived identi
 
 Selected run skills are pinned inputs under `skill://runs/TEAM_ID/RUN_ID/SKILL_NAME/SKILL.md`, including their supporting files. An active run may discover and read these inputs even with no `skills:read` permission. That capability grants access only to its own accepted package. Broader team-library discovery still requires `skills:read`. Unrelated edits, renames or deletes do not replace the run's pinned inputs.
 
-## Your first Trigger
+## Your first skill
 Source: https://docs.factorize.sh/quickstart
 
 ## Set up in the browser
 
 1. Sign up at [app.factorize.sh/auth/signup](https://app.factorize.sh/auth/signup),
-   verify your email and sign in. A personal team is created automatically.
-2. In **Settings → Integrations**, add a model integration with an
+   choose a unique username, verify your email and sign in. Your personal team uses your username. You can sign in with your username or email, plus your password.
+2. In **Integrations**, add a model integration with an
    OpenAI-compatible provider URL and optional access key. In **Team settings**,
-   choose that integration and a provider model ID. Configure run permissions.
+   open **VM** and choose that integration and a provider model ID. Configure run permissions under **Permissions**.
 3. For repository or shell work, connect an exe.dev or Fly account and enable
    **Requires VM** in the Team defaults. exe.dev tokens need ls, new, ssh and rm.
    The guest needs a workspace shell; it does not need Pi, Codex, Claude or model
@@ -109,7 +109,18 @@ A VM preset copies workspace settings into a Trigger's **VM** section or Team
 run defaults. Editing the preset does not change accepted runs or existing
 saved configurations.
 
-## Create and run a Trigger
+## Create and run a skill
+
+Open **Skills**, choose **New skill**, and save its name and instructions. Overview includes instructions, a read-only directory browser, and **Start run**. The skill's **Runs** tab includes manual and event-triggered runs.
+
+Under **Settings**, use **General** for execution mode and prompt, **VM** for workspace/model/concurrency defaults, **Permissions** for access, and **Trigger** for event sources and enable/disable controls. A trigger is optional and can include multiple event sources. Manage the library's Git repository under **Team Settings → Skills**.
+
+**Account settings → Profile** changes your unique username and personal team name together.
+
+## Existing MCP trigger clients
+
+Existing REST/MCP trigger tools remain compatible. For example:
+
 
 Ask your agent:
 
@@ -152,8 +163,38 @@ receipt. A failed run still owns that key. Inspect external effects before
 starting a new run. After a successful manual review, add a
 [schedule](https://docs.factorize.sh/recipes/scheduled-review) or [provider Event](https://docs.factorize.sh/integrations/events).
 
+## Skills and settings
+Source: https://docs.factorize.sh/work/skills
+
+The team navigation contains **Skills**, **Runs**, **Integrations**, and **Settings**. Click the team name beside the bee to open Skills. A personal team's name is its owner's username; changing **Account settings → Profile** updates both together.
+
+## Skill pages
+
+Each skill has **Overview**, **Runs**, and **Settings** tabs. Overview shows its instructions and directory, supports editing its name and instructions, and starts manual runs. Runs includes both manual and event-triggered runs for that skill.
+
+Settings has four sections:
+
+- **General:** agent or script execution mode, prompt, and script body.
+- **VM:** VM requirement/configuration, model integration/model, image and concurrency defaults.
+- **Permissions:** Factorize scopes, provider access and permitted destination triggers.
+- **Trigger:** an optional trigger's enabled state and event sources. One trigger can contain several sources.
+
+New skills copy team defaults. Later skill changes apply to future manual and event-triggered runs. Existing runs retain accepted content and configuration. Scripts require a VM. Supported explicit launch overrides take precedence over saved skill defaults.
+
+## Files and revisions
+
+The directory browser displays nested text files and identifies binary files. Supporting files remain intact when instructions are edited. Published content is cached by tenant, repository and immutable commit; saves and syncs select a new revision. A failed browser refresh retains previously loaded files with a notice. Historical runs retain their pinned content.
+
+Manage Git repository selection, folder configuration and sync under **Team Settings → Skills**. The Skills list also provides the existing trigger workflow graph. Old trigger links resolve to their owning skill.
+
+Run detail and full trace use team navigation with **Runs** selected. Skill-filtered run links remain supported; skill selection is available in **Start run**.
+
 ## Create and edit triggers
 Source: https://docs.factorize.sh/work/triggers
+
+In the browser, open a [skill](https://docs.factorize.sh/work/skills), then **Settings → Trigger**. Each skill has at most one optional trigger, which can contain several event sources. Execution defaults belong to the skill, and the browser uses its name to label the trigger.
+
+The following describes the compatible REST/MCP trigger interface. Existing trigger IDs, names and write omission semantics remain available to external clients.
 
 Ask: “List execution integrations and triggers, then create a review trigger for this repository.” Use [the first-trigger input](https://docs.factorize.sh/quickstart) and [MCP tool contract](https://docs.factorize.sh/mcp/tools). Reuse an existing trigger when its name/purpose matches; trigger creation has no idempotency key.
 
@@ -167,13 +208,13 @@ After saving, call `get_trigger` and compare prompt, target and events. `enable_
 
 ## Names
 
-A Trigger has one name, shared with the team skill namespace. Follow the [Agent Skills naming rules](https://agentskills.io/specification): 1–64 lowercase letters, digits, and hyphens, with no leading, trailing, or consecutive hyphens. `manual` is reserved. A skill and Trigger cannot use the same name. Renames preserve resource IDs and run history. Migrated names and their previous display names are recorded for review.
+The browser displays the owning skill name and has no separate trigger-name field or skill selector. Skill renames preserve IDs and run history. The compatibility API still accepts a trigger's internal name in its existing shared resource namespace; use the name returned by `get_trigger` when updating through that interface.
 
-## Team defaults and settings
+## Team and skill defaults
 
-In Team settings, configure VM, model, concurrency, application scopes, provider credentials, and allowed invocation destinations. New Triggers copy concrete defaults when they are created. Explicit values override defaults, including empty permission lists. Later default changes apply to future Triggers and direct runs. They do not rewrite existing Triggers. Missing or unavailable VM configuration is an error.
+Team settings has **VM**, **Permissions**, and **Skills** sections. VM contains execution/model/concurrency defaults and presets; Permissions contains application scopes, provider access and invocation destinations; Skills contains Git repository configuration and sync.
 
-Trigger General settings contain model and capacity choices. VM settings contain workspace configuration. Permissions contains scopes, provider credentials, and manual invocation destinations. Direct runs narrow default scopes, integrations, and destinations to the caller’s access. Explicit requests outside that access fail. Delegated runs cannot gain scopes or destinations that their active parent lacks.
+New skills copy team defaults. Each skill then owns its execution mode, VM/model, prompt, concurrency and permissions. Both manual and event-triggered launches use those saved settings; accepted runs keep their snapshots. Runs without a selected skill use team defaults. Direct runs narrow permissions to their caller's access, and explicit requests beyond that access fail.
 
 ## Write Trigger context
 Source: https://docs.factorize.sh/work/prompts

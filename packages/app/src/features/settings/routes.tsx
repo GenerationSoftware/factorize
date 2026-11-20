@@ -5,9 +5,13 @@ import { AuthScreen } from "../auth/auth-screen";
 export function settingsRoutes(root: AnyRootRoute) {
   const guard = async ({ location }: { location: { href: string } }) => { if (!(await queryClient.ensureQueryData(sessionQuery)).authenticated) throw redirect({ to: "/auth/login", search: { returnTo: location.href, token: undefined } }); };
   return [
+    createRoute({ getParentRoute: () => root, path: "/settings/profile", beforeLoad: guard, component: lazyRouteComponent(() => import("./profile"), "Profile") }),
     createRoute({ getParentRoute: () => root, path: "/settings/integrations", beforeLoad: ({ location }) => { throw redirect({ to: "/integrations", search: location.search, hash: location.hash, replace: true }); } }),
     createRoute({ getParentRoute: () => root, path: "/integrations", beforeLoad: guard, component: lazyRouteComponent(() => import("./integrations"), "Integrations") }),
-    createRoute({ getParentRoute: () => root, path: "/settings", beforeLoad: guard, component: lazyRouteComponent(() => import("./team"), "TeamSettings") }),
+    createRoute({ getParentRoute: () => root, path: "/settings", beforeLoad: async context => { await guard(context); throw redirect({to:"/settings/vm",replace:true}); } }),
+    createRoute({ getParentRoute: () => root, path: "/settings/vm", beforeLoad: guard, component: lazyRouteComponent(() => import("./team"), "TeamVmSettings") }),
+    createRoute({ getParentRoute: () => root, path: "/settings/permissions", beforeLoad: guard, component: lazyRouteComponent(() => import("./team"), "TeamPermissionSettings") }),
+    createRoute({ getParentRoute: () => root, path: "/settings/skills", beforeLoad: guard, component: lazyRouteComponent(() => import("./team"), "TeamSkillSettings") }),
     createRoute({ getParentRoute: () => root, path: "/settings/vm-presets", beforeLoad: guard, component: lazyRouteComponent(() => import("./vm-presets"), "VmPresets") }),
     createRoute({ getParentRoute: () => root, path: "/settings/api-keys", beforeLoad: guard, component: lazyRouteComponent(() => import("./api-keys"), "ApiKeys") }),
     createRoute({ getParentRoute: () => root, path: "/settings/api-keys/new", beforeLoad: guard, component: lazyRouteComponent(() => import("./api-key-create"), "ApiKeyCreate") }),

@@ -150,7 +150,7 @@ describe("public auth API and cookie security", () => {
     const signup = vi.spyOn(AuthRepository.prototype, "signup");
     for (const result of [{ status: 201, body: { ok: true } }, { status: 409, body: { error: "Existing email" } }]) {
       signup.mockResolvedValue(result);
-      const response = await call("/api/v1/auth/signup", { email: "owner@test.com", password: "long-test-password" });
+      const response = await call("/api/v1/auth/signup", { email: "owner@test.com", username: "owner", password: "long-test-password" });
       expect(response.status).toBe(202);
       expect(await contract(response, "/api/v1/auth/signup", "POST")).toEqual({ ok: true });
     }
@@ -216,7 +216,7 @@ describe("public auth API and cookie security", () => {
 
 describe("safe interrupted-flow navigation", () => {
   it.each(["//evil.test", "https://evil.test", "/\\evil.test", "/device-evil", "/triggers/trigger-a/settings/extra", "/auth/logout", "/triggers\nLocation:evil", "/%2f%2fevil.test"])("rejects %s", value => expect(safeReturnTo(value)).toBe("/integrations"));
-  it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/triggers/trigger-a/edit", "/triggers/trigger-a/settings?tab=prompt", "/runs", "/runs/run-a"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
+  it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/triggers/trigger-a/edit", "/triggers/trigger-a/settings?tab=prompt", "/runs", "/runs/run-a", "/runs/run-a/trace", "/skills", "/skills/review", "/skills/review/runs", "/skills/review/settings/trigger", "/settings/profile", "/settings/skills"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
 });
 
 describe("cookie-only consent and device API boundaries", () => {

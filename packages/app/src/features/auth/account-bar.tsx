@@ -1,3 +1,5 @@
+import { TeamNavigation } from "./team-navigation";
+import { skillQuery, skillsQuery } from "../skills/queries";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../shared/ui";
 import { SearchLauncher } from "../search/launcher";
@@ -7,21 +9,20 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { messageOf, refreshIdentity, sessionQuery } from "./session";
 import { triggerQuery, triggersQuery } from "../jobs/queries";
-import { runStatusQuery } from "../runs/queries";
 import { ResourceSwitcher } from "../../shared/resource-switcher";
-import { NavIcon } from "../../shared/nav-icon";
 import beeMark from "../../assets/bee-mark-monochrome.png";
 
 export function AccountBar() {
   const session = useQuery(sessionQuery);
   const authenticated = session.data?.authenticated;
   const pathname = useRouterState({ select: state => state.location.pathname });
+  const skillMatch = pathname.match(/^\/skills\/([^/]+)/);
+  const routeSkillId = skillMatch ? decodeURIComponent(skillMatch[1]) : undefined;
+  const routeSkill = useQuery({...skillQuery(routeSkillId??""),enabled:!!authenticated&&!!routeSkillId});
+  const skillOptions = useQuery({...skillsQuery(),enabled:!!authenticated&&!!routeSkillId});
   const triggerMatch = pathname.match(/^\/triggers\/([^/]+)/);
   const routeTriggerId = triggerMatch && triggerMatch[1] !== "new" ? decodeURIComponent(triggerMatch[1]) : undefined;
-  const runMatch = pathname.match(/^\/runs\/([^/]+)/);
-  const routeRunId = runMatch && runMatch[1] !== "new" ? decodeURIComponent(runMatch[1]) : undefined;
-  const routeRun = useQuery({ ...runStatusQuery(routeRunId ?? ""), enabled: !!authenticated && !!routeRunId });
-  const currentTriggerId = routeTriggerId ?? routeRun.data?.trigger_id;
+  const currentTriggerId = routeTriggerId;
   const routeTrigger = useQuery({ ...triggerQuery(currentTriggerId ?? ""), enabled: !!authenticated && !!currentTriggerId, retry: false });
   const projectTriggers = useQuery({ ...triggersQuery({ sort: "title" }), enabled: !!authenticated && !!currentTriggerId });
   const navigate = useNavigate();
@@ -52,7 +53,9 @@ export function AccountBar() {
         <Link to="/" aria-label="Factorize dashboard" className="flex shrink-0 items-center"><img src={beeMark} alt="" className="size-8 object-contain" /></Link>
         <span aria-hidden="true" className="hidden h-8 w-px shrink-0 bg-stone-300 dark:bg-slate-700" />
         {authenticated ? <div className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold sm:flex-initial">
-          {currentTriggerId && <><span aria-hidden="true" className="hidden text-slate-400 sm:mr-1 sm:inline">/</span><div className="flex min-w-0 items-center">
+          <Link to="/skills" title={session.data?.authenticated ? session.data.team.name ?? "Team" : "Team"} className="min-w-0 shrink-0 max-w-[24vw] truncate py-1 sm:max-w-56 hover:text-factorize-700 dark:hover:text-factorize-500">{session.data?.authenticated ? session.data.team.name ?? "Team" : "Team"}</Link>
+          {routeSkillId && <><span aria-hidden="true" className="text-slate-400">/</span><Link to="/skills/$skillId" params={{skillId:routeSkillId}} title={routeSkill.data?.key} className="min-w-0 max-w-[35vw] truncate sm:max-w-56">{routeSkill.data?.key??"Loading skill…"}</Link><ResourceSwitcher compact kind="Skill" items={(skillOptions.data?.items??[]).map(item=>({id:item.id,name:item.key}))} currentId={routeSkillId} loading={skillOptions.isPending} error={skillOptions.error?.message} onSelect={id=>void navigate({to:"/skills/$skillId",params:{skillId:id}})}/></>}
+          {!routeSkillId && currentTriggerId && <><span aria-hidden="true" className="hidden text-slate-400 sm:mr-1 sm:inline">/</span><div className="flex min-w-0 items-center">
             {routeTrigger.data ? <Link to="/triggers/$triggerId" params={{ triggerId: routeTrigger.data.id }} title={routeTrigger.data.name} className="min-w-0 max-w-[42vw] truncate rounded-md py-1 text-slate-700 transition-colors hover:bg-stone-100 hover:text-factorize-700 dark:text-slate-200 dark:hover:bg-slate-800 sm:max-w-56">{routeTrigger.data.name}</Link> : <span className="truncate text-slate-600 dark:text-slate-300">{routeTrigger.isPending ? "Loading trigger…" : routeTrigger.error ? "Trigger unavailable" : "Trigger"}</span>}
             <ResourceSwitcher compact kind="Trigger" items={(projectTriggers.data?.items ?? []).map(trigger => ({ id: trigger.id, name: trigger.name }))} currentId={currentTriggerId} loading={projectTriggers.isPending} error={projectTriggers.error?.message} onSelect={chooseTrigger} />
           </div></>}
@@ -65,7 +68,7 @@ export function AccountBar() {
           <Button ref={mobileAccountEvent} aria-expanded={accountOpen} aria-controls="mobile-profile-menu" onClick={() => { setMobileAccountOpen(true); setAccountOpen(!accountOpen); }} aria-label="Your account" className="!size-9 !min-h-9 !rounded-full !border-0 !bg-factorize-500 !p-0 text-xs font-semibold text-slate-950">{initials}</Button>
           {accountOpen && mobileAccountOpen && <div id="mobile-profile-menu" className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-stone-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
             <p className="mb-3 break-all px-2 text-xs text-slate-600 dark:text-slate-300">{session.data?.user.email ?? ""}</p>
-            <Link to="/settings/api-keys" onClick={() => setAccountOpen(false)} className="block rounded-lg px-3 py-3 text-sm hover:bg-stone-100 dark:hover:bg-slate-800">Account settings</Link>
+            <Link to="/settings/profile" onClick={() => setAccountOpen(false)} className="block rounded-lg px-3 py-3 text-sm hover:bg-stone-100 dark:hover:bg-slate-800">Account settings</Link>
             <Button className="mt-2 w-full" onClick={() => logout.mutate()} disabled={logout.isPending}>{logout.isPending ? "Signing out…" : "Sign out"}</Button>
           </div>}
         </div>}
@@ -73,18 +76,13 @@ export function AccountBar() {
           <Button ref={accountEvent} aria-expanded={accountOpen} aria-controls="profile-menu" onClick={() => { setMobileAccountOpen(false); setAccountOpen(!accountOpen); }} aria-label="Your account" className="!size-10 !min-h-10 !rounded-full !border-0 !bg-factorize-500 !p-0 text-sm font-semibold text-slate-950">{initials}</Button>
           {accountOpen && <div id="profile-menu" className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-stone-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
             <p className="mb-3 break-all px-2 text-xs text-slate-600 dark:text-slate-300">{session.data?.user.email ?? ""}</p>
-            <Link to="/settings/api-keys" onClick={() => setAccountOpen(false)} className="block rounded-lg px-3 py-3 text-sm hover:bg-stone-100 dark:hover:bg-slate-800">Account settings</Link>
+            <Link to="/settings/profile" onClick={() => setAccountOpen(false)} className="block rounded-lg px-3 py-3 text-sm hover:bg-stone-100 dark:hover:bg-slate-800">Account settings</Link>
             <Button className="mt-2 w-full" onClick={() => logout.mutate()} disabled={logout.isPending}>{logout.isPending ? "Signing out…" : "Sign out"}</Button>
           </div>}
         </div> : <Link to="/auth/login" className="rounded-lg px-3 py-2 text-sm font-semibold">Account</Link>}
       </div>
     </nav>
-    {authenticated && ["/", "/triggers", "/runs", "/skills", "/integrations", "/settings"].includes(pathname) && <nav aria-label="Dashboard navigation" className="border-t border-stone-200 dark:border-slate-800">
-      <div className="mx-auto flex w-full max-w-6xl gap-1 overflow-x-auto px-4 sm:px-6 lg:px-8">
-        {([["/triggers", "triggers", "Triggers"], ["/runs", "runs", "Runs"], ["/skills", "skills", "Skills"], ["/integrations", "integrations", "Integrations"], ["/settings", "settings", "Settings"]] as const).map(([path, icon, label]) =>
-          <Link key={path} to={path} className={`inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-factorize-500 ${pathname === path ? "border-factorize-500 text-factorize-700 dark:text-factorize-500" : "border-transparent text-slate-600 hover:border-stone-300 hover:text-slate-950 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:text-white"}`} aria-current={pathname === path ? "page" : undefined}><NavIcon name={icon} />{label}</Link>)}
-      </div>
-    </nav>}
+    {authenticated && (["/", "/triggers", "/runs", "/skills", "/integrations", "/settings"].includes(pathname) || pathname.startsWith("/runs/") || /^\/settings\/(vm|permissions|skills|vm-presets)$/.test(pathname)) && <TeamNavigation pathname={pathname}/>}
     {logout.isError && <p role="alert">{logout.error.message}</p>}
   </header>;
 }

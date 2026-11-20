@@ -6,12 +6,12 @@ import { Button, Card, Label, Select, Textarea } from "../../shared/ui";
 import { skillsQuery } from "../skills/queries";
 import { messageOf } from "../auth/session";
 
-export function StartRun() {
+export function StartRun({skillId}:{skillId?:string}={}) {
   const [open, setOpen] = useState(false),
-    [skill, setSkill] = useState(""),
+    [skill, setSkill] = useState(skillId??""),
     [prompt, setPrompt] = useState(""),[files,setFiles]=useState<File[]>([]);
   const uploads=useRef(new Map<File,{key:string;id?:string}>());
-  const skills = useQuery({ ...skillsQuery(), enabled: open });
+  const skills = useQuery({ ...skillsQuery(), enabled: open && !skillId });
   const retry = useRef({ body: "", key: "" }),
     navigate = useNavigate();
   const launch = useMutation({
@@ -54,7 +54,7 @@ export function StartRun() {
           launch.mutate();
         }}
       >
-        <Label>
+        {!skillId && <Label>
           Skill
           <Select value={skill} onChange={(event) => setSkill(event.target.value)}>
             <option value="">No skill</option>
@@ -64,7 +64,7 @@ export function StartRun() {
               </option>
             ))}
           </Select>
-        </Label>
+        </Label>}
         <Label>
           Prompt
           <Textarea

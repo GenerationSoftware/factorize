@@ -45,7 +45,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("complete local hosted work
   const request=async(method:string,path:string,body?:unknown)=>protectedApiFetch(new Request(f.env.APP_ORIGIN+path,{method,headers:{Origin:f.env.APP_ORIGIN,"Content-Type":"application/json"},...(body!==undefined?{body:JSON.stringify(body)}:{})}),f.env,owner,{waitUntil(){}} as any);
   const json=async(method:string,path:string,body?:unknown,status=200)=>{const response=await request(method,path,body),data=await response.json();expect(response.status,JSON.stringify(data)).toBe(status);return data as any;};
   const email="workflow-"+crypto.randomUUID()+"@example.test",password="local workflow password only";
-  await json("POST","/api/v1/auth/signup",{email,password},202);const token=new URL(mail.TextBody.match(/https:\/\/\S+/)[0]).searchParams.get("token");
+  await json("POST","/api/v1/auth/signup",{email,username:email.split("@")[0].replaceAll("_","-").slice(0,39),password},202);const token=new URL(mail.TextBody.match(/https:\/\/\S+/)[0]).searchParams.get("token");
   const verified=await request("POST","/api/v1/auth/email-verification/complete",{token});expect(verified.status).toBe(200);const session=await readSession(decodeURIComponent(verified.headers.get("Set-Cookie")!.match(/factorize_session=([^;]+)/)![1]),f.env.SESSION_SIGNING_SECRET);expect(session).not.toBeNull();owner={...session!,authMethod:"session",scopes:[...ACCESS_SCOPES]};
   expect((await json("GET","/api/v1/team")).runDefaults.requiresVm).toBe(false);
   server=createServer(async(req,res)=>{

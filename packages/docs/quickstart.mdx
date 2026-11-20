@@ -1,15 +1,15 @@
 ---
-title: Your first Trigger
+title: Your first skill
 description: Configure a personal team and run hosted Pi through MCP.
 ---
 
 ## Set up in the browser
 
 1. Sign up at [app.factorize.sh/auth/signup](https://app.factorize.sh/auth/signup),
-   verify your email and sign in. A personal team is created automatically.
-2. In **Settings → Integrations**, add a model integration with an
+   choose a unique username, verify your email and sign in. Your personal team uses your username. You can sign in with your username or email, plus your password.
+2. In **Integrations**, add a model integration with an
    OpenAI-compatible provider URL and optional access key. In **Team settings**,
-   choose that integration and a provider model ID. Configure run permissions.
+   open **VM** and choose that integration and a provider model ID. Configure run permissions under **Permissions**.
 3. For repository or shell work, connect an exe.dev or Fly account and enable
    **Requires VM** in the Team defaults. exe.dev tokens need ls, new, ssh and rm.
    The guest needs a workspace shell; it does not need Pi, Codex, Claude or model
@@ -22,7 +22,18 @@ A VM preset copies workspace settings into a Trigger's **VM** section or Team
 run defaults. Editing the preset does not change accepted runs or existing
 saved configurations.
 
-## Create and run a Trigger
+## Create and run a skill
+
+Open **Skills**, choose **New skill**, and save its name and instructions. Overview includes instructions, a read-only directory browser, and **Start run**. The skill's **Runs** tab includes manual and event-triggered runs.
+
+Under **Settings**, use **General** for execution mode and prompt, **VM** for workspace/model/concurrency defaults, **Permissions** for access, and **Trigger** for event sources and enable/disable controls. A trigger is optional and can include multiple event sources. Manage the library's Git repository under **Team Settings → Skills**.
+
+**Account settings → Profile** changes your unique username and personal team name together.
+
+## Existing MCP trigger clients
+
+Existing REST/MCP trigger tools remain compatible. For example:
+
 
 Ask your agent:
 

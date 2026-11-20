@@ -1,0 +1,27 @@
+---
+title: Skills and settings
+description: Instructions, execution defaults, files, and optional automation in one place.
+---
+
+The team navigation contains **Skills**, **Runs**, **Integrations**, and **Settings**. Click the team name beside the bee to open Skills. A personal team's name is its owner's username; changing **Account settings → Profile** updates both together.
+
+## Skill pages
+
+Each skill has **Overview**, **Runs**, and **Settings** tabs. Overview shows its instructions and directory, supports editing its name and instructions, and starts manual runs. Runs includes both manual and event-triggered runs for that skill.
+
+Settings has four sections:
+
+- **General:** agent or script execution mode, prompt, and script body.
+- **VM:** VM requirement/configuration, model integration/model, image and concurrency defaults.
+- **Permissions:** Factorize scopes, provider access and permitted destination triggers.
+- **Trigger:** an optional trigger's enabled state and event sources. One trigger can contain several sources.
+
+New skills copy team defaults. Later skill changes apply to future manual and event-triggered runs. Existing runs retain accepted content and configuration. Scripts require a VM. Supported explicit launch overrides take precedence over saved skill defaults.
+
+## Files and revisions
+
+The directory browser displays nested text files and identifies binary files. Supporting files remain intact when instructions are edited. Published content is cached by tenant, repository and immutable commit; saves and syncs select a new revision. A failed browser refresh retains previously loaded files with a notice. Historical runs retain their pinned content.
+
+Manage Git repository selection, folder configuration and sync under **Team Settings → Skills**. The Skills list also provides the existing trigger workflow graph. Old trigger links resolve to their owning skill.
+
+Run detail and full trace use team navigation with **Runs** selected. Skill-filtered run links remain supported; skill selection is available in **Start run**.

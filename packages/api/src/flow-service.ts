@@ -1,3 +1,7 @@
+import { markdown, validPath } from "./skill-files";
+import { PostgresSkillContentCache } from "./postgres/skill-content-cache";
+import { skillTriggerInput } from "./skill-trigger";
+import { skillDefaults, skillSettingsInput } from "./skill-settings";
 import {runPromptPreview} from "./run-prompt";
 import {createHash} from "node:crypto";
 import {Buffer} from "node:buffer";
@@ -94,10 +98,10 @@ export class ApiService {
   authorizationDuration = 0;
   constructor(private env: Env, private auth: OAuthProps, private ctx?: ExecutionContext, private flyMetadata: FlyExecutionMetadataLoader = getFlyExecutionMetadata) {}
 
-  private triggers() { return new PostgresTriggerRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS)); }
+  private triggers() { return new PostgresTriggerRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(databaseFor(this.env),this.auth.tenantId,this.env.CREDENTIAL_ENCRYPTION_KEY))); }
   private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private flyConnections() { return new FlyConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
-  private skills() { return new SkillRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY, undefined, new SkillContent(this.env.SKILL_ARTIFACTS)); }
+  private skills() { return new SkillRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY, undefined, new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(databaseFor(this.env),this.auth.tenantId,this.env.CREDENTIAL_ENCRYPTION_KEY))); }
   private async executionConfig(id: string) {
     // Target IDs created by the migration are deterministic md5-derived UUIDs,
     // so they do not necessarily have RFC 4122 version/variant bits. Any
@@ -301,7 +305,7 @@ export class ApiService {
     const runningCount = Number(stats?.running_count ?? 0);
     return publicValue(triggerResponse, {
       ...trigger,
-      skillId: trigger.executionConfig.skillId ?? null,
+      skillId: trigger.skill?.id ?? trigger.executionConfig.skillId ?? null,
       runScopes: trigger.runScopes ?? [...DEFAULT_RUN_SCOPES],
       executionType: trigger.executionType ?? "agent",
       requiresVm: trigger.executionConfig.requiresVm ?? (trigger.executionType==="code" || Boolean(trigger.executionConfig.connectionId)),
@@ -398,9 +402,63 @@ export class ApiService {
     return {contents:[skillResource(this.auth.tenantId,skill,path)],ttlMs:0,cacheScope:"private" as const};
   }
   async getSkill(id: string) { await this.authorize("skills:read"); const value = await this.skills().get(id); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); }
+  async getSkillDirectory(id:string){
+    await this.authorize("skills:read");const skill=await this.skills().get(id);
+    if(!skill)throw new ServiceError(404,"not_found","Skill not found");
+    const files=skill.version?.files??[markdown(skill.body??"")];
+    if(files.some(file=>!validPath(file.path)))throw new ServiceError(409,"invalid_skill","Skill contains an invalid file path.");
+    return {revision:skill.revision,commit:skill.version?.commit??null,files};
+  }
+  async getSkillSettings(id: string) { await this.authorize("skills:read"); return this.readSkillSettings(id); }
+  private async readSkillSettings(id:string) {
+    const row=(await databaseFor(this.env).pool.query("SELECT run_defaults,encrypted_prompt,encrypted_script,settings_revision FROM app.skills WHERE tenant_id=$1 AND id=$2",[this.auth.tenantId,id])).rows[0];
+    if(!row)throw new ServiceError(404,"not_found","Skill not found");
+    const legacyScript=!row.encrypted_script && row.run_defaults.executionType==="code" ? (await databaseFor(this.env).pool.query("SELECT execution_config->>'script' script FROM app.triggers t JOIN app.trigger_skills ts ON ts.tenant_id=t.tenant_id AND ts.trigger_id=t.id WHERE ts.tenant_id=$1 AND ts.skill_id=$2",[this.auth.tenantId,id])).rows[0]?.script : undefined;
+    return {revision:row.settings_revision,defaults:skillDefaults.parse({...row.run_defaults,prompt:row.encrypted_prompt?await decrypt(row.encrypted_prompt,this.env.CREDENTIAL_ENCRYPTION_KEY):"",...(row.encrypted_script?{script:await decrypt(row.encrypted_script,this.env.CREDENTIAL_ENCRYPTION_KEY)}:legacyScript?{script:legacyScript}:{})})};
+  }
+  async setSkillSettings(id:string,request:unknown) {
+    await this.authorize("skills:write"); await this.authorize("triggers:write");
+    const input=skillSettingsInput.parse(request), defaults=input.defaults;
+    const executionType=defaults.executionType;
+    if(defaults.executionConfigId && defaults.requiresVm===false)throw new ServiceError(400,"invalid_request","A VM configuration requires a VM.");
+    if(defaults.allowedTriggerIds?.length){const found=await databaseFor(this.env).pool.query("SELECT id FROM app.triggers WHERE tenant_id=$1 AND id=ANY($2::uuid[])",[this.auth.tenantId,defaults.allowedTriggerIds]);if(found.rowCount!==defaults.allowedTriggerIds.length)throw new ServiceError(400,"invalid_request","Destinations must belong to this team.");}
+    const config=await this.workspaceConfiguration(defaults.executionConfigId,executionType==="code"||Boolean(defaults.requiresVm),executionType,defaults.tags);
+    const portable=await this.portableSelections(config,executionType,defaults);
+    const {prompt,script,...stored}=defaults;
+    const encryptedPrompt=await encrypt(prompt,this.env.CREDENTIAL_ENCRYPTION_KEY),encryptedScript=script?await encrypt(script,this.env.CREDENTIAL_ENCRYPTION_KEY):null;
+    const projected={...config,...portable,executionType,...(script?{script}:{}),...(defaults.vmImage?{image:canonicalizeVmImage(defaults.vmImage)}:{})};
+    await databaseFor(this.env).transaction(async client=>{
+      const updated=await client.query("UPDATE app.skills SET run_defaults=$3,encrypted_prompt=$4,encrypted_script=$5,settings_revision=settings_revision+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND settings_revision=$6 RETURNING id",[this.auth.tenantId,id,stored,encryptedPrompt,encryptedScript,input.expectedRevision]);
+      if(!updated.rowCount)throw new ServiceError(409,"stale_skill","Skill settings changed; reload before saving.");
+      // Trigger execution columns are a projection for existing schedulers and external clients.
+      await client.query(`UPDATE app.triggers t SET execution_config=$3,encrypted_prompt=$4,model=$5,effort=$6,tags=$7,run_scopes=$8,concurrency_limit=$9,updated_at=now()
+        FROM app.trigger_skills ts WHERE ts.tenant_id=t.tenant_id AND ts.trigger_id=t.id AND ts.skill_id=$2 AND t.tenant_id=$1`,[this.auth.tenantId,id,projected,encryptedPrompt,executionType==="code"?"":defaults.model??"",defaults.effort??"",JSON.stringify(defaults.tags??[]),JSON.stringify(defaults.runScopes??DEFAULT_RUN_SCOPES),defaults.concurrencyLimit??1]);
+      if(defaults.allowedTriggerIds!==undefined){
+        const linked=(await client.query("SELECT trigger_id FROM app.trigger_skills WHERE tenant_id=$1 AND skill_id=$2",[this.auth.tenantId,id])).rows;
+        for(const {trigger_id} of linked){await client.query("DELETE FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_trigger_id=$2",[this.auth.tenantId,trigger_id]);for(const destination of defaults.allowedTriggerIds)await client.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_trigger_id,destination_trigger_id) VALUES($1,$2,$3)",[this.auth.tenantId,trigger_id,destination]);}
+      }
+    });
+    return {revision:input.expectedRevision+1,defaults};
+  }
   async createSkill(input: unknown) { await this.authorize("skills:write"); const parsed = skillInput.parse(input); try { return publicValue(skillResponse, await this.library().edit(store => store.create(parsed.key,parsed.body))); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; } }
   async updateSkill(id: string, input: unknown) { await this.authorize("skills:write"); try { const value = await this.library().edit(store => store.update(id, skillUpdateInput.parse(input))); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
   async deleteSkill(id: string, expectedRevision: number) { await this.authorize("skills:write"); try { if (!await this.library().edit(store => store.remove(id, expectedRevision))) throw new ServiceError(404, "not_found", "Skill not found"); return { id, deleted: true }; } catch (e) { if (e instanceof SkillReferenced) throw new ServiceError(409, "skill_referenced", `${e.message} Triggers: ${e.triggers.map(trigger => trigger.name).join(", ")}`); if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
+  async getSkillTrigger(id:string){
+    await this.authorize("skills:read");await this.authorize("triggers:read");
+    await this.readSkillSettings(id);
+    const linked=await this.skills().triggers(id);
+    const trigger=linked.length?await this.getTrigger(linked[0].id):null;
+    return {trigger:trigger?{...trigger,name:trigger.skill?.key??trigger.name}:null};
+  }
+  async saveSkillTrigger(id:string,request:unknown){
+    await this.authorize("skills:write");await this.authorize("triggers:write");
+    const input=skillTriggerInput.parse(request),settings=await this.readSkillSettings(id),linked=await this.skills().triggers(id);
+    const existing=linked.length?await this.triggers().getTrigger(linked[0].id):null;
+    const fields={...settings.defaults,name:existing?.name??("trigger-"+crypto.randomUUID()),skillId:id,events:input.events,runNameTemplate:existing?.runNameTemplate??""};
+    const trigger=existing?await this.updateTrigger(existing.id,{...fields,expectedUpdatedAt:input.expectedUpdatedAt}):await this.createTrigger(fields);
+    if(trigger.enabled!==input.enabled)await this.setTriggerEnabled(trigger.id,input.enabled);
+    return this.getSkillTrigger(id);
+  }
   async listSkillTriggers(id: string) { await this.authorize("skills:read"); return publicValue(skillTriggersResponse, { skillId: id, triggers: await this.skills().triggers(id) }); }
   async previewTriggerPrompt(input: unknown) {
     await this.authorize("skills:read");
@@ -825,7 +883,7 @@ export class ApiService {
   async getTeamGraph() {
     await this.authorize("triggers:read");
     const db = databaseFor(this.env), tenantId = this.auth.tenantId;
-    const triggers = await db.pool.query<any>(`SELECT j.id,j.name,j.enabled,j.execution_config,j.concurrency_limit,
+    const triggers = await db.pool.query<any>(`SELECT j.id,COALESCE((SELECT s.key FROM app.trigger_skills ts JOIN app.skills s ON s.tenant_id=ts.tenant_id AND s.id=ts.skill_id WHERE ts.tenant_id=j.tenant_id AND ts.trigger_id=j.id),j.name) name,j.enabled,j.execution_config,j.concurrency_limit,
       (SELECT count(*)::int FROM app.trigger_runs r WHERE r.tenant_id=j.tenant_id AND r.trigger_id=j.id AND r.state IN ('reserved','starting','running','blocked','stopping')) running_count,
       COALESCE(jsonb_agg(jsonb_build_object('id',t.id,'kind',t.kind,'enabled',t.enabled,'config',CASE
         WHEN t.kind='triggerLifecycle' THEN jsonb_build_object('sourceTriggerIds',t.config->'sourceTriggerIds','sourceTriggerId',t.config->'sourceTriggerId','states',t.config->'states')
@@ -869,9 +927,10 @@ export class ApiService {
     await this.authorize("triggers:write");
     const team = await new TeamRepository(databaseFor(this.env), this.auth.tenantId).get();
     if (!team) throw new ServiceError(404, "not_found", "Team not found");
-    const defaults = team.runDefaults;
+    const owned = request.skillId ? (await this.readSkillSettings(request.skillId).catch(error=>{if(error instanceof ServiceError && error.status===404)throw new ServiceError(400,"invalid_request","The selected skill is unavailable.");throw error;})).defaults : undefined;
+    const defaults = {...team.runDefaults,...owned};
     const executionConfigId = request.executionConfigId ?? defaults.executionConfigId;
-    const requiresVm=request.executionType==="code" || (request.requiresVm ?? (request.executionConfigId ? true : defaults.requiresVm ?? false));
+    const requiresVm=(request.executionType ?? owned?.executionType)==="code" || (request.requiresVm ?? (request.executionConfigId ? true : defaults.requiresVm ?? false));
     if(request.executionConfigId && request.requiresVm===false)throw new ServiceError(400,"invalid_request","A VM override requires requiresVm=true.");
     const input = {
       ...defaults,
@@ -888,7 +947,7 @@ export class ApiService {
     const portable = await this.portableSelections(executionConfig, executionType, input);
     const events = this.normalizedEvents(input.events).map((event) => ({ ...event, triggerId: id }));
     const skill =
-      executionType === "agent" && input.skillId
+      input.skillId
         ? (await this.skillSelections([input.skillId]))[0]
         : undefined;
     const trigger: Trigger = {
@@ -897,7 +956,7 @@ export class ApiService {
       name: input.name,
 
       slug: input.name,
-      prompt: input.prompt ?? "",
+      prompt: input.prompt || owned?.prompt || "",
       executionType,
       script: executionType === "code" ? input.script : undefined,
       runNameTemplate: input.runNameTemplate ?? "",
@@ -907,7 +966,7 @@ export class ApiService {
       ...(input.effort ? { effort: input.effort } : {}),
       executionConfig: {
         ...executionConfig,
-        skillId: executionType === "agent" ? (input.skillId ?? undefined) : undefined,
+        skillId: input.skillId ?? undefined,
         ...portable,
         executionType,
         ...(input.script ? { script: input.script } : {}),
@@ -923,7 +982,7 @@ export class ApiService {
     try {
       return this.presentTrigger(await this.triggers().create(trigger, defaults.allowedTriggerIds ?? []));
     } catch (error: any) {
-      if ((error?.code ?? error?.cause?.code) === "23505") throw new ServiceError(409, "conflict", "A skill or Trigger already uses this name");
+      if ((error?.code ?? error?.cause?.code) === "23505") throw new ServiceError(409, "conflict", "This skill already has a trigger, or the resource name is taken");
       if ((error?.code ?? error?.cause?.code) === "23503" && String(error?.constraint ?? error?.cause?.constraint).includes("manual_invocation_permissions")) throw new ServiceError(409, "run_defaults_required", "A default invocation destination is unavailable. Update Team permissions defaults.");
       throw error;
     }
@@ -952,9 +1011,9 @@ export class ApiService {
       triggerId,
     }));
     const skillId =
-      input.skillId === undefined ? current.executionConfig.skillId : input.skillId;
+      input.skillId === undefined ? current.skill?.id ?? current.executionConfig.skillId : input.skillId;
     const skill =
-      executionType === "agent" && skillId
+      skillId
         ? (await this.skillSelections([skillId]))[0]
         : undefined;
     const updated = await repository
@@ -976,7 +1035,7 @@ export class ApiService {
           effort: input.effort,
           executionConfig: {
             ...executionConfig,
-            skillId: executionType === "agent" ? (skillId ?? undefined) : undefined,
+            skillId: skillId ?? undefined,
             ...portable,
             executionType,
             ...(input.script ? { script: input.script } : {}),
@@ -990,7 +1049,7 @@ export class ApiService {
         input.expectedUpdatedAt,
       )
       .catch((error) => {
-        if ((error?.code ?? error?.cause?.code) === "23505") throw new ServiceError(409, "conflict", "A skill or Trigger already uses this name");
+        if ((error?.code ?? error?.cause?.code) === "23505") throw new ServiceError(409, "conflict", "This skill already has a trigger, or the resource name is taken");
         if (error instanceof StaleTriggerEdit)
           throw new ServiceError(
             409,
@@ -1087,6 +1146,7 @@ export class ApiService {
 
   async startRun(input: z.infer<typeof startRunInput>) {
     await this.authorize("runs:start");
+    if(input.script && input.skill)throw new ServiceError(400,"invalid_request","Explicit scripts cannot include an agent skill; select the script skill alone to use its saved script.");
     const db = databaseFor(this.env),
       auth = this.auth;
     if (auth.runId) {
@@ -1130,7 +1190,12 @@ export class ApiService {
     if (prior) return prior;
     const team = await new TeamRepository(db, auth.tenantId).get();
     if (!team) throw new ServiceError(404, "not_found", "Team not found");
-    const defaults = team.runDefaults;
+    const skill = input.skill ? await this.skills().get(input.skill) : null;
+    if(input.skill && !skill)throw new ServiceError(404,"not_found","Launch skill not found");
+    const skillSettingsSnapshot = skill ? await this.readSkillSettings(skill.id) : undefined;
+    const owned = skillSettingsSnapshot?.defaults;
+    if(owned?.executionType==="code" && input.script===undefined)input={...input,script:owned.script};
+    const defaults = owned ? {...owned,capacity:team.runDefaults.capacity} : team.runDefaults;
     const selectedModelAccountId=input.modelAccountId ?? defaults.modelAccountId;
     const executionConfigId = input.executionConfigId ?? defaults.executionConfigId;
     if(input.executionConfigId && input.requiresVm===false)throw new ServiceError(400,"invalid_request","A VM override requires requiresVm=true.");
@@ -1188,11 +1253,8 @@ export class ApiService {
       inputMediaIds:input.attachments?.map(item=>item.artifactId) ?? [],
       ...(input.script ? {script: input.script} : {}),
     };
-    const skill = input.skill ? await this.skills().get(input.skill) : null;
-    if (input.script && skill) throw new ServiceError(400, "invalid_request", "Script runs cannot include an agent skill.");
-    if (input.skill && !skill) throw new ServiceError(404, "not_found", "Launch skill not found");
-    const text=[input.prompt ?? "", input.inputs && Object.keys(input.inputs).length ? "Inputs (JSON)\n"+JSON.stringify(input.inputs) : ""].filter(Boolean).join("\n\n");
-    const prompt = composePrompt(skill ? {body:skill.body!} : undefined,text);
+    const text=[owned?.prompt ?? "",input.prompt ?? "", input.inputs && Object.keys(input.inputs).length ? "Inputs (JSON)\n"+JSON.stringify(input.inputs) : ""].filter(Boolean).join("\n\n");
+    const prompt = composePrompt(skill && !input.script ? {body:skill.body!} : undefined,text);
     const encryptedPrompt = await encrypt(prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const encryptedSkills = skill
       ? await encrypt(
@@ -1203,7 +1265,8 @@ export class ApiService {
         )
       : undefined;
     const result = await db.transaction(async (client) => {
-      const locked = await client.query("SELECT run_defaults IS NOT DISTINCT FROM $2::jsonb matches FROM app.team_settings WHERE tenant_id=$1 FOR UPDATE", [auth.tenantId, defaults]);
+      const locked = await client.query("SELECT run_defaults IS NOT DISTINCT FROM $2::jsonb matches FROM app.team_settings WHERE tenant_id=$1 FOR UPDATE", [auth.tenantId, team.runDefaults]);
+      if(skill){const current=(await client.query("SELECT revision,settings_revision FROM app.skills WHERE tenant_id=$1 AND id=$2 FOR SHARE",[auth.tenantId,skill.id])).rows[0];if(!current || current.revision!==skill.revision || current.settings_revision!==skillSettingsSnapshot!.revision)throw new ServiceError(409,"configuration_changed","Skill changed. Retry this request.");}
       const duplicate = await existing(client);
       if (duplicate) return duplicate;
       if (!locked.rows[0]?.matches)

@@ -38,7 +38,7 @@ export async function backgroundRunAcceptance({
   const token = await authorize(["runs:start", "runs:read", "runs:cancel"]);
   const args = { skill: "dev", prompt: "Review {{literal}}", idempotencyKey: "once" };
   assert.match((await rpc(readOnly, "start_run", args)).text, /insufficient_scope/);
-  assert.match((await rpc(foreignToken, "start_run", args)).text, /model_configuration_required/);
+  assert.match((await rpc(foreignToken, "start_run", args)).text, /not_found/);
   const starts = await Promise.all([rpc(token, "start_run", args), rpc(token, "start_run", args)]);
   assert.ok(starts[0].result?.runId, starts[0].text);
   const receipt = starts[0].result;

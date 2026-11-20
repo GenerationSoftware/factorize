@@ -296,6 +296,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read your profile; interactive owner browser session required
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        get: operations["get_api_v1_profile"];
+        /**
+         * Change your globally unique username; interactive owner browser session required
+         * @description Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+         */
+        put: operations["put_api_v1_profile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/session": {
         parameters: {
             query?: never;
@@ -1588,6 +1612,84 @@ export interface paths {
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_skill_library_sync"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills/{skillId}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Browse the published skill directory at its immutable revision
+         * @description Requires the skills:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_skills_skillId_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills/{skillId}/trigger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a skill's optional trigger
+         * @description Requires the skills:read and triggers:read scopes.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_skills_skillId_trigger"];
+        /**
+         * Configure a skill's event sources and enabled state
+         * @description Requires the skills:write and triggers:write scopes.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        put: operations["put_api_v1_skills_skillId_trigger"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills/{skillId}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read skill execution defaults
+         * @description Requires the skills:read scope.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_skills_skillId_settings"];
+        /**
+         * Save skill execution defaults for future manual and triggered runs
+         * @description Requires the skills:write and triggers:write scopes.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        put: operations["put_api_v1_skills_skillId_settings"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4034,6 +4136,85 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        username: string;
+                        /** Format: email */
+                        email: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    username: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Conditions-only webhook runtime deployment marker. */
+                    "X-Factorize-Webhook-Conditions"?: "v1";
+                    /** @description Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover. */
+                    "X-Factorize-Contract"?: "gen-2157-static-v1";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        username: string;
+                        /** Format: email */
+                        email: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_session: {
         parameters: {
             query?: never;
@@ -4096,7 +4277,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** Format: email */
                     email: string;
                     password: string;
                     returnTo?: string;
@@ -4146,6 +4326,7 @@ export interface operations {
                 "application/json": {
                     /** Format: email */
                     email: string;
+                    username: string;
                     password: string;
                     /** Format: uuid */
                     connection?: string;
@@ -6917,6 +7098,738 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    get_api_v1_skills_skillId_files: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Published files, with base64 encoded contents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        commit: string | null;
+                        files: {
+                            path: string;
+                            content: string;
+                            executable: boolean;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_skills_skillId_trigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Optional trigger */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        trigger: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            enabled: boolean;
+                            requiresVm: boolean;
+                            /** @enum {string} */
+                            executionType?: "agent" | "code";
+                            prompt: string;
+                            script?: string;
+                            runNameTemplate: string;
+                            tags?: string[];
+                            model: string;
+                            effort?: string;
+                            executionConfig: {
+                                connectionId: string;
+                                requiresVm?: boolean;
+                                workspace?: string;
+                                cwd?: string;
+                                agentKind: string;
+                                image?: string;
+                                region?: string;
+                                size?: string;
+                                /** @enum {string} */
+                                executionType?: "agent" | "code";
+                                script?: string;
+                            };
+                            runScopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                            portableIntegrationIds?: string[];
+                            /** Format: uuid */
+                            modelAccountId?: string;
+                            githubInstallationIds?: number[];
+                            linearConnectionId?: "linear" | null;
+                            xConnectionIds?: string[];
+                            skillId?: string | null;
+                            executionConfigId: string;
+                            agentKind: string;
+                            concurrencyLimit: number;
+                            runningCount: number;
+                            currentRuns: number;
+                            maxConcurrency: number;
+                            lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                            events: ({
+                                /** Format: uuid */
+                                id: string;
+                                slug: string;
+                                /** @constant */
+                                kind: "manual";
+                                template?: string;
+                                /** @default true */
+                                enabled: boolean;
+                                /** @default {} */
+                                config: Record<string, never>;
+                                /** Format: uuid */
+                                triggerId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                            } | {
+                                /** Format: uuid */
+                                id: string;
+                                slug: string;
+                                /** @constant */
+                                kind: "schedule";
+                                template?: string;
+                                /** @default true */
+                                enabled: boolean;
+                                config: {
+                                    cron: string;
+                                    timezone: string;
+                                };
+                                /** Format: uuid */
+                                triggerId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                            } | {
+                                /** Format: uuid */
+                                id: string;
+                                slug: string;
+                                /** @constant */
+                                kind: "webhook";
+                                template?: string;
+                                /** @default true */
+                                enabled: boolean;
+                                config: {
+                                    conditions?: {
+                                        [key: string]: unknown;
+                                    };
+                                    /** @constant */
+                                    provider: "linear";
+                                    projectId: string;
+                                    matchRules: {
+                                        /** @enum {string} */
+                                        type: "owner" | "creator" | "status" | "label" | "assignee";
+                                        targetId: string;
+                                    }[];
+                                    secretConfigured?: boolean;
+                                } | {
+                                    conditions?: {
+                                        [key: string]: unknown;
+                                    };
+                                    /** @constant */
+                                    provider: "clickup";
+                                    listId: string;
+                                    matchRules: {
+                                        /** @enum {string} */
+                                        type: "owner" | "creator" | "status" | "label" | "assignee";
+                                        targetId: string;
+                                    }[];
+                                    secretConfigured?: boolean;
+                                } | {
+                                    conditions?: {
+                                        [key: string]: unknown;
+                                    };
+                                    /** @constant */
+                                    provider: "github";
+                                    installationId: number;
+                                    repositoryId: number;
+                                    event?: string;
+                                    action?: string;
+                                    matchRules?: {
+                                        /** @enum {string} */
+                                        type: "owner" | "creator" | "status" | "label" | "assignee";
+                                        targetId: string;
+                                    }[];
+                                    secretConfigured?: boolean;
+                                } | {
+                                    conditions?: {
+                                        [key: string]: unknown;
+                                    };
+                                    /** @constant */
+                                    provider: "cloudflareTail";
+                                    integrationId: string;
+                                    destination?: string;
+                                    secretConfigured?: boolean;
+                                };
+                                /** Format: uuid */
+                                triggerId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                            } | {
+                                /** Format: uuid */
+                                id: string;
+                                slug: string;
+                                /** @constant */
+                                kind: "triggerLifecycle";
+                                template?: string;
+                                /** @default true */
+                                enabled: boolean;
+                                config: {
+                                    sourceTriggerIds: string[];
+                                    states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                                };
+                                /** Format: uuid */
+                                triggerId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                            } | {
+                                /** Format: uuid */
+                                id: string;
+                                slug: string;
+                                /** @constant */
+                                kind: "triggerIdle";
+                                template?: string;
+                                /** @default true */
+                                enabled: boolean;
+                                config: {
+                                    sourceTriggerIds: string[];
+                                };
+                                /** Format: uuid */
+                                triggerId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                            })[];
+                            skill?: {
+                                /** Format: uuid */
+                                id: string;
+                                key: string;
+                                revision: number;
+                            } | null;
+                            contextReviewRequired?: boolean;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_skills_skillId_trigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    events: ({
+                        id?: string;
+                        slug?: string;
+                        /** @constant */
+                        kind: "manual";
+                        template?: string;
+                        /** @default true */
+                        enabled?: boolean;
+                        /** @default {} */
+                        config?: Record<string, never>;
+                    } | {
+                        id?: string;
+                        slug?: string;
+                        /** @constant */
+                        kind: "schedule";
+                        template?: string;
+                        /** @default true */
+                        enabled?: boolean;
+                        config: {
+                            cron: string;
+                            timezone: string;
+                        };
+                    } | {
+                        id?: string;
+                        slug?: string;
+                        /** @constant */
+                        kind: "webhook";
+                        template?: string;
+                        /** @default true */
+                        enabled?: boolean;
+                        config: {
+                            conditions?: {
+                                [key: string]: unknown;
+                            };
+                            /** @constant */
+                            provider: "linear";
+                            projectId: string;
+                            matchRules: {
+                                /** @enum {string} */
+                                type: "owner" | "creator" | "status" | "label" | "assignee";
+                                targetId: string;
+                            }[];
+                        } | {
+                            conditions?: {
+                                [key: string]: unknown;
+                            };
+                            /** @constant */
+                            provider: "clickup";
+                            listId: string;
+                            matchRules: {
+                                /** @enum {string} */
+                                type: "owner" | "creator" | "status" | "label" | "assignee";
+                                targetId: string;
+                            }[];
+                        } | {
+                            conditions?: {
+                                [key: string]: unknown;
+                            };
+                            /** @constant */
+                            provider: "github";
+                            installationId: number;
+                            repositoryId: number;
+                            event?: string;
+                            action?: string;
+                            matchRules?: {
+                                /** @enum {string} */
+                                type: "owner" | "creator" | "status" | "label" | "assignee";
+                                targetId: string;
+                            }[];
+                        } | {
+                            conditions?: {
+                                [key: string]: unknown;
+                            };
+                            /** @constant */
+                            provider: "cloudflareTail";
+                            integrationId: string;
+                        };
+                    } | {
+                        id?: string;
+                        slug?: string;
+                        /** @constant */
+                        kind: "triggerLifecycle";
+                        template?: string;
+                        /** @default true */
+                        enabled?: boolean;
+                        config: {
+                            sourceTriggerIds: string[];
+                            states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                        };
+                    } | {
+                        id?: string;
+                        slug?: string;
+                        /** @constant */
+                        kind: "triggerIdle";
+                        template?: string;
+                        /** @default true */
+                        enabled?: boolean;
+                        config: {
+                            sourceTriggerIds: string[];
+                        };
+                    })[];
+                    /** @default true */
+                    enabled?: boolean;
+                    /** Format: date-time */
+                    expectedUpdatedAt?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved trigger */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        trigger: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            enabled: boolean;
+                            requiresVm: boolean;
+                            /** @enum {string} */
+                            executionType?: "agent" | "code";
+                            prompt: string;
+                            script?: string;
+                            runNameTemplate: string;
+                            tags?: string[];
+                            model: string;
+                            effort?: string;
+                            executionConfig: {
+                                connectionId: string;
+                                requiresVm?: boolean;
+                                workspace?: string;
+                                cwd?: string;
+                                agentKind: string;
+                                image?: string;
+                                region?: string;
+                                size?: string;
+                                /** @enum {string} */
+                                executionType?: "agent" | "code";
+                                script?: string;
+                            };
+                            runScopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                            portableIntegrationIds?: string[];
+                            /** Format: uuid */
+                            modelAccountId?: string;
+                            githubInstallationIds?: number[];
+                            linearConnectionId?: "linear" | null;
+                            xConnectionIds?: string[];
+                            skillId?: string | null;
+                            executionConfigId: string;
+                            agentKind: string;
+                            concurrencyLimit: number;
+                            runningCount: number;
+                            currentRuns: number;
+                            maxConcurrency: number;
+                            lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
+                            events: ({
+                                /** Format: uuid */
+                                id: string;
+                                slug: string;
+                                /** @constant */
+                                kind: "manual";
+                                template?: string;
+                                /** @default true */
+                                enabled: boolean;
+                                /** @default {} */
+                                config: Record<string, never>;
+                                /** Format: uuid */
+                                triggerId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                            } | {
+                                /** Format: uuid */
+                                id: string;
+                                slug: string;
+                                /** @constant */
+                                kind: "schedule";
+                                template?: string;
+                                /** @default true */
+                                enabled: boolean;
+                                config: {
+                                    cron: string;
+                                    timezone: string;
+                                };
+                                /** Format: uuid */
+                                triggerId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                            } | {
+                                /** Format: uuid */
+                                id: string;
+                                slug: string;
+                                /** @constant */
+                                kind: "webhook";
+                                template?: string;
+                                /** @default true */
+                                enabled: boolean;
+                                config: {
+                                    conditions?: {
+                                        [key: string]: unknown;
+                                    };
+                                    /** @constant */
+                                    provider: "linear";
+                                    projectId: string;
+                                    matchRules: {
+                                        /** @enum {string} */
+                                        type: "owner" | "creator" | "status" | "label" | "assignee";
+                                        targetId: string;
+                                    }[];
+                                    secretConfigured?: boolean;
+                                } | {
+                                    conditions?: {
+                                        [key: string]: unknown;
+                                    };
+                                    /** @constant */
+                                    provider: "clickup";
+                                    listId: string;
+                                    matchRules: {
+                                        /** @enum {string} */
+                                        type: "owner" | "creator" | "status" | "label" | "assignee";
+                                        targetId: string;
+                                    }[];
+                                    secretConfigured?: boolean;
+                                } | {
+                                    conditions?: {
+                                        [key: string]: unknown;
+                                    };
+                                    /** @constant */
+                                    provider: "github";
+                                    installationId: number;
+                                    repositoryId: number;
+                                    event?: string;
+                                    action?: string;
+                                    matchRules?: {
+                                        /** @enum {string} */
+                                        type: "owner" | "creator" | "status" | "label" | "assignee";
+                                        targetId: string;
+                                    }[];
+                                    secretConfigured?: boolean;
+                                } | {
+                                    conditions?: {
+                                        [key: string]: unknown;
+                                    };
+                                    /** @constant */
+                                    provider: "cloudflareTail";
+                                    integrationId: string;
+                                    destination?: string;
+                                    secretConfigured?: boolean;
+                                };
+                                /** Format: uuid */
+                                triggerId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                            } | {
+                                /** Format: uuid */
+                                id: string;
+                                slug: string;
+                                /** @constant */
+                                kind: "triggerLifecycle";
+                                template?: string;
+                                /** @default true */
+                                enabled: boolean;
+                                config: {
+                                    sourceTriggerIds: string[];
+                                    states: ("succeeded" | "failed" | "stopped" | "edited")[];
+                                };
+                                /** Format: uuid */
+                                triggerId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                            } | {
+                                /** Format: uuid */
+                                id: string;
+                                slug: string;
+                                /** @constant */
+                                kind: "triggerIdle";
+                                template?: string;
+                                /** @default true */
+                                enabled: boolean;
+                                config: {
+                                    sourceTriggerIds: string[];
+                                };
+                                /** Format: uuid */
+                                triggerId: string;
+                                createdAt: string;
+                                updatedAt: string;
+                            })[];
+                            skill?: {
+                                /** Format: uuid */
+                                id: string;
+                                key: string;
+                                revision: number;
+                            } | null;
+                            contextReviewRequired?: boolean;
+                            createdAt: string;
+                            updatedAt: string;
+                        } | null;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_skills_skillId_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Skill settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        defaults: {
+                            executionConfigId?: string;
+                            requiresVm?: boolean;
+                            model?: string;
+                            /** @enum {string} */
+                            effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                            /** @description Public Docker/OCI image reference, or blank for the provider default. */
+                            vmImage?: string;
+                            tags?: string[];
+                            /** Format: uuid */
+                            modelAccountId?: string;
+                            portableIntegrationIds?: string[];
+                            githubInstallationIds?: number[];
+                            linearConnectionId?: "linear" | null;
+                            xConnectionIds?: string[];
+                            /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                            runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                            concurrencyLimit?: number;
+                            allowedTriggerIds?: string[];
+                            /**
+                             * @default agent
+                             * @enum {string}
+                             */
+                            executionType: "agent" | "code";
+                            /** @default  */
+                            prompt: string;
+                            script?: string;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_skills_skillId_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skillId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                    defaults: {
+                        executionConfigId?: string;
+                        requiresVm?: boolean;
+                        model?: string;
+                        /** @enum {string} */
+                        effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                        /** @description Public Docker/OCI image reference, or blank for the provider default. */
+                        vmImage?: string;
+                        tags?: string[];
+                        /** Format: uuid */
+                        modelAccountId?: string;
+                        portableIntegrationIds?: string[];
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
+                        /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                        runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        concurrencyLimit?: number;
+                        allowedTriggerIds?: string[];
+                        /**
+                         * @default agent
+                         * @enum {string}
+                         */
+                        executionType?: "agent" | "code";
+                        /** @default  */
+                        prompt?: string;
+                        script?: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Saved skill settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                        defaults: {
+                            executionConfigId?: string;
+                            requiresVm?: boolean;
+                            model?: string;
+                            /** @enum {string} */
+                            effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                            /** @description Public Docker/OCI image reference, or blank for the provider default. */
+                            vmImage?: string;
+                            tags?: string[];
+                            /** Format: uuid */
+                            modelAccountId?: string;
+                            portableIntegrationIds?: string[];
+                            githubInstallationIds?: number[];
+                            linearConnectionId?: "linear" | null;
+                            xConnectionIds?: string[];
+                            /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                            runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                            concurrencyLimit?: number;
+                            allowedTriggerIds?: string[];
+                            /**
+                             * @default agent
+                             * @enum {string}
+                             */
+                            executionType: "agent" | "code";
+                            /** @default  */
+                            prompt: string;
+                            script?: string;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_skills: {
         parameters: {
             query?: {
@@ -6945,6 +7858,12 @@ export interface operations {
                             usageCount: number;
                             createdAt: string;
                             updatedAt: string;
+                            trigger?: {
+                                /** Format: uuid */
+                                id: string;
+                                enabled: boolean;
+                            } | null;
+                            lastRunState?: string | null;
                         }[];
                         nextCursor: string | null;
                     };

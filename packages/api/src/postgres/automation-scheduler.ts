@@ -1,3 +1,4 @@
+import { PostgresSkillContentCache } from "./skill-content-cache";
 import { SkillContent } from "../skill-content";
 import { decrypt, encrypt } from "../crypto";
 import { InvocationError, InvocationService } from "../job-domain";
@@ -21,7 +22,7 @@ export class AutomationScheduler {
     if (!Number.isSafeInteger(lifecycleBatchSize) || lifecycleBatchSize < 1) throw new RangeError("Lifecycle batch size must be a positive integer");
   }
   async process(): Promise<void> { await this.githubVerifications(); await this.schedules(); await this.triggerEdits(); await this.lifecycle(); await this.triggerIdle(); }
-  private repository(tenantId: string) { return new PostgresTriggerRepository(this.database, tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS)); }
+  private repository(tenantId: string) { return new PostgresTriggerRepository(this.database, tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(this.database,tenantId,this.env.CREDENTIAL_ENCRYPTION_KEY))); }
   private async schedules() {
     for (let count = 0; count < 50; count++) {
       const due = await this.database.transaction(async client => {

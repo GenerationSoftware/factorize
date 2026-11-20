@@ -25,6 +25,7 @@
       {
         "group": "Work with your agent",
         "pages": [
+          "work/skills",
           "work/triggers",
           "work/prompts",
           "work/results",

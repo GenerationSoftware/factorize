@@ -53,7 +53,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
   function token(index = sent.length - 1) { return new URL(sent[index]!.TextBody.match(/https:\/\/\S+/)![0]).searchParams.get("token")!; }
   async function registered() {
     mail(); const email = `user_${crypto.randomUUID().slice(0, 8)}@example.test`;
-    expect((await auth.signup({ email, password })).status).toBe(201);
+    expect((await auth.signup({ email, username: email.split("@")[0].toLowerCase().replaceAll("_","-").slice(0,39), password })).status).toBe(201);
     return { email, verification: token() };
   }
   async function verified() { const user = await registered(); expect((await auth.completeVerification(user.verification)).status).toBe(200); return user; }
@@ -122,9 +122,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
         ...(input ? { body: JSON.stringify(input) } : {}),
       }), env, null, {} as ExecutionContext,
     );
-    expect((await json("/api/v1/auth/signup", { email, password })).status).toBe(202);
+    expect((await json("/api/v1/auth/signup", { email, username: email.split("@")[0].replaceAll("_","-").slice(0,39), password })).status).toBe(202);
     const verification = token();
-    expect((await json("/api/v1/auth/signup", { email, password })).status).toBe(202);
+    expect((await json("/api/v1/auth/signup", { email, username: email.split("@")[0].replaceAll("_","-").slice(0,39), password })).status).toBe(202);
     expect((await json("/api/v1/auth/login", { email, password })).status).toBe(403);
     expect((await json("/api/v1/auth/email-verification/complete", { token: verification })).status).toBe(200);
     expect((await json("/api/v1/auth/email-verification/complete", { token: verification })).status).toBe(400);
@@ -136,7 +136,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect(active).toMatchObject({ authenticated: true, user: { email }, team: { role: "owner" } });
     const workspaceId = active.team.id;
     await db.pool.query("UPDATE app.tenants SET name='API workspace' WHERE id=$1", [workspaceId]);
-    expect(await (await json("/api/v1/session", undefined, cookie)).json()).toMatchObject({ team: { name: "API workspace" } });
+    expect(await (await json("/api/v1/session", undefined, cookie)).json()).toMatchObject({ team: { name: email.split("@")[0].replaceAll("_","-").slice(0,39) } });
     const delegate = new ApiService(env, {
       tenantId: workspaceId, userId: active.user.id,
       sessionVersion: (await new IdentityRepository(db, workspaceId).member(active.user.id))!.sessionVersion,
@@ -170,11 +170,11 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect((await auth.completeVerification(user.verification)).status).toBe(400);
     expect((await auth.login({ email: user.email.toUpperCase(), password })).status).toBe(200);
     expect((await auth.login({ email: user.email, password: "incorrect password" })).status).toBe(401);
-    expect((await auth.signup({ email: user.email.toUpperCase(), password })).status).toBe(409);
+    expect((await auth.signup({ email: user.email.toUpperCase(), username: user.email.split("@")[0].replaceAll("_","-").slice(0,39), password })).status).toBe(409);
   });
   it("signup never sets a session; email link GET does not consume verification", async () => {
     mail(); const email = `route_${crypto.randomUUID().slice(0, 8)}@example.test`;
-    const response = await post("/auth/signup", { email, password });
+    const response = await post("/auth/signup", { email, username: email.split("@")[0].replaceAll("_","-").slice(0,39), password });
     expect(response.status).toBe(201); expect(response.headers.get("set-cookie")).toBeNull();
     const link = token(); expect((await app.request(`/auth/verify?token=${link}`, {}, env)).status).toBe(200);
     expect((await auth.login({ email, password })).status).toBe(403);
@@ -236,7 +236,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
   });
   it("migrates legacy Linear users through email proof while preserving workspace and connection", async () => {
     mail();
-    expect((await auth.signup({ email: "legacy@example.test", password })).status).toBe(409);
+    expect((await auth.signup({ email: "legacy@example.test", username: "legacy", password })).status).toBe(409);
     await auth.requestReset({ email: "legacy@example.test" });
     expect((await auth.completeReset({ token: token(), password })).status).toBe(200);
     const login = await auth.login({ email: "legacy@example.test", password });
@@ -320,9 +320,9 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
 
   it("fails closed on missing Postmark configuration and allows retry after delivery failure", async () => {
     const broken = new AuthRepository(db, { ...env, POSTMARK_SERVER_TOKEN: undefined });
-    await expect(broken.signup({ email: "config@example.test", password })).rejects.toThrow("Authentication email requires");
+    await expect(broken.signup({ email: "config@example.test", username: "config", password })).rejects.toThrow("Authentication email requires");
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ErrorCode: 400 }, { status: 422 })));
-    await expect(auth.signup({ email: "retry@example.test", password })).rejects.toThrow("Postmark");
+    await expect(auth.signup({ email: "retry@example.test", username: "retry", password })).rejects.toThrow("Postmark");
     expect((await auth.login({ email: "retry@example.test", password })).status).toBe(403);
     mail(); await auth.requestEmail({ email: "retry@example.test" }, "verify");
     expect((await auth.completeVerification(token())).status).toBe(200);
