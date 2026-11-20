@@ -125,6 +125,7 @@ export const startRunInput = z.object({
   vmImage: jobInputSchema.shape.vmImage,
   model: jobInputSchema.shape.model,
   runScopes: jobInputSchema.shape.runScopes,
+  integrationIds: z.array(z.uuid()).max(100).refine(ids => new Set(ids).size === ids.length, "Integration IDs must be unique").optional(),
   inputs: z.record(z.string(), z.unknown()).refine(value => new TextEncoder().encode(JSON.stringify(value)).length <= 200_000, "Inputs exceed 200,000 bytes").optional(),
   idempotencyKey: z.string().trim().min(1).max(200).optional(),
 }).strict().refine(value => Number(Boolean(value.prompt)) + Number(Boolean(value.script)) === 1, {
@@ -142,3 +143,4 @@ export const projectRunDefaults = z.object({
 }).strict();
 
 export const storedRunDefaults = projectRunDefaults.extend({vmImage:z.string().optional()});
+export const userRunDefaults = projectRunDefaults.omit({capacity:true});

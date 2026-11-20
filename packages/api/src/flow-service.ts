@@ -5,7 +5,7 @@ import { SkillLibrary } from "./skill-library";
 import { configureLibrary } from "./skill-library-contract";
 import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
-import { startRunInput,projectRunDefaults,scopeSchema } from "./flow-schemas";
+import { startRunInput,projectRunDefaults,userRunDefaults as userRunDefaultsSchema,scopeSchema } from "./flow-schemas";
 import { grantVm, revokeVmGrant } from "./vm-grants";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
 import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
@@ -979,6 +979,20 @@ export class ApiService {
     return input;
   }
 
+  async getUserRunDefaults() {
+    await this.authorize("projects:read");
+    const result = await databaseFor(this.env).pool.query("SELECT run_defaults FROM app.user_run_defaults WHERE tenant_id=$1 AND user_id=$2", [this.auth.tenantId, this.auth.userId]);
+    return result.rows[0]?.run_defaults ?? null;
+  }
+
+  async setUserRunDefaults(input: z.infer<typeof userRunDefaultsSchema>) {
+    await this.authorizeOwnerSession("projects:write");
+    await this.resolveRunDefaults({...input, capacity: 4});
+    const result = await databaseFor(this.env).pool.query(`INSERT INTO app.user_run_defaults(tenant_id,user_id,run_defaults)
+      VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET run_defaults=excluded.run_defaults,updated_at=now() RETURNING run_defaults`, [this.auth.tenantId, this.auth.userId, input]);
+    return result.rows[0].run_defaults;
+  }
+
   private async resolveRunDefaults(input: z.infer<typeof projectRunDefaults>) {
     await this.validateExecutionOptions(
       input.executionConfigId,
@@ -1064,12 +1078,35 @@ export class ApiService {
     if (prior) return prior;
     const project = await this.projects().get(projectId);
     if (!project) throw new ServiceError(404, "not_found", "Project not found");
-    if (!project.runDefaults)
-      throw new ServiceError(409, "run_defaults_required", "Configure this project's VM run defaults first.");
-    const defaults = project.runDefaults;
-    const selectedConfigId = input.executionConfigId ?? defaults.executionConfigId;
-    const model = input.model ?? defaults.model ?? "";
-    const config = await this.resolveRunDefaults({ ...defaults, executionConfigId: selectedConfigId, model });
+    const userDefaultsResult = await db.pool.query("SELECT run_defaults FROM app.user_run_defaults WHERE tenant_id=$1 AND user_id=$2", [auth.tenantId, auth.userId]);
+    const userDefaults = userDefaultsResult.rows[0]?.run_defaults;
+    const defaults = { ...(userDefaults ?? {}), ...(project.runDefaults ?? {}) };
+    if (!defaults.executionConfigId && !input.executionConfigId)
+      throw new ServiceError(409, "run_defaults_required", "Configure project or user VM run defaults first.");
+    const baseDefaults = defaults.executionConfigId ? defaults : { ...defaults, executionConfigId: input.executionConfigId, model: "", effort: "", tags: [], runScopes: [], capacity: 4 };
+    const accessible = (await this.agentApi().reflection()).integrations.filter(item => item.access === "granted");
+    const accessibleById = new Map(accessible.map(item => [item.id, item]));
+    const integrationIds = input.integrationIds ?? accessible.map(item => item.id);
+    if (integrationIds.some(id => !accessibleById.has(id)))
+      throw new ServiceError(403, "forbidden", "Requested integrations exceed this client's effective integration access.");
+    const selectedIntegrations = integrationIds.map(id => accessibleById.get(id)!);
+    const selectedConfigId = input.executionConfigId ?? baseDefaults.executionConfigId;
+    const model = input.model ?? baseDefaults.model ?? "";
+    const selected = {
+      ...baseDefaults,
+      capacity: baseDefaults.capacity ?? 4,
+      executionConfigId: selectedConfigId,
+      model,
+      portableIntegrationIds: selectedIntegrations.filter(item => item.kind === "bearer").map(item => item.credentialId),
+      githubInstallationIds: selectedIntegrations.filter(item => item.kind === "github").map(item => Number(item.credentialId)),
+      linearConnectionId: selectedIntegrations.some(item => item.kind === "linear") ? "linear" : undefined,
+      xConnectionIds: selectedIntegrations.filter(item => item.kind === "x").map(item => item.credentialId),
+      agentIntegrationIds: integrationIds,
+      ...(baseDefaults.modelAccountId && selectedIntegrations.some(item => item.kind === "model" && item.credentialId === baseDefaults.modelAccountId) ? {} : {modelAccountId: undefined}),
+      ...(selectedIntegrations.some(item => item.kind === "model") && baseDefaults.modelAccountId && selectedIntegrations.some(item => item.kind === "model" && item.credentialId === baseDefaults.modelAccountId) ? {modelAccess:"portable" as const} : {modelAccess:"native" as const}),
+    };
+    const config = await this.resolveRunDefaults(selected);
+    (config as Record<string, any>).agentIntegrationIds = integrationIds;
     if (input.vmImage) config.image = input.vmImage;
     if (input.script) {
       if (config.agentKind === "Amp") throw new ServiceError(400, "invalid_request", "Script runs require a VM execution provider.");
@@ -1099,10 +1136,7 @@ export class ApiService {
         )
       : undefined;
     const result = await db.transaction(async (client) => {
-      const locked = await client.query(
-        "SELECT run_defaults=$3::jsonb matches FROM app.projects WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
-        [auth.tenantId, projectId, project.runDefaults],
-      );
+      const locked = await client.query("SELECT run_defaults IS NOT DISTINCT FROM $3::jsonb matches FROM app.projects WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [auth.tenantId, projectId, project.runDefaults ?? null]);
       const duplicate = await existing(client);
       if (duplicate) return duplicate;
       if (!locked.rows[0]?.matches)
@@ -1111,6 +1145,9 @@ export class ApiService {
           "configuration_changed",
           "Project configuration changed. Retry this request.",
         );
+      const currentUserDefaults = await client.query("SELECT run_defaults FROM app.user_run_defaults WHERE tenant_id=$1 AND user_id=$2 FOR SHARE", [auth.tenantId, auth.userId]);
+      if (JSON.stringify(currentUserDefaults.rows[0]?.run_defaults ?? null) !== JSON.stringify(userDefaults ?? null))
+        throw new ServiceError(409, "configuration_changed", "User run defaults changed. Retry this request.");
       if (auth.runId) {
         const active = await client.query(
           "SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2 AND project_id=$3 AND state IN ('starting','running','blocked') FOR SHARE",
