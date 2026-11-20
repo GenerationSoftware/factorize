@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { loadingFixture } from "./helpers/loading-fixture";
 import { ApiService, ServiceError } from "../src/flow-service";
 import { ConnectionRepository } from "../src/postgres/connection-repository";
+import { encrypt } from "../src/crypto";
+import { MANAGED_BEARER_PREFIX } from "../src/postgres/credential-repository";
 
 vi.mock("cloudflare:workers", () => ({ WorkerEntrypoint: class {}, DurableObject: class {} }));
 vi.mock("@cloudflare/workers-oauth-provider", () => ({ OAuthProvider: class {}, AuthorizationError: class extends Error {}, getOAuthApi: vi.fn() }));
@@ -13,10 +15,13 @@ describe.skipIf(!url)("direct run defaults and integration access", { timeout: 3
   it("uses user defaults when the project has none and inherits or narrows effective integrations", async () => {
     const f = await loadingFixture(url!);
     try {
-      const integrationId = crypto.randomUUID(), credentialId = crypto.randomUUID();
+      const credentialId = crypto.randomUUID();
       await f.db.pool.query("INSERT INTO app.integration_collections(tenant_id) VALUES($1)", [f.tenantId]);
-      await f.db.pool.query("INSERT INTO app.integration_records(tenant_id,id,kind,name,origin,revision,encrypted_payload) VALUES($1,$2,'bearer','Direct test','https://upstream.test',1,'ciphertext')", [f.tenantId, credentialId]);
-      await f.db.pool.query("INSERT INTO app.agent_integrations(tenant_id,id,kind,credential_id,name,available,policy) VALUES($1,$2,'bearer',$3,'Direct test',true,'baseline')", [f.tenantId, integrationId, credentialId]);
+      const encryptedPayload = await encrypt(`${MANAGED_BEARER_PREFIX}test-only-secret`, f.env.CREDENTIAL_ENCRYPTION_KEY);
+      await f.db.pool.query("INSERT INTO app.integration_records(tenant_id,id,kind,name,origin,revision,encrypted_payload) VALUES($1,$2,'bearer','Direct test','https://upstream.test',1,$3)", [f.tenantId, credentialId, encryptedPayload]);
+      await f.db.pool.query("UPDATE app.agent_integrations SET policy='baseline' WHERE tenant_id=$1 AND kind='bearer' AND credential_id=$2", [f.tenantId, credentialId]);
+      const integrationRow = await f.db.pool.query("SELECT id FROM app.agent_integrations WHERE tenant_id=$1 AND kind='bearer' AND credential_id=$2", [f.tenantId, credentialId]);
+      const effectiveIntegrationId = integrationRow.rows[0].id as string;
       await f.db.pool.query("INSERT INTO app.user_run_defaults(tenant_id,user_id,run_defaults) VALUES($1,$2,$3)", [f.tenantId, f.userId, defaults("ghcr.io/factorize/direct-run:test")]);
 
       const service = new ApiService(f.env, { ...f.auth, authMethod: "oauth", oauthGrantId: "test-grant", oauthClientId: "test-client", oauthExpiresAt: Math.floor(Date.now() / 1000) + 3600, scopes: ["runs:start", "projects:read", "integrations:read"] });
@@ -24,7 +29,7 @@ describe.skipIf(!url)("direct run defaults and integration access", { timeout: 3
       const inheritedConfig = (await f.db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, inherited.runId])).rows[0].execution_config;
       expect(inheritedConfig.image).toBe("ghcr.io/factorize/direct-run:test");
       expect(inheritedConfig.portableIntegrationIds).toEqual([credentialId]);
-      expect(inheritedConfig.agentIntegrationIds).toEqual([integrationId]);
+      expect(inheritedConfig.agentIntegrationIds).toEqual([effectiveIntegrationId]);
 
       const empty = await service.startRun({ projectId: f.projectId, script: "echo direct", integrationIds: [], idempotencyKey: "empty" });
       const emptyConfig = (await f.db.pool.query("SELECT execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2", [f.tenantId, empty.runId])).rows[0].execution_config;
