@@ -1085,7 +1085,9 @@ export class ApiService {
       throw new ServiceError(409, "run_defaults_required", "Configure project or user VM run defaults first.");
     const baseDefaults = defaults.executionConfigId ? defaults : { ...defaults, executionConfigId: input.executionConfigId, model: "", effort: "", tags: [], runScopes: [], capacity: 4 };
     const callerAccess = await this.agentApi().reflection();
-    const callerScopes = callerAccess.scopes.filter(scope => scopeSchema.safeParse(scope).success) as z.infer<typeof scopeSchema>[];
+    // A parent run may start a child, but does not delegate its own API scopes.
+    // MCP OAuth clients inherit their currently effective scopes instead.
+    const callerScopes = auth.runId ? [] : callerAccess.scopes.filter(scope => scopeSchema.safeParse(scope).success) as z.infer<typeof scopeSchema>[];
     const accessible = callerAccess.integrations.filter(item => item.access === "granted");
     const accessibleById = new Map(accessible.map(item => [item.id, item]));
     const integrationIds = input.integrationIds ?? accessible.map(item => item.id);
