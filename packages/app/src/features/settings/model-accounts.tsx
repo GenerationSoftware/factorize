@@ -1,3 +1,4 @@
+import { modelAccountsQuery } from "./queries";
 import {useEffect, useState} from "react";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import {api} from "factorize-api-client";
@@ -9,7 +10,6 @@ import { IntegrationRow, ProviderTile } from "./integration-ui";
 
 type Account={id:string; name:string; description:string|null; revision:number; credentialConfigured:boolean};
 type Authorization={state:string; verificationUrl?:string; userCode?:string; pollAfterSeconds?:number};
-const queryKey=["settings","model-accounts"];
 async function authorization(accountId:string,action:"authorize"|"status"|"cancel"):Promise<Authorization> {
   const path=action==="authorize" ? "/api/v1/model-accounts/{accountId}/authorization/authorize" : action==="status" ? "/api/v1/model-accounts/{accountId}/authorization/status" : "/api/v1/model-accounts/{accountId}/authorization/cancel";
   const {data,error}=await api.POST(path,{params:{path:{accountId}},body:{}});
@@ -18,7 +18,7 @@ async function authorization(accountId:string,action:"authorize"|"status"|"cance
 }
 export function useModelAccounts() {
   const cache=useQueryClient();
-  const accounts=useQuery({queryKey,queryFn:async({signal})=>{const {data,error}=await api.GET("/api/v1/model-accounts",{signal}); if(!data || error) throw new Error(messageOf(error)); if(!Array.isArray(data.accounts) || !Number.isSafeInteger(data.revision)) throw new Error("Model accounts could not be loaded. Reload the page to try again."); return data;}});
+  const accounts = useQuery(modelAccountsQuery);
   const [open,setOpen]=useState(false);
   const [active,setActive]=useState<string|null>(null),[states,setStates]=useState<Record<string,Authorization>>({}),[error,setError]=useState("");
   const [name,setName]=useState(""),[description,setDescription]=useState(""),[kind,setKind]=useState<"chatgpt"|"api-key">("chatgpt"),[key,setKey]=useState(""),[editId,setEditId]=useState<string|null>(null);
@@ -34,7 +34,7 @@ export function useModelAccounts() {
     const poll=async()=>{
       if(inFlight) return;
       inFlight=true;
-      try {const state=await authorization(active,"status"); if(stopped) return; setStates(current=>({...current,[active]:state})); if(state.state!=="pending") {setActive(null); await cache.invalidateQueries({queryKey});}}
+      try {const state=await authorization(active,"status"); if(stopped) return; setStates(current=>({...current,[active]:state})); if(state.state!=="pending") {setActive(null); await cache.invalidateQueries({queryKey: modelAccountsQuery.queryKey});}}
       catch(reason) {if(!stopped) setError(reason instanceof Error?reason.message:"Could not check authorization.");}
       finally {inFlight=false;}
     };

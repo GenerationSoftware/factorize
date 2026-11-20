@@ -23,6 +23,25 @@ async function setup(options) {
   await page.route("**/api/v1/job-trigger-availability", route => route.fulfill({ json: { manual: true, schedule: true, jobLifecycle: true, linear: true, clickup: true, github: true, cloudflareTail: true } }));
   return { context, page };
 }
+test("Integrations displays credentials cached by the job editor", async t => {
+  const { context, page } = await setup();
+  t.after(() => context.close());
+  const bearer = { id: "bearer-1", name: "Build API", origin: "https://api.example.test", description: null, revision: 1 };
+  const account = { id: "account-1", name: "Build account", credentialConfigured: true, revision: 1 };
+  await page.route(`**/api/v1/jobs/${id}`, route => route.fulfill({ json: { ...initial, modelAccess: "portable" } }));
+  await page.route("**/api/v1/integrations/bearer", route => route.fulfill({ json: { revision: 1, integrations: [bearer] } }));
+  await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: { revision: 1, accounts: [account] } }));
+  await page.route("**/api/v1/providers/github/installations", route => route.fulfill({ json: [] }));
+  await page.goto(origin + `/jobs/${id}/settings/execution`);
+  await page.getByRole("checkbox", { name: bearer.name }).waitFor();
+  await page.getByRole("option", { name: account.name }).waitFor({ state: "attached" });
+  await page.getByRole("link", { name: "Factorize dashboard" }).click();
+  await page.getByRole("link", { name: "Integrations", exact: true }).click();
+  const list = page.getByRole("list", { name: "Your integrations" });
+  await list.getByText(bearer.name, { exact: true }).waitFor();
+  await list.getByText(account.name, { exact: true }).waitFor();
+});
+
 test("stale editor reconciles non-overlapping fields, requires explicit conflict choice and preserves trigger identity", async () => {
   const { context, page } = await setup(); let current = structuredClone(initial); const writes = [];
   await page.route(`**/api/v1/jobs/${id}`, route => {
@@ -350,7 +369,7 @@ for (const executionType of ["agent", "code"]) test(`Fly.io ${executionType} job
   await page.route(/^https?:\/\/(?!127\.0\.0\.1:)/, route => { externalCalls.push(route.request().url()); return route.abort(); });
   await page.route("**/api/v1/projects", route => route.fulfill({ json: [{ id: "00000000-0000-4000-8000-000000000010", name: "Project" }] }));
   await page.route("**/api/v1/skills**", route => route.fulfill({ json: { items: [], nextCursor: null } }));
-  await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: { accounts: [{ id: accountId, name: "Work ChatGPT", revision: 1, credentialConfigured: true }] } }));
+  await page.route("**/api/v1/model-accounts", route => route.fulfill({ json: { revision: 1, accounts: [{ id: accountId, name: "Work ChatGPT", revision: 1, credentialConfigured: true }] } }));
   await page.route("**/api/v1/fly/connection", route => route.fulfill({ json: { connection: { organizationSlug: "test-org", organizationName: "Test org" } } }));
   await page.route("**/api/v1/fly/execution-configurations", route => {
     if (route.request().method() === "POST") {
