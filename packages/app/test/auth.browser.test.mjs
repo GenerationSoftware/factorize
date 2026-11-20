@@ -126,7 +126,7 @@ test("authenticated password route shows settings navigation with the active pas
   const page = await context.newPage();
   await page.route("**/api/v1/session", route => route.fulfill({ json: {
     authenticated: true, user: { id: "owner-a", email: "owner@example.test" },
-    workspace: { id: "workspace-a", name: "Workspace", role: "owner" }, capabilities: [],
+    team: { id: "workspace-a", name: "Workspace", role: "owner" }, capabilities: [],
   } }));
   await page.goto(origin + "/settings/password");
   const settings = page.getByRole("navigation", { name: "Settings" });
@@ -146,7 +146,7 @@ test("authenticated password change is isolated from global auth navigation and 
   let active = true;
   await page.route("**/api/v1/session", route => route.fulfill({ json: active ? {
     authenticated: true, user: { id: "owner-a", email: "owner@example.test" },
-    workspace: { id: "workspace-a", name: "Workspace", role: "owner" }, capabilities: [],
+    team: { id: "workspace-a", name: "Workspace", role: "owner" }, capabilities: [],
   } : { authenticated: false } }));
   await page.route("**/api/v1/auth/password", async route => {
     assert.deepEqual(route.request().postDataJSON(), { currentPassword: "old-test-password", password: "new-test-password" });
@@ -179,8 +179,8 @@ test("logout refreshes session identity and removes the account display", async 
   let active = true;
   await page.route("**/api/v1/session", route => route.fulfill({ json: active ? {
     authenticated: true, user: { id: "owner-a", email: "owner@example.test" },
-    workspace: { id: "workspace-a", name: "Workspace", role: "owner" },
-    capabilities: ["flows:read"], expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    team: { id: "workspace-a", name: "Workspace", role: "owner" },
+    capabilities: ["team:read", "triggers:read", "integrations:read"], expiresAt: new Date(Date.now() + 3600_000).toISOString(),
   } : { authenticated: false } }));
   await page.route("**/api/v1/auth/logout", route => { active = false; return route.fulfill({ json: { ok: true } }); });
   await page.goto(origin + "/");
@@ -196,14 +196,14 @@ test("MCP onboarding preserves the attempt across account links and resumes auto
   let verified = false, active = false, grants = 0;
   const connection = "11111111-1111-4111-8111-111111111111";
   const returnTo = `/authorize?client_id=cli&state=original&connection=${connection}`;
-  await page.route("**/api/v1/session", route => route.fulfill({ json: active ? { authenticated: true, user: { id: "owner", email: "new@example.test" }, workspace: { id: "workspace", role: "owner" }, capabilities: [] } : { authenticated: false } }));
+  await page.route("**/api/v1/session", route => route.fulfill({ json: active ? { authenticated: true, user: { id: "owner", email: "new@example.test" }, team: { id: "workspace", role: "owner" }, capabilities: [] } : { authenticated: false } }));
   await page.route("**/api/v1/auth/connections/resume", route => {
     assert.equal(route.request().postDataJSON().connection, connection);
     if (verified) active = true;
     return route.fulfill({ json: verified ? { ok: true, returnTo } : { ok: true, pending: true, clientName: "My MCP CLI" } });
   });
   await page.route("**/api/v1/auth/signup", route => { assert.deepEqual(route.request().postDataJSON(), { email: "new@example.test", password: "long-test-password", connection }); return route.fulfill({ status: 202, json: { ok: true } }); });
-  await page.route("**/api/v1/oauth/consent/preview", route => route.fulfill({ json: { clientName: "My MCP CLI", scopes: ["flows:read"], request: "signed", signature: "signature", expiresAt: new Date(Date.now() + 600000).toISOString() } }));
+  await page.route("**/api/v1/oauth/consent/preview", route => route.fulfill({ json: { clientName: "My MCP CLI", scopes: ["team:read", "triggers:read", "integrations:read"], request: "signed", signature: "signature", expiresAt: new Date(Date.now() + 600000).toISOString() } }));
   await page.route("**/api/v1/oauth/consent/decision", route => { grants++; assert.equal(route.request().postDataJSON().decision, "allow"); return route.fulfill({ json: { redirectTo: origin + "/completed?code=grant" } }); });
   await page.goto(origin + `/auth/login?connection=${connection}`);
   await page.getByRole("link", { name: "Create an account to connect your client" }).click();
@@ -225,7 +225,7 @@ test("verification automatically signs in and resumes consent, while other-brows
   for (const crossBrowser of [false, true]) {
     const { page, context } = await pageFor("/auth/verify?token=one-time&connection=attempt");
     let active = false, verifications = 0;
-    await page.route("**/api/v1/session", route => route.fulfill({ json: active ? { authenticated: true, user: { id: "owner", email: "new@example.test" }, workspace: { id: "workspace", role: "owner" }, capabilities: [] } : { authenticated: false } }));
+    await page.route("**/api/v1/session", route => route.fulfill({ json: active ? { authenticated: true, user: { id: "owner", email: "new@example.test" }, team: { id: "workspace", role: "owner" }, capabilities: [] } : { authenticated: false } }));
     await page.route("**/api/v1/auth/email-verification/complete", route => { verifications++; active = true; assert.deepEqual(route.request().postDataJSON(), { token: "one-time" }); return route.fulfill({ json: crossBrowser ? { ok: true, crossBrowser: true } : { ok: true, returnTo: "/authorize?client_id=cli&connection=attempt" } }); });
     await page.route("**/api/v1/oauth/consent/preview", route => route.fulfill({ json: { clientName: "MCP CLI", scopes: [], request: "signed", signature: "signature", expiresAt: new Date(Date.now() + 600000).toISOString() } }));
     assert.equal(verifications, 0); await page.getByRole("button", { name: "Verify email" }).click();

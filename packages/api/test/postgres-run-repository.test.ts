@@ -13,7 +13,7 @@ describe("RunRepository", () => {
   });
 
   it("persists the source declaration at launch and reads it independently of current driver defaults", async () => {
-    const query = vi.fn(async (sql: string, _values: unknown[]) => ({ rows: sql.includes("UPDATE app.job_runs") ? [{ state: "running" }] : [], rowCount: 1 }));
+    const query = vi.fn(async (sql: string, _values: unknown[]) => ({ rows: sql.includes("UPDATE app.trigger_runs") ? [{ state: "running" }] : [], rowCount: 1 }));
     const repository = new RunRepository({ transaction: (work: any) => work({ query }), pool: { query } } as any);
     const sources = { primary: { kind: "execution_stream" as const, path: "/tmp/stream.jsonl", mediaType: "application/x-ndjson" as const, provider: "codex" as const, harnessVersion: "v1" } };
     await repository.markLaunched({ tenantId: "tenant", id: "run" } as any, { backendKind: "exe-vm", id: "factorize-run" }, "https://vm", [], sources);

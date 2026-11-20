@@ -30,9 +30,9 @@ export function useFlyIntegration() {
     count: connection.data ? 1 : 0, pending: connection.isPending,
     rows: connection.data ? [<IntegrationRow key="fly" kind="fly" credentialId="fly" name="Fly.io" detail={`${connection.data.organizationName} (${connection.data.organizationSlug})`} actions={[
       {label: "Edit / verify connection", onClick: () => {action.reset(); setOpen(true);}},
-      {label: "Disconnect", destructive: true, disabled: action.isPending, onClick: () => {if (window.confirm("Disconnect Fly.io? Jobs using this connection will no longer run.")) action.mutate("disconnect");}},
+      {label: "Disconnect", destructive: true, disabled: action.isPending, onClick: () => {if (window.confirm("Disconnect Fly.io? Triggers using this connection will no longer run.")) action.mutate("disconnect");}},
     ]} />] : [],
-    tile: <ProviderTile kind="fly" name="Fly.io" description="Run jobs on Fly Machines in your organization." count={connection.data ? 1 : 0} onAdd={() => {action.reset(); setOpen(true);}} />,
+    tile: <ProviderTile kind="fly" name="Fly.io" description="Run triggers on Fly Machines in your organization." count={connection.data ? 1 : 0} onAdd={() => {action.reset(); setOpen(true);}} />,
     feedback: <>{connection.error && <p role="alert">{connection.error.message}</p>}{!open && action.error && <p role="alert">{action.error.message}</p>}{!open && action.isSuccess && <p role="status">{action.data === "save" ? "Fly.io integration saved." : "Fly.io disconnected."}</p>}</>,
     dialog: open && <Dialog title={connection.data ? "Edit Fly.io integration" : "Add Fly.io integration"} close={close}>
       <form className="mt-4 grid gap-3" onSubmit={event => {event.preventDefault(); action.mutate("save");}}>
@@ -64,7 +64,7 @@ export function FlyExecutionFields({ initial, onDirty, onSaved }: { initial?: Co
     <Label>Fly VM image <Input disabled={save.isPending} value={value.image} maxLength={512} placeholder="ghcr.io/your-org/runner:tag" onChange={e => change({ ...value, image: e.target.value })} /></Label>
     <Label>Fly region <Select disabled={save.isPending} value={value.region} onChange={e => change({ ...value, region: e.target.value })}>{flyRegions.map(region => <option key={region}>{region}</option>)}</Select></Label>
     <Label>Fly VM size <Select disabled={save.isPending} value={value.size} onChange={e => change({ ...value, size: e.target.value })}>{flySizes.map(size => <option key={size}>{size}</option>)}</Select></Label>
-    <p className="text-sm sm:col-span-2">Save these settings as an execution configuration, then create or save the job. Changes create a new configuration so other jobs keep their settings. Use a public image with the prerequisites for your script or Codex agent.</p>
+    <p className="text-sm sm:col-span-2">Save these settings as an execution configuration, then create or save the trigger. Changes create a new configuration so other triggers keep their settings. Use a public image with the tools needed by your workspace or script.</p>
     <Button type="button" disabled={save.isPending || !value.name.trim() || !value.image.trim()} onClick={() => save.mutate()}>Save Fly VM settings</Button>
     {save.error && <p role="alert">{save.error.message}</p>}
   </div>;

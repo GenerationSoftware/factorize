@@ -9,10 +9,10 @@ describe.skipIf(!url)("global search trigram matching (PostgreSQL)", () => {
   let db: Database, admin: Database;
   const databaseName = `search_test_${crypto.randomUUID().replaceAll("-", "")}`;
   const tenant = crypto.randomUUID(), otherTenant = crypto.randomUUID();
-  const job = crypto.randomUUID(), otherJob = crypto.randomUUID();
+  const trigger = crypto.randomUUID(), otherTrigger = crypto.randomUUID();
   const run = crypto.randomUUID(), typoRun = crypto.randomUUID(), privateRun = crypto.randomUUID();
   const invocation = crypto.randomUUID(), typoInvocation = crypto.randomUUID(), privateInvocation = crypto.randomUUID();
-  const trigger = crypto.randomUUID(), typoTrigger = crypto.randomUUID(), privateTrigger = crypto.randomUUID();
+  const event = crypto.randomUUID(), typoEvent = crypto.randomUUID(), privateEvent = crypto.randomUUID();
 
   beforeAll(async () => {
     admin = new Database({ connectionString: url });
@@ -24,16 +24,16 @@ describe.skipIf(!url)("global search trigram matching (PostgreSQL)", () => {
 
     await db.pool.query("INSERT INTO app.tenants(id) VALUES ($1),($2)", [tenant, otherTenant]);
     await db.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES ($1,md5(($1::uuid)::text || ':default')::uuid,'Default'),($2,md5(($2::uuid)::text || ':default')::uuid,'Default')", [tenant, otherTenant]);
-    await db.pool.query(`INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit)
-      VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Deployment Automation','deployment-automation','prompt','{}',1),($3,$4,md5(($3::uuid)::text || ':default')::uuid,'Private Deployment','private-deployment','prompt','{}',1)`, [tenant, job, otherTenant, otherJob]);
-    await db.pool.query(`INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES
-      ($1,$2,$3,'manual','search'),($1,$4,$3,'manual','search-typo'),($5,$6,$7,'manual','search')`, [tenant, trigger, job, typoTrigger, otherTenant, privateTrigger, otherJob]);
-    await db.pool.query(`INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context) VALUES
-      ($1,$2,$3,'manual','search',$4,'{}'),($1,$5,$3,'manual','search-typo',$6,'{}'),($7,$8,$9,'manual','search',$10,'{}')`, [tenant, invocation, job, trigger, typoInvocation, typoTrigger, otherTenant, privateInvocation, otherJob, privateTrigger]);
-    await db.pool.query(`INSERT INTO app.runs(tenant_id,id,job_id,invocation_id,provider,issue_id,issue_title,run_name,agent_name,state,execution_config)
+    await db.pool.query(`INSERT INTO app.triggers(tenant_id,id,project_id,name,slug,encrypted_prompt,execution_config,concurrency_limit)
+      VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Deployment Automation','deployment-automation','prompt','{}',1),($3,$4,md5(($3::uuid)::text || ':default')::uuid,'Private Deployment','private-deployment','prompt','{}',1)`, [tenant, trigger, otherTenant, otherTrigger]);
+    await db.pool.query(`INSERT INTO app.events(tenant_id,id,trigger_id,kind,slug) VALUES
+      ($1,$2,$3,'manual','search'),($1,$4,$3,'manual','search-typo'),($5,$6,$7,'manual','search')`, [tenant, event, trigger, typoEvent, otherTenant, privateEvent, otherTrigger]);
+    await db.pool.query(`INSERT INTO app.invocations(tenant_id,id,trigger_id,source,claim_key,event_id,context) VALUES
+      ($1,$2,$3,'manual','search',$4,'{}'),($1,$5,$3,'manual','search-typo',$6,'{}'),($7,$8,$9,'manual','search',$10,'{}')`, [tenant, invocation, trigger, event, typoInvocation, typoEvent, otherTenant, privateInvocation, otherTrigger, privateEvent]);
+    await db.pool.query(`INSERT INTO app.runs(tenant_id,id,trigger_id,invocation_id,provider,issue_id,issue_title,run_name,agent_name,state,execution_config)
       VALUES ($1,$2,$3,$4,'manual','GEN-2157','Fix punctuation in issue identifiers','Deploy GEN-2157','codex','succeeded',$11),
              ($1,$5,$3,$6,'manual','GEN-2158','A nearby but weaker identifier','Deploy GEN-2158','codex','succeeded',$11),
-             ($7,$8,$9,$10,'manual','GEN-2157','Private issue','Private GEN-2157','codex','succeeded',$11)`, [tenant, run, job, invocation, typoRun, typoInvocation, otherTenant, privateRun, otherJob, privateInvocation, { agentKind: "codex", connectionId: "local" }]);
+             ($7,$8,$9,$10,'manual','GEN-2157','Private issue','Private GEN-2157','codex','succeeded',$11)`, [tenant, run, trigger, invocation, typoRun, typoInvocation, otherTenant, privateRun, otherTrigger, privateInvocation, { agentKind: "codex", connectionId: "local" }]);
     await db.pool.query(`INSERT INTO app.run_trace_events(tenant_id,run_id,sequence,id,event_type,title,preview_text)
       VALUES ($1,$2,1,'trace-search','assistant_message','Rollback summary','The rollback completed successfully')`, [tenant, run]);
   });
@@ -51,9 +51,9 @@ describe.skipIf(!url)("global search trigram matching (PostgreSQL)", () => {
     expect(exact[0]?.id).toBe(run);
   });
 
-  it("matches a representative job-name typo without substring filtering", async () => {
+  it("matches a representative trigger-name typo without substring filtering", async () => {
     const items = (await new OperationsRepository(db, tenant).search("deplyment")).items;
-    expect(items.some(item => item.kind === "job" && item.id === job)).toBe(true);
+    expect(items.some(item => item.kind === "trigger" && item.id === trigger)).toBe(true);
   });
 
   it("excludes unrelated rows and preserves tenant isolation", async () => {

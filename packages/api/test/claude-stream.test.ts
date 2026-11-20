@@ -3,8 +3,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CLAUDE_STREAM_HARNESS } from "../src/claude-stream";
-import { agentDriver } from "../src/agent-driver";
+import { CLAUDE_STREAM_HARNESS } from "./helpers/legacy-claude-stream";
+import { agentDriver } from "./helpers/legacy-agent-fixture";
 import { consumeTraceStream, parseTrace } from "../src/trace";
 
 const fixture = (name: string) => readFile(new URL(`./fixtures/claude-2.1.293/${name}.jsonl`, import.meta.url), "utf8");

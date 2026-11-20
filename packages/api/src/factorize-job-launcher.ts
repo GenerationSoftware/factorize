@@ -12,7 +12,7 @@ import time
 import urllib.error
 import urllib.request
 
-ROOT = pathlib.Path('/home/exedev/.factorize-job')
+ROOT = pathlib.Path('/home/exedev/.factorize-trigger')
 PAYLOAD = ROOT / 'launch.json'
 STATE = ROOT / 'process.json'
 RESULT = ROOT / 'results.json'
@@ -74,7 +74,7 @@ def child_command(payload):
         code = payload['code']
         if not isinstance(code, dict) or not isinstance(code.get('script'), str) or not isinstance(code.get('context'), dict):
             raise ValueError('invalid code launch payload')
-        script = ROOT / 'job.sh'
+        script = ROOT / 'trigger.sh'
         script.write_text(code['script'], encoding='utf-8')
         script.chmod(0o700)
         (ROOT / 'input.json').write_text(json.dumps(code['context']), encoding='utf-8')
@@ -106,7 +106,7 @@ def launch(foreground=False, run_id=None):
         if isinstance(pid, int):
             try: os.kill(pid, 0)
             except ProcessLookupError: pass
-            else: raise RuntimeError('a Factorize job is already active')
+            else: raise RuntimeError('a Factorize trigger is already active')
     save(STATE, {'state': 'starting'})
     payload = load_payload(run_id)
     source = payload.get('traceSources', {}).get('primary', {})
@@ -174,7 +174,7 @@ def status():
     if value.get('state') == 'running' and isinstance(value.get('pid'), int):
         try: os.kill(value['pid'], 0)
         except ProcessLookupError:
-            value = {'state': 'exited', 'exitCode': 127, 'error': 'job supervisor exited without recording a result'}
+            value = {'state': 'exited', 'exitCode': 127, 'error': 'trigger supervisor exited without recording a result'}
             save(STATE, value)
     print(json.dumps(value, separators=(',', ':')))
     return 0
@@ -186,10 +186,10 @@ if __name__ == '__main__':
         elif len(sys.argv) == 5 and sys.argv[1:4] == ['launch', '--foreground', '--fetch-payload']: launch(foreground=True, run_id=sys.argv[4])
         elif len(sys.argv) == 4 and sys.argv[1] == '_run': run(json.loads(sys.argv[2]), sys.argv[3])
         elif sys.argv[1:] == ['status']: raise SystemExit(status())
-        else: raise ValueError('usage: factorize-job launch [--foreground [--fetch-payload RUN_ID]]|status')
+        else: raise ValueError('usage: factorize-trigger launch [--foreground [--fetch-payload RUN_ID]]|status')
     except Exception as error:
         if sys.argv[1:2] == ['launch'] and STATE.exists() and json.loads(STATE.read_text()).get('state') == 'starting':
             save(STATE, {'state': 'exited', 'exitCode': 1, 'error': str(error)[:500]})
-        print('factorize-job: ' + str(error)[:500], file=sys.stderr)
+        print('factorize-trigger: ' + str(error)[:500], file=sys.stderr)
         raise SystemExit(1)
 `;

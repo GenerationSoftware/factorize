@@ -5,8 +5,8 @@ const TOP = 40;
 const WEBHOOK_LEFT = 35;
 const WEBHOOK_GAP = 30;
 
-const jobWidth = 220;
-const jobHeight = 112;
+const triggerWidth = 220;
+const triggerHeight = 112;
 const webhookWidth = 145;
 const webhookHeight = 70;
 
@@ -36,17 +36,17 @@ function stronglyConnectedComponents(ids, edges) {
 }
 
 /**
- * Deterministic layered layout. Enabled automatic and manual job connections define ranks;
- * disabled connections stay visible but do not pull jobs into misleading positions.
+ * Deterministic layered layout. Enabled automatic and manual trigger connections define ranks;
+ * disabled connections stay visible but do not pull triggers into misleading positions.
  * @param {{id:string,type:string,label:string}[]} nodes
  * @param {{source:string,target:string,enabled:boolean}[]} edges
  * @returns {Map<string,{x:number,y:number}>}
  */
 export function positionProjectGraph(nodes, edges) {
-  const jobs = nodes.filter(node => node.type === "job").sort(byId);
-  const jobIds = new Set(jobs.map(node => node.id));
-  const activeEdges = edges.filter(edge => edge.enabled && jobIds.has(edge.source) && jobIds.has(edge.target));
-  const components = stronglyConnectedComponents(jobs.map(node => node.id), activeEdges);
+  const triggers = nodes.filter(node => node.type === "trigger").sort(byId);
+  const triggerIds = new Set(triggers.map(node => node.id));
+  const activeEdges = edges.filter(edge => edge.enabled && triggerIds.has(edge.source) && triggerIds.has(edge.target));
+  const components = stronglyConnectedComponents(triggers.map(node => node.id), activeEdges);
   const componentOf = new Map();
   components.forEach((component, index) => component.forEach(id => componentOf.set(id, index)));
   const outgoing = components.map(() => new Set()), indegree = components.map(() => 0);
@@ -67,14 +67,14 @@ export function positionProjectGraph(nodes, edges) {
   // The condensation graph is acyclic. This fallback keeps malformed/empty input safe.
   for (const index of components.map((_, i) => i)) if (!topological.includes(index)) topological.push(index);
   const layers = new Map();
-  for (const node of jobs) {
+  for (const node of triggers) {
     const value = rank[componentOf.get(node.id)];
     layers.set(value, [...(layers.get(value) ?? []), node]);
   }
   for (const layer of layers.values()) layer.sort(byId);
   const rankKeys = [...layers.keys()].sort((a, b) => a - b);
   let order = new Map(rankKeys.map(key => [key, new Map(layers.get(key).map((node, index) => [node.id, index]))]));
-  const neighbors = new Map(jobs.map(node => [node.id, { incoming: [], outgoing: [] }]));
+  const neighbors = new Map(triggers.map(node => [node.id, { incoming: [], outgoing: [] }]));
   for (const edge of activeEdges) {
     neighbors.get(edge.source).outgoing.push(edge.target);
     neighbors.get(edge.target).incoming.push(edge.source);
@@ -102,9 +102,9 @@ export function positionProjectGraph(nodes, edges) {
   const positions = new Map();
   const centers = new Map();
   for (const key of rankKeys) layers.get(key).forEach((node, row) => {
-    const y = TOP + row * (jobHeight + JOB_GAP_Y);
-    positions.set(node.id, { x: LEFT + key * (jobWidth + JOB_GAP_X), y });
-    centers.set(node.id, y + jobHeight / 2);
+    const y = TOP + row * (triggerHeight + JOB_GAP_Y);
+    positions.set(node.id, { x: LEFT + key * (triggerWidth + JOB_GAP_X), y });
+    centers.set(node.id, y + triggerHeight / 2);
   });
 
   const webhooks = nodes.filter(node => node.type === "webhook").sort((a, b) => {

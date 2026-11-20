@@ -18,16 +18,16 @@ export function ResourceSwitcher({
   const [search, setSearch] = useState("");
   const [active, setActive] = useState(0);
   const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
+  const event = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const options = useMemo(() => items.filter(item => item.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())), [items, search]);
   const listId = `${kind.toLocaleLowerCase()}-switcher-options`;
 
   useEffect(() => {
     if (!open) return;
-    const pointer = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-    const key = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setOpen(false); trigger.current?.focus(); }
+    const pointer = (inputEvent: PointerEvent) => { if (!root.current?.contains(inputEvent.target as Node)) setOpen(false); };
+    const key = (inputEvent: KeyboardEvent) => {
+      if (inputEvent.key === "Escape") { setOpen(false); event.current?.focus(); }
     };
     document.addEventListener("pointerdown", pointer);
     document.addEventListener("keydown", key);
@@ -36,7 +36,7 @@ export function ResourceSwitcher({
 
   const select = (id: string) => { setOpen(false); setSearch(""); onSelect(id); };
   return <div ref={root} className="relative flex min-w-0 items-center">
-    <button ref={trigger} type="button" aria-label={`Switch ${kind.toLocaleLowerCase()}`} aria-haspopup="listbox" aria-expanded={open}
+    <button ref={event} type="button" aria-label={`Switch ${kind.toLocaleLowerCase()}`} aria-haspopup="listbox" aria-expanded={open}
       className={`flex h-8 shrink-0 items-center justify-center rounded-md text-slate-600 hover:bg-stone-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-factorize-500 dark:text-slate-300 dark:hover:bg-slate-800 ${compact ? "-mr-2 w-6 pr-2" : "w-8 p-1.5 sm:ml-1"}`}
       onClick={() => { setOpen(value => !value); setSearch(""); setActive(0); requestAnimationFrame(() => input.current?.focus()); }}>
       <svg aria-hidden="true" viewBox="0 0 20 20" className="size-4 fill-current"><path d="m5 7 5 5 5-5" /></svg>
@@ -45,11 +45,11 @@ export function ResourceSwitcher({
       <label className="sr-only" htmlFor={`${kind.toLocaleLowerCase()}-switcher-search`}>Search {kind.toLocaleLowerCase()}s</label>
       <input ref={input} id={`${kind.toLocaleLowerCase()}-switcher-search`} role="combobox" aria-autocomplete="list" aria-controls={listId} aria-expanded="true"
         aria-activedescendant={options[active] ? `${kind.toLocaleLowerCase()}-option-${options[active].id}` : undefined} value={search}
-        onChange={event => { setSearch(event.target.value); setActive(0); }}
-        onKeyDown={event => {
-          if (event.key === "ArrowDown") { event.preventDefault(); setActive(index => Math.min(index + 1, options.length - 1)); }
-          else if (event.key === "ArrowUp") { event.preventDefault(); setActive(index => Math.max(index - 1, 0)); }
-          else if (event.key === "Enter" && options[active]) { event.preventDefault(); select(options[active].id); }
+        onChange={inputEvent => { setSearch(inputEvent.target.value); setActive(0); }}
+        onKeyDown={inputEvent => {
+          if (inputEvent.key === "ArrowDown") { inputEvent.preventDefault(); setActive(index => Math.min(index + 1, options.length - 1)); }
+          else if (inputEvent.key === "ArrowUp") { inputEvent.preventDefault(); setActive(index => Math.max(index - 1, 0)); }
+          else if (inputEvent.key === "Enter" && options[active]) { inputEvent.preventDefault(); select(options[active].id); }
         }} placeholder={`Search ${kind.toLocaleLowerCase()}s…`}
         className="h-10 w-full rounded-lg border border-stone-300 bg-white px-3 text-sm outline-none focus:border-factorize-500 focus:ring-2 focus:ring-factorize-500/30 dark:border-slate-700 dark:bg-slate-950" />
       <ul id={listId} role="listbox" aria-label={`${kind}s`} className="mt-2 max-h-64 overflow-y-auto">
@@ -59,7 +59,7 @@ export function ResourceSwitcher({
         {!loading && !error && items.length > 0 && options.length === 0 && <li className="px-3 py-2 text-sm text-slate-500">No matching {kind.toLocaleLowerCase()}s.</li>}
         {options.map((item, index) => <li key={item.id} id={`${kind.toLocaleLowerCase()}-option-${item.id}`} role="option" aria-selected={item.id === currentId}
           className={`cursor-pointer rounded-lg px-3 py-2 text-sm ${index === active ? "bg-factorize-50 text-slate-950 dark:bg-slate-800 dark:text-white" : "text-slate-700 dark:text-slate-200"}`}
-          onMouseEnter={() => setActive(index)} onMouseDown={event => event.preventDefault()} onClick={() => select(item.id)}>
+          onMouseEnter={() => setActive(index)} onMouseDown={inputEvent => inputEvent.preventDefault()} onClick={() => select(item.id)}>
           <span className="block truncate">{item.name}</span>{item.id === currentId && <span className="ml-2 text-xs text-slate-500">Current</span>}
         </li>)}
       </ul>

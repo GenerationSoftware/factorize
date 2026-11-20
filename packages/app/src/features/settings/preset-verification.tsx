@@ -3,12 +3,12 @@ import { api } from "factorize-api-client";
 import { Button } from "../../shared/ui";
 import { messageOf } from "../auth/session";
 
-export function PresetVerification({ connectionId, image, tags, agentKind }: {
-  connectionId: string; image: string; tags: string[]; agentKind: "codex" | "claude" | "pi";
+export function PresetVerification({ connectionId, image, tags }: {
+  connectionId: string; image: string; tags: string[];
 }) {
   const start = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/api/v1/vm-image-verifications", { body: { connectionId, image, tags, agentKind, executionType: "agent" } });
+      const { data, error } = await api.POST("/api/v1/vm-image-verifications", { body: { connectionId, image, tags } });
       if (!data || error) throw new Error(messageOf(error));
       return data;
     },

@@ -1,19 +1,20 @@
 ---
-title: Write job prompts
-description: Use stable trigger context and explicit execution instructions.
+title: Write Trigger context
+description: Combine one optional skill, a literal prompt, and selected Event data.
 ---
 
-Write the repository URL, checkout branch/ref, task, validation and reporting requirements explicitly. execution integrations select an account/agent, not a repository. Example:
+An agent Trigger has one optional skill and one optional prompt. The skill body and prompt remain literal, including any Mustache-looking text. Put repository, task, validation, and reporting instructions in either.
 
-```text
-Clone https://github.com/YOUR_ORG/YOUR_REPO.git. Review the latest commit,
-run relevant tests, and report problems with file paths and evidence.
-Additional request: {{trigger-1.prompt}}
-Manual data: {{trigger-1.data}}
-```
+Each Event has an optional Mustache `template`. Only the firing Event's template contributes text. A missing or blank template contributes nothing, regardless of payload size. Use selected fields for salient details, for example `Issue {{issue.identifier}}: {{issue.title}}`. `{{webhook}}` explicitly inserts the full normalized webhook Event object. It is never included automatically.
 
-Use `get_job` to discover each trigger's stable `slug` and `reflection.paths`. Never assume an automatic trigger is `trigger-1`. Mustache renders only the firing trigger's context: manual has `prompt` and `data`; schedule currently has `occurredAt`, `externalId` and `metadata.timezone`; provider context contains prepared delivery fields (Linear `issue`, ClickUp `task`); terminal lifecycle currently has `sourceJobId`, `sourceRunId`, `state`, `completedAt`; edited has `source_job_id`, `event`, `edited_at`. Current reflection still describes older snake_case terminal fields: use the persisted run context as the authority.
+Agent input is composed in this order: skill instructions, Trigger prompt, rendered Event text, and manual caller instructions. Empty sections are omitted. A skill-only run is valid. An agent invocation with no skill or effective instructions fails before a run is queued or a VM is provisioned. Script Triggers retain their script editor and structured input context.
 
-Missing/null scalar paths become empty text. Objects and arrays interpolate as compact JSON; array order is preserved and object keys sorted. Double braces preserve plain-text URLs, quotes, Markdown and code; triple braces are also supported. Sections use original context truthiness and array iteration. There are no global parameter defaults/overrides.
+Inside an Event template, fields are available directly. Manual Events have `prompt` and `data`; scheduled Events have `occurredAt`, `externalId`, and `metadata.timezone`; provider Events include prepared delivery fields such as Linear `issue` and ClickUp `task`. Terminal lifecycle Events have `sourceTriggerId`, `sourceRunId`, `state`, `completedAt`, and `outputs`. Edited Events have `source_trigger_id`, `event`, and `edited_at`. Idle Events have `source_trigger_id`, `event`, and `completed_at`.
 
-After creating an automatic trigger, read its returned slug, then safely replace the full configuration to reference that slug. For example `{{trigger-2.issue.title}}` only works if that is the actual Linear trigger. Verify the rendered `prompt` and complete `context` with `get_run`. See the [full context contract](https://github.com/GenerationSoftware/factorize/blob/main/docs/job-trigger-context.md).
+Run-name templates retain access to structured Event data even when that Event has no prompt template. Returned Event slugs form stable namespaces, for example `{{event-2.issue.title}}`. Use the actual returned slug. Event namespaces take precedence over identically named payload fields. Full raw fields remain available through `{{webhook}}` for webhook Events.
+
+Missing/null scalar paths become empty text. Objects and arrays interpolate as compact JSON with sorted object keys and preserved array order. Double braces preserve URLs, quotes, Markdown, and code as plain text. Sections and array iteration use the original structured values.
+
+In Context settings, select an Event and open **Preview run context**. Supply a sample Event data object and optional manual instructions. REST `POST /api/v1/triggers/preview` and MCP `preview_trigger_prompt` use the same renderer. Preview includes the effective prompt and run name without saving or executing.
+
+The cutover preserves old prompt ciphertext and skill links. Existing global templates are copied into Events. Triggers that previously selected multiple skills are paused until one explicit context choice is saved. Historical accepted skill snapshots and run prompts remain readable.

@@ -71,7 +71,7 @@ describe.skipIf(!databaseUrl)("owner-only managed credential API (PostgreSQL)", 
       }), f.env, { waitUntil() {} } as any);
       const createBody = {
         id, expectedRevision: 0, idempotencyKey: crypto.randomUUID(), name: "Work account",
-        description: "Personal subscription", initialState: "{}",
+        description: "Provider", providerUrl:"https://model.fixture/v1",
       };
       const created = await request(path, "POST", createBody);
       expect(created.status).toBe(201);
@@ -80,7 +80,7 @@ describe.skipIf(!databaseUrl)("owner-only managed credential API (PostgreSQL)", 
 
       const listed = await request(path);
       expect(listed.status).toBe(200);
-      expect(await listed.json()).toEqual({ revision: 1, accounts: [{ id, name: "Work account", description: "Personal subscription", revision: 1, credentialConfigured: false }] });
+      expect(await listed.json()).toEqual({ revision: 1, accounts: [{ id, name: "Work account", description: "Provider", revision: 1, credentialConfigured: true,providerUrl:"https://model.fixture/v1",contextWindow:128000,maxTokens:8192 }] });
 
       const stale = await request(path + `/${id}`, "DELETE", { expectedRevision: 0, idempotencyKey: crypto.randomUUID() });
       expect(stale.status).toBe(409);

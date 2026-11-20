@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExeVmBackend } from "../src/exe-vm-backend";
 import { HARNESS_LOG_LIMIT, safeDiagnosticText, terminalDiagnostics } from "../src/harness-diagnostics";
-import { agentDriver } from "../src/agent-driver";
+import { agentDriver } from "./helpers/legacy-agent-fixture";
 
 afterEach(() => vi.unstubAllGlobals());
 const handle = { backendKind: "exe-vm", id: "factorize-test" };

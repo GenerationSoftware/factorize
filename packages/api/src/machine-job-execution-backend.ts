@@ -1,9 +1,9 @@
 import type { ExecutionBackend, ExecutionObservation, LaunchReceipt, LaunchRequest, RunHandle } from "./execution";
-export type JobMachine = { id: string; name?: string; state?: string; config?: { metadata?: Record<string, string> } };
-export type JobMachineConfig = Record<string, unknown> & { metadata?: Record<string, string> };
+export type TriggerMachine = { id: string; name?: string; state?: string; config?: { metadata?: Record<string, string> } };
+export type TriggerMachineConfig = Record<string, unknown> & { metadata?: Record<string, string> };
 import { serializeLaunchPayload } from "./launch-payload";
 import { safeDiagnosticText } from "./harness-diagnostics";
-import type { TraceChunkCollectionRequest, ArtifactCollectionRequest, ArtifactCollector, ExecutionTerminator, HarnessLogReader, JobFileCollectionRequest, JobFileCollector, JobResultReader } from "./execution";
+import type { TraceChunkCollectionRequest, ArtifactCollectionRequest, ArtifactCollector, ExecutionTerminator, HarnessLogReader, TriggerFileCollectionRequest, TriggerFileCollector, TriggerResultReader } from "./execution";
 import { sourceCommand } from "./trace-source";
 import { FACTORIZE_JOB_LAUNCHER } from "./factorize-job-launcher";
 import { traceChunkCommand } from "./guest-artifact-commands";
@@ -14,16 +14,16 @@ import { acquireFlyMachineOidcToken } from "./vendor-run-token-sources";
 
 const SUPPORTED_CODEX_CLI_VERSION = "codex-cli 0.167.1";
 
-export type JobMachines = {
-  findMachineByOperationId?(app: string, operationId: string): Promise<JobMachine | undefined>;
-  createMachine(app: string, config: JobMachineConfig, operationId: string): Promise<JobMachine>;
-  inspectMachine(app: string, machine: string): Promise<JobMachine>;
+export type TriggerMachines = {
+  findMachineByOperationId?(app: string, operationId: string): Promise<TriggerMachine | undefined>;
+  createMachine(app: string, config: TriggerMachineConfig, operationId: string): Promise<TriggerMachine>;
+  inspectMachine(app: string, machine: string): Promise<TriggerMachine>;
   startMachine(app: string, machine: string): Promise<void>;
   stopMachine(app: string, machine: string): Promise<void>;
   destroyMachine(app: string, machine: string): Promise<void>;
 };
 
-export type JobGuest = {
+export type TriggerGuest = {
   run(command: readonly string[], input?: string | Uint8Array): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   upload?(path: string, bytes: Uint8Array): Promise<void>;
   download?(path: string): Promise<Uint8Array>;
@@ -32,8 +32,8 @@ export type JobGuest = {
 const capabilities = ["stop", "recovery"] as const;
 
 /** Shared Machine lifecycle orchestration. Machine creation is idempotent by run ID;
- * job payload delivery is a separate guest operation and never enters machine config. */
-export class MachineJobExecutionBackend implements ExecutionBackend, JobResultReader, HarnessLogReader, JobFileCollector, ArtifactCollector, ExecutionTerminator {
+ * trigger payload delivery is a separate guest operation and never enters machine config. */
+export class MachineTriggerExecutionBackend implements ExecutionBackend, TriggerResultReader, HarnessLogReader, TriggerFileCollector, ArtifactCollector, ExecutionTerminator {
   get kind(): string { return this.options.kind; }
   readonly capabilities = capabilities;
 
@@ -41,14 +41,14 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
     private readonly options: {
       kind: "fly";
       prepare?: () => Promise<void>;
-      machineConfig: (request: LaunchRequest) => JobMachineConfig;
+      machineConfig: (request: LaunchRequest) => TriggerMachineConfig;
       app: string;
       image: string;
-      machines: JobMachines;
-      guest: (machine: JobMachine) => JobGuest;
-      destinationUrl?: (machine: JobMachine) => string;
+      machines: TriggerMachines;
+      guest: (machine: TriggerMachine) => TriggerGuest;
+      destinationUrl?: (machine: TriggerMachine) => string;
       vendorIdentityAudience?: (runId: string) => string;
-      vendorIdentitySubject?: (machine: JobMachine) => string;
+      vendorIdentitySubject?: (machine: TriggerMachine) => string;
       vendorIdentityIssuer?: string;
       verifyVendorIdentity?: (input: { provider: "exe.dev" | "fly.io"; vmId: string; token: string; integrationName?: string; expectedIssuer?: string; expectedSubject?: string }) => Promise<void>;
     },
@@ -97,12 +97,12 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
         await verifyVendorIdentity({ provider: "fly.io", vmId: machine.id, token, ...(this.options.vendorIdentityIssuer ? { expectedIssuer: this.options.vendorIdentityIssuer } : {}), ...(expectedSubject ? { expectedSubject } : {}) });
       }
       const tunnelPrerequisites = request.runIdentity ? " && command -v node >/dev/null && command -v curl >/dev/null" : "";
-      const installed = await guest.run(["/bin/sh", "-c", `command -v python3 >/dev/null && command -v runuser >/dev/null${tunnelPrerequisites} && id exedev >/dev/null && mkdir -p /usr/local/bin && install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job && cat > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job`], FACTORIZE_JOB_LAUNCHER);
+      const installed = await guest.run(["/bin/sh", "-c", `command -v python3 >/dev/null && command -v runuser >/dev/null${tunnelPrerequisites} && id exedev >/dev/null && mkdir -p /usr/local/bin && install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-trigger && cat > /usr/local/bin/factorize-trigger && chmod 0755 /usr/local/bin/factorize-trigger`], FACTORIZE_JOB_LAUNCHER);
       if (!installed.ok) throw new Error("Fly guest is missing the shared launcher or vendor identity helper prerequisites");
       if (request.harness?.executable === "codex") {
         const version = await guest.run(["/usr/sbin/runuser", "-u", "exedev", "--", "codex", "--version"]);
         if (!version.ok || version.stdout.trim() !== SUPPORTED_CODEX_CLI_VERSION) {
-          throw new Error(`Fly guest requires ${SUPPORTED_CODEX_CLI_VERSION} for Codex jobs`);
+          throw new Error(`Fly guest requires ${SUPPORTED_CODEX_CLI_VERSION} for Codex triggers`);
         }
       }
       if (request.runIdentity) {
@@ -117,10 +117,10 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
       }
       const payload = serializeLaunchPayload(request);
       const launchCommand = request.runIdentity
-        ? ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/bin/env", "FACTORIZE_PROXY_URL=http://127.0.0.1:18180", "/usr/local/bin/factorize-job", "launch"]
-        : ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"];
+        ? ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/bin/env", "FACTORIZE_PROXY_URL=http://127.0.0.1:18180", "/usr/local/bin/factorize-trigger", "launch"]
+        : ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-trigger", "launch"];
       const started = await guest.run(launchCommand, `${payload}\n`);
-      if (!started.ok || started.stdout.trim() !== "started") throw new Error("Fly guest did not confirm job launch");
+      if (!started.ok || started.stdout.trim() !== "started") throw new Error("Fly guest did not confirm trigger launch");
       return {
         handle: actualHandle,
         destinationUrl: this.options.destinationUrl?.(machine) ?? `${this.kind}://${this.options.app}/${machine.id}`,
@@ -158,10 +158,10 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
           }
         }
         try {
-          const result = await this.options.guest(machine).run(["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "status"]);
+          const result = await this.options.guest(machine).run(["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-trigger", "status"]);
           if (result.ok) {
             const process = JSON.parse(result.stdout) as { state?: string; exitCode?: number };
-            if (process.state === "exited") return process.exitCode === 0 ? { state: "succeeded" } : { state: "failed", detail: "The guest job process exited unsuccessfully", failure: { source: "run", code: "process_failed", reason: "The guest job process exited unsuccessfully" } };
+            if (process.state === "exited") return process.exitCode === 0 ? { state: "succeeded" } : { state: "failed", detail: "The guest trigger process exited unsuccessfully", failure: { source: "run", code: "process_failed", reason: "The guest trigger process exited unsuccessfully" } };
           }
         } catch { /* Guest status may be temporarily unavailable while booting. */ }
         return { state: "running" };
@@ -173,7 +173,7 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
     }
   }
 
-  private async guestFor(handle: RunHandle): Promise<JobGuest> {
+  private async guestFor(handle: RunHandle): Promise<TriggerGuest> {
     const machine = await this.machineId(handle);
     if (!machine) throw new Error("Fly Machine for the persisted run operation was not found");
     return this.options.guest({ id: machine });
@@ -185,12 +185,12 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
     return guest.download(path);
   }
 
-  async readJobResult(handle: RunHandle): Promise<string | null> {
+  async readTriggerResult(handle: RunHandle): Promise<string | null> {
     const guest = await this.guestFor(handle);
-    const exists = await guest.run(["/bin/sh", "-c", "test -f /home/exedev/.factorize-job/results.json && printf present || printf missing"]);
+    const exists = await guest.run(["/bin/sh", "-c", "test -f /home/exedev/.factorize-trigger/results.json && printf present || printf missing"]);
     if (!exists.ok) throw new Error("Fly structured result availability check failed");
     if (exists.stdout.trim() === "missing") return null;
-    const bytes = await this.download(handle, "/home/exedev/.factorize-job/results.json");
+    const bytes = await this.download(handle, "/home/exedev/.factorize-trigger/results.json");
     if (bytes.byteLength > 65_536) return "OVERSIZE";
     try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
     catch { throw new Error("Fly structured result is not valid UTF-8"); }
@@ -203,27 +203,27 @@ export class MachineJobExecutionBackend implements ExecutionBackend, JobResultRe
     return safeDiagnosticText(new TextDecoder().decode(await this.download(handle, result.stdout.trim())), 256 * 1024);
   }
 
-  async listJobFiles(handle: RunHandle): Promise<string[]> {
-    const result = await (await this.guestFor(handle)).run(["/bin/sh", "-c", "find /home/exedev/.factorize-job -mindepth 1 -type f ! -name results.json -printf '%P\\t%s\\n'"]);
-    if (!result.ok) throw new Error("Fly job output directory collection failed");
+  async listTriggerFiles(handle: RunHandle): Promise<string[]> {
+    const result = await (await this.guestFor(handle)).run(["/bin/sh", "-c", "find /home/exedev/.factorize-trigger -mindepth 1 -type f ! -name results.json -printf '%P\\t%s\\n'"]);
+    if (!result.ok) throw new Error("Fly trigger output directory collection failed");
     const paths: string[] = []; let total = 0;
     for (const line of result.stdout.split("\n").filter(Boolean)) {
       const match = /^([^\t\r\0]+)\t(\d+)$/.exec(line);
-      if (!match || match[1]!.startsWith("/") || match[1]!.split("/").some(part => !part || part === "." || part === "..") || /[\\\r\n]/.test(match[1]!)) throw new Error("Fly job output directory contains an unsafe path");
+      if (!match || match[1]!.startsWith("/") || match[1]!.split("/").some(part => !part || part === "." || part === "..") || /[\\\r\n]/.test(match[1]!)) throw new Error("Fly trigger output directory contains an unsafe path");
       const size = Number(match[2]);
-      if (!Number.isSafeInteger(size) || size > 10 * 1024 * 1024) throw new Error("A Fly job output file exceeds the 10 MiB per-file limit");
-      total += size; if (total > 50 * 1024 * 1024) throw new Error("Fly job output directory exceeds the 50 MiB total limit");
+      if (!Number.isSafeInteger(size) || size > 10 * 1024 * 1024) throw new Error("A Fly trigger output file exceeds the 10 MiB per-file limit");
+      total += size; if (total > 50 * 1024 * 1024) throw new Error("Fly trigger output directory exceeds the 50 MiB total limit");
       paths.push(match[1]!);
     }
-    if (paths.length > 100) throw new Error("Fly job output directory exceeds the 100 file limit");
+    if (paths.length > 100) throw new Error("Fly trigger output directory exceeds the 100 file limit");
     return paths;
   }
 
-  async collectJobFile(handle: RunHandle, request: JobFileCollectionRequest) {
-    const file = `/home/exedev/.factorize-job/${request.path}`;
-    const command = `set -eu; file=${shellAtom(file)}; test -f "$file"; test ! -L "$file"; real=$(realpath -- "$file"); case "$real" in /home/exedev/.factorize-job/*) ;; *) exit 41;; esac; size=$(wc -c < "$file" | tr -d ' '); test "$size" -le 10485760; sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H 'Content-Type: application/octet-stream' -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(runArtifactTarget(handle, request.uploadUrl))}`;
+  async collectTriggerFile(handle: RunHandle, request: TriggerFileCollectionRequest) {
+    const file = `/home/exedev/.factorize-trigger/${request.path}`;
+    const command = `set -eu; file=${shellAtom(file)}; test -f "$file"; test ! -L "$file"; real=$(realpath -- "$file"); case "$real" in /home/exedev/.factorize-trigger/*) ;; *) exit 41;; esac; size=$(wc -c < "$file" | tr -d ' '); test "$size" -le 10485760; sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H 'Content-Type: application/octet-stream' -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(runArtifactTarget(handle, request.uploadUrl))}`;
     const result = await (await this.guestFor(handle)).run(["/bin/sh", "-c", command]);
-    return {ok: result.ok, detail: result.ok ? undefined : "Fly job file upload failed"};
+    return {ok: result.ok, detail: result.ok ? undefined : "Fly trigger file upload failed"};
   }
 
   async collectArtifact(handle: RunHandle, request: ArtifactCollectionRequest) {

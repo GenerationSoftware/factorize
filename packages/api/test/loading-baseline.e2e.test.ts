@@ -24,11 +24,11 @@ describe.skipIf(!databaseUrl)("cookie loading baseline", () => {
   afterAll(async () => { await browser?.close(); vi.restoreAllMocks(); await fixture?.cleanup(); });
   it("records endpoint latency and navigation-to-useful-content for requested authenticated screens", async () => {
     const cases = [
-      { name: "Jobs", page: "/jobs", endpoint: "/api/v1/jobs", selector: "main a[href^='/jobs/']" },
-      { name: "Job detail", page: `/jobs/${fixture.jobIds[0]}`, endpoint: `/api/v1/jobs/${fixture.jobIds[0]}`, selector: "main h1" },
-      { name: "Run detail", page: `/job-runs/${fixture.runId}`, endpoint: `/api/v1/runs/${fixture.runId}`, selector: "main h1" },
-      { name: "Job create", page: "/jobs/new", endpoint: "/api/v1/execution-integrations", selector: "main select option[value='local']" },
-      { name: "Job edit", page: `/jobs/${fixture.jobIds[0]}/edit`, endpoint: `/api/v1/jobs/${fixture.jobIds[0]}`, selector: "main select option[value='local']" },
+      { name: "Triggers", page: "/triggers", endpoint: "/api/v1/triggers", selector: "main a[href^='/triggers/']" },
+      { name: "Trigger detail", page: `/triggers/${fixture.triggerIds[0]}`, endpoint: `/api/v1/triggers/${fixture.triggerIds[0]}`, selector: "main h1" },
+      { name: "Run detail", page: `/runs/${fixture.runId}`, endpoint: `/api/v1/runs/${fixture.runId}`, selector: "main h1" },
+      { name: "Trigger create", page: "/triggers/new", endpoint: "/api/v1/execution-integrations", selector: "main select option[value='local']" },
+      { name: "Trigger edit", page: `/triggers/${fixture.triggerIds[0]}/edit`, endpoint: `/api/v1/triggers/${fixture.triggerIds[0]}`, selector: "main select option[value='local']" },
       { name: "Integrations", page: "/integrations", endpoint: "/api/v1/integrations", selector: "main h1" },
       { name: "API Keys", page: "/settings/api-keys", endpoint: "/api/v1/access-tokens", selector: "main h1" },
     ];
@@ -60,11 +60,11 @@ describe.skipIf(!databaseUrl)("cookie loading baseline", () => {
       }
       report.push({ screen: scenario.name, endpoint: summarize(api), useful_content: summarize(content) });
     }
-    const indexes = (await fixture.db.pool.query("SELECT indexname,indexdef FROM pg_indexes WHERE schemaname='app' AND tablename='job_runs' ORDER BY indexname")).rows;
+    const indexes = (await fixture.db.pool.query("SELECT indexname,indexdef FROM pg_indexes WHERE schemaname='app' AND tablename='trigger_runs' ORDER BY indexname")).rows;
     const batchedSql = (vi.mocked(fixture.db.pool.query).mock.calls as any[]).map(args => args[0]).find(sql => typeof sql === "string" && sql.includes("WITH selected_runs"));
-    const oldSql = "SELECT count(*) FILTER (WHERE state IN ('starting','running','blocked','stopping'))::text running_count,(array_agg(state ORDER BY created_at DESC))[1] last_run_state FROM app.job_runs WHERE tenant_id=$1 AND job_id=$2";
+    const oldSql = "SELECT count(*) FILTER (WHERE state IN ('starting','running','blocked','stopping'))::text running_count,(array_agg(state ORDER BY created_at DESC))[1] last_run_state FROM app.trigger_runs WHERE tenant_id=$1 AND trigger_id=$2";
     const plans: Record<string, unknown> = {};
-    for (const [name, sql, values] of [["old_single_job", oldSql, [fixture.tenantId, fixture.jobIds[0]]], ...(batchedSql ? [["new_batch", batchedSql, [fixture.tenantId, fixture.jobIds]]] : [])] as [string, string, unknown[]][]) {
+    for (const [name, sql, values] of [["old_single_trigger", oldSql, [fixture.tenantId, fixture.triggerIds[0]]], ...(batchedSql ? [["new_batch", batchedSql, [fixture.tenantId, fixture.triggerIds]]] : [])] as [string, string, unknown[]][]) {
       plans[name] = (await fixture.db.pool.query("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + sql, values)).rows[0]["QUERY PLAN"];
     }
     const result = { samples: 5, query_delay_ms: delayMs, environment: "Disposable local PostgreSQL; signed cookie Worker dispatch; headless Chromium with compiled static assets; intercepted HTTP, no Cloudflare/Hyperdrive/network transit", results: report, indexes, plans };

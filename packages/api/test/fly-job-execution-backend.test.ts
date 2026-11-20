@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { FlyJobExecutionBackend } from "../src/fly-job-execution-backend";
-import { agentDriver } from "../src/agent-driver";
+import { FlyTriggerExecutionBackend } from "../src/fly-job-execution-backend";
+import { agentDriver } from "./helpers/legacy-agent-fixture";
 
 const machine = { id: "machine-1", name: "machine-name", state: "created" };
 function fixture() {
@@ -20,11 +20,11 @@ function fixture() {
     upload: vi.fn(async (_path: string, _bytes: Uint8Array) => undefined),
     download: vi.fn(async (path: string) => new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "saved log")),
   };
-  const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest });
+  const backend = new FlyTriggerExecutionBackend({ app: "factorize-test", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest });
   return { backend, machines, guest };
 }
 
-describe("Fly job execution backend", () => {
+describe("Fly trigger execution backend", () => {
   it("reserves a stable launch identity and delivers code payload after starting the Machine", async () => {
     const f = fixture();
     const runId = "11111111-1111-4111-8111-111111111111";
@@ -38,19 +38,19 @@ describe("Fly job execution backend", () => {
       restart: { policy: "no" },
     }), runId);
     expect(f.machines.startMachine).toHaveBeenCalledWith("factorize-test", "machine-1");
-    expect(f.guest.run).toHaveBeenNthCalledWith(1, ["/bin/sh", "-c", expect.stringContaining("factorize-job")], expect.stringContaining("#!/usr/bin/env python3"));
-    expect(f.guest.run).toHaveBeenNthCalledWith(2, ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"], expect.stringContaining('"script":"echo ok"'));
+    expect(f.guest.run).toHaveBeenNthCalledWith(1, ["/bin/sh", "-c", expect.stringContaining("factorize-trigger")], expect.stringContaining("#!/usr/bin/env python3"));
+    expect(f.guest.run).toHaveBeenNthCalledWith(2, ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-trigger", "launch"], expect.stringContaining('"script":"echo ok"'));
     expect(receipt).toMatchObject({ handle: { backendKind: "fly", id: "factorize-test/machine-1" }, observation: { state: "running" } });
     expect(JSON.stringify(f.machines.createMachine.mock.calls)).not.toContain("echo ok");
   });
 
-  it("verifies the Fly Machine OIDC token before installing or launching the job", async () => {
+  it("verifies the Fly Machine OIDC token before installing or launching the trigger", async () => {
     const f = fixture();
     const token = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL29pZGMuZmx5LmlvL2ZhY3Rvcml6ZS10ZXN0In0.c2ln";
     f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: token, stderr: "" });
     const verify = vi.fn(async () => undefined);
     const runId = "11111111-1111-4111-8111-111111111111";
-    const backend = new FlyJobExecutionBackend({ app: "factorize-test", organizationSlug: "factorize-org", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
+    const backend = new FlyTriggerExecutionBackend({ app: "factorize-test", organizationSlug: "factorize-org", image: "ghcr.io/acme/code:v1", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
     const receipt = await backend.launch({ runId, prompt: "work" });
     expect(receipt.observation.state).toBe("running");
     expect(f.guest.run.mock.calls[0]?.[0]).toContain("http://localhost/v1/tokens/oidc");
@@ -65,7 +65,7 @@ describe("Fly job execution backend", () => {
     f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: token, stderr: "" });
     f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: '{"state":"running"}', stderr: "" });
     const verify = vi.fn(async () => undefined);
-    const backend = new FlyJobExecutionBackend({ app: "factorize-test", organizationSlug: "factorize-org", image: "image", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
+    const backend = new FlyTriggerExecutionBackend({ app: "factorize-test", organizationSlug: "factorize-org", image: "image", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify });
     await backend.inspect({ backendKind: "fly", id: "factorize-test/machine-1", operationId: "11111111-1111-4111-8111-111111111111" });
     expect(verify).toHaveBeenCalledWith({ provider: "fly.io", vmId: machine.id, token,
       expectedIssuer: "https://oidc.fly.io/factorize-org", expectedSubject: "factorize-org:factorize-test:machine-name" });
@@ -80,7 +80,7 @@ describe("Fly job execution backend", () => {
     const f = fixture(), verify = vi.fn(async () => undefined), prepare = vi.fn(async () => undefined);
     const token = "header.claims.signature";
     f.guest.run.mockResolvedValueOnce({ok: true, exitCode: 0, stdout: token, stderr: ""});
-    const backend = new FlyJobExecutionBackend({app: "factorize-test", organizationSlug: "factorize-org", image: "image", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify, prepare});
+    const backend = new FlyTriggerExecutionBackend({app: "factorize-test", organizationSlug: "factorize-org", image: "image", region: "iad", size: "shared-cpu-1x", machines: f.machines, guest: () => f.guest, verifyVendorIdentity: verify, prepare});
     const runId = "11111111-1111-4111-8111-111111111111";
     const result = await backend.launch({runId, prompt: "work", runIdentity: {backendOrigin: "https://factorize.example.com"}});
     expect(result.observation.state).toBe("running");
@@ -113,18 +113,18 @@ describe("Fly job execution backend", () => {
       id: "factorize-test/machine-1",
     })).resolves.toMatchObject({
       state: "failed",
-      detail: "The guest job process exited unsuccessfully",
+      detail: "The guest trigger process exited unsuccessfully",
       failure: { source: "run", code: "process_failed" },
     });
 
     expect(f.guest.run).toHaveBeenCalledWith([
-      "/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "status",
+      "/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-trigger", "status",
     ]);
   });
 
   it("uses the selected custom image, region, and size for Codex launches", async () => {
     const f = fixture();
-    const backend = new FlyJobExecutionBackend({
+    const backend = new FlyTriggerExecutionBackend({
       app: "factorize-test", image: "registry.example/factorize-codex:reviewed",
       region: "ord", size: "performance-2x", machines: f.machines, guest: () => f.guest,
     });
@@ -142,7 +142,7 @@ describe("Fly job execution backend", () => {
       restart: { policy: "no" },
     }), runId);
     expect(f.guest.run).toHaveBeenLastCalledWith(
-      ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"],
+      ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-trigger", "launch"],
       expect.stringContaining('"executable":"codex"'),
     );
     expect(receipt.observation).toMatchObject({ state: "running" });
@@ -166,7 +166,7 @@ describe("Fly job execution backend", () => {
       handle: { backendKind: "fly", id: "factorize-test/machine-1" },
       observation: {
         state: "failed",
-        detail: "Fly guest requires codex-cli 0.167.1 for Codex jobs",
+        detail: "Fly guest requires codex-cli 0.167.1 for Codex triggers",
         failure: { code: "launch_failed" },
       },
     });
@@ -178,7 +178,7 @@ describe("Fly job execution backend", () => {
   it("lets custom image setup finish before invoking the shared launcher without replacing its entrypoint", async () => {
     const f = fixture();
     const runId = "11111111-1111-4111-8111-111111111111";
-    const backend = new FlyJobExecutionBackend({
+    const backend = new FlyTriggerExecutionBackend({
       app: "factorize-test", image: "registry.example/custom-code:reviewed",
       region: "ord", size: "performance-2x", machines: f.machines, guest: () => f.guest,
     });
@@ -202,7 +202,7 @@ describe("Fly job execution backend", () => {
     expect(f.machines.startMachine.mock.invocationCallOrder[0]).toBeLessThan(f.guest.run.mock.invocationCallOrder[0]!);
     expect(f.guest.run).toHaveBeenNthCalledWith(
       2,
-      ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch"],
+      ["/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-trigger", "launch"],
       expect.stringContaining('"script":"echo ready"'),
     );
     expect(receipt.observation).toMatchObject({ state: "running" });
@@ -235,10 +235,10 @@ describe("Fly job execution backend", () => {
     expect(receipt.observation.detail).not.toContain("python3: not found");
   });
 
-  it("reports a bounded launcher error when a custom image entrypoint does not invoke factorize-job", async () => {
+  it("reports a bounded launcher error when a custom image entrypoint does not invoke factorize-trigger", async () => {
     const f = fixture();
     f.guest.run.mockResolvedValueOnce({ ok: true, exitCode: 0, stdout: "", stderr: "" });
-    f.guest.run.mockResolvedValueOnce({ ok: false, exitCode: 127, stdout: "", stderr: "factorize-job: command not found" });
+    f.guest.run.mockResolvedValueOnce({ ok: false, exitCode: 127, stdout: "", stderr: "factorize-trigger: command not found" });
 
     const receipt = await f.backend.launch({
       runId: "11111111-1111-4111-8111-111111111111",
@@ -248,11 +248,11 @@ describe("Fly job execution backend", () => {
     expect(f.machines.startMachine).toHaveBeenCalledOnce();
     expect(f.guest.run).toHaveBeenCalledTimes(2);
     expect(f.guest.run.mock.calls[1]?.[0]).toEqual([
-      "/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-job", "launch",
+      "/usr/sbin/runuser", "-u", "exedev", "--", "/usr/local/bin/factorize-trigger", "launch",
     ]);
     expect(receipt.observation).toMatchObject({
       state: "failed",
-      detail: "Fly guest did not confirm job launch",
+      detail: "Fly guest did not confirm trigger launch",
       failure: { code: "launch_failed", reason: "Fly guest launch failed" },
     });
     expect(receipt.observation.detail?.length).toBeLessThanOrEqual(120);
@@ -301,9 +301,9 @@ describe("Fly job execution backend", () => {
 
   it("collects structured results and logs through the guest transport", async () => {
     const f = fixture(), handle = { backendKind: "fly", id: "factorize-test/machine-1" };
-    await expect(f.backend.readJobResult(handle)).resolves.toBe('{"status":"succeeded"}');
+    await expect(f.backend.readTriggerResult(handle)).resolves.toBe('{"status":"succeeded"}');
     await expect(f.backend.readHarnessLog(handle)).resolves.toBe("saved log");
-    expect(f.guest.download).toHaveBeenCalledWith("/home/exedev/.factorize-job/results.json");
+    expect(f.guest.download).toHaveBeenCalledWith("/home/exedev/.factorize-trigger/results.json");
   });
 
   it("terminates a run without destroying its Machine before collection", async () => {

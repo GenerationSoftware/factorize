@@ -64,11 +64,11 @@ describe.skipIf(!url)("Fly execution configurations (PostgreSQL/API)", () => {
     expect(await configs.get(next.executionConfigId)).toMatchObject({ region: "ord" });
   });
 
-  it("requires a Fly connection and preserves old exe payload omission compatibility", async () => {
+  it("requires a Fly connection and omits guest agent/model metadata", async () => {
     const api = service();
     await expect(api.saveFlyExecutionConfiguration({ name: "x", image: "ghcr.io/a/b:v1", region: "iad", size: "shared-cpu-1x" })).rejects.toMatchObject({ code: "fly_connection_required" });
     expect(flyExecutionConfigurationInput.safeParse({ name: "x", image: "bad image", region: "iad", size: "shared-cpu-1x" }).success).toBe(false);
-    expect(exeConnection.parse({ connectionId: "old", credentialStatus: "connected" })).toEqual({ connectionId: "old", credentialStatus: "connected", accountTags: [], models: [], efforts: [] });
+    expect(exeConnection.parse({ connectionId: "old", credentialStatus: "connected" })).toEqual({ connectionId: "old", credentialStatus: "connected", accountTags: [] });
     expect(integrationStatus.parse({ linear: null, clickup: null, exe: null, exeConnections: [], ampConnections: [], cloudflareTail: { count: 0, installations: [] } }).exeConnections).toEqual([]);
   });
 });

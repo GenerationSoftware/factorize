@@ -30,7 +30,7 @@ describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", { timeout: 30_0
       const detail = await worker.fetch(new Request(f.env.APP_ORIGIN + `/api/v1/skills/${skill.id}`, { headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN } }), f.env, {} as ExecutionContext);
       expect(detail.status).toBe(200);
       expect(await detail.json()).toMatchObject({ id: skill.id, key: "review", body: "Review carefully", revision: 1, usageCount: 0 });
-      await f.db.pool.query("INSERT INTO app.job_skills(tenant_id,job_id,skill_id,position) VALUES($1,$2,$3,0)", [f.tenantId, f.jobIds[0], skill.id]);
+      await f.db.pool.query("INSERT INTO app.trigger_skills(tenant_id,trigger_id,skill_id,position) VALUES($1,$2,$3,0)", [f.tenantId, f.triggerIds[0], skill.id]);
       const listed = await request();
       expect(listed.status).toBe(200);
       const page = await listed.json() as { items: Record<string, unknown>[]; nextCursor: string | null };
@@ -63,29 +63,29 @@ describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", { timeout: 30_0
       const other = new SkillRepository(f.db, f.otherTenant, f.env.CREDENTIAL_ENCRYPTION_KEY);
       expect(await other.get(skill.id)).toBeNull();
       expect(await other.get("integration-context")).toBeNull();
-      const preview = await request("/skills/preview", "POST", { skillIds: [skill.id], jobContext: "Job task" });
+      const preview = await request("/triggers/preview", "POST", { skillId: skill.id, prompt: "Trigger task" });
       expect(preview.status).toBe(200);
-      expect(await preview.json()).toMatchObject({ prompt: body + "\n\nJob task" });
-      const saved = await request(`/jobs/${f.jobIds[0]}`, "PUT", {
-        name: "Skill job", slug: "skill-job", promptTemplate: "Job task", executionConfigId: "local",
-        concurrencyLimit: 2, triggers: [], skillIds: [skill.id],
+      expect(await preview.json()).toMatchObject({ prompt: body + "\n\nTrigger task" });
+      const saved = await request(`/triggers/${f.triggerIds[0]}`, "PUT", {
+        name: "skill-trigger",  prompt: "Trigger task", executionConfigId: "local",
+        concurrencyLimit: 2, events: [], skillId: skill.id,
       });
       expect(saved.status).toBe(200);
-      const job = await f.request(`/api/v1/jobs/${f.jobIds[0]}`);
-      expect(job.status).toBe(200);
-      expect(await job.json()).toMatchObject({ promptTemplate: "Job task", skills: [{ id: skill.id, key: "integration-context", revision: 1, position: 0 }] });
+      const trigger = await f.request(`/api/v1/triggers/${f.triggerIds[0]}`);
+      expect(trigger.status).toBe(200);
+      expect(await trigger.json()).toMatchObject({ prompt: "Trigger task", skillId:skill.id,skill:{ id: skill.id, key: "integration-context", revision: 1 } });
     } finally { await f.cleanup(); }
   });
 
   it("checks real owner/session version before consent and rejects revoked sessions", async () => {
     const f = await loadingFixture(url!);
     try {
-      const parsed = { responseType: "code", clientId: "client", redirectUri: "https://external.test/callback", scope: ["flows:read"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: f.env.APP_ORIGIN + "/mcp", issuer: f.env.APP_ORIGIN };
+      const parsed = { responseType: "code", clientId: "client", redirectUri: "https://external.test/callback", scope: ["team:read", "triggers:read", "integrations:read"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: f.env.APP_ORIGIN + "/mcp", issuer: f.env.APP_ORIGIN };
       const oauth = { parseAuthRequest: async () => parsed, lookupClient: async () => ({ clientId: "client", clientName: "CLI", redirectUris: [parsed.redirectUri] }), completeAuthorization: vi.fn(async (_input: unknown) => ({ redirectTo: parsed.redirectUri + "?code=issued" })) };
       f.env.OAUTH_PROVIDER = oauth as any;
       const request = (path: string, body: unknown, cookie = f.cookie) => protectedApiFetch(new Request(f.env.APP_ORIGIN + path, { method: "POST", headers: { Cookie: cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify(body) }), f.env, null, {} as ExecutionContext);
       const previewResponse = await request("/api/v1/oauth/consent/preview", { authorizationQuery: "client_id=client" }); expect(previewResponse.status).toBe(200); const preview = await previewResponse.json() as any;
-      const input = { request: preview.request, signature: preview.signature, scopes: ["flows:read"], decision: "allow" };
+      const input = { request: preview.request, signature: preview.signature, scopes: ["team:read", "triggers:read", "integrations:read"], decision: "allow" };
       expect((await request("/api/v1/oauth/consent/decision", input)).status).toBe(200); expect(oauth.completeAuthorization).toHaveBeenCalledTimes(1);
       await f.db.pool.query("UPDATE app.members SET session_version=session_version+1 WHERE tenant_id=$1 AND user_id=$2", [f.tenantId, f.userId]);
       expect((await request("/api/v1/oauth/consent/decision", input)).status).toBe(401); expect(oauth.completeAuthorization).toHaveBeenCalledTimes(1);
@@ -96,8 +96,8 @@ describe.skipIf(!url)("cookie protocol APIs against PostgreSQL", { timeout: 30_0
     try {
       const oauth = { lookupClient: async () => ({ clientId: "client", clientName: "CLI", redirectUris: ["https://external.test/callback"], tokenEndpointAuthMethod: "none" }), completeAuthorization: vi.fn(async (_input: unknown) => ({ redirectTo: "https://external.test/callback?code=issued" })) };
       f.env.OAUTH_PROVIDER = oauth as any;
-      const form = new FormData(); form.set("client_id", "client"); form.set("scope", "flows:read");
-      const issued = await (await deviceAuthorization(new Request(f.env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: form }), f.env, oauth as any, ["flows:read"])).json() as any;
+      const form = new FormData(); form.set("client_id", "client"); form.set("scope", "team:read triggers:read integrations:read");
+      const issued = await (await deviceAuthorization(new Request(f.env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: form }), f.env, oauth as any, ["team:read", "triggers:read", "integrations:read"])).json() as any;
       const request = (path: string, body: unknown) => protectedApiFetch(new Request(f.env.APP_ORIGIN + path, { method: "POST", headers: { Cookie: f.cookie, Origin: f.env.APP_ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify(body) }), f.env, null, {} as ExecutionContext);
       const preview = await (await request("/api/v1/oauth/device/preview", { userCode: issued.user_code })).json() as any; expect(preview.clientName).toBe("CLI"); expect(preview.device_code).toBeUndefined();
       const responses = await Promise.all([request("/api/v1/oauth/device/decision", { userCode: issued.user_code, signature: preview.signature, decision: "allow" }), request("/api/v1/oauth/device/decision", { userCode: issued.user_code, signature: preview.signature, decision: "allow" })]);

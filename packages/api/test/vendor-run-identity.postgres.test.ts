@@ -16,14 +16,14 @@ describe.skipIf(!url)("durable vendor run identity bindings (PostgreSQL)", () =>
   afterAll(async () => { if (db) { await db.pool.query("DELETE FROM app.tenants WHERE id=ANY($1::uuid[])", [tenants]); await db.close(); } });
 
   async function fixture(state = "running", identityOverrides: Partial<VendorIdentity> = {}) {
-    const tenantId = crypto.randomUUID(), jobId = crypto.randomUUID(), triggerId = crypto.randomUUID(), invocationId = crypto.randomUUID(), runId = crypto.randomUUID();
+    const tenantId = crypto.randomUUID(), triggerId = crypto.randomUUID(), eventId = crypto.randomUUID(), invocationId = crypto.randomUUID(), runId = crypto.randomUUID();
     tenants.push(tenantId);
     await db.pool.query("INSERT INTO app.tenants(id) VALUES ($1)", [tenantId]);
     await db.pool.query("INSERT INTO app.projects(tenant_id,id,name) VALUES ($1,md5(($1::uuid)::text || ':default')::uuid,'Default')", [tenantId]);
-    await db.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit) VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Identity test','identity-test','test','{}',1)", [tenantId, jobId]);
-    await db.pool.query("INSERT INTO app.triggers(tenant_id,id,job_id,kind,slug) VALUES ($1,$2,$3,'manual','manual')", [tenantId, triggerId, jobId]);
-    await db.pool.query("INSERT INTO app.invocations(tenant_id,id,job_id,source,claim_key,trigger_id,context) VALUES ($1,$2,$3,'manual','identity-test',$4,'{}')", [tenantId, invocationId, jobId, triggerId]);
-    await db.pool.query("INSERT INTO app.job_runs(tenant_id,id,job_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,$5,'test')", [tenantId, runId, jobId, invocationId, state]);
+    await db.pool.query("INSERT INTO app.triggers(tenant_id,id,project_id,name,slug,encrypted_prompt,execution_config,concurrency_limit) VALUES ($1,$2,md5(($1::uuid)::text || ':default')::uuid,'Identity test','identity-test','test','{}',1)", [tenantId, triggerId]);
+    await db.pool.query("INSERT INTO app.events(tenant_id,id,trigger_id,kind,slug) VALUES ($1,$2,$3,'manual','manual')", [tenantId, eventId, triggerId]);
+    await db.pool.query("INSERT INTO app.invocations(tenant_id,id,trigger_id,source,claim_key,event_id,context) VALUES ($1,$2,$3,'manual','identity-test',$4,'{}')", [tenantId, invocationId, triggerId, eventId]);
+    await db.pool.query("INSERT INTO app.trigger_runs(tenant_id,id,trigger_id,invocation_id,state,encrypted_prompt) VALUES ($1,$2,$3,$4,$5,'test')", [tenantId, runId, triggerId, invocationId, state]);
     const identity: VendorIdentity = {
       provider: "fly.io", runId, vmId: `fm-${crypto.randomUUID()}`, issuer: "https://oidc.fly.io/factorize-test",
       subject: `factorize-org:factorize-test:${crypto.randomUUID()}`, audience: `factorize://runs/${runId}`, issuedAt: 1_800_000_000,

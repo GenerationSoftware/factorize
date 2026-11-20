@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentDriver } from "../src/agent-driver";
+import { agentDriver } from "./helpers/legacy-agent-fixture";
 import { sourceCommand, validateTraceSources, type TraceSource } from "../src/trace-source";
 import { consumeTraceStream, parseTrace } from "../src/trace";
 
@@ -41,7 +41,7 @@ describe("execution stream contract", () => {
 describe("deployment source gates", () => {
   it("canaries only selected tenants and restores native for new launches while retaining Pi", async () => {
     const { rolloutTraceSources } = await import("../src/trace-source");
-    const { agentDriver } = await import("../src/agent-driver");
+    const { agentDriver } = await import("./helpers/legacy-agent-fixture");
     for (const provider of ["codex", "claude", "pi"] as const) {
       const sources = agentDriver(provider).launch("run", {}).traceSources!;
       expect(rolloutTraceSources(sources, "canary", { TRACE_STREAM_TENANTS: "canary" }).primary.kind).toBe(provider === "pi" ? "native_session" : "execution_stream");

@@ -1,0 +1,68 @@
+---
+title: Event configuration
+description: Configure schedules, provider webhooks, and lifecycle events.
+---
+
+Schedule config is `{cron, timezone}`. Webhook config supports `linear` (`projectId`, non-empty `matchRules`), `clickup` (`listId`, rules), `github` (`installationId`, `repositoryId`, and rules or event/action), and `cloudflareTail` (`integrationId`). Match rule types are `owner`, `creator`, `status`, `label`, and `assignee`, each with a `targetId`.
+
+Lifecycle config is `{sourceTriggerIds, states}`, where states are `succeeded`, `failed`, `stopped`, or `edited`. Events have stable server-generated slugs (`event-1`, `event-2`, …); use them in Mustache templates. Disabled events do not fire.
+
+Terminal lifecycle events (`succeeded`, `failed`, and `stopped`) are recorded transactionally when a watched run changes into that state. Creating a subscription, enabling a disabled subscription, re-enabling it, or changing its watched triggers or states starts matching from subsequent terminal transitions; existing terminal runs are not replayed. A run already in progress when a subscription starts is delivered if it reaches a watched terminal state afterward. Prompt and other unrelated trigger edits do not move this boundary. Events captured for an enabled subscription remain pending while its destination is disabled, and are delivered after it is enabled again; removing the event or deleting the source run discards its pending event. Delivery retries are deduplicated by event and source run state.
+
+For hosted triggers, connect the provider in [Integrations](/integrations/oauth), select accessible resources in the browser editor, and verify a matching event with delivery tools. Factorize verifies provider signatures and manages OAuth subscriptions. Optional Cloudflare Tail events require your own source/relay integration; infrastructure setup belongs in [operations](/self-hosting/operations).
+
+Choose **Trigger lifecycle → Edited** and one or more source triggers to run a trigger when another trigger is saved (including enable/disable saves). Creation and run status changes do not produce edit events. Each successful save is an event, even if the submitted values are unchanged. Only enabled subscribers in the same tenant are matched; a trigger cannot subscribe to its own edits.
+
+Edited events expose `{{event-1.source_trigger_id}}`, `{{event-1.event}}` (`edited`), and `{{event-1.edited_at}}`. Events are recorded in the save transaction and delivered by the scheduler with retry deduplication. Subscribers added later do not receive earlier edits. Pending events wait while the destination is disabled or no longer matches; removing a event or deleting its source trigger discards them.
+
+
+Webhook event configuration accepts optional `conditions`, a json-rules-engine
+condition tree, not a full rule/engine configuration. No conditions means no
+additional filtering. `all`, `any`, and `not` compose leaf conditions; empty groups
+are invalid. Invalid configuration or evaluation failures never create a run.
+Provider authentication, scope/event/action selection and matchRules still apply.
+
+```json
+{"all":[{"fact":"webhook","path":"$.check_suite.conclusion","operator":"equal","value":"success"},{"fact":"webhook","path":"$.check_suite.head_branch","operator":"startsWith","value":"feature/"}]}
+```
+
+`webhook` is the only fact. It contains the prepared context the trigger receives:
+original provider fields, provider/event/delivery_id metadata, and existing
+Linear `issue`/ClickUp `task` aliases. Tail context has already been sanitized.
+Delayed GitHub dequeue verification still checks an open PR targeting main,
+retries unresolved mergeability, and only proceeds on confirmed conflict. Its
+prepared pull_request includes verified mergeable=false and mergeable_state.
+Conditions use the latest event configuration and never transform context.
+
+JSONPath supports `$`, ordinary `.property` and quoted bracket properties,
+array indexes `[0]`, and wildcards `[*]`/`.*`. No recursive descent, slices,
+unions, filters, scripts or executable expressions are accepted; expression
+evaluation is disabled. A scalar path returns its selected value (including an
+array when selecting an array field). A wildcard path always returns an array
+of matches, even for zero or one match. Missing scalar paths yield undefined.
+`notEqual` may match missing fields; null and missing are distinct. Malformed
+paths are configuration errors, not non-matches.
+
+| Operator | Configured value | Semantics |
+| --- | --- | --- |
+| equal / notEqual | string, number, boolean or null | Strict scalar equality/inequality; string IDs differ from numeric IDs |
+| lessThan / lessThanInclusive / greaterThan / greaterThanInclusive | finite number | Both operands must be finite numbers; strings/null/missing do not match |
+| in / notIn | array of scalar values | Strict membership/non-membership of the selected value in the configured array |
+| contains / doesNotContain | scalar | Strict array membership/non-membership; a non-array selected value does not match |
+| startsWith | string | String prefix; missing/null/non-string selected values do not match |
+
+Boolean negation follows the library semantics: `not` negates a valid result,
+including a non-match due to a wrong operand type. No existence operator is
+introduced. Conditions are limited to 16,384 serialized UTF-8 bytes, depth 16
+(root counts as 1), 128 nodes, and 512 characters per path. User priorities,
+fact references in values, callbacks and network facts are rejected.
+
+The editor provides conditions JSON and prepared-example JSON textareas.
+POST `/api/v1/trigger-conditions/test` and MCP `test_trigger_webhook_conditions` accept
+`{conditions?, webhook}` with triggers:write authorization. The context is limited
+to 262,144 serialized bytes; the HTTP request is limited to 300,000 bytes.
+They return `decision: match | no-match | error` plus plain JSON result details.
+Configuration/request validation errors return a validation error. Details with
+no `result` were not evaluated, and must not be displayed as failed. The preview
+does not authenticate the example, route events, verify live GitHub state, or
+invoke triggers. Runtime activity stores only concise decisions, never these values.

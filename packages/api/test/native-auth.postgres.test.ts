@@ -1,3 +1,4 @@
+import { ACCESS_SCOPES } from "../src/access-tokens";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { readFile, readdir } from "node:fs/promises";
 import { Database } from "../src/postgres/database";
@@ -72,6 +73,45 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     return response.json();
   }
 
+  it("provisions personal team settings once and isolates the team API", async () => {
+    const first = await registered();
+    const row = (await db.pool.query(`SELECT m.tenant_id,m.user_id,s.run_defaults
+      FROM app.members m JOIN app.team_settings s ON s.tenant_id=m.tenant_id
+      WHERE m.email=$1`, [first.email])).rows[0];
+    expect(row.tenant_id).toMatch(/^[a-f0-9-]{36}$/);
+    expect(row.run_defaults).toMatchObject({capacity:4,concurrencyLimit:1,portableIntegrationIds:[],allowedTriggerIds:[]});
+    expect((await auth.completeVerification(first.verification)).status).toBe(200);
+    expect((await auth.completeVerification(first.verification)).status).toBe(400);
+    const second = await verified();
+    const firstSession = await sessionFor(first.email);
+    const secondSession = await sessionFor(second.email);
+    const request = async (path: string, cookie: string, body?: object) => {
+      const identity = cookie === firstSession.cookie ? firstSession : secondSession;
+      return protectedApiFetch(new Request(env.APP_ORIGIN + path, {
+        method: body ? "PUT" : "GET",
+        headers: { Cookie: cookie, Origin: env.APP_ORIGIN, "Content-Type": "application/json" },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      }), env, { ...identity, authMethod: "session", scopes: [...ACCESS_SCOPES] }, {} as ExecutionContext);
+    };
+    const saved = await request("/api/v1/team/run-defaults", firstSession.cookie, { capacity: 7, runScopes: [] });
+    expect(saved.status).toBe(200);
+    const own = await request("/api/v1/team", firstSession.cookie);
+    expect(await own.json()).toMatchObject({ id: row.tenant_id, runDefaults: { capacity: 7, runScopes: [] } });
+    const other = await request("/api/v1/team", secondSession.cookie);
+    expect(await other.json()).toMatchObject({ id: secondSession.tenantId, runDefaults: {capacity:4,portableIntegrationIds:[],allowedTriggerIds:[]} });
+    expect((await request("/api/v1/team/run-defaults", firstSession.cookie, { capacity: 0 })).status).toBe(400);
+    expect((await request("/api/v1/team/run-defaults", firstSession.cookie, { tenantId: secondSession.tenantId })).status).toBe(400);
+    for (const method of ["GET", "POST", "PUT", "DELETE"]) {
+      const path = method === "GET" || method === "POST" ? "/api/v1/projects" : "/api/v1/projects/" + crypto.randomUUID();
+      const retired = await protectedApiFetch(new Request(env.APP_ORIGIN + path, { method }), env, { ...firstSession, authMethod: "session", scopes: [...ACCESS_SCOPES] }, {} as ExecutionContext);
+      expect(retired.status).toBe(404);
+    }
+    const limited = await protectedApiFetch(new Request(env.APP_ORIGIN + "/api/v1/team"), env, { ...firstSession, authMethod: "session", scopes: ["triggers:read"] }, {} as ExecutionContext);
+    expect(limited.status).toBe(403);
+    const count = await db.pool.query("SELECT count(*)::int count FROM app.members WHERE user_id=$1", [row.user_id]);
+    expect(count.rows[0].count).toBe(1);
+  });
+
   it("serves the complete JSON native-auth lifecycle through the public dispatcher", async () => {
     mail();
     const email = `api_${crypto.randomUUID().slice(0, 8)}@example.test`;
@@ -93,19 +133,19 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     expect(await login.json()).toEqual({ ok: true, returnTo: "/device?user_code=ABCD-EFGH" });
     const cookie = login.headers.get("Set-Cookie")!.split(";")[0];
     const active = await (await json("/api/v1/session", undefined, cookie)).json() as any;
-    expect(active).toMatchObject({ authenticated: true, user: { email }, workspace: { role: "owner" } });
-    const workspaceId = active.workspace.id;
+    expect(active).toMatchObject({ authenticated: true, user: { email }, team: { role: "owner" } });
+    const workspaceId = active.team.id;
     await db.pool.query("UPDATE app.tenants SET name='API workspace' WHERE id=$1", [workspaceId]);
-    expect(await (await json("/api/v1/session", undefined, cookie)).json()).toMatchObject({ workspace: { name: "API workspace" } });
+    expect(await (await json("/api/v1/session", undefined, cookie)).json()).toMatchObject({ team: { name: "API workspace" } });
     const delegate = new ApiService(env, {
       tenantId: workspaceId, userId: active.user.id,
       sessionVersion: (await new IdentityRepository(db, workspaceId).member(active.user.id))!.sessionVersion,
-      scopes: ["flows:read"], authMethod: "oauth",
+      scopes: ["team:read", "triggers:read", "integrations:read"], authMethod: "oauth",
     });
-    expect(await delegate.listJobs()).toEqual([]);
+    expect(await delegate.listTriggers()).toEqual([]);
     expect((await json("/api/v1/auth/logout", {}, cookie)).status).toBe(200);
     expect(await (await json("/api/v1/session", undefined, cookie)).json()).toEqual({ authenticated: false });
-    await expect(delegate.listJobs()).rejects.toMatchObject({ status: 401 });
+    await expect(delegate.listTriggers()).rejects.toMatchObject({ status: 401 });
     const next = await json("/api/v1/auth/login", { email, password });
     const nextCookie = next.headers.get("Set-Cookie")!.split(";")[0];
     expect((await json("/api/v1/auth/password-reset/request", { email })).status).toBe(200);
@@ -153,7 +193,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
   });
   it("sends reset email, enforces purpose and expiry, consumes once, and revokes browser sessions", async () => {
     const user = await verified(), session = await sessionFor(user.email);
-    expect((await app.request("/jobs", { headers: { Cookie: session.cookie } }, env)).status).toBe(200);
+    expect((await app.request("/triggers", { headers: { Cookie: session.cookie } }, env)).status).toBe(200);
     await auth.requestReset({ email: user.email }); const reset = token();
     expect((await auth.completeVerification(reset)).status).toBe(400);
     const newPassword = "replacement long password";
@@ -174,14 +214,14 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
   });
   it("serializes different reset links and invalidates delegated API access", async () => {
     const user = await verified(), session = await sessionFor(user.email);
-    const service = new ApiService(env, { ...session, scopes: ["flows:read"], authMethod: "oauth" });
-    expect(await service.listJobs()).toEqual([]);
-    await expect(new ApiService(env, { ...session, tenantId: legacyTenant, scopes: ["flows:read"], authMethod: "oauth" }).listJobs()).rejects.toMatchObject({ status: 401 });
+    const service = new ApiService(env, { ...session, scopes: ["team:read", "triggers:read", "integrations:read"], authMethod: "oauth" });
+    expect(await service.listTriggers()).toEqual([]);
+    await expect(new ApiService(env, { ...session, tenantId: legacyTenant, scopes: ["team:read", "triggers:read", "integrations:read"], authMethod: "oauth" }).listTriggers()).rejects.toMatchObject({ status: 401 });
     await auth.requestReset({ email: user.email }); const first = token();
     await auth.requestReset({ email: user.email }); const second = token();
     const outcomes = await Promise.all([auth.completeReset({ token: first, password }), auth.completeReset({ token: second, password })]);
     expect(outcomes.map(r => r.status).sort()).toEqual([200, 400]);
-    await expect(service.listJobs()).rejects.toMatchObject({ status: 401 });
+    await expect(service.listTriggers()).rejects.toMatchObject({ status: 401 });
   });
   it("requires current password for change, rejects CSRF, and invalidates sessions on logout", async () => {
     const user = await verified(), session = await sessionFor(user.email);
@@ -208,7 +248,10 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     const userId = crypto.randomUUID(); await new IdentityRepository(db, legacyTenant).upsertOwner(userId, "member@example.test");
     mail(); await auth.requestReset({ email: "member@example.test" });
     expect((await auth.completeReset({ token: token(), password })).status).toBe(200);
-    expect((await auth.login({ email: "member@example.test", password })).status).toBe(403);
+    const memberLogin = await auth.login({ email: "member@example.test", password });
+    expect(memberLogin.status).toBe(200);
+    expect(memberLogin.body.tenantId).not.toBe(legacyTenant);
+    expect((await db.pool.query("SELECT role FROM app.members WHERE tenant_id=$1 AND user_id=$2", [legacyTenant, userId])).rows[0].role).toBe("member");
     const user = await verified(), session = await sessionFor(user.email);
     const forgedTenantCookie = await signSession({ ...session, tenantId: legacyTenant }, env.SESSION_SIGNING_SECRET);
     expect(await sessionBody(`factorize_session=${forgedTenantCookie}`)).toEqual({ authenticated: false });
@@ -234,19 +277,19 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("native authentication with
     const webhook = await app.request("/webhooks/linear", { method: "POST", body: raw, headers: { "linear-delivery": "delivery", "linear-signature": Buffer.from(await hmac(raw, env.LINEAR_WEBHOOK_SIGNING_SECRET), "base64").toString("hex") } }, env);
     expect(webhook.status).toBe(200);
     expect((await db.pool.query("SELECT tenant_id FROM app.webhook_deliveries WHERE delivery_id='linear:delivery'")).rows[0].tenant_id).toBe(session.tenantId);
-    const suffix = crypto.randomUUID().replaceAll("-", ""), functionName = `reject_webhook_event_${suffix}`, triggerName = `reject_webhook_event_${suffix}`;
+    const suffix = crypto.randomUUID().replaceAll("-", ""), functionName = `reject_webhook_event_${suffix}`, eventName = `reject_webhook_event_${suffix}`;
     const deliveryPk = (await db.pool.query("SELECT id FROM app.webhook_deliveries WHERE tenant_id=$1 AND delivery_id='linear:delivery'", [session.tenantId])).rows[0].id;
     const projectId = (await db.pool.query("INSERT INTO app.projects(tenant_id,id,name,description) VALUES ($1::uuid,md5($1::uuid::text || ':default')::uuid,'Default','Webhook test') ON CONFLICT (tenant_id,name) DO UPDATE SET updated_at=app.projects.updated_at RETURNING id", [session.tenantId])).rows[0].id;
-    const eventJobId = crypto.randomUUID();
-    await db.pool.query("INSERT INTO app.jobs(tenant_id,id,project_id,name,slug,encrypted_prompt_template,execution_config,concurrency_limit) VALUES ($1,$2,$3,'Webhook test job',$4,'encrypted','{}',1)", [session.tenantId, eventJobId, projectId, `webhook-test-${eventJobId}`]);
+    const eventTriggerId = crypto.randomUUID();
+    await db.pool.query("INSERT INTO app.triggers(tenant_id,id,project_id,name,slug,encrypted_prompt,execution_config,concurrency_limit) VALUES ($1,$2,$3,'Webhook test trigger',$4,'encrypted','{}',1)", [session.tenantId, eventTriggerId, projectId, `webhook-test-${eventTriggerId}`]);
     await db.pool.query(`CREATE FUNCTION app.${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected webhook timeline failure'; END $$`);
-    await db.pool.query(`CREATE TRIGGER ${triggerName} BEFORE INSERT ON app.webhook_delivery_events FOR EACH ROW EXECUTE FUNCTION app.${functionName}()`);
+    await db.pool.query(`CREATE TRIGGER ${eventName} BEFORE INSERT ON app.webhook_delivery_events FOR EACH ROW EXECUTE FUNCTION app.${functionName}()`);
     try {
-      await expect((new WebhookService(db, env, session.tenantId) as any).event(deliveryPk, eventJobId, "linear", "linear:delivery", "accepted", "queued")).rejects.toThrow("injected webhook timeline failure");
-      expect((await db.pool.query("SELECT 1 FROM app.job_events WHERE tenant_id=$1 AND delivery_id='linear:delivery'", [session.tenantId])).rowCount).toBe(0);
+      await expect((new WebhookService(db, env, session.tenantId) as any).event(deliveryPk, eventTriggerId, "linear", "linear:delivery", "accepted", "queued")).rejects.toThrow("injected webhook timeline failure");
+      expect((await db.pool.query("SELECT 1 FROM app.trigger_events WHERE tenant_id=$1 AND delivery_id='linear:delivery'", [session.tenantId])).rowCount).toBe(0);
       expect((await db.pool.query("SELECT outcome FROM app.webhook_deliveries WHERE tenant_id=$1 AND delivery_id='linear:delivery'", [session.tenantId])).rows[0].outcome).toBe("ignored");
     } finally {
-      await db.pool.query(`DROP TRIGGER ${triggerName} ON app.webhook_delivery_events`);
+      await db.pool.query(`DROP TRIGGER ${eventName} ON app.webhook_delivery_events`);
       await db.pool.query(`DROP FUNCTION app.${functionName}()`);
     }
     const other = await verified(), otherSession = await sessionFor(other.email);

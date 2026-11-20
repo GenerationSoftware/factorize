@@ -11,14 +11,14 @@ const execution = { state: "failed", detail: "Process exited with status 42", sy
 const traceSources = { primary: { kind: "execution_stream", path: "/tmp/events.jsonl", mediaType: "application/x-ndjson", provider: "codex", formatVersion: "1", cliVersion: "test-cli", harnessVersion: "test-harness" } };
 const artifact = { id: "artifact", kind: "terminal_log", object_key: "tenants/tenant/runs/run/harness/stderr.txt", format: "text", state: "stored", byte_size: "27", sha256: "a".repeat(64) };
 
-const completeRun = { tenant_id: "tenant", job_id: "job", invocation_id: "invocation", issue_id: "manual", issue_url: null, issue_title: "", run_name: "", agent_name: "", workspace_name: "", agent_kind: "codex", execution_type: "agent", execution_script: null, execution_configuration: {}, execution_config: {}, state: "failed", provider: "manual", execution_backend_kind: "exe-vm", execution_capabilities: [], destination_url: null, artifact_state: "stored", artifact_error: null, claim_released: false, vm_cleanup_attempt: 0, cleanup_next_at: null, vm_cleanup_complete: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), started_at: null, job_name: "Job", context: {}, occurrence: {}, invocation_source: "manual", invocation_claim_key: "key", invocation_trigger_id: null, invocation_created_at: new Date().toISOString() };
+const completeRun = { tenant_id: "tenant", trigger_id: "trigger", invocation_id: "invocation", issue_id: "manual", issue_url: null, issue_title: "", run_name: "", agent_name: "", workspace_name: "", agent_kind: "codex", execution_type: "agent", execution_script: null, execution_configuration: {}, execution_config: {}, state: "failed", provider: "manual", execution_backend_kind: "exe-vm", execution_capabilities: [], destination_url: null, artifact_state: "stored", artifact_error: null, claim_released: false, vm_cleanup_attempt: 0, cleanup_next_at: null, vm_cleanup_complete: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), started_at: null, source:"Trigger",trigger_name: "Trigger", context: {}, occurrence: {}, invocation_source: "manual", invocation_claim_key: "key", invocation_event_id: null, invocation_created_at: new Date().toISOString() };
 
 async function fixture(tenantId = "tenant", scopes = ["runs:read"], authMethod?: "session") {
   const key = btoa("a".repeat(32)), encryptedPrompt = await encrypt("private prompt", key);
   vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue({ role: "owner", sessionVersion: 1 } as any);
   const query = vi.fn(async (sql: string, values: any[]) => {
     if (values[0] !== "tenant") return { rows: [] };
-    if (sql.includes("SELECT r.*")) return { rows: [{ ...completeRun, id: "run", job_id: "job", state: "failed", encrypted_prompt: encryptedPrompt, execution_diagnostics: execution, trace_sources: traceSources, execution_backend_kind: "exe-vm", artifact_state: "partial", artifact_error: "Canonical execution stream upload failed: /tmp/events.jsonl" }] };
+    if (sql.includes("SELECT r.*")) return { rows: [{ ...completeRun, id: "run", trigger_id: "trigger", state: "failed", encrypted_prompt: encryptedPrompt, execution_diagnostics: execution, trace_sources: traceSources, execution_backend_kind: "exe-vm", artifact_state: "partial", artifact_error: "Canonical execution stream upload failed: /tmp/events.jsonl" }] };
     if (sql.includes("app.run_artifacts")) return { rows: [artifact] };
     return { rows: [] };
   });
@@ -53,10 +53,10 @@ describe("run diagnostics API boundary", () => {
     const body = { requestId: crypto.randomUUID(), source: "native_session" };
     expect(isDeclaredApiOperation("POST", "/api/v1/runs/run/trace/replay")).toBe(true);
     await expect((await fixture("tenant", ["runs:read"])).replayRunTrace(crypto.randomUUID(), body)).rejects.toMatchObject({ status: 403, code: "insufficient_scope" });
-    await expect((await fixture("tenant", ["runs:write"])).replayRunTrace(crypto.randomUUID(), body)).rejects.toMatchObject({ status: 403, code: "session_required" });
+    await expect((await fixture("tenant", ["runs:read", "runs:invoke", "runs:cancel", "runs:write"])).replayRunTrace(crypto.randomUUID(), body)).rejects.toMatchObject({ status: 403, code: "session_required" });
   });
   it("validates replay input after owner-session authorization", async () => {
-    const service = await fixture("tenant", ["runs:write"], "session");
+    const service = await fixture("tenant", ["runs:read", "runs:invoke", "runs:cancel", "runs:write"], "session");
     await expect(service.replayRunTrace(crypto.randomUUID(), { requestId: "invalid", tenantId: "other" })).rejects.toMatchObject({ name: "ZodError" });
     await expect(service.replayRunTrace("not-a-run", { requestId: crypto.randomUUID() })).rejects.toMatchObject({ name: "ZodError" });
     vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue({ role: "owner", sessionVersion: 2 } as any);

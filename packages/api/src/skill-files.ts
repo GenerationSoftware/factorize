@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SKILL_KEY, SKILL_BODY_LIMIT } from "./skills";
+import { resourceName } from "./resource-names";
 
 export const skillFile = z.object({
   path: z.string().min(1).max(1024),
@@ -60,7 +61,11 @@ export const SKILL_LIBRARY_ENTRIES = 2000;
 export function validateLibrary(dirs: Directory[]) {
   let count = 0,
     bytes = 0;
+  const names = new Set<string>();
   for (const dir of dirs) {
+    if (!resourceName.safeParse(dir.key).success || names.has(dir.key))
+      throw new SkillContentError("Skill names must follow Agent Skills naming rules, be unique, and cannot be manual.");
+    names.add(dir.key);
     bodyOf(dir);
     for (const file of dir.files) {
       bytes +=

@@ -10,8 +10,7 @@ export const runTableColumnWidths = {
 } as const;
 
 export const runTableMinimumWidths = {
-  history: "min-w-[42rem]",
-  job: "min-w-[52rem]",
-  project: "min-w-[52rem]",
-  all: "min-w-[62rem]",
+  history: "min-w-[82rem]",
+  trigger: "min-w-[82rem]",
+  all: "min-w-[82rem]",
 } as const;

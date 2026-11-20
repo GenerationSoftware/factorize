@@ -12,8 +12,8 @@ describe("artifact upload grants", () => {
     await expect(readArtifactUploadGrant(`${token}x`, secret)).resolves.toBeNull();
   });
 
-  it("rejects traversal paths in job-file grants", async () => {
-    const token = await issueArtifactUploadGrant({ ...grant, path: "../outside", artifactType: "job_file", format: "file" }, secret);
+  it("rejects traversal paths in trigger-file grants", async () => {
+    const token = await issueArtifactUploadGrant({ ...grant, path: "../outside", artifactType: "trigger_file", format: "file" }, secret);
     await expect(readArtifactUploadGrant(token, secret)).resolves.toBeNull();
   });
 

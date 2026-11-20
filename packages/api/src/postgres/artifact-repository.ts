@@ -16,8 +16,8 @@ export class ArtifactRepository {
     if (client) await write(client); else await this.database.transaction(write);
   }
   async list(runId: string, client: DatabaseClient = this.database.pool) { return (await client.query("SELECT id,kind,object_key,provider,format,format_version,cli_version,native_session_id,byte_size,sha256,state,source_path,media_type,harness_version,source_generation,created_at FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2 ORDER BY created_at,id", [this.tenantId, runId])).rows; }
-  async keysForJob(jobId: string): Promise<string[]> {
-    const rows = await this.database.orm.select({ key: runArtifacts.objectKey }).from(runArtifacts).innerJoin(runs, and(eq(runs.tenantId, runArtifacts.tenantId), eq(runs.id, runArtifacts.runId))).where(and(eq(runArtifacts.tenantId, this.tenantId), eq(runs.jobId, jobId)));
+  async keysForTrigger(triggerId: string): Promise<string[]> {
+    const rows = await this.database.orm.select({ key: runArtifacts.objectKey }).from(runArtifacts).innerJoin(runs, and(eq(runs.tenantId, runArtifacts.tenantId), eq(runs.id, runArtifacts.runId))).where(and(eq(runArtifacts.tenantId, this.tenantId), eq(runs.triggerId, triggerId)));
     return rows.map(row => row.key);
   }
 }

@@ -147,7 +147,7 @@ export interface paths {
         put?: never;
         /**
          * Create a model account
-         * @description Requires an interactive owner browser session and the current collection revision. Accepts an API key or Codex credential object into Factorize-managed encrypted storage, or an empty initial state for backend device authorization. Credentials are never returned.
+         * @description Requires an interactive owner browser session and the current collection revision. Saves an OpenAI-compatible provider URL, optional API key, and model limits in encrypted storage. Credentials are never returned.
          *
          *     Requires the integrations:write scope.
          *
@@ -170,7 +170,7 @@ export interface paths {
         get?: never;
         /**
          * Replace a model account credential
-         * @description Owner session required. Replaces the managed credential without changing the selected account ID; active runs use the replacement on their next request.
+         * @description Owner session required. Saves an OpenAI-compatible provider URL and optional API key. Replaces the managed credential without changing the selected account ID; active runs use the replacement on their next request.
          *
          *     Requires the integrations:write scope.
          *
@@ -187,78 +187,6 @@ export interface paths {
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
         delete: operations["delete_api_v1_model_accounts_accountId"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/model-accounts/{accountId}/authorization/authorize": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * authorize backend ChatGPT device authorization
-         * @description Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_model_accounts_accountId_authorization_authorize"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/model-accounts/{accountId}/authorization/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * status backend ChatGPT device authorization
-         * @description Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_model_accounts_accountId_authorization_status"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/model-accounts/{accountId}/authorization/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * cancel backend ChatGPT device authorization
-         * @description Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.
-         *
-         *     Requires the integrations:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        post: operations["post_api_v1_model_accounts_accountId_authorization_cancel"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -616,7 +544,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/trigger-contexts": {
+    "/api/v1/event-contexts": {
         parameters: {
             query?: never;
             header?: never;
@@ -625,11 +553,11 @@ export interface paths {
         };
         /**
          * Get template autocomplete metadata
-         * @description Requires the jobs:read scope.
+         * @description Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_trigger_contexts"];
+        get: operations["get_api_v1_event_contexts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -682,7 +610,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/job-trigger-availability": {
+    "/api/v1/trigger-event-availability": {
         parameters: {
             query?: never;
             header?: never;
@@ -690,12 +618,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List available trigger kinds
-         * @description Requires the jobs:read scope.
+         * List available event kinds
+         * @description Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_job_trigger_availability"];
+        get: operations["get_api_v1_trigger_event_availability"];
         put?: never;
         post?: never;
         delete?: never;
@@ -715,7 +643,7 @@ export interface paths {
         put?: never;
         /**
          * Preview schedule
-         * @description Requires the jobs:read scope.
+         * @description Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -1080,7 +1008,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Linear trigger options
+         * List Linear event options
          * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
@@ -1124,7 +1052,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List ClickUp trigger options
+         * List ClickUp event options
          * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
@@ -1169,7 +1097,7 @@ export interface paths {
         };
         /**
          * List authorized OAuth clients
-         * @description Requires the jobs:read scope.
+         * @description Requires the triggers:read scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -1191,7 +1119,7 @@ export interface paths {
         };
         /**
          * List access tokens
-         * @description Requires the jobs:read scope.
+         * @description Requires the triggers:read scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -1199,7 +1127,7 @@ export interface paths {
         put?: never;
         /**
          * Create an access token
-         * @description Requires the jobs:write scope.
+         * @description Requires the triggers:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -1222,7 +1150,7 @@ export interface paths {
         post?: never;
         /**
          * Revoke an access token
-         * @description Requires the jobs:write scope.
+         * @description Requires the triggers:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -1242,7 +1170,7 @@ export interface paths {
         get?: never;
         /**
          * Edit an OAuth connection’s scopes and integration access
-         * @description Requires the jobs:write scope.
+         * @description Requires the triggers:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -1268,7 +1196,7 @@ export interface paths {
          * Revoke one isolated OAuth connection
          * @description Other connections, including copies of the same client, retain their approvals.
          *
-         *     Requires the jobs:write scope.
+         *     Requires the triggers:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -1290,7 +1218,7 @@ export interface paths {
         post?: never;
         /**
          * Revoke an authorized OAuth client
-         * @description Requires the jobs:write scope.
+         * @description Requires the triggers:write scope.
          *
          *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
@@ -1424,7 +1352,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List GitHub issue trigger options
+         * List GitHub issue event options
          * @description Requires the integrations:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
@@ -1482,7 +1410,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/job-summaries": {
+    "/api/v1/trigger-summaries": {
         parameters: {
             query?: never;
             header?: never;
@@ -1490,14 +1418,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List bounded job summaries
-         * @description Additive bounded list representation. Omitted sort preserves legacy immutable UUID descending; updated preserves updated time descending with UUID descending ties. active sorts jobs with live runs first, then name and UUID ascending; running sorts numeric live-run counts in direction with name and UUID ascending ties; title sorts name in direction with UUID ascending ties. Name ordering uses the PostgreSQL en-US ICU collation. Non-ID sorts return opaque cursors bound to their sort and direction; keep filters and sort unchanged between pages. Live run-count changes can move jobs between pages. Literal case-insensitive name/slug search. No prompts or trigger configuration; statistics are batched. Existing GET /jobs remains an array.
+         * List bounded trigger summaries
+         * @description Additive bounded list representation. Omitted sort preserves immutable UUID descending; updated preserves updated time descending with UUID descending ties. active sorts triggers with live runs first, then name and UUID ascending; running sorts numeric live-run counts in direction with name and UUID ascending ties; title sorts name in direction with UUID ascending ties. Name ordering uses the PostgreSQL en-US ICU collation. Non-ID sorts return opaque cursors bound to their sort and direction; keep filters and sort unchanged between pages. Live run-count changes can move triggers between pages. Literal case-insensitive name/slug search. No prompts or event configuration; statistics are batched. Existing GET /triggers remains an array.
          *
-         *     Requires the jobs:read scope.
+         *     Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_job_summaries"];
+        get: operations["get_api_v1_trigger_summaries"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1506,7 +1434,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/job-selector": {
+    "/api/v1/trigger-selector": {
         parameters: {
             query?: never;
             header?: never;
@@ -1514,12 +1442,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search bounded lifecycle job options
-         * @description Requires the jobs:read scope.
+         * Search bounded lifecycle trigger options
+         * @description Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_job_selector"];
+        get: operations["get_api_v1_trigger_selector"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1528,7 +1456,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects": {
+    "/api/v1/triggers/graph": {
         parameters: {
             query?: never;
             header?: never;
@@ -1536,27 +1464,21 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List projects
-         * @description Requires the projects:read scope.
+         * Get the team's workflow graph
+         * @description Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_projects"];
+        get: operations["get_api_v1_triggers_graph"];
         put?: never;
-        /**
-         * Create project
-         * @description Requires the projects:write scope.
-         *
-         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
-         */
-        post: operations["post_api_v1_projects"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}": {
+    "/api/v1/team": {
         parameters: {
             query?: never;
             header?: never;
@@ -1564,49 +1486,35 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get project
-         * @description Requires the projects:read scope.
+         * Get the current team and its run defaults
+         * @description Requires the team:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_projects_projectId"];
-        /**
-         * Update project
-         * @description Requires the projects:write scope.
-         *
-         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
-         */
-        put: operations["put_api_v1_projects_projectId"];
+        get: operations["get_api_v1_team"];
+        put?: never;
         post?: never;
-        /**
-         * Delete empty project
-         * @description Requires the projects:write scope.
-         *
-         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
-         */
-        delete: operations["delete_api_v1_projects_projectId"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/graph": {
+    "/api/v1/team/run-defaults": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
+        get?: never;
         /**
-         * Get a project's workflow graph
-         * @description Returns every job in the project and configured lifecycle, idle, manual invocation permission, and external webhook source connections. Connections are derived from executable trigger configuration and current permission grants. Webhook edge labels are short readable provider or event names; details may include configured technical resource identifiers as secondary context.
+         * Replace the current team's run defaults
+         * @description Requires the team:write scope.
          *
-         *     Requires the projects:read scope.
-         *
-         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         *     An interactive owner session is required; bearer tokens cannot call this operation.
          */
-        get: operations["get_api_v1_projects_projectId_graph"];
-        put?: never;
+        put: operations["put_api_v1_team_run_defaults"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1714,7 +1622,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/skills/preview": {
+    "/api/v1/triggers/preview": {
         parameters: {
             query?: never;
             header?: never;
@@ -1724,12 +1632,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Preview a composed job prompt
+         * Preview one skill, a literal prompt and optional Event template
          * @description Requires the skills:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        post: operations["post_api_v1_skills_preview"];
+        post: operations["post_api_v1_triggers_preview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1770,7 +1678,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/skills/{skillId}/jobs": {
+    "/api/v1/skills/{skillId}/triggers": {
         parameters: {
             query?: never;
             header?: never;
@@ -1778,36 +1686,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List jobs using a skill
+         * List triggers using a skill
          * @description Requires the skills:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_skills_skillId_jobs"];
+        get: operations["get_api_v1_skills_skillId_triggers"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/jobs/{jobId}/project": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Move a job to a project
-         * @description Requires the projects:write scope.
-         *
-         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
-         */
-        post: operations["post_api_v1_jobs_jobId_project"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1825,9 +1711,9 @@ export interface paths {
         put?: never;
         /**
          * Verify a public VM image
-         * @description Starts a tenant-scoped background verification. It creates a temporary Factorize-owned VM, checks SSH and the selected harness prerequisites, then deletes the VM. It never executes a job prompt.
+         * @description Starts a tenant-scoped background verification. It creates a temporary Factorize-owned VM, checks SSH and the selected harness prerequisites, then deletes the VM. It never executes a trigger prompt.
          *
-         *     Requires the jobs:write scope.
+         *     Requires the triggers:write scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -1847,7 +1733,7 @@ export interface paths {
         };
         /**
          * Get VM image verification progress
-         * @description Requires the jobs:read scope.
+         * @description Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -1860,7 +1746,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/jobs": {
+    "/api/v1/triggers": {
         parameters: {
             query?: never;
             header?: never;
@@ -1868,27 +1754,27 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List jobs
-         * @description Requires the jobs:read scope.
+         * List triggers
+         * @description Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_jobs"];
+        get: operations["get_api_v1_triggers"];
         put?: never;
         /**
-         * Create job
-         * @description Requires the jobs:write scope.
+         * Create trigger
+         * @description Requires the triggers:write scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        post: operations["post_api_v1_jobs"];
+        post: operations["post_api_v1_triggers"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/job-conditions/test": {
+    "/api/v1/trigger-conditions/test": {
         parameters: {
             query?: never;
             header?: never;
@@ -1899,20 +1785,20 @@ export interface paths {
         put?: never;
         /**
          * Test webhook conditions
-         * @description Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke jobs.
+         * @description Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke triggers.
          *
-         *     Requires the jobs:write scope.
+         *     Requires the triggers:write scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        post: operations["post_api_v1_job_conditions_test"];
+        post: operations["post_api_v1_trigger_conditions_test"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/jobs/{jobId}/invocations": {
+    "/api/v1/triggers/{triggerId}/invocations": {
         parameters: {
             query?: never;
             header?: never;
@@ -1922,12 +1808,12 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Invoke job
+         * Invoke trigger
          * @description Requires the runs:invoke scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        post: operations["post_api_v1_jobs_jobId_invocations"];
+        post: operations["post_api_v1_triggers_triggerId_invocations"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1999,6 +1885,92 @@ export interface paths {
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         delete: operations["delete_api_v1_agent_vm_grants_grantId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reserve an immutable image upload for Pi
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_media_uploads"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/{artifactId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read authorized run input or scratch media
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        get: operations["get_api_v1_media_artifactId"];
+        /**
+         * Stream unchanged image bytes to a reserved upload
+         * @description Content-Type must match the reserved mediaType. Maximum upload size is 32 MiB; Pi turns accept at most 16 MiB of decoded media. Uploads are immutable and checksum verified.
+         *
+         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        put: operations["put_api_v1_media_artifactId"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Capture an image from an authorized integration API
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_media_fetch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runtime/vm/exec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Execute a command in this active run's verified workspace VM
+         * @description Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+         */
+        post: operations["post_api_v1_runtime_vm_exec"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2160,7 +2132,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/jobs/{jobId}/invocation-permissions": {
+    "/api/v1/triggers/{triggerId}/invocation-permissions": {
         parameters: {
             query?: never;
             header?: never;
@@ -2168,21 +2140,21 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List a source job's manual invocation destinations
-         * @description Requires the jobs:read scope.
+         * List a source trigger's manual invocation destinations
+         * @description Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_jobs_jobId_invocation_permissions"];
+        get: operations["get_api_v1_triggers_triggerId_invocation_permissions"];
         /**
-         * Replace a source job's manual invocation destinations
-         * @description Requires an owner session, scoped API key, or authorized OAuth client with jobs:write. Destinations must belong to the source job's project; self-invocation is allowed. A run token may invoke a configured destination only while both jobs remain in the same project. Lifecycle subscriptions do not create permissions.
+         * Replace a source trigger's manual invocation destinations
+         * @description Requires an owner session, scoped API key, or authorized OAuth client with triggers:write. Destinations must belong to the source trigger's project; self-invocation is allowed. A run token may invoke a configured destination only while both triggers remain in the same project. Lifecycle subscriptions do not create permissions.
          *
-         *     Requires the jobs:write scope.
+         *     Requires the triggers:write scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        put: operations["put_api_v1_jobs_jobId_invocation_permissions"];
+        put: operations["put_api_v1_triggers_triggerId_invocation_permissions"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2190,7 +2162,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/jobs/{jobId}/events": {
+    "/api/v1/triggers/{triggerId}/events": {
         parameters: {
             query?: never;
             header?: never;
@@ -2203,7 +2175,7 @@ export interface paths {
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_jobs_jobId_events"];
+        get: operations["get_api_v1_triggers_triggerId_events"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2212,7 +2184,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/jobs/{jobId}/enable": {
+    "/api/v1/triggers/{triggerId}/enable": {
         parameters: {
             query?: never;
             header?: never;
@@ -2222,19 +2194,19 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Enable job
-         * @description Requires the jobs:write scope.
+         * Enable trigger
+         * @description Requires the triggers:write scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        post: operations["post_api_v1_jobs_jobId_enable"];
+        post: operations["post_api_v1_triggers_triggerId_enable"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/jobs/{jobId}/disable": {
+    "/api/v1/triggers/{triggerId}/disable": {
         parameters: {
             query?: never;
             header?: never;
@@ -2244,19 +2216,19 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Disable job
-         * @description Requires the jobs:write scope.
+         * Disable trigger
+         * @description Requires the triggers:write scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        post: operations["post_api_v1_jobs_jobId_disable"];
+        post: operations["post_api_v1_triggers_triggerId_disable"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/jobs/{jobId}": {
+    "/api/v1/triggers/{triggerId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -2264,29 +2236,29 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get job
-         * @description Requires the jobs:read scope.
+         * Get trigger
+         * @description Requires the triggers:read scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        get: operations["get_api_v1_jobs_jobId"];
+        get: operations["get_api_v1_triggers_triggerId"];
         /**
-         * Replace job
-         * @description Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_job. Omission preserves legacy REST/MCP last-writer-wins updates. Trigger identity is preserved.
+         * Replace trigger
+         * @description Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_trigger. Omission uses last-writer-wins updates. Event identity is preserved.
          *
-         *     Requires the jobs:write scope.
+         *     Requires the triggers:write scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        put: operations["put_api_v1_jobs_jobId"];
+        put: operations["put_api_v1_triggers_triggerId"];
         post?: never;
         /**
-         * Delete job
-         * @description Requires the jobs:write scope.
+         * Delete trigger
+         * @description Requires the triggers:write scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
-        delete: operations["delete_api_v1_jobs_jobId"];
+        delete: operations["delete_api_v1_triggers_triggerId"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2301,7 +2273,7 @@ export interface paths {
         };
         /**
          * List runs
-         * @description Returns tenant-authorized runs. Project, job, and state filters accept repeated values and match any selected value within each filter; filters are applied before cursor pagination. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, queued, reserved, and starting runs come first, running runs second, and all other states last; each group is ordered by creation time descending, then run ID descending. The opaque default cursor includes the priority group and creation time. Legacy two-field cursors resume at their original chronological boundary. Run states can change between requests and move rows across groups; restart pagination from the first page after observing a state transition if a gap-free live view is needed.
+         * @description Returns tenant-authorized runs. Trigger and state filters accept repeated values and match any selected value within each filter; filters are applied before cursor pagination. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, queued, reserved, and starting runs come first, running runs second, and all other states last; each group is ordered by creation time descending, then run ID descending. The opaque default cursor includes the priority group and creation time. Legacy two-field cursors resume at their original chronological boundary. Run states can change between requests and move rows across groups; restart pagination from the first page after observing a state transition if a gap-free live view is needed.
          *
          *     Requires the runs:read scope.
          *
@@ -2310,64 +2282,14 @@ export interface paths {
         get: operations["get_api_v1_runs"];
         put?: never;
         /**
-         * Start a project VM run with a prompt or script and per-run execution overrides
-         * @description Supply exactly one of prompt or script. Omitted execution settings use project defaults, then user defaults. Omitted integrationIds inherit this MCP client's effective integration access; explicit IDs select a subset, including an empty set. runScopes is limited to the caller's effective permissions.
+         * Start a Team run from an optional skill and prompt, or a script
+         * @description Supply a skill, a prompt, or both for an agent run, or a script without an agent skill or prompt. Omitted settings use Team defaults. Default scopes, integrations and invocation destinations are bounded by the caller's effective access. Explicit unauthorized permissions fail. Explicit empty selections grant none.
          *
          *     Requires the runs:start scope.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
         post: operations["post_api_v1_runs"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/projects/{projectId}/run-defaults": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set the VM configuration, permissions and capacity for direct launches
-         * @description Requires the projects:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        put: operations["put_api_v1_projects_projectId_run_defaults"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/user/run-defaults": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get user defaults for direct VM runs
-         * @description Requires the projects:read scope.
-         *
-         *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
-         */
-        get: operations["get_api_v1_user_run_defaults"];
-        /**
-         * Set user defaults for direct VM runs
-         * @description Requires the projects:write scope.
-         *
-         *     An interactive owner session is required; bearer tokens cannot call this operation.
-         */
-        put: operations["put_api_v1_user_run_defaults"];
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2382,10 +2304,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search jobs and runs by approximate metadata matches
-         * @description Search uses PostgreSQL pg_trgm approximate matching over job names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.
+         * Search triggers and runs by approximate metadata matches
+         * @description Search uses PostgreSQL pg_trgm approximate matching over trigger names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.
          *
-         *     Requires the jobs:read and runs:read scopes.
+         *     Requires the triggers:read and runs:read scopes.
          *
          *     Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
          */
@@ -2451,7 +2373,7 @@ export interface paths {
         };
         /**
          * Get lightweight run status
-         * @description No prompt decryption, invocation context, artifacts, activity or diagnostics assembly. Continue polling terminal runs while finalizing is true. trace_revision changes on generation transition or canonical projection/replay; live appends retain the revision. Full detail remains available at GET /runs/{runId}.
+         * @description Only bounded encrypted prompt/script previews are decrypted; full prompt, invocation context, artifacts, activity and diagnostics stay in the detail operation. Continue polling terminal runs while finalizing is true. trace_revision changes on generation transition or canonical projection/replay; live appends retain the revision. Full detail remains available at GET /runs/{runId}.
          *
          *     Requires the runs:read scope.
          *
@@ -2497,7 +2419,7 @@ export interface paths {
         };
         /**
          * Get revision-bound trace page
-         * @description First request omits revision and uses after=0. Subsequent requests supply the returned revision. A changed generation or canonical projection returns reset=true and events from zero in the new revision, from one database snapshot. Discard all cached old pages before merging the response. nextCursor=null means caught up, not finalized; poll after the last sequence while active/finalizing. Legacy GET /trace remains unchanged.
+         * @description First request omits revision and uses after=0. Subsequent requests supply the returned revision. A changed generation or canonical projection returns reset=true and events from zero in the new revision, from one database snapshot. Discard all cached old pages before merging the response. nextCursor=null means caught up, not finalized; poll after the last sequence while active/finalizing. The full trace endpoint provides its complete representation.
          *
          *     Requires the runs:read scope.
          *
@@ -2667,7 +2589,7 @@ export interface paths {
         put?: never;
         /**
          * Manually retry a blocked launch
-         * @description Retries a blocked launch with its original immutable credential and API scope snapshot. Job edits affect future runs; revoked/deleted selections require job repair and a new run. An interactive owner must request this retry.
+         * @description Retries a blocked launch with its original immutable credential and API scope snapshot. Trigger edits affect future runs; revoked/deleted selections require trigger repair and a new run. An interactive owner must request this retry.
          *
          *     Requires the runs:cancel scope.
          *
@@ -2713,14 +2635,14 @@ export interface components {
             };
         };
         Run: {
+            source: string;
+            prompt_preview: string;
             id: string;
-            job_id: string | null;
+            trigger_id: string | null;
             launch_skill_id?: string | null;
             launch_skill_key?: string | null;
             launch_skill_revision?: number | null;
-            project_id?: string;
-            project_name?: string;
-            job_name: string | null;
+            trigger_name: string | null;
             issue_id: string;
             issue_url: string | null;
             issue_title: string;
@@ -2770,14 +2692,14 @@ export interface components {
         };
         RunPage: {
             items: {
+                source: string;
+                prompt_preview: string;
                 id: string;
-                job_id: string | null;
+                trigger_id: string | null;
                 launch_skill_id?: string | null;
                 launch_skill_key?: string | null;
                 launch_skill_revision?: number | null;
-                project_id?: string;
-                project_name?: string;
-                job_name: string | null;
+                trigger_name: string | null;
                 issue_id: string;
                 issue_url: string | null;
                 issue_title: string;
@@ -2908,7 +2830,7 @@ export interface components {
             };
         } | null;
         TraceDiagnostics: {
-            /** @description Agent trace provider; the outer diagnostics provider remains the trigger provider. */
+            /** @description Agent trace provider; the outer diagnostics provider remains the event provider. */
             provider: string | null;
             /** @enum {string} */
             primarySource: "execution_stream" | "native_session";
@@ -2955,14 +2877,14 @@ export interface components {
             reconciliation?: Record<string, never>;
         };
         RunDetail: {
+            source: string;
+            prompt_preview: string;
             id: string;
-            job_id: string | null;
+            trigger_id: string | null;
             launch_skill_id?: string | null;
             launch_skill_key?: string | null;
             launch_skill_revision?: number | null;
-            project_id?: string;
-            project_name?: string;
-            job_name: string | null;
+            trigger_name: string | null;
             issue_id: string;
             issue_url: string | null;
             issue_title: string;
@@ -3010,7 +2932,8 @@ export interface components {
                 low: number;
                 high: number;
             }) | null;
-            job_result: {
+            context_prompt: string;
+            trigger_result: {
                 /** @enum {string} */
                 status: "succeeded" | "failed";
                 summary?: string;
@@ -3058,21 +2981,21 @@ export interface components {
                 id: string;
                 source: string;
                 claim_key: string;
-                template_job_id?: string | null;
-                trigger_id: string | null;
+                template_trigger_id?: string | null;
+                event_id: string | null;
                 context: {
                     [key: string]: unknown;
                 };
                 occurrence: {
                     [key: string]: unknown;
                 } | null;
-                source_job_id: string | null;
+                source_trigger_id: string | null;
                 source_run_id: string | null;
                 created_at: string;
             };
             invocation_source: string;
             invocation_claim_key: string;
-            invocation_trigger_id: string | null;
+            invocation_event_id: string | null;
             invocation_created_at: string;
             activity: {
                 action: string;
@@ -3120,7 +3043,7 @@ export interface components {
         };
         RunDiagnostics: {
             runId: string;
-            jobId: string | null;
+            triggerId: string | null;
             state: string;
             provider?: string;
             backendKind?: string;
@@ -3139,33 +3062,31 @@ export interface components {
             /** Format: date-time */
             updatedAt?: string;
         };
-        JobInput: {
-            /** Format: uuid */
-            projectId?: string;
+        TriggerInput: {
             name: string;
-            description?: string;
-            slug: string;
             /** @enum {string} */
             executionType?: "agent" | "code";
+            requiresVm?: boolean;
             /** @default  */
-            promptTemplate: string;
+            prompt: string;
             script?: string;
             runNameTemplate?: string;
-            /** @default 1 */
-            concurrencyLimit: number;
-            /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-            executionConfigId: string;
+            concurrencyLimit?: number;
+            /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+            runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+            executionConfigId?: string;
             tags?: string[];
             vmImage?: string;
             model?: string;
-            effort?: string;
+            /** @enum {string} */
+            effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
             /** @default [] */
-            triggers: ({
+            events: ({
                 id?: string;
                 slug?: string;
                 /** @constant */
                 kind: "manual";
+                template?: string;
                 /** @default true */
                 enabled: boolean;
                 /** @default {} */
@@ -3175,6 +3096,7 @@ export interface components {
                 slug?: string;
                 /** @constant */
                 kind: "schedule";
+                template?: string;
                 /** @default true */
                 enabled: boolean;
                 config: {
@@ -3186,6 +3108,7 @@ export interface components {
                 slug?: string;
                 /** @constant */
                 kind: "webhook";
+                template?: string;
                 /** @default true */
                 enabled: boolean;
                 config: {
@@ -3239,29 +3162,28 @@ export interface components {
                 id?: string;
                 slug?: string;
                 /** @constant */
-                kind: "jobLifecycle";
+                kind: "triggerLifecycle";
+                template?: string;
                 /** @default true */
                 enabled: boolean;
                 config: {
-                    sourceJobIds: string[];
+                    sourceTriggerIds: string[];
                     states: ("succeeded" | "failed" | "stopped" | "edited")[];
                 };
             } | {
                 id?: string;
                 slug?: string;
                 /** @constant */
-                kind: "jobIdle";
+                kind: "triggerIdle";
+                template?: string;
                 /** @default true */
                 enabled: boolean;
                 config: {
-                    sourceJobIds: string[];
+                    sourceTriggerIds: string[];
                 };
             })[];
-            launchSkillId?: string | null;
-            skillIds?: string[];
+            skillId?: string | null;
             portableIntegrationIds?: string[];
-            /** @enum {string} */
-            modelAccess?: "native" | "portable";
             /** Format: uuid */
             modelAccountId?: string;
             githubInstallationIds?: number[];
@@ -3277,7 +3199,7 @@ export interface components {
             name?: string;
             idempotencyKey?: string;
         };
-        JobConditionsTest: {
+        TriggerConditionsTest: {
             conditions?: {
                 [key: string]: unknown;
             };
@@ -3673,6 +3595,9 @@ export interface operations {
                             description: string | null;
                             revision: number;
                             credentialConfigured: boolean;
+                            providerUrl: string | null;
+                            contextWindow: number | null;
+                            maxTokens: number | null;
                         }[];
                     };
                 };
@@ -3704,7 +3629,13 @@ export interface operations {
                     idempotencyKey: string;
                     name: string;
                     description: string | null;
-                    initialState: string;
+                    /** Format: uri */
+                    providerUrl: string;
+                    apiKey?: string;
+                    /** @default 128000 */
+                    contextWindow?: number;
+                    /** @default 8192 */
+                    maxTokens?: number;
                 };
             };
         };
@@ -3749,7 +3680,13 @@ export interface operations {
                     idempotencyKey: string;
                     name: string;
                     description: string | null;
-                    initialState: string;
+                    /** Format: uri */
+                    providerUrl: string;
+                    apiKey?: string;
+                    /** @default 128000 */
+                    contextWindow?: number;
+                    /** @default 8192 */
+                    maxTokens?: number;
                 };
             };
         };
@@ -3809,132 +3746,6 @@ export interface operations {
                         deleted: true;
                         revision: number;
                         duplicate: boolean;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_model_accounts_accountId_authorization_authorize: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                accountId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": Record<string, never>;
-            };
-        };
-        responses: {
-            /** @description Device authorization state */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @enum {string} */
-                        state: "pending" | "authorized" | "idle" | "canceled" | "expired" | "failed" | "reauthentication-required";
-                        /** @constant */
-                        verificationUrl?: "https://auth.openai.com/codex/device";
-                        userCode?: string;
-                        pollAfterSeconds?: number;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_model_accounts_accountId_authorization_status: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                accountId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": Record<string, never>;
-            };
-        };
-        responses: {
-            /** @description Device authorization state */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @enum {string} */
-                        state: "pending" | "authorized" | "idle" | "canceled" | "expired" | "failed" | "reauthentication-required";
-                        /** @constant */
-                        verificationUrl?: "https://auth.openai.com/codex/device";
-                        userCode?: string;
-                        pollAfterSeconds?: number;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_model_accounts_accountId_authorization_cancel: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                accountId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": Record<string, never>;
-            };
-        };
-        responses: {
-            /** @description Device authorization state */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** @enum {string} */
-                        state: "pending" | "authorized" | "idle" | "canceled" | "expired" | "failed" | "reauthentication-required";
-                        /** @constant */
-                        verificationUrl?: "https://auth.openai.com/codex/device";
-                        userCode?: string;
-                        pollAfterSeconds?: number;
                     };
                 };
             };
@@ -4253,13 +4064,13 @@ export interface operations {
                             /** Format: email */
                             email: string;
                         };
-                        workspace: {
+                        team: {
                             id: string;
                             name: string | null;
                             /** @constant */
                             role: "owner";
                         };
-                        capabilities: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        capabilities: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         /** Format: date-time */
                         expiresAt: string;
                     };
@@ -4808,7 +4619,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_trigger_contexts: {
+    get_api_v1_event_contexts: {
         parameters: {
             query?: never;
             header?: never;
@@ -4817,7 +4628,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paths by trigger kind/provider */
+            /** @description Paths by event kind/provider */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4866,12 +4677,6 @@ export interface operations {
                         /** @default [] */
                         accountTags: string[];
                         tags?: string[];
-                        /** @enum {string} */
-                        agentKind?: "codex" | "claude" | "pi";
-                        /** @default [] */
-                        models: string[];
-                        /** @default [] */
-                        efforts: string[];
                     }[];
                 };
             };
@@ -4919,7 +4724,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_job_trigger_availability: {
+    get_api_v1_trigger_event_availability: {
         parameters: {
             query?: never;
             header?: never;
@@ -4940,7 +4745,7 @@ export interface operations {
                         /** @constant */
                         schedule: true;
                         /** @constant */
-                        jobLifecycle: true;
+                        triggerLifecycle: true;
                         linear: boolean;
                         clickup: boolean;
                         github: boolean;
@@ -5021,7 +4826,7 @@ export interface operations {
                         secretConfigured: true;
                         createdAt?: string;
                         updatedAt?: string;
-                        referencedJobCount: number;
+                        referencedTriggerCount: number;
                     }[];
                 };
             };
@@ -5111,12 +4916,6 @@ export interface operations {
                             /** @default [] */
                             accountTags: string[];
                             tags?: string[];
-                            /** @enum {string} */
-                            agentKind?: "codex" | "claude" | "pi";
-                            /** @default [] */
-                            models: string[];
-                            /** @default [] */
-                            efforts: string[];
                         } | null;
                         exeConnections: {
                             connectionId: string;
@@ -5125,12 +4924,6 @@ export interface operations {
                             /** @default [] */
                             accountTags: string[];
                             tags?: string[];
-                            /** @enum {string} */
-                            agentKind?: "codex" | "claude" | "pi";
-                            /** @default [] */
-                            models: string[];
-                            /** @default [] */
-                            efforts: string[];
                         }[];
                         ampConnections: {
                             connectionId: string;
@@ -5148,7 +4941,7 @@ export interface operations {
                                 secretConfigured: true;
                                 createdAt?: string;
                                 updatedAt?: string;
-                                referencedJobCount: number;
+                                referencedTriggerCount: number;
                             }[];
                         };
                     };
@@ -5759,8 +5552,6 @@ export interface operations {
                 "application/json": {
                     connectionId?: string;
                     apiToken?: string;
-                    /** @enum {string} */
-                    agentKind?: "codex" | "claude" | "pi";
                     tags?: string[];
                 };
             };
@@ -5775,7 +5566,6 @@ export interface operations {
                     "application/json": {
                         ok: boolean;
                         connectionId: string;
-                        models?: string[];
                     };
                 };
             };
@@ -5802,8 +5592,6 @@ export interface operations {
                 "application/json": {
                     connectionId?: string;
                     apiToken?: string;
-                    /** @enum {string} */
-                    agentKind?: "codex" | "claude" | "pi";
                     tags?: string[];
                 };
             };
@@ -6119,7 +5907,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        availableScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "proxy:use" | "vm:grant")[];
+                        availableScopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "proxy:use" | "vm:grant")[];
                         /** @description Integration ID to approved epoch-bound scope, or false to block. */
                         integrationOverrides: {
                             [key: string]: string | false;
@@ -6163,7 +5951,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -6192,7 +5980,7 @@ export interface operations {
             content: {
                 "application/json": {
                     name: string;
-                    scopes: (("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write") | ("flows:read" | "flows:write"))[];
+                    scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                     expiryDays: 7 | 30 | 90;
                 };
             };
@@ -6207,7 +5995,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         name: string;
-                        scopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        scopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         created_at: string;
                         expires_at: string;
                         last_used_at?: string | null;
@@ -6269,7 +6057,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    disabledScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "proxy:use" | "vm:grant")[];
+                    disabledScopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write" | "proxy:use" | "vm:grant")[];
                     /** @description Integration ID to approved epoch-bound scope, or false to block. */
                     integrationOverrides: {
                         [key: string]: string | false;
@@ -6674,10 +6462,9 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_job_summaries: {
+    get_api_v1_trigger_summaries: {
         parameters: {
             query?: {
-                projectId?: string;
                 limit?: number;
                 cursor?: string;
                 q?: string;
@@ -6702,10 +6489,7 @@ export interface operations {
                             /** Format: uuid */
                             id: string;
                             name: string;
-                            slug: string;
                             enabled: boolean;
-                            /** Format: uuid */
-                            projectId: string;
                             model: string;
                             effort: string;
                             agentKind: string;
@@ -6731,10 +6515,9 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_job_selector: {
+    get_api_v1_trigger_selector: {
         parameters: {
             query?: {
-                projectId?: string;
                 limit?: number;
                 cursor?: string;
                 q?: string;
@@ -6748,7 +6531,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Selector page; same ordering/filter semantics as job-summaries */
+            /** @description Selector page; same ordering/filter semantics as trigger-summaries */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6759,7 +6542,6 @@ export interface operations {
                             /** Format: uuid */
                             id: string;
                             name: string;
-                            slug: string;
                             enabled: boolean;
                         }[];
                         nextCursor: string | null;
@@ -6776,303 +6558,16 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_projects: {
-        parameters: {
-            query?: {
-                limit?: number;
-                sort?: "name" | "updated";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Projects */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        description?: string;
-                        createdAt: string;
-                        updatedAt: string;
-                        runDefaults?: {
-                            executionConfigId: string;
-                            /**
-                             * @description Agent harness used for the selected model.
-                             * @enum {string}
-                             */
-                            modelProvider?: "codex" | "claude" | "pi";
-                            model?: string;
-                            effort?: string;
-                            vmImage?: string;
-                            tags?: string[];
-                            /** Format: uuid */
-                            modelAccountId?: string;
-                            portableIntegrationIds?: string[];
-                            githubInstallationIds?: number[];
-                            linearConnectionId?: "linear" | null;
-                            xConnectionIds?: string[];
-                            /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                            /** @default 4 */
-                            capacity: number;
-                        };
-                        jobCount: number;
-                    }[];
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_projects: {
+    get_api_v1_triggers_graph: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                    description?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        description?: string;
-                        createdAt: string;
-                        updatedAt: string;
-                        runDefaults?: {
-                            executionConfigId: string;
-                            /**
-                             * @description Agent harness used for the selected model.
-                             * @enum {string}
-                             */
-                            modelProvider?: "codex" | "claude" | "pi";
-                            model?: string;
-                            effort?: string;
-                            vmImage?: string;
-                            tags?: string[];
-                            /** Format: uuid */
-                            modelAccountId?: string;
-                            portableIntegrationIds?: string[];
-                            githubInstallationIds?: number[];
-                            linearConnectionId?: "linear" | null;
-                            xConnectionIds?: string[];
-                            /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                            /** @default 4 */
-                            capacity: number;
-                        };
-                        jobCount: number;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_projects_projectId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                projectId: string;
-            };
-            cookie?: never;
-        };
         requestBody?: never;
         responses: {
-            /** @description Project */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        description?: string;
-                        createdAt: string;
-                        updatedAt: string;
-                        runDefaults?: {
-                            executionConfigId: string;
-                            /**
-                             * @description Agent harness used for the selected model.
-                             * @enum {string}
-                             */
-                            modelProvider?: "codex" | "claude" | "pi";
-                            model?: string;
-                            effort?: string;
-                            vmImage?: string;
-                            tags?: string[];
-                            /** Format: uuid */
-                            modelAccountId?: string;
-                            portableIntegrationIds?: string[];
-                            githubInstallationIds?: number[];
-                            linearConnectionId?: "linear" | null;
-                            xConnectionIds?: string[];
-                            /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                            /** @default 4 */
-                            capacity: number;
-                        };
-                        jobCount: number;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_projects_projectId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                projectId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                    description?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        name: string;
-                        description?: string;
-                        createdAt: string;
-                        updatedAt: string;
-                        runDefaults?: {
-                            executionConfigId: string;
-                            /**
-                             * @description Agent harness used for the selected model.
-                             * @enum {string}
-                             */
-                            modelProvider?: "codex" | "claude" | "pi";
-                            model?: string;
-                            effort?: string;
-                            vmImage?: string;
-                            tags?: string[];
-                            /** Format: uuid */
-                            modelAccountId?: string;
-                            portableIntegrationIds?: string[];
-                            githubInstallationIds?: number[];
-                            linearConnectionId?: "linear" | null;
-                            xConnectionIds?: string[];
-                            /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                            runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                            /** @default 4 */
-                            capacity: number;
-                        };
-                        jobCount: number;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    delete_api_v1_projects_projectId: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                projectId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_projects_projectId_graph: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                projectId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Complete project graph */
+            /** @description Team graph */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7082,10 +6577,10 @@ export interface operations {
                         nodes: {
                             id: string;
                             /** @enum {string} */
-                            type: "job" | "webhook";
+                            type: "trigger" | "webhook";
                             label: string;
                             /** @enum {string} */
-                            jobKind?: "Agent" | "Code";
+                            triggerKind?: "Agent" | "Code";
                             enabled?: boolean;
                             runningCount?: number;
                             concurrencyLimit?: number;
@@ -7110,6 +6605,129 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_team: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Team */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        name: string | null;
+                        runDefaults: {
+                            executionConfigId?: string;
+                            requiresVm?: boolean;
+                            model?: string;
+                            /** @enum {string} */
+                            effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                            vmImage?: string;
+                            tags?: string[];
+                            /** Format: uuid */
+                            modelAccountId?: string;
+                            portableIntegrationIds?: string[];
+                            githubInstallationIds?: number[];
+                            linearConnectionId?: "linear" | null;
+                            xConnectionIds?: string[];
+                            /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                            runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                            capacity?: number;
+                            concurrencyLimit?: number;
+                            allowedTriggerIds?: string[];
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_team_run_defaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    executionConfigId?: string;
+                    requiresVm?: boolean;
+                    model?: string;
+                    /** @enum {string} */
+                    effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                    vmImage?: string;
+                    tags?: string[];
+                    /** Format: uuid */
+                    modelAccountId?: string;
+                    portableIntegrationIds?: string[];
+                    githubInstallationIds?: number[];
+                    linearConnectionId?: "linear" | null;
+                    xConnectionIds?: string[];
+                    /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                    runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                    capacity?: number;
+                    concurrencyLimit?: number;
+                    allowedTriggerIds?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Team run defaults */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        executionConfigId?: string;
+                        requiresVm?: boolean;
+                        model?: string;
+                        /** @enum {string} */
+                        effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
+                        vmImage?: unknown;
+                        tags?: string[];
+                        /** Format: uuid */
+                        modelAccountId?: string;
+                        portableIntegrationIds?: string[];
+                        githubInstallationIds?: number[];
+                        linearConnectionId?: "linear" | null;
+                        xConnectionIds?: string[];
+                        /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                        runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        capacity?: number;
+                        concurrencyLimit?: number;
+                        allowedTriggerIds?: string[];
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
@@ -7387,7 +7005,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_skills_preview: {
+    post_api_v1_triggers_preview: {
         parameters: {
             query?: never;
             header?: never;
@@ -7397,11 +7015,22 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    skillIds: string[];
-                    jobContext: string;
-                    sampleTriggerData?: {
+                    skillId?: string | null;
+                    /** @default  */
+                    prompt?: string;
+                    eventTemplate?: string;
+                    eventData?: {
                         [key: string]: unknown;
                     };
+                    eventSlug?: string;
+                    /**
+                     * @default manual
+                     * @enum {string}
+                     */
+                    eventKind?: "manual" | "schedule" | "webhook" | "triggerLifecycle" | "triggerIdle";
+                    /** @default  */
+                    instructions?: string;
+                    runNameTemplate?: string;
                 };
             };
         };
@@ -7412,7 +7041,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        prompt: string;
+                        eventText: string;
+                        skill: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            revision: number;
+                        } | null;
+                        runName: string;
+                    };
                 };
             };
             400: components["responses"]["Error400"];
@@ -7545,7 +7184,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_skills_skillId_jobs: {
+    get_api_v1_skills_skillId_triggers: {
         parameters: {
             query?: never;
             header?: never;
@@ -7556,7 +7195,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Jobs */
+            /** @description Triggers */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7565,14 +7204,11 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         skillId: string;
-                        jobs: {
+                        triggers: {
                             /** Format: uuid */
                             id: string;
                             name: string;
-                            slug: string;
                             enabled: boolean;
-                            /** Format: uuid */
-                            projectId: string;
                         }[];
                     };
                 };
@@ -7582,227 +7218,6 @@ export interface operations {
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
             409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    post_api_v1_jobs_jobId_project: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: uuid */
-                    projectId: string;
-                    /** Format: date-time */
-                    expectedUpdatedAt?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Moved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        id: string;
-                        /** Format: uuid */
-                        projectId?: string;
-                        name: string;
-                        description?: string;
-                        slug: string;
-                        enabled: boolean;
-                        /** @enum {string} */
-                        executionType?: "agent" | "code";
-                        promptTemplate: string;
-                        script?: string;
-                        runNameTemplate: string;
-                        tags?: string[];
-                        model: string;
-                        effort?: string;
-                        executionConfig: {
-                            connectionId: string;
-                            workspace?: string;
-                            cwd?: string;
-                            agentKind: string;
-                            image?: string;
-                            region?: string;
-                            size?: string;
-                            /** @enum {string} */
-                            executionType?: "agent" | "code";
-                            script?: string;
-                        };
-                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                        portableIntegrationIds?: string[];
-                        /** @enum {string} */
-                        modelAccess?: "native" | "portable";
-                        /** Format: uuid */
-                        modelAccountId?: string;
-                        githubInstallationIds?: number[];
-                        linearConnectionId?: "linear" | null;
-                        xConnectionIds?: string[];
-                        launchSkillId?: string | null;
-                        executionConfigId: string;
-                        agentKind: string;
-                        concurrencyLimit: number;
-                        runningCount: number;
-                        currentRuns: number;
-                        maxConcurrency: number;
-                        lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
-                        triggers: ({
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "manual";
-                            /** @default true */
-                            enabled: boolean;
-                            /** @default {} */
-                            config: Record<string, never>;
-                            /** Format: uuid */
-                            jobId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        } | {
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "schedule";
-                            /** @default true */
-                            enabled: boolean;
-                            config: {
-                                cron: string;
-                                timezone: string;
-                            };
-                            /** Format: uuid */
-                            jobId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        } | {
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "webhook";
-                            /** @default true */
-                            enabled: boolean;
-                            config: {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "linear";
-                                projectId: string;
-                                matchRules: {
-                                    /** @enum {string} */
-                                    type: "owner" | "creator" | "status" | "label" | "assignee";
-                                    targetId: string;
-                                }[];
-                                secretConfigured?: boolean;
-                            } | {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "clickup";
-                                listId: string;
-                                matchRules: {
-                                    /** @enum {string} */
-                                    type: "owner" | "creator" | "status" | "label" | "assignee";
-                                    targetId: string;
-                                }[];
-                                secretConfigured?: boolean;
-                            } | {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "github";
-                                installationId: number;
-                                repositoryId: number;
-                                event?: string;
-                                action?: string;
-                                matchRules?: {
-                                    /** @enum {string} */
-                                    type: "owner" | "creator" | "status" | "label" | "assignee";
-                                    targetId: string;
-                                }[];
-                                secretConfigured?: boolean;
-                            } | {
-                                conditions?: {
-                                    [key: string]: unknown;
-                                };
-                                /** @constant */
-                                provider: "cloudflareTail";
-                                integrationId: string;
-                                destination?: string;
-                                secretConfigured?: boolean;
-                            };
-                            /** Format: uuid */
-                            jobId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        } | {
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "jobLifecycle";
-                            /** @default true */
-                            enabled: boolean;
-                            config: {
-                                sourceJobIds: string[];
-                                states: ("succeeded" | "failed" | "stopped" | "edited")[];
-                            };
-                            /** Format: uuid */
-                            jobId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        } | {
-                            /** Format: uuid */
-                            id: string;
-                            slug: string;
-                            /** @constant */
-                            kind: "jobIdle";
-                            /** @default true */
-                            enabled: boolean;
-                            config: {
-                                sourceJobIds: string[];
-                            };
-                            /** Format: uuid */
-                            jobId: string;
-                            createdAt: string;
-                            updatedAt: string;
-                        })[];
-                        skills?: {
-                            /** Format: uuid */
-                            id: string;
-                            key: string;
-                            revision: number;
-                            position: number;
-                        }[];
-                        createdAt: string;
-                        updatedAt: string;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
             500: components["responses"]["Error500"];
             503: components["responses"]["Error503"];
@@ -7821,10 +7236,6 @@ export interface operations {
                     connectionId: string;
                     image: string;
                     tags: string[];
-                    /** @enum {string} */
-                    agentKind: "codex" | "claude" | "pi";
-                    /** @enum {string} */
-                    executionType?: "agent" | "code";
                 };
             };
         };
@@ -7899,7 +7310,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_jobs: {
+    get_api_v1_triggers: {
         parameters: {
             query?: never;
             header?: never;
@@ -7908,7 +7319,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Jobs */
+            /** @description Triggers */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7917,15 +7328,12 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         id: string;
-                        /** Format: uuid */
-                        projectId?: string;
                         name: string;
-                        description?: string;
-                        slug: string;
                         enabled: boolean;
+                        requiresVm: boolean;
                         /** @enum {string} */
                         executionType?: "agent" | "code";
-                        promptTemplate: string;
+                        prompt: string;
                         script?: string;
                         runNameTemplate: string;
                         tags?: string[];
@@ -7933,6 +7341,7 @@ export interface operations {
                         effort?: string;
                         executionConfig: {
                             connectionId: string;
+                            requiresVm?: boolean;
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
@@ -7943,16 +7352,14 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
-                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        runScopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         portableIntegrationIds?: string[];
-                        /** @enum {string} */
-                        modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
                         xConnectionIds?: string[];
-                        launchSkillId?: string | null;
+                        skillId?: string | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -7960,18 +7367,19 @@ export interface operations {
                         currentRuns: number;
                         maxConcurrency: number;
                         lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
-                        triggers: ({
+                        events: ({
                             /** Format: uuid */
                             id: string;
                             slug: string;
                             /** @constant */
                             kind: "manual";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             /** @default {} */
                             config: Record<string, never>;
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -7980,6 +7388,7 @@ export interface operations {
                             slug: string;
                             /** @constant */
                             kind: "schedule";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
@@ -7987,7 +7396,7 @@ export interface operations {
                                 timezone: string;
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -7996,6 +7405,7 @@ export interface operations {
                             slug: string;
                             /** @constant */
                             kind: "webhook";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
@@ -8051,7 +7461,7 @@ export interface operations {
                                 secretConfigured?: boolean;
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -8059,15 +7469,16 @@ export interface operations {
                             id: string;
                             slug: string;
                             /** @constant */
-                            kind: "jobLifecycle";
+                            kind: "triggerLifecycle";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                sourceJobIds: string[];
+                                sourceTriggerIds: string[];
                                 states: ("succeeded" | "failed" | "stopped" | "edited")[];
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -8075,24 +7486,25 @@ export interface operations {
                             id: string;
                             slug: string;
                             /** @constant */
-                            kind: "jobIdle";
+                            kind: "triggerIdle";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                sourceJobIds: string[];
+                                sourceTriggerIds: string[];
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         })[];
-                        skills?: {
+                        skill?: {
                             /** Format: uuid */
                             id: string;
                             key: string;
                             revision: number;
-                            position: number;
-                        }[];
+                        } | null;
+                        contextReviewRequired?: boolean;
                         createdAt: string;
                         updatedAt: string;
                     }[];
@@ -8108,7 +7520,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_jobs: {
+    post_api_v1_triggers: {
         parameters: {
             query?: never;
             header?: never;
@@ -8117,7 +7529,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["JobInput"];
+                "application/json": components["schemas"]["TriggerInput"];
             };
         };
         responses: {
@@ -8130,15 +7542,12 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         id: string;
-                        /** Format: uuid */
-                        projectId?: string;
                         name: string;
-                        description?: string;
-                        slug: string;
                         enabled: boolean;
+                        requiresVm: boolean;
                         /** @enum {string} */
                         executionType?: "agent" | "code";
-                        promptTemplate: string;
+                        prompt: string;
                         script?: string;
                         runNameTemplate: string;
                         tags?: string[];
@@ -8146,6 +7555,7 @@ export interface operations {
                         effort?: string;
                         executionConfig: {
                             connectionId: string;
+                            requiresVm?: boolean;
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
@@ -8156,16 +7566,14 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
-                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        runScopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         portableIntegrationIds?: string[];
-                        /** @enum {string} */
-                        modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
                         xConnectionIds?: string[];
-                        launchSkillId?: string | null;
+                        skillId?: string | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -8173,18 +7581,19 @@ export interface operations {
                         currentRuns: number;
                         maxConcurrency: number;
                         lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
-                        triggers: ({
+                        events: ({
                             /** Format: uuid */
                             id: string;
                             slug: string;
                             /** @constant */
                             kind: "manual";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             /** @default {} */
                             config: Record<string, never>;
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -8193,6 +7602,7 @@ export interface operations {
                             slug: string;
                             /** @constant */
                             kind: "schedule";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
@@ -8200,7 +7610,7 @@ export interface operations {
                                 timezone: string;
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -8209,6 +7619,7 @@ export interface operations {
                             slug: string;
                             /** @constant */
                             kind: "webhook";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
@@ -8264,7 +7675,7 @@ export interface operations {
                                 secretConfigured?: boolean;
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -8272,15 +7683,16 @@ export interface operations {
                             id: string;
                             slug: string;
                             /** @constant */
-                            kind: "jobLifecycle";
+                            kind: "triggerLifecycle";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                sourceJobIds: string[];
+                                sourceTriggerIds: string[];
                                 states: ("succeeded" | "failed" | "stopped" | "edited")[];
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -8288,24 +7700,25 @@ export interface operations {
                             id: string;
                             slug: string;
                             /** @constant */
-                            kind: "jobIdle";
+                            kind: "triggerIdle";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                sourceJobIds: string[];
+                                sourceTriggerIds: string[];
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         })[];
-                        skills?: {
+                        skill?: {
                             /** Format: uuid */
                             id: string;
                             key: string;
                             revision: number;
-                            position: number;
-                        }[];
+                        } | null;
+                        contextReviewRequired?: boolean;
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -8322,7 +7735,7 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_job_conditions_test: {
+    post_api_v1_trigger_conditions_test: {
         parameters: {
             query?: never;
             header?: never;
@@ -8331,7 +7744,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["JobConditionsTest"];
+                "application/json": components["schemas"]["TriggerConditionsTest"];
             };
         };
         responses: {
@@ -8362,12 +7775,12 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_jobs_jobId_invocations: {
+    post_api_v1_triggers_triggerId_invocations: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                jobId: string;
+                triggerId: string;
             };
             cookie?: never;
         };
@@ -8551,6 +7964,226 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
+    post_api_v1_media_uploads: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    mediaType: string;
+                    byteSize: number;
+                    sha256: string;
+                    idempotencyKey: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Idempotent upload receipt */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        artifactId: string;
+                        mediaType: string;
+                        byteSize: number;
+                        sha256: string;
+                        /** @enum {string} */
+                        state: "pending" | "uploading" | "ready" | "deleting" | "deleted";
+                        /** Format: uri */
+                        uploadUrl: string;
+                        /** Format: uri */
+                        readUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    get_api_v1_media_artifactId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifactId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Original media bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    put_api_v1_media_artifactId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifactId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Verified media receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        artifactId: string;
+                        mediaType: string;
+                        byteSize: number;
+                        sha256: string;
+                        /** @enum {string} */
+                        state: "pending" | "uploading" | "ready" | "deleting" | "deleted";
+                        /** Format: uri */
+                        uploadUrl: string;
+                        /** Format: uri */
+                        readUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_media_fetch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    integration: string;
+                    /** Format: starts_with */
+                    path: string;
+                    headers?: {
+                        [key: string]: string;
+                    };
+                    idempotencyKey: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Media receipt */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        artifactId: string;
+                        mediaType: string;
+                        byteSize: number;
+                        sha256: string;
+                        /** @enum {string} */
+                        state: "pending" | "uploading" | "ready" | "deleting" | "deleted";
+                        /** Format: uri */
+                        uploadUrl: string;
+                        /** Format: uri */
+                        readUrl: string;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
+    post_api_v1_runtime_vm_exec: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    command: string;
+                    /** Format: starts_with */
+                    cwd?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command output and exit status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        output: string;
+                        exitCode: number;
+                    };
+                };
+            };
+            400: components["responses"]["Error400"];
+            401: components["responses"]["Error401"];
+            403: components["responses"]["Error403"];
+            404: components["responses"]["Error404"];
+            409: components["responses"]["Error409"];
+            415: components["responses"]["Error415"];
+            429: components["responses"]["Error429"];
+            500: components["responses"]["Error500"];
+            503: components["responses"]["Error503"];
+        };
+    };
     get_api_v1_agent_reflection: {
         parameters: {
             query?: never;
@@ -8567,6 +8200,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        media?: {
+                            /** @constant */
+                            frameworkVersion: "1.5.2";
+                            contentTypes: ("text" | "image")[];
+                            maxUploadBytes: number;
+                            maxTurnMediaBytes: number;
+                            /** Format: uri */
+                            uploadUrl: string;
+                            /** @constant */
+                            fetchTool: "fetch_media";
+                            /** @constant */
+                            readTool: "read_media";
+                        };
+                        /** @enum {string} */
+                        agentHost: "factorize" | "external" | "vm";
+                        current_vm: {
+                            /** @enum {string} */
+                            provider: "exe.dev" | "fly.io";
+                            id: string;
+                            /** Format: uuid */
+                            runId: string;
+                            /** @constant */
+                            status: "ready";
+                            cwd: string;
+                            verifiedAt: string;
+                            /** @constant */
+                            tool: "vm_exec";
+                        } | null;
                         identity: {
                             /** Format: uuid */
                             id: string;
@@ -8839,7 +8500,7 @@ export interface operations {
                         kind: "factorize-runtime-context-v1";
                         authMethod: string;
                         runId: string | null;
-                        jobId: string | null;
+                        triggerId: string | null;
                         scopes: string[];
                     };
                 };
@@ -8916,18 +8577,18 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_jobs_jobId_invocation_permissions: {
+    get_api_v1_triggers_triggerId_invocation_permissions: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                jobId: string;
+                triggerId: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Configured destination jobs in the same project */
+            /** @description Configured destination triggers in the same project */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8935,8 +8596,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** Format: uuid */
-                        sourceJobId: string;
-                        destinationJobIds: string[];
+                        sourceTriggerId: string;
+                        destinationTriggerIds: string[];
                     };
                 };
             };
@@ -8950,19 +8611,19 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    put_api_v1_jobs_jobId_invocation_permissions: {
+    put_api_v1_triggers_triggerId_invocation_permissions: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                jobId: string;
+                triggerId: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
                 "application/json": {
-                    destinationJobIds: string[];
+                    destinationTriggerIds: string[];
                 };
             };
         };
@@ -8975,8 +8636,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         /** Format: uuid */
-                        sourceJobId: string;
-                        destinationJobIds: string[];
+                        sourceTriggerId: string;
+                        destinationTriggerIds: string[];
                     };
                 };
             };
@@ -8991,14 +8652,14 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_jobs_jobId_events: {
+    get_api_v1_triggers_triggerId_events: {
         parameters: {
             query?: {
                 limit?: number;
             };
             header?: never;
             path: {
-                jobId: string;
+                triggerId: string;
             };
             cookie?: never;
         };
@@ -9023,12 +8684,12 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_jobs_jobId_enable: {
+    post_api_v1_triggers_triggerId_enable: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                jobId: string;
+                triggerId: string;
             };
             cookie?: never;
         };
@@ -9053,12 +8714,12 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    post_api_v1_jobs_jobId_disable: {
+    post_api_v1_triggers_triggerId_disable: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                jobId: string;
+                triggerId: string;
             };
             cookie?: never;
         };
@@ -9083,18 +8744,18 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    get_api_v1_jobs_jobId: {
+    get_api_v1_triggers_triggerId: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                jobId: string;
+                triggerId: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Job */
+            /** @description Trigger */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9103,15 +8764,12 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         id: string;
-                        /** Format: uuid */
-                        projectId?: string;
                         name: string;
-                        description?: string;
-                        slug: string;
                         enabled: boolean;
+                        requiresVm: boolean;
                         /** @enum {string} */
                         executionType?: "agent" | "code";
-                        promptTemplate: string;
+                        prompt: string;
                         script?: string;
                         runNameTemplate: string;
                         tags?: string[];
@@ -9119,6 +8777,7 @@ export interface operations {
                         effort?: string;
                         executionConfig: {
                             connectionId: string;
+                            requiresVm?: boolean;
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
@@ -9129,16 +8788,14 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
-                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        runScopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         portableIntegrationIds?: string[];
-                        /** @enum {string} */
-                        modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
                         xConnectionIds?: string[];
-                        launchSkillId?: string | null;
+                        skillId?: string | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -9146,18 +8803,19 @@ export interface operations {
                         currentRuns: number;
                         maxConcurrency: number;
                         lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
-                        triggers: ({
+                        events: ({
                             /** Format: uuid */
                             id: string;
                             slug: string;
                             /** @constant */
                             kind: "manual";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             /** @default {} */
                             config: Record<string, never>;
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -9166,6 +8824,7 @@ export interface operations {
                             slug: string;
                             /** @constant */
                             kind: "schedule";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
@@ -9173,7 +8832,7 @@ export interface operations {
                                 timezone: string;
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -9182,6 +8841,7 @@ export interface operations {
                             slug: string;
                             /** @constant */
                             kind: "webhook";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
@@ -9237,7 +8897,7 @@ export interface operations {
                                 secretConfigured?: boolean;
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -9245,15 +8905,16 @@ export interface operations {
                             id: string;
                             slug: string;
                             /** @constant */
-                            kind: "jobLifecycle";
+                            kind: "triggerLifecycle";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                sourceJobIds: string[];
+                                sourceTriggerIds: string[];
                                 states: ("succeeded" | "failed" | "stopped" | "edited")[];
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -9261,24 +8922,25 @@ export interface operations {
                             id: string;
                             slug: string;
                             /** @constant */
-                            kind: "jobIdle";
+                            kind: "triggerIdle";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                sourceJobIds: string[];
+                                sourceTriggerIds: string[];
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         })[];
-                        skills?: {
+                        skill?: {
                             /** Format: uuid */
                             id: string;
                             key: string;
                             revision: number;
-                            position: number;
-                        }[];
+                        } | null;
+                        contextReviewRequired?: boolean;
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -9294,44 +8956,42 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    put_api_v1_jobs_jobId: {
+    put_api_v1_triggers_triggerId: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                jobId: string;
+                triggerId: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
                 "application/json": {
-                    /** Format: uuid */
-                    projectId?: string;
                     name: string;
-                    description?: string;
-                    slug: string;
                     /** @enum {string} */
                     executionType?: "agent" | "code";
+                    requiresVm?: boolean;
                     /** @default  */
-                    promptTemplate?: string;
+                    prompt?: string;
                     script?: string;
                     runNameTemplate?: string;
-                    /** @default 1 */
                     concurrencyLimit?: number;
-                    /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                    runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                    executionConfigId: string;
+                    /** @description Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes. */
+                    runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                    executionConfigId?: string;
                     tags?: string[];
                     vmImage?: string;
                     model?: string;
-                    effort?: string;
+                    /** @enum {string} */
+                    effort?: "" | "minimal" | "low" | "medium" | "high" | "xhigh";
                     /** @default [] */
-                    triggers?: ({
+                    events?: ({
                         id?: string;
                         slug?: string;
                         /** @constant */
                         kind: "manual";
+                        template?: string;
                         /** @default true */
                         enabled?: boolean;
                         /** @default {} */
@@ -9341,6 +9001,7 @@ export interface operations {
                         slug?: string;
                         /** @constant */
                         kind: "schedule";
+                        template?: string;
                         /** @default true */
                         enabled?: boolean;
                         config: {
@@ -9352,6 +9013,7 @@ export interface operations {
                         slug?: string;
                         /** @constant */
                         kind: "webhook";
+                        template?: string;
                         /** @default true */
                         enabled?: boolean;
                         config: {
@@ -9405,29 +9067,28 @@ export interface operations {
                         id?: string;
                         slug?: string;
                         /** @constant */
-                        kind: "jobLifecycle";
+                        kind: "triggerLifecycle";
+                        template?: string;
                         /** @default true */
                         enabled?: boolean;
                         config: {
-                            sourceJobIds: string[];
+                            sourceTriggerIds: string[];
                             states: ("succeeded" | "failed" | "stopped" | "edited")[];
                         };
                     } | {
                         id?: string;
                         slug?: string;
                         /** @constant */
-                        kind: "jobIdle";
+                        kind: "triggerIdle";
+                        template?: string;
                         /** @default true */
                         enabled?: boolean;
                         config: {
-                            sourceJobIds: string[];
+                            sourceTriggerIds: string[];
                         };
                     })[];
-                    launchSkillId?: string | null;
-                    skillIds?: string[];
+                    skillId?: string | null;
                     portableIntegrationIds?: string[];
-                    /** @enum {string} */
-                    modelAccess?: "native" | "portable";
                     /** Format: uuid */
                     modelAccountId?: string;
                     githubInstallationIds?: number[];
@@ -9448,15 +9109,12 @@ export interface operations {
                     "application/json": {
                         /** Format: uuid */
                         id: string;
-                        /** Format: uuid */
-                        projectId?: string;
                         name: string;
-                        description?: string;
-                        slug: string;
                         enabled: boolean;
+                        requiresVm: boolean;
                         /** @enum {string} */
                         executionType?: "agent" | "code";
-                        promptTemplate: string;
+                        prompt: string;
                         script?: string;
                         runNameTemplate: string;
                         tags?: string[];
@@ -9464,6 +9122,7 @@ export interface operations {
                         effort?: string;
                         executionConfig: {
                             connectionId: string;
+                            requiresVm?: boolean;
                             workspace?: string;
                             cwd?: string;
                             agentKind: string;
@@ -9474,16 +9133,14 @@ export interface operations {
                             executionType?: "agent" | "code";
                             script?: string;
                         };
-                        runScopes: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                        runScopes: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                         portableIntegrationIds?: string[];
-                        /** @enum {string} */
-                        modelAccess?: "native" | "portable";
                         /** Format: uuid */
                         modelAccountId?: string;
                         githubInstallationIds?: number[];
                         linearConnectionId?: "linear" | null;
                         xConnectionIds?: string[];
-                        launchSkillId?: string | null;
+                        skillId?: string | null;
                         executionConfigId: string;
                         agentKind: string;
                         concurrencyLimit: number;
@@ -9491,18 +9148,19 @@ export interface operations {
                         currentRuns: number;
                         maxConcurrency: number;
                         lastRunState: ("queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped" | "done" | "ignored") | null;
-                        triggers: ({
+                        events: ({
                             /** Format: uuid */
                             id: string;
                             slug: string;
                             /** @constant */
                             kind: "manual";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             /** @default {} */
                             config: Record<string, never>;
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -9511,6 +9169,7 @@ export interface operations {
                             slug: string;
                             /** @constant */
                             kind: "schedule";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
@@ -9518,7 +9177,7 @@ export interface operations {
                                 timezone: string;
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -9527,6 +9186,7 @@ export interface operations {
                             slug: string;
                             /** @constant */
                             kind: "webhook";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
@@ -9582,7 +9242,7 @@ export interface operations {
                                 secretConfigured?: boolean;
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -9590,15 +9250,16 @@ export interface operations {
                             id: string;
                             slug: string;
                             /** @constant */
-                            kind: "jobLifecycle";
+                            kind: "triggerLifecycle";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                sourceJobIds: string[];
+                                sourceTriggerIds: string[];
                                 states: ("succeeded" | "failed" | "stopped" | "edited")[];
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         } | {
@@ -9606,24 +9267,25 @@ export interface operations {
                             id: string;
                             slug: string;
                             /** @constant */
-                            kind: "jobIdle";
+                            kind: "triggerIdle";
+                            template?: string;
                             /** @default true */
                             enabled: boolean;
                             config: {
-                                sourceJobIds: string[];
+                                sourceTriggerIds: string[];
                             };
                             /** Format: uuid */
-                            jobId: string;
+                            triggerId: string;
                             createdAt: string;
                             updatedAt: string;
                         })[];
-                        skills?: {
+                        skill?: {
                             /** Format: uuid */
                             id: string;
                             key: string;
                             revision: number;
-                            position: number;
-                        }[];
+                        } | null;
+                        contextReviewRequired?: boolean;
                         createdAt: string;
                         updatedAt: string;
                     };
@@ -9633,7 +9295,7 @@ export interface operations {
             401: components["responses"]["Error401"];
             403: components["responses"]["Error403"];
             404: components["responses"]["Error404"];
-            /** @description stale_job: reload and reconcile before retrying */
+            /** @description stale_trigger: reload and reconcile before retrying */
             409: components["responses"]["Error409"];
             415: components["responses"]["Error415"];
             429: components["responses"]["Error429"];
@@ -9641,12 +9303,12 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    delete_api_v1_jobs_jobId: {
+    delete_api_v1_triggers_triggerId: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                jobId: string;
+                triggerId: string;
             };
             cookie?: never;
         };
@@ -9674,12 +9336,11 @@ export interface operations {
     get_api_v1_runs: {
         parameters: {
             query?: {
-                projectId?: string | string[];
-                jobId?: string | string[];
+                triggerId?: string | string[];
                 state?: ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped") | ("queued" | "reserved" | "starting" | "running" | "done" | "blocked" | "failed" | "ignored" | "succeeded" | "stopping" | "stopped")[];
-                launchSkillId?: string | "none";
+                skillId?: string | "none";
                 contextQuery?: string;
-                sort?: "job" | "run" | "status" | "created" | "agent";
+                sort?: "source" | "run" | "status" | "created" | "agent";
                 direction?: "asc" | "desc";
                 limit?: number;
                 cursor?: string;
@@ -9719,22 +9380,22 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** Format: uuid */
-                    projectId?: string;
+                    attachments?: {
+                        /** Format: uuid */
+                        artifactId: string;
+                    }[];
+                    requiresVm?: boolean;
                     prompt?: string;
                     script?: string;
                     skill?: string;
                     name?: string;
                     executionConfigId?: string;
+                    /** Format: uuid */
+                    modelAccountId?: string;
                     vmImage?: string;
-                    /**
-                     * @description Agent harness used for the selected model.
-                     * @enum {string}
-                     */
-                    modelProvider?: "codex" | "claude" | "pi";
                     model?: string;
                     /** @description Factorize application permissions to grant. Omission inherits effective client permissions and an empty list grants none. */
-                    runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
+                    runScopes?: ("team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
                     integrationIds?: string[];
                     inputs?: {
                         [key: string]: unknown;
@@ -9771,201 +9432,6 @@ export interface operations {
             503: components["responses"]["Error503"];
         };
     };
-    put_api_v1_projects_projectId_run_defaults: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                projectId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    executionConfigId: string;
-                    /**
-                     * @description Agent harness used for the selected model.
-                     * @enum {string}
-                     */
-                    modelProvider?: "codex" | "claude" | "pi";
-                    model?: string;
-                    effort?: string;
-                    vmImage?: string;
-                    tags?: string[];
-                    /** Format: uuid */
-                    modelAccountId?: string;
-                    portableIntegrationIds?: string[];
-                    githubInstallationIds?: number[];
-                    linearConnectionId?: "linear" | null;
-                    xConnectionIds?: string[];
-                    /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                    runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                    /** @default 4 */
-                    capacity?: number;
-                };
-            };
-        };
-        responses: {
-            /** @description Project run defaults */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        executionConfigId: string;
-                        /**
-                         * @description Agent harness used for the selected model.
-                         * @enum {string}
-                         */
-                        modelProvider?: "codex" | "claude" | "pi";
-                        model?: string;
-                        effort?: string;
-                        vmImage?: string;
-                        tags?: string[];
-                        /** Format: uuid */
-                        modelAccountId?: string;
-                        portableIntegrationIds?: string[];
-                        githubInstallationIds?: number[];
-                        linearConnectionId?: "linear" | null;
-                        xConnectionIds?: string[];
-                        /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                        runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                        /** @default 4 */
-                        capacity: number;
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    get_api_v1_user_run_defaults: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description User run defaults */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        executionConfigId: string;
-                        /**
-                         * @description Agent harness used for the selected model.
-                         * @enum {string}
-                         */
-                        modelProvider?: "codex" | "claude" | "pi";
-                        model?: string;
-                        effort?: string;
-                        vmImage?: unknown;
-                        tags?: string[];
-                        /** Format: uuid */
-                        modelAccountId?: string;
-                        portableIntegrationIds?: string[];
-                        githubInstallationIds?: number[];
-                        linearConnectionId?: "linear" | null;
-                        xConnectionIds?: string[];
-                        /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                        runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                    } | null;
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
-    put_api_v1_user_run_defaults: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    executionConfigId: string;
-                    /**
-                     * @description Agent harness used for the selected model.
-                     * @enum {string}
-                     */
-                    modelProvider?: "codex" | "claude" | "pi";
-                    model?: string;
-                    effort?: string;
-                    vmImage?: string;
-                    tags?: string[];
-                    /** Format: uuid */
-                    modelAccountId?: string;
-                    portableIntegrationIds?: string[];
-                    githubInstallationIds?: number[];
-                    linearConnectionId?: "linear" | null;
-                    xConnectionIds?: string[];
-                    /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                    runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                };
-            };
-        };
-        responses: {
-            /** @description User run defaults */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        executionConfigId: string;
-                        /**
-                         * @description Agent harness used for the selected model.
-                         * @enum {string}
-                         */
-                        modelProvider?: "codex" | "claude" | "pi";
-                        model?: string;
-                        effort?: string;
-                        vmImage?: unknown;
-                        tags?: string[];
-                        /** Format: uuid */
-                        modelAccountId?: string;
-                        portableIntegrationIds?: string[];
-                        githubInstallationIds?: number[];
-                        linearConnectionId?: "linear" | null;
-                        xConnectionIds?: string[];
-                        /** @description Factorize API scopes for new job runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. jobs:write permits configuring jobs and their future run scopes. */
-                        runScopes?: ("projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:start" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write")[];
-                    };
-                };
-            };
-            400: components["responses"]["Error400"];
-            401: components["responses"]["Error401"];
-            403: components["responses"]["Error403"];
-            404: components["responses"]["Error404"];
-            409: components["responses"]["Error409"];
-            415: components["responses"]["Error415"];
-            429: components["responses"]["Error429"];
-            500: components["responses"]["Error500"];
-            503: components["responses"]["Error503"];
-        };
-    };
     get_api_v1_search: {
         parameters: {
             query?: {
@@ -9986,14 +9452,14 @@ export interface operations {
                     "application/json": {
                         items: {
                             /** @enum {string} */
-                            kind: "job" | "run" | "trace";
+                            kind: "trigger" | "run" | "trace";
                             id: string;
                             title: string;
                             subtitle: string;
                             url: string;
                             source: {
                                 /** @enum {string} */
-                                kind: "job" | "run" | "trace";
+                                kind: "trigger" | "run" | "trace";
                                 label: string;
                                 id: string;
                             };
@@ -10026,7 +9492,7 @@ export interface operations {
                 event?: string;
                 action?: string;
                 outcome?: string;
-                jobId?: string;
+                triggerId?: string;
                 q?: string;
                 cursor?: string;
                 limit?: number;
@@ -10105,12 +9571,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         id: string;
-                        job_id: string | null;
+                        trigger_id: string | null;
                         launch_skill_id?: string | null;
                         launch_skill_key?: string | null;
                         launch_skill_revision?: number | null;
-                        project_id?: string;
-                        project_name?: string;
                         /** @enum {string} */
                         state: "queued" | "reserved" | "starting" | "running" | "blocked" | "stopping" | "succeeded" | "failed" | "stopped";
                         /**
@@ -10119,7 +9583,7 @@ export interface operations {
                          */
                         execution_type: "agent" | "code";
                         run_name: string;
-                        job_name: string | null;
+                        trigger_name: string | null;
                         destination_url: string | null;
                         created_at: string;
                         updated_at: string;

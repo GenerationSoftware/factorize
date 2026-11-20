@@ -1,38 +1,40 @@
+import {mediaUploadInput,mediaReceipt,fetchMediaInput} from "./media-contracts";
+import {modelProviderConfiguration} from "./pi-provider";
+import { teamRunDefaults, teamResponse } from "./flow-schemas";
 import { vmPreset, vmPresetInput } from "./vm-presets";
 import { configureLibrary,libraryStatus,libraryToken } from "./skill-library-contract";
-import { grantVmInput, vmGrantReceipt, apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestApiResponse, readApiResponseInput, apiResponseChunk } from "./agent-api-contracts";
+import { vmExecInput,vmExecResult, grantVmInput, vmGrantReceipt, apiReflection, apiPolicyList, apiPolicyInput, requestApiInput, requestApiResponse, readApiResponseInput, apiResponseChunk } from "./agent-api-contracts";
 import { queryOf } from "./query-params";
 import { launchPayloadResponse } from "./launch-payload";
 import { searchResponse } from "./search-contracts";
 import { consentPreviewInput, consentPreviewResponse, consentDecisionInput, consentDecisionResponse } from "./consent-api";
 import { exeConnection, integrationStatus, clientPermissionsInput, authorizedClient, accessToken, createdAccessToken, savedExe, testedExe, savedAmp, savedTail, okResult } from "./settings-contracts";
-import { triggerAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
+import { eventAvailabilityResponse, namedOption, providerOptions, githubInstallation, githubRepository, tailIntegration } from "./editor-contracts";
 import { runSummaryResponse, runPageResponse, runStatusResponse, fullRunResponse, revisionTracePage, revisionTraceQuery, runtimeContextResponse, runtimeIntegrationsResponse } from "./run-read-contracts";
-import { jobPageQuery, jobSummaryPage, jobSelectorPage, jobResponse, jobUpdateInput } from "./job-contracts";
-import { projectInput, projectListQuery, projectResponse } from "./project-contracts";
+import { triggerPageQuery, triggerSummaryPage, triggerSelectorPage, triggerResponse, triggerUpdateInput } from "./job-contracts";
 import { projectGraphResponse } from "./project-graph-contracts";
 import { z } from "zod";
 import type { ApiService } from "./flow-service";
 import {
-  jobInputSchema,
-  startRunInput, startRunReceipt, projectRunDefaults, storedRunDefaults, userRunDefaults, manualInvocationSchema,
+  triggerInputSchema,
+  startRunInput, startRunReceipt, manualInvocationSchema,
   renameRunSchema,
   reportRunErrorSchema,
   invocationPermissionsInput,
   invocationPermissionsResponse,
   reportRunErrorResponse,
-  jobConditionsTestSchema,
+  triggerConditionsTestSchema,
   listRunsSchema,
   scopeSchema,
   vmImageVerificationInput,
   vmImageVerificationResponse,
 } from "./flow-schemas";
 import { traceReplaySchema } from "./trace-replay-schemas";
-import {modelAuthorizationState} from "./model-device-auth";
+
 import { X_OAUTH_SCOPES } from "./x-oauth";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
-import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput } from "./skills";
+import { skillInput, skillUpdateInput, skillPage, skillResponse, skillTriggersResponse, previewSkillInput, previewPromptResponse } from "./skills";
 import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
 import { flyExecutionConfiguration, flyExecutionConfigurationInput } from "./fly-execution-configurations";
 
@@ -45,6 +47,7 @@ export interface RouteContract {
   vendorIdentityOnly?: boolean;
   authOperation?: AuthAction;
   body?: z.ZodType;
+  rawBody?:boolean;
   maxBodyBytes?: number;
   query?: z.ZodObject;
   parameters: z.ZodObject;
@@ -52,19 +55,18 @@ export interface RouteContract {
   documentation: Record<string, any>;
   execute: (
     service: ApiService,
-    input: { params: Record<string, string>; body: any; query: any; url: URL; signal?: AbortSignal },
+    input: { params: Record<string, string>; body: any; query: any; url: URL; signal?: AbortSignal; request?:Request },
   ) => Promise<unknown>;
 }
 
 const exeBody = z.object({
   connectionId: z.string().min(1).optional(),
   apiToken: z.string().min(1).meta({ writeOnly: true }).optional(),
-  agentKind: z.enum(["codex", "claude", "pi"]).optional(),
   tags: z
     .array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/))
     .max(20)
     .optional(),
-});
+}).strict();
 const exeTestBody = exeBody
   .partial()
   .refine((value) => Boolean(value.connectionId || value.apiToken), {
@@ -98,7 +100,7 @@ const deliveryQuery = z.object({
   event: z.string().optional(),
   action: z.string().optional(),
   outcome: z.string().optional(),
-  jobId: z.string().optional(),
+  triggerId: z.string().optional(),
   q: z.string().optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -121,9 +123,7 @@ const scheduleBody = z
   .strict();
 const accessTokenBody = z.object({
   name: z.string().trim().min(1).max(100),
-  // Legacy names remain accepted at this boundary for migration; the service
-  // immediately stores their canonical resource-scope expansion.
-  scopes: z.array(z.union([scopeSchema, z.enum(["flows:read", "flows:write"])] )).min(1),
+  scopes: z.array(scopeSchema).min(1),
   expiryDays: z.union([z.literal(7), z.literal(30), z.literal(90)]),
 });
 const bearerIntegrationMetadata = z.object({
@@ -138,11 +138,12 @@ const bearerIntegrationCreate = z.object({
 const bearerIntegrationUpdate = bearerIntegrationCreate.omit({ id: true });
 const bearerIntegrationDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
 const bearerIntegrationList = z.object({ revision: z.number().int().nonnegative(), integrations: z.array(bearerIntegrationMetadata) });
-const modelAccountMetadata = z.object({ id: z.uuid(), name: z.string(), description: z.string().nullable(), revision: z.number().int().nonnegative(), credentialConfigured: z.boolean() });
+const modelAccountMetadata = z.object({ id: z.uuid(), name: z.string(), description: z.string().nullable(), revision: z.number().int().nonnegative(), credentialConfigured: z.boolean(),providerUrl:z.string().nullable(),contextWindow:z.number().int().nullable(),maxTokens:z.number().int().nullable() });
 const modelAccountCreate = z.object({
   id: z.uuid(), expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid(),
   name: z.string().trim().min(1).max(120), description: z.string().max(500).nullable(),
-  initialState: z.string().min(1).max(65_536).refine(value=>{try {const auth=JSON.parse(value); if(!auth || typeof auth!=="object" || Array.isArray(auth)) return false; if(Object.keys(auth).length===0) return true; return typeof auth.OPENAI_API_KEY==="string" && auth.OPENAI_API_KEY.length>0 || typeof auth.tokens?.access_token==="string" && auth.tokens.access_token.length>0;} catch {return false;}}, "Enter an API key, Codex credential object, or an empty account for device authorization").meta({writeOnly:true}),
+  ...modelProviderConfiguration.shape,
+
 }).strict();
 const modelAccountDelete = z.object({ expectedRevision: z.number().int().nonnegative(), idempotencyKey: z.uuid() }).strict();
 const modelAccountList = z.object({ revision: z.number().int().nonnegative(), accounts: z.array(modelAccountMetadata) });
@@ -162,11 +163,11 @@ const bearerIntegrationDeleteResult = z.object({ id: z.uuid(), deleted: z.litera
 function route(
   method: string,
   path: string,
-  scope: string,
+  scope: string | string[],
   documentation: RouteContract["documentation"],
   execute: RouteContract["execute"],
   options: Partial<
-    Pick<RouteContract, "body" | "maxBodyBytes" | "query" | "ownerSession" | "vendorIdentityOnly" | "parameters" | "authOperation" | "scope">
+    Pick<RouteContract, "body" | "rawBody" | "maxBodyBytes" | "query" | "ownerSession" | "vendorIdentityOnly" | "parameters" | "authOperation" | "scope">
   > = {},
 ): RouteContract {
   const keys = [...path.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]);
@@ -183,7 +184,7 @@ function route(
   const status = Number(
     Object.keys(documentation.responses).find((code) => code.startsWith("2")),
   );
-  const requiredScope = scopeForRoute(path, scope);
+  const requiredScope = scope;
   return {
     method,
     path,
@@ -197,34 +198,12 @@ function route(
   };
 }
 
-// Keep the catalog readable while making the authorization boundary explicit.
-// Legacy route labels are translated by resource and effect; they are never
-// accepted as newly issued scopes.
-function scopeForRoute(path: string, legacy: string): string | string[] {
-  if (path === "/api/v1/runtime-context" || path === "/api/v1/runtime-integrations" || path === "/api/v1/runtime-launch") return [];
-  if (legacy === "runs:write" && path.endsWith("/report-error")) return "runs:write";
-  if (legacy === "runs:write" && path === "/api/v1/runs/{runId}" ) return "runs:write";
-  if (legacy === "runs:read" && path === "/api/v1/search") return "jobs:read+runs:read";
-  if (legacy === "flows:read") {
-    if (path.startsWith("/api/v1/projects") || path.includes("/jobs/") && path.endsWith("/project")) return "projects:read";
-    if (path.includes("/integrations") || path.includes("/providers") || path.includes("execution-integration") || path.includes("exe-connections") || path.includes("github-installations")) return "integrations:read";
-    return "jobs:read";
-  }
-  if (legacy === "flows:write") {
-    if (path.startsWith("/api/v1/projects") || path.includes("/jobs/") && path.endsWith("/project")) return "projects:write";
-    if (path.includes("/integrations") || path.includes("/providers") || path.includes("execution-integration") || path.includes("exe-connections") || path.includes("github-installations")) return "integrations:write";
-    return "jobs:write";
-  }
-  if (legacy === "runs:write") return path.includes("invocation") ? "runs:invoke" : "runs:cancel";
-  return legacy;
-}
-
 /** The executable API catalog: change an operation here, then run generate:openapi.
  * Service methods retain tenant/identity authorization for both REST and MCP.
  */
 function authRoute(method: string, path: string, action: AuthAction, summary: string, response: z.ZodType, body?: z.ZodType, status = 200): RouteContract {
   return {
-    method, path, authOperation: action, scope: "flows:read", ownerSession: action === "password",
+    method, path, authOperation: action, scope: [], ownerSession: action === "password",
     parameters: z.object({}), body, status,
     documentation: {
       summary,
@@ -276,32 +255,32 @@ export const API_ROUTES: RouteContract[] = [
   }, service => service.listModelAccounts(), { ownerSession: true }),
   route("POST", "/api/v1/model-accounts", "integrations:write", {
     summary: "Create a model account",
-    description: "Requires an interactive owner browser session and the current collection revision. Accepts an API key or Codex credential object into Factorize-managed encrypted storage, or an empty initial state for backend device authorization. Credentials are never returned.",
+    description: "Requires an interactive owner browser session and the current collection revision. Saves an OpenAI-compatible provider URL, optional API key, and model limits in encrypted storage. Credentials are never returned.",
     responses: { "201": { description: "Created model account", content: { "application/json": { schema: jsonSchema(bearerIntegrationWriteResult, "output") } } } },
   }, (service, { body }) => service.createModelAccount(body), { body: modelAccountCreate, maxBodyBytes: 70_000, ownerSession: true }),
-  route("PUT", "/api/v1/model-accounts/{accountId}", "integrations:write", {summary:"Replace a model account credential",description:"Owner session required. Replaces the managed credential without changing the selected account ID; active runs use the replacement on their next request.",responses:{"200":{description:"Model account updated",content:{"application/json":{schema:jsonSchema(bearerIntegrationWriteResult,"output")}}}}},(service,{params,body})=>service.updateModelAccount(params.accountId,body),{body:modelAccountCreate.omit({id:true}),maxBodyBytes:70_000,ownerSession:true,parameters:z.object({accountId:z.uuid()})}),
-  ...(["authorize","status","cancel"] as const).map(action=>route("POST",`/api/v1/model-accounts/{accountId}/authorization/${action}`,"integrations:write",{summary:`${action} backend ChatGPT device authorization`,description:"Interactive owner session required. Device IDs, PKCE exchange codes and tokens remain server-side. Responses contain only a one-time user code, fixed verification URL and status.",responses:{"200":{description:"Device authorization state",content:{"application/json":{schema:jsonSchema(modelAuthorizationState,"output")}}}}},(service,{params})=>service.modelAuthorization(params.accountId,action),{body:z.object({}).strict(),ownerSession:true,maxBodyBytes:1024,parameters:z.object({accountId:z.uuid()})})),
+  route("PUT", "/api/v1/model-accounts/{accountId}", "integrations:write", {summary:"Replace a model account credential",description:"Owner session required. Saves an OpenAI-compatible provider URL and optional API key. Replaces the managed credential without changing the selected account ID; active runs use the replacement on their next request.",responses:{"200":{description:"Model account updated",content:{"application/json":{schema:jsonSchema(bearerIntegrationWriteResult,"output")}}}}},(service,{params,body})=>service.updateModelAccount(params.accountId,body),{body:modelAccountCreate.omit({id:true}),maxBodyBytes:70_000,ownerSession:true,parameters:z.object({accountId:z.uuid()})}),
+
   route("DELETE", "/api/v1/model-accounts/{accountId}", "integrations:write", {
     summary: "Delete a model account",
     description: "Requires an interactive owner browser session and the current collection revision. Deletion is recorded as a tombstone so future run snapshots reject the disconnected account.",
     responses: { "200": { description: "Deleted model account", content: { "application/json": { schema: jsonSchema(bearerIntegrationDeleteResult, "output") } } } },
   }, (service, { params, body }) => service.deleteModelAccount(params.accountId, body), { body: modelAccountDelete, maxBodyBytes: 4096, ownerSession: true, parameters: z.object({ accountId: z.uuid() }) }),
-  route("GET", "/api/v1/integrations/bearer", "flows:read", {
+  route("GET", "/api/v1/integrations/bearer", "integrations:read", {
     summary: "List bearer integration metadata",
     description: "Requires an interactive owner browser session. Returns secret-safe metadata only; stored bearer credentials are never returned.",
     responses: { "200": { description: "Bearer integration metadata", content: { "application/json": { schema: jsonSchema(bearerIntegrationList, "output") } } } },
   }, service => service.listBearerIntegrations(), { ownerSession: true }),
-  route("POST", "/api/v1/integrations/bearer", "flows:write", {
+  route("POST", "/api/v1/integrations/bearer", "integrations:write", {
     summary: "Create a bearer integration",
     description: "Requires an interactive owner browser session. Accepts the secret over the authenticated connection and encrypts it with Factorize-managed storage before persistence. The secret is never returned.",
     responses: { "201": { description: "Created integration", content: { "application/json": { schema: jsonSchema(bearerIntegrationWriteResult, "output") } } } },
   }, (service, { body }) => service.createBearerIntegration(body), { body: bearerIntegrationCreate, maxBodyBytes: 70_000, ownerSession: true }),
-  route("PUT", "/api/v1/integrations/bearer/{integrationId}", "flows:write", {
+  route("PUT", "/api/v1/integrations/bearer/{integrationId}", "integrations:write", {
     summary: "Update a bearer integration",
     description: "Requires an interactive owner browser session and the current collection revision. Accepts a replacement secret and encrypts it with Factorize-managed storage before persistence. The secret is never returned.",
     responses: { "200": { description: "Updated integration", content: { "application/json": { schema: jsonSchema(bearerIntegrationWriteResult, "output") } } } },
   }, (service, { params, body }) => service.updateBearerIntegration(params.integrationId, body), { body: bearerIntegrationUpdate, maxBodyBytes: 70_000, ownerSession: true }),
-  route("DELETE", "/api/v1/integrations/bearer/{integrationId}", "flows:write", {
+  route("DELETE", "/api/v1/integrations/bearer/{integrationId}", "integrations:write", {
     summary: "Delete an encrypted bearer integration",
     description: "Requires an interactive owner browser session and the current collection revision.",
     responses: { "200": { description: "Deleted integration", content: { "application/json": { schema: jsonSchema(bearerIntegrationDeleteResult, "output") } } } },
@@ -318,18 +297,18 @@ export const API_ROUTES: RouteContract[] = [
   authRoute("POST", "/api/v1/auth/password", "password", "Change password and invalidate sessions", authSuccess, authInputs.change),
   authRoute("POST", "/api/v1/auth/logout", "logout", "Revoke current session and clear browser cookie", authSuccess),
 
-  route("POST", "/api/v1/oauth/device/preview", "flows:read", { summary: "Inspect a device authorization code", responses: { "200": { description: "Pending device request", content: { "application/json": { schema: jsonSchema(z.object({ userCode: z.string(), clientName: z.string(), scopes: z.array(z.string()), expiresAt: z.string(), signature: z.string(), integrationLabels: z.array(z.object({scope:z.string(),name:z.string(),description:z.string().nullable()})).optional() }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32) }).strict(), authOperation: "device-preview", ownerSession: true }),
-  route("POST", "/api/v1/oauth/device/decision", "flows:write", { summary: "Approve or deny a device authorization code", responses: { "200": { description: "Device decision", content: { "application/json": { schema: jsonSchema(z.object({ status: z.enum(["approved", "denied"]) }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32), signature: z.string().min(1).max(256), decision: z.enum(["allow", "deny"]) }).strict(), authOperation: "device-decision", ownerSession: true }),
-  route("POST", "/api/v1/oauth/consent/preview", "flows:read", { summary: "Inspect an OAuth consent request", responses: { "200": { description: "Owner-bound expiring consent", content: { "application/json": { schema: jsonSchema(consentPreviewResponse, "output") } } } } }, async () => undefined, { body: consentPreviewInput, authOperation: "consent-preview", ownerSession: true }),
-  route("POST", "/api/v1/oauth/consent/decision", "flows:write", { summary: "Decide an OAuth consent request", responses: { "200": { description: "Validated protocol destination", content: { "application/json": { schema: jsonSchema(consentDecisionResponse, "output") } } } } }, async () => undefined, { body: consentDecisionInput, authOperation: "consent-decision", ownerSession: true }),
-  route("GET", "/api/v1/trigger-contexts", "flows:read", {
+  route("POST", "/api/v1/oauth/device/preview", "triggers:read", { summary: "Inspect a device authorization code", responses: { "200": { description: "Pending device request", content: { "application/json": { schema: jsonSchema(z.object({ userCode: z.string(), clientName: z.string(), scopes: z.array(z.string()), expiresAt: z.string(), signature: z.string(), integrationLabels: z.array(z.object({scope:z.string(),name:z.string(),description:z.string().nullable()})).optional() }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32) }).strict(), authOperation: "device-preview", ownerSession: true }),
+  route("POST", "/api/v1/oauth/device/decision", "triggers:write", { summary: "Approve or deny a device authorization code", responses: { "200": { description: "Device decision", content: { "application/json": { schema: jsonSchema(z.object({ status: z.enum(["approved", "denied"]) }), "output") } } } } }, async () => undefined, { body: z.object({ userCode: z.string().min(1).max(32), signature: z.string().min(1).max(256), decision: z.enum(["allow", "deny"]) }).strict(), authOperation: "device-decision", ownerSession: true }),
+  route("POST", "/api/v1/oauth/consent/preview", "triggers:read", { summary: "Inspect an OAuth consent request", responses: { "200": { description: "Owner-bound expiring consent", content: { "application/json": { schema: jsonSchema(consentPreviewResponse, "output") } } } } }, async () => undefined, { body: consentPreviewInput, authOperation: "consent-preview", ownerSession: true }),
+  route("POST", "/api/v1/oauth/consent/decision", "triggers:write", { summary: "Decide an OAuth consent request", responses: { "200": { description: "Validated protocol destination", content: { "application/json": { schema: jsonSchema(consentDecisionResponse, "output") } } } } }, async () => undefined, { body: consentDecisionInput, authOperation: "consent-decision", ownerSession: true }),
+  route("GET", "/api/v1/event-contexts", "triggers:read", {
     summary: "Get template autocomplete metadata",
-    responses: { "200": { description: "Paths by trigger kind/provider", content: { "application/json": { schema: jsonSchema(z.record(z.string(), z.array(z.object({ path: z.string(), type: z.enum(["string", "number", "boolean", "object", "array", "unknown"]), description: z.string(), example: z.unknown().optional() }))), "output") } } } },
-  }, service => service.triggerContextMetadata()),
+    responses: { "200": { description: "Paths by event kind/provider", content: { "application/json": { schema: jsonSchema(z.record(z.string(), z.array(z.object({ path: z.string(), type: z.enum(["string", "number", "boolean", "object", "array", "unknown"]), description: z.string(), example: z.unknown().optional() }))), "output") } } } },
+  }, service => service.eventContextMetadata()),
   route(
     "GET",
     "/api/v1/exe-connections",
-    "flows:read",
+    "integrations:read",
     {
       summary: "List exe connections",
       responses: {
@@ -348,7 +327,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/github-installations",
-    "flows:read",
+    "integrations:read",
     {
       summary: "List GitHub installations",
       responses: {
@@ -366,18 +345,18 @@ export const API_ROUTES: RouteContract[] = [
   ),
   route(
     "GET",
-    "/api/v1/job-trigger-availability",
-    "flows:read",
+    "/api/v1/trigger-event-availability",
+    "triggers:read",
     {
-      summary: "List available trigger kinds",
-      responses: { "200": { description: "Availability", content: { "application/json": { schema: jsonSchema(triggerAvailabilityResponse, "output") } } } },
+      summary: "List available event kinds",
+      responses: { "200": { description: "Availability", content: { "application/json": { schema: jsonSchema(eventAvailabilityResponse, "output") } } } },
     },
-    (service) => service.listJobTriggerAvailability(),
+    (service) => service.listTriggerEventAvailability(),
   ),
   route(
     "POST",
     "/api/v1/schedules/preview",
-    "flows:read",
+    "triggers:read",
     {
       summary: "Preview schedule",
       responses: {
@@ -403,7 +382,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/integrations/cloudflare-tail",
-    "flows:read",
+    "integrations:read",
     {
       summary: "List Tail integrations",
       responses: {
@@ -422,7 +401,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/integrations",
-    "flows:read",
+    "integrations:read",
     {
       summary: "List installed integrations",
       responses: {
@@ -483,7 +462,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "PUT",
     "/api/v1/integrations/exe",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Create an exe.dev integration",
       responses: { "200": { description: "Saved", content: { "application/json": { schema: jsonSchema(savedExe, "output") } } } },
@@ -494,7 +473,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "POST",
     "/api/v1/integrations/exe/test",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Test exe.dev credentials",
       responses: { "200": { description: "Test result", content: { "application/json": { schema: jsonSchema(testedExe, "output") } } } },
@@ -505,7 +484,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "PUT",
     "/api/v1/integrations/amp",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Create an Amp integration",
       responses: { "200": { description: "Saved", content: { "application/json": { schema: jsonSchema(savedAmp, "output") } } } },
@@ -516,7 +495,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "POST",
     "/api/v1/integrations/amp/test",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Test Amp credentials",
       responses: { "200": { description: "Test result", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
@@ -527,7 +506,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "POST",
     "/api/v1/integrations/cloudflare-tail",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Create a Tail integration",
       responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(savedTail, "output") } } } },
@@ -538,7 +517,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/providers/linear/projects",
-    "flows:read",
+    "integrations:read",
     {
       summary: "List Linear projects",
       responses: {
@@ -557,9 +536,9 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/providers/linear/options",
-    "flows:read",
+    "integrations:read",
     {
-      summary: "List Linear trigger options",
+      summary: "List Linear event options",
       responses: { "200": { description: "Options", content: { "application/json": { schema: jsonSchema(providerOptions, "output") } } } },
     },
     (service) => service.linearOptions(),
@@ -567,7 +546,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/providers/clickup/lists",
-    "flows:read",
+    "integrations:read",
     {
       summary: "List ClickUp lists",
       responses: {
@@ -586,9 +565,9 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/providers/clickup/options",
-    "flows:read",
+    "integrations:read",
     {
-      summary: "List ClickUp trigger options",
+      summary: "List ClickUp event options",
       responses: { "200": { description: "Options", content: { "application/json": { schema: jsonSchema(providerOptions, "output") } } } },
     },
     (service, { query }) => service.clickUpOptions(query.listId),
@@ -597,7 +576,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/providers/github/installations",
-    "flows:read",
+    "integrations:read",
     {
       summary: "List GitHub installations for provider setup",
       responses: {
@@ -616,7 +595,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/access/authorized-clients",
-    "flows:read",
+    "triggers:read",
     {
       summary: "List authorized OAuth clients",
       responses: {
@@ -636,7 +615,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/access-tokens",
-    "flows:read",
+    "triggers:read",
     {
       summary: "List access tokens",
       responses: {
@@ -656,7 +635,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "POST",
     "/api/v1/access-tokens",
-    "flows:write",
+    "triggers:write",
     {
       summary: "Create an access token",
       responses: { "201": { description: "Created token", content: { "application/json": { schema: jsonSchema(createdAccessToken, "output") } } } },
@@ -667,7 +646,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "DELETE",
     "/api/v1/access-tokens/{tokenId}",
-    "flows:write",
+    "triggers:write",
     {
       summary: "Revoke an access token",
       responses: { "200": { description: "Revoked" } },
@@ -675,15 +654,15 @@ export const API_ROUTES: RouteContract[] = [
     (service, { params }) => service.revokeAccessToken(params.tokenId),
     { ownerSession: true },
   ),
-  route("PUT", "/api/v1/access/authorizations/{grantId}/permissions", "jobs:write", {
+  route("PUT", "/api/v1/access/authorizations/{grantId}/permissions", "triggers:write", {
     summary: "Edit an OAuth connection’s scopes and integration access",
     responses: {"200": {description: "Permissions saved", content: {"application/json": {schema: jsonSchema(okResult, "output")}}}},
   }, (service, {params, body}) => service.updateClientPermissions(params.grantId, body), {ownerSession: true, body: clientPermissionsInput}),
-  route("DELETE", "/api/v1/access/authorizations/{grantId}", "jobs:write", {summary:"Revoke one isolated OAuth connection", description:"Other connections, including copies of the same client, retain their approvals.",responses:{"200":{description:"Authorization revoked",content:{"application/json":{schema:jsonSchema(z.object({revoked:z.number().int()}),"output")}}}}}, (service,{params})=>service.revokeOAuthAuthorization(params.grantId), {ownerSession:true}),
+  route("DELETE", "/api/v1/access/authorizations/{grantId}", "triggers:write", {summary:"Revoke one isolated OAuth connection", description:"Other connections, including copies of the same client, retain their approvals.",responses:{"200":{description:"Authorization revoked",content:{"application/json":{schema:jsonSchema(z.object({revoked:z.number().int()}),"output")}}}}}, (service,{params})=>service.revokeOAuthAuthorization(params.grantId), {ownerSession:true}),
   route(
     "DELETE",
     "/api/v1/access/authorized-clients/{clientId}",
-    "flows:write",
+    "triggers:write",
     {
       summary: "Revoke an authorized OAuth client",
       responses: { "200": { description: "Revoked grants" } },
@@ -694,7 +673,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "DELETE",
     "/api/v1/integrations/exe/{connectionId}",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Remove an exe.dev integration",
       responses: { "200": { description: "Removed" } },
@@ -705,7 +684,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "DELETE",
     "/api/v1/integrations/amp/{connectionId}",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Remove an Amp integration",
       responses: { "200": { description: "Removed" } },
@@ -716,7 +695,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "PUT",
     "/api/v1/integrations/cloudflare-tail/{integrationId}",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Update a Tail integration",
       responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(savedTail, "output") } } } },
@@ -731,7 +710,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "DELETE",
     "/api/v1/integrations/cloudflare-tail/{integrationId}",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Remove a Tail integration",
       responses: { "200": { description: "Removed" } },
@@ -742,7 +721,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "POST",
     "/api/v1/integrations/cloudflare-tail/{integrationId}/test",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Test a Tail integration",
       responses: { "200": { description: "Test result", content: { "application/json": { schema: jsonSchema(okResult, "output") } } } },
@@ -752,7 +731,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/providers/github/installations/{installationId}/repositories",
-    "flows:read",
+    "integrations:read",
     {
       summary: "List installation repositories",
       responses: {
@@ -772,9 +751,9 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/providers/github/installations/{installationId}/repositories/{repositoryId}/issue-options",
-    "flows:read",
+    "integrations:read",
     {
-      summary: "List GitHub issue trigger options",
+      summary: "List GitHub issue event options",
       responses: { "200": { description: "Options", content: { "application/json": { schema: jsonSchema(providerOptions, "output") } } } },
     },
     (service, { params }) =>
@@ -786,7 +765,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "DELETE",
     "/api/v1/providers/github/installations/{installationId}",
-    "flows:write",
+    "integrations:write",
     {
       summary: "Disconnect a GitHub installation",
       responses: { "200": { description: "Disconnected" } },
@@ -797,7 +776,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "POST",
     "/api/v1/integrations/exe/{connectionId}/diagnostics",
-    "flows:write",
+    "integrations:write",
     {
       summary:
         "Probe exe.dev permissions and a disposable VM's agent/model integration",
@@ -808,87 +787,82 @@ export const API_ROUTES: RouteContract[] = [
     (service, { params }) =>
       service.diagnoseExeIntegration(params.connectionId),
   ),
-  route("GET", "/api/v1/job-summaries", "flows:read", {
-    summary: "List bounded job summaries",
-    description: "Additive bounded list representation. Omitted sort preserves legacy immutable UUID descending; updated preserves updated time descending with UUID descending ties. active sorts jobs with live runs first, then name and UUID ascending; running sorts numeric live-run counts in direction with name and UUID ascending ties; title sorts name in direction with UUID ascending ties. Name ordering uses the PostgreSQL en-US ICU collation. Non-ID sorts return opaque cursors bound to their sort and direction; keep filters and sort unchanged between pages. Live run-count changes can move jobs between pages. Literal case-insensitive name/slug search. No prompts or trigger configuration; statistics are batched. Existing GET /jobs remains an array.",
-    responses: { "200": { description: "Summary page", content: { "application/json": { schema: jsonSchema(jobSummaryPage, "output") } } } },
-  }, (service, { query }) => service.listJobSummaries(query), { query: jobPageQuery }),
-  route("GET", "/api/v1/job-selector", "flows:read", {
-    summary: "Search bounded lifecycle job options",
-    responses: { "200": { description: "Selector page; same ordering/filter semantics as job-summaries", content: { "application/json": { schema: jsonSchema(jobSelectorPage, "output") } } } },
-  }, (service, { query }) => service.listJobSummaries(query, true), { query: jobPageQuery }),
-  route(
-    "GET",
-    "/api/v1/projects",
-    "flows:read",
-    { summary: "List projects", responses: { "200": { description: "Projects", content: { "application/json": { schema: jsonSchema(z.array(projectResponse), "output") } } } } },
-    (service, { query }) => service.listProjects(query),
-    { query: projectListQuery },
-  ),
-  route("POST", "/api/v1/projects", "flows:write", { summary: "Create project", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { body }) => service.createProject(body), { body: projectInput }),
-  route("GET", "/api/v1/projects/{projectId}", "flows:read", { summary: "Get project", responses: { "200": { description: "Project", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params }) => service.getProject(params.projectId)),
-  route("GET", "/api/v1/projects/{projectId}/graph", "flows:read", { summary: "Get a project's workflow graph", description: "Returns every job in the project and configured lifecycle, idle, manual invocation permission, and external webhook source connections. Connections are derived from executable trigger configuration and current permission grants. Webhook edge labels are short readable provider or event names; details may include configured technical resource identifiers as secondary context.", responses: { "200": { description: "Complete project graph", content: { "application/json": { schema: jsonSchema(projectGraphResponse, "output") } } } } }, (service, { params }) => service.getProjectGraph(params.projectId)),
-  route("PUT", "/api/v1/projects/{projectId}", "flows:write", { summary: "Update project", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(projectResponse, "output") } } } } }, (service, { params, body }) => service.updateProject(params.projectId, body), { body: projectInput }),
-  route("DELETE", "/api/v1/projects/{projectId}", "flows:write", { summary: "Delete empty project", responses: { "200": { description: "Deleted" } } }, (service, { params }) => service.deleteProject(params.projectId)),
+  route("GET", "/api/v1/trigger-summaries", "triggers:read", {
+    summary: "List bounded trigger summaries",
+    description: "Additive bounded list representation. Omitted sort preserves immutable UUID descending; updated preserves updated time descending with UUID descending ties. active sorts triggers with live runs first, then name and UUID ascending; running sorts numeric live-run counts in direction with name and UUID ascending ties; title sorts name in direction with UUID ascending ties. Name ordering uses the PostgreSQL en-US ICU collation. Non-ID sorts return opaque cursors bound to their sort and direction; keep filters and sort unchanged between pages. Live run-count changes can move triggers between pages. Literal case-insensitive name/slug search. No prompts or event configuration; statistics are batched. Existing GET /triggers remains an array.",
+    responses: { "200": { description: "Summary page", content: { "application/json": { schema: jsonSchema(triggerSummaryPage, "output") } } } },
+  }, (service, { query }) => service.listTriggerSummaries(query), { query: triggerPageQuery }),
+  route("GET", "/api/v1/trigger-selector", "triggers:read", {
+    summary: "Search bounded lifecycle trigger options",
+    responses: { "200": { description: "Selector page; same ordering/filter semantics as trigger-summaries", content: { "application/json": { schema: jsonSchema(triggerSelectorPage, "output") } } } },
+  }, (service, { query }) => service.listTriggerSummaries(query, true), { query: triggerPageQuery }),
+  route("GET", "/api/v1/triggers/graph", "triggers:read", { summary: "Get the team's workflow graph", responses: { "200": { description: "Team graph", content: { "application/json": { schema: jsonSchema(projectGraphResponse, "output") } } } } }, service => service.getTeamGraph()),
+  route("GET", "/api/v1/team", "team:read", {
+    summary: "Get the current team and its run defaults",
+    responses: { "200": { description: "Team", content: { "application/json": { schema: jsonSchema(teamResponse, "output") } } } },
+  }, service => service.getTeam()),
+  route("PUT", "/api/v1/team/run-defaults", "team:write", {
+    summary: "Replace the current team's run defaults",
+    responses: { "200": { description: "Team run defaults", content: { "application/json": { schema: jsonSchema(teamRunDefaults, "output") } } } },
+  }, (service, { body }) => service.setTeamRunDefaults(body), { body: teamRunDefaults, ownerSession: true }),
   route("GET", "/api/v1/skill-library", "skills:read", { summary: "Read skill repository settings", responses: { "200": { description: "Read skill repository settings", content: { "application/json": { schema: jsonSchema(libraryStatus, "output") } } } } }, (service) => service.skillLibraryStatus()),
   route("PUT", "/api/v1/skill-library", "skills:write", { summary: "Select the authoritative skills repository", responses: { "200": { description: "Select the authoritative skills repository", content: { "application/json": { schema: jsonSchema(libraryStatus, "output") } } } } }, (service,{body}) => service.configureSkillLibrary(body), {body:configureLibrary}),
   route("POST", "/api/v1/skill-library/token", "skills:write", { summary: "Issue a one-hour repository credential (read-only for GitHub mirrors)", responses: { "200": { description: "Issue a one-hour repository credential (read-only for GitHub mirrors)", content: { "application/json": { schema: jsonSchema(libraryToken, "output") } } } } }, (service) => service.skillLibraryToken()),
   route("POST", "/api/v1/skill-library/sync", "skills:write", { summary: "Synchronize the tracked branch", responses: { "200": { description: "Synchronize the tracked branch", content: { "application/json": { schema: jsonSchema(libraryStatus, "output") } } } } }, (service) => service.syncSkillLibrary()),
   route("GET", "/api/v1/skills", "skills:read", { summary: "Search global skills", responses: { "200": { description: "Skills", content: { "application/json": { schema: jsonSchema(skillPage, "output") } } } } }, (service, { query }) => service.listSkills(query), { query: skillQuery }),
   route("POST", "/api/v1/skills", "skills:write", { summary: "Create a global skill", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { body }) => service.createSkill(body), { body: skillInput }),
-  route("POST", "/api/v1/skills/preview", "skills:read", { summary: "Preview a composed job prompt", responses: { "200": { description: "Prompt preview" } } }, (service, { body }) => service.previewJobPrompt(body), { body: previewSkillInput }),
+  route("POST", "/api/v1/triggers/preview", "skills:read", { summary: "Preview one skill, a literal prompt and optional Event template", responses: { "200": { description: "Prompt preview", content: { "application/json": { schema: jsonSchema(previewPromptResponse, "output") } } } } }, (service, { body }) => service.previewTriggerPrompt(body), { body: previewSkillInput }),
   route("GET", "/api/v1/skills/{skillId}", "skills:read", { summary: "Get a global skill", responses: { "200": { description: "Skill", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { params }) => service.getSkill(params.skillId)),
   route("PUT", "/api/v1/skills/{skillId}", "skills:write", { summary: "Update a global skill", responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { params, body }) => service.updateSkill(params.skillId, body), { body: skillUpdateInput }),
   route("DELETE", "/api/v1/skills/{skillId}", "skills:write", { summary: "Delete an unused global skill", responses: { "200": { description: "Deleted" } } }, (service, { params, query }) => service.deleteSkill(params.skillId, query.expectedRevision), { query: z.object({ expectedRevision: z.coerce.number().int().positive() }) }),
-  route("GET", "/api/v1/skills/{skillId}/jobs", "skills:read", { summary: "List jobs using a skill", responses: { "200": { description: "Jobs", content: { "application/json": { schema: jsonSchema(skillJobsResponse, "output") } } } } }, (service, { params }) => service.listSkillJobs(params.skillId)),
-  route("POST", "/api/v1/jobs/{jobId}/project", "flows:write", { summary: "Move a job to a project", responses: { "200": { description: "Moved", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } } } }, (service, { params, body }) => service.moveJob(params.jobId, body.projectId, body.expectedUpdatedAt), { body: z.object({ projectId: z.guid(), expectedUpdatedAt: z.iso.datetime().optional() }) }),
-  route("POST", "/api/v1/vm-image-verifications", "flows:write", { summary: "Verify a public VM image", description: "Starts a tenant-scoped background verification. It creates a temporary Factorize-owned VM, checks SSH and the selected harness prerequisites, then deletes the VM. It never executes a job prompt.", responses: { "200": { description: "Verification operation", content: { "application/json": { schema: jsonSchema(vmImageVerificationResponse, "output") } } } } }, (service, { body }) => service.startVmImageVerification(body), { body: vmImageVerificationInput }),
-  route("GET", "/api/v1/vm-image-verifications/{verificationId}", "flows:read", { summary: "Get VM image verification progress", responses: { "200": { description: "Verification operation", content: { "application/json": { schema: jsonSchema(vmImageVerificationResponse, "output") } } } } }, (service, { params }) => service.getVmImageVerification(params.verificationId)),
+  route("GET", "/api/v1/skills/{skillId}/triggers", "skills:read", { summary: "List triggers using a skill", responses: { "200": { description: "Triggers", content: { "application/json": { schema: jsonSchema(skillTriggersResponse, "output") } } } } }, (service, { params }) => service.listSkillTriggers(params.skillId)),
+  route("POST", "/api/v1/vm-image-verifications", "triggers:write", { summary: "Verify a public VM image", description: "Starts a tenant-scoped background verification. It creates a temporary Factorize-owned VM, checks SSH and the selected harness prerequisites, then deletes the VM. It never executes a trigger prompt.", responses: { "200": { description: "Verification operation", content: { "application/json": { schema: jsonSchema(vmImageVerificationResponse, "output") } } } } }, (service, { body }) => service.startVmImageVerification(body), { body: vmImageVerificationInput }),
+  route("GET", "/api/v1/vm-image-verifications/{verificationId}", "triggers:read", { summary: "Get VM image verification progress", responses: { "200": { description: "Verification operation", content: { "application/json": { schema: jsonSchema(vmImageVerificationResponse, "output") } } } } }, (service, { params }) => service.getVmImageVerification(params.verificationId)),
   route(
     "GET",
-    "/api/v1/jobs",
-    "flows:read",
+    "/api/v1/triggers",
+    "triggers:read",
     {
-      summary: "List jobs",
+      summary: "List triggers",
       responses: {
         "200": {
-          description: "Jobs",
+          description: "Triggers",
           content: {
             "application/json": {
-              schema: jsonSchema(z.array(jobResponse), "output"),
+              schema: jsonSchema(z.array(triggerResponse), "output"),
             },
           },
         },
       },
     },
-    (service) => service.listJobs(),
+    (service) => service.listTriggers(),
   ),
   route(
     "POST",
-    "/api/v1/jobs",
-    "flows:write",
-    { summary: "Create job", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } } } },
-    (service, { body }) => service.createJob(body),
-    { body: jobInputSchema },
+    "/api/v1/triggers",
+    "triggers:write",
+    { summary: "Create trigger", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(triggerResponse, "output") } } } } },
+    (service, { body }) => service.createTrigger(body),
+    { body: triggerInputSchema },
   ),
   route(
     "POST",
-    "/api/v1/job-conditions/test",
-    "flows:write",
+    "/api/v1/trigger-conditions/test",
+    "triggers:write",
     {
       summary: "Test webhook conditions",
-      description: "Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke jobs.",
+      description: "Evaluates supplied prepared webhook context only; does not authenticate the example, route events, verify GitHub state, or invoke triggers.",
       responses: { "200": { description: "Decision", content: { "application/json": { schema: jsonSchema(z.object({ decision: z.enum(["match", "no-match", "error"]), error: z.string().optional(), details: z.array(z.record(z.string(), z.unknown())) }), "output") } } } },
     },
-    (service, { body }) => service.testJobConditions(body),
-    { body: jobConditionsTestSchema, maxBodyBytes: 300_000 },
+    (service, { body }) => service.testTriggerConditions(body),
+    { body: triggerConditionsTestSchema, maxBodyBytes: 300_000 },
   ),
   route(
     "POST",
-    "/api/v1/jobs/{jobId}/invocations",
+    "/api/v1/triggers/{triggerId}/invocations",
     "runs:invoke",
     {
-      summary: "Invoke job",
+      summary: "Invoke trigger",
       responses: {
         "202": {
           description: "Accepted",
@@ -913,32 +887,37 @@ export const API_ROUTES: RouteContract[] = [
         },
       },
     },
-    (service, { params, body }) => service.invokeJob(params.jobId, body),
+    (service, { params, body }) => service.invokeTrigger(params.triggerId, body),
     { body: manualInvocationSchema },
   ),
-  route("GET", "/api/v1/runtime-launch", "runs:read", {
+  route("GET", "/api/v1/runtime-launch", [], {
     summary: "Fetch this VM's immutable launch payload",
     description: "Requires the vendor-verified identity of an active run. Returns only that run's encrypted-at-rest scheduler snapshot, including the rendered prompt and harness or code context. No application scope is required. Sessions, API keys, OAuth clients, other runs and terminal runs cannot retrieve it. Responses are never cached.",
     responses: { "200": { description: "Launch payload for the calling run", content: { "application/json": { schema: jsonSchema(launchPayloadResponse, "output") } } } } },
   service => service.getRuntimeLaunchPayload(), { vendorIdentityOnly: true }),
   route("POST", "/api/v1/agent/vm-grants", "vm:grant+proxy:use", { summary: "Delegate selected proxy integrations to an exe.dev VM", description: "Requires an OAuth agent with proxy:use, vm:grant and access to the provider and each selected integration. Expires with the issuing access token.", responses: { "200": { description: "Verified VM grant", content: { "application/json": { schema: jsonSchema(vmGrantReceipt, "output") } } } } }, (service,{body}) => service.grantVm(body), {body: grantVmInput}),
   route("DELETE", "/api/v1/agent/vm-grants/{grantId}", "vm:grant", { summary: "Revoke an external VM grant", description: "Only the issuing OAuth grant can revoke. Access stops before provider cleanup.", responses: { "200": { description: "Revoked grant", content: { "application/json": { schema: jsonSchema(z.object({grantId:z.uuid(),revoked:z.boolean()}), "output") } } } } }, (service,{params}) => service.revokeVmGrant(params.grantId!), {parameters:z.object({grantId:z.uuid()})}),
-  route("GET", "/api/v1/agent/reflection", "", { summary: "Discover agent identity and granted or requestable integration APIs", description: "OAuth authorization or verified active run required. Availability reports connection state, without probing credential health. OAuth integration scopes are integration:{stable UUID}:{revocation epoch}; initial login need not request any integration scopes.", responses: { "200": { description: "Agent reflection", content: { "application/json": { schema: jsonSchema(apiReflection, "output") } } } } }, service => service.getApiReflection(), {scope: []}),
-  route("POST", "/api/v1/agent/requests", "", { summary: "Make an authorized credential-injected API request", description: "OAuth requires proxy:use. An external VM sends its short-lived exe.dev WIF bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.", responses: { "200": { description: "Upstream response or retained response handle", content: { "application/json": { schema: jsonSchema(requestApiResponse, "output") } } } } }, (service,{body,signal}) => service.requestApi(body,signal), {body: requestApiInput, maxBodyBytes: 45_000_000, scope: []}),
-  route("POST", "/api/v1/agent/responses/read", "", { summary: "Read up to 64 KiB of an identity-bound retained response", description: "Accepts the same OAuth, run or external VM authentication as the request endpoint. Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.", responses: { "200": { description: "Response chunk", content: { "application/json": { schema: jsonSchema(apiResponseChunk, "output") } } } } }, (service,{body}) => service.readApiResponse(body), {body: readApiResponseInput, scope: []}),
+  route("POST","/api/v1/media/uploads",[],{summary:"Reserve an immutable image upload for Pi",responses:{"201":{description:"Idempotent upload receipt",content:{"application/json":{schema:jsonSchema(mediaReceipt,"output")}}}}},(service,{body})=>service.createMediaUpload(body),{body:mediaUploadInput,maxBodyBytes:8192}),
+  route("PUT","/api/v1/media/{artifactId}",[],{summary:"Stream unchanged image bytes to a reserved upload",description:"Content-Type must match the reserved mediaType. Maximum upload size is 32 MiB; Pi turns accept at most 16 MiB of decoded media. Uploads are immutable and checksum verified.",requestBody:{required:true,content:{"application/octet-stream":{schema:{type:"string",format:"binary"}}}},responses:{"200":{description:"Verified media receipt",content:{"application/json":{schema:jsonSchema(mediaReceipt,"output")}}}}},(service,{params,request})=>service.uploadMedia(params.artifactId,request!),{rawBody:true,parameters:z.object({artifactId:z.uuid()})}),
+  route("GET","/api/v1/media/{artifactId}",[],{summary:"Read authorized run input or scratch media",responses:{"200":{description:"Original media bytes",content:{"application/octet-stream":{schema:{type:"string",format:"binary"}}}}}},(service,{params})=>service.downloadMedia(params.artifactId),{parameters:z.object({artifactId:z.uuid()})}),
+  route("POST","/api/v1/media/fetch",[],{summary:"Capture an image from an authorized integration API",responses:{"201":{description:"Media receipt",content:{"application/json":{schema:jsonSchema(mediaReceipt,"output")}}}}},(service,{body,signal})=>service.fetchMedia(body,signal),{body:fetchMediaInput,maxBodyBytes:16384}),
+  route("POST","/api/v1/runtime/vm/exec",[],{summary:"Execute a command in this active run's verified workspace VM",responses:{"200":{description:"Command output and exit status",content:{"application/json":{schema:jsonSchema(vmExecResult,"output")}}}}},(service,{body,signal})=>service.vmExec(body,signal),{body:vmExecInput,scope:[]}),
+  route("GET", "/api/v1/agent/reflection", [], { summary: "Discover agent identity and granted or requestable integration APIs", description: "OAuth authorization or verified active run required. Availability reports connection state, without probing credential health. OAuth integration scopes are integration:{stable UUID}:{revocation epoch}; initial login need not request any integration scopes.", responses: { "200": { description: "Agent reflection", content: { "application/json": { schema: jsonSchema(apiReflection, "output") } } } } }, service => service.getApiReflection(), {scope: []}),
+  route("POST", "/api/v1/agent/requests", [], { summary: "Make an authorized credential-injected API request", description: "OAuth requires proxy:use. An external VM sends its short-lived exe.dev WIF bearer token, X-Factorize-VM-Grant and X-Factorize-VM-Proof. Only server-selected origins are used. Integration-wide grants are bounded by upstream credential permissions. Missing requestable access returns HTTP 403 with WWW-Authenticate insufficient_scope, scope and resource_metadata. Upstream status is returned in the result, including non-2xx. Text is UTF-8; other bodies are base64. Responses above 32 KiB are retained for 24 hours and read in chunks. Revocation prevents subsequent calls and reads, but cannot undo upstream side effects.", responses: { "200": { description: "Upstream response or retained response handle", content: { "application/json": { schema: jsonSchema(requestApiResponse, "output") } } } } }, (service,{body,signal}) => service.requestApi(body,signal), {body: requestApiInput, maxBodyBytes: 45_000_000, scope: []}),
+  route("POST", "/api/v1/agent/responses/read", [], { summary: "Read up to 64 KiB of an identity-bound retained response", description: "Accepts the same OAuth, run or external VM authentication as the request endpoint. Rechecks authorization, integration revocation epoch, tenant, identity and 24-hour expiry. Chunks are always base64 so arbitrary byte offsets are safe.", responses: { "200": { description: "Response chunk", content: { "application/json": { schema: jsonSchema(apiResponseChunk, "output") } } } } }, (service,{body}) => service.readApiResponse(body), {body: readApiResponseInput, scope: []}),
   route("GET", "/api/v1/integration-api-policies", "integrations:read", { summary: "List tenant MCP API access policies", responses: { "200": { description: "Policies", content: { "application/json": { schema: jsonSchema(apiPolicyList, "output") } } } } }, service => service.listApiPolicies(), {ownerSession: true}),
   route("PUT", "/api/v1/integration-api-policies/{integrationId}", "integrations:write", { summary: "Set baseline, requestable or disabled MCP access", description: "Baseline changes apply immediately. Disabling invalidates approvals permanently; re-enabling requires fresh consent. Run selections remain independent.", responses: { "200": { description: "Updated policies", content: { "application/json": { schema: jsonSchema(apiPolicyList, "output") } } } } }, (service,{params,body}) => service.updateApiPolicy(params.integrationId,body), {ownerSession: true, body: apiPolicyInput}),
-  route("GET", "/api/v1/runtime-context", "runs:read", {
+  route("GET", "/api/v1/runtime-context", [], {
     summary: "Inspect the current runtime identity and scopes",
     description: "Returns the verified calling identity and effective scopes without credentials. Requires a verified active identity but no application-resource scope; callers with zero scopes can inspect only their own identity. Execution provisioning uses this operation to verify the dedicated run proxy. Execution VMs must not have additional shared Factorize proxy attachments.",
     responses: { "200": { description: "Verified runtime identity", content: { "application/json": { schema: jsonSchema(runtimeContextResponse, "output") } } } } },
   service => service.getRuntimeContext()),
-  route("GET", "/api/v1/runtime-integrations", "integrations:read", { summary: "Discover this run's selected integration endpoints", description: "Requires vendor-verified run identity. Returns only snapshotted selections, safe connection metadata, X OAuth scopes, and current availability, without origins or credentials. X connections use /x/{connectionId}/ for supported API v2 resources; each resource is checked against selected and granted OAuth scopes. Selection authorization is independent of the run's Factorize API scopes.", responses: { "200": { description: "Selected run integrations", content: { "application/json": { schema: jsonSchema(runtimeIntegrationsResponse, "output") } } } } }, service => service.getRuntimeIntegrations()),
-  route("GET", "/api/v1/jobs/{jobId}/invocation-permissions", "jobs:read", { summary: "List a source job's manual invocation destinations", responses: { "200": { description: "Configured destination jobs in the same project", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params }) => service.getInvocationPermissions(params.jobId)),
-  route("PUT", "/api/v1/jobs/{jobId}/invocation-permissions", "jobs:write", { summary: "Replace a source job's manual invocation destinations", description: "Requires an owner session, scoped API key, or authorized OAuth client with jobs:write. Destinations must belong to the source job's project; self-invocation is allowed. A run token may invoke a configured destination only while both jobs remain in the same project. Lifecycle subscriptions do not create permissions.", responses: { "200": { description: "Saved manual invocation permissions", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params, body }) => service.setInvocationPermissions(params.jobId, body.destinationJobIds), { body: invocationPermissionsInput }),
+  route("GET", "/api/v1/runtime-integrations", [], { summary: "Discover this run's selected integration endpoints", description: "Requires vendor-verified run identity. Returns only snapshotted selections, safe connection metadata, X OAuth scopes, and current availability, without origins or credentials. X connections use /x/{connectionId}/ for supported API v2 resources; each resource is checked against selected and granted OAuth scopes. Selection authorization is independent of the run's Factorize API scopes.", responses: { "200": { description: "Selected run integrations", content: { "application/json": { schema: jsonSchema(runtimeIntegrationsResponse, "output") } } } } }, service => service.getRuntimeIntegrations()),
+  route("GET", "/api/v1/triggers/{triggerId}/invocation-permissions", "triggers:read", { summary: "List a source trigger's manual invocation destinations", responses: { "200": { description: "Configured destination triggers in the same project", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params }) => service.getInvocationPermissions(params.triggerId)),
+  route("PUT", "/api/v1/triggers/{triggerId}/invocation-permissions", "triggers:write", { summary: "Replace a source trigger's manual invocation destinations", description: "Requires an owner session, scoped API key, or authorized OAuth client with triggers:write. Destinations must belong to the source trigger's project; self-invocation is allowed. A run token may invoke a configured destination only while both triggers remain in the same project. Lifecycle subscriptions do not create permissions.", responses: { "200": { description: "Saved manual invocation permissions", content: { "application/json": { schema: jsonSchema(invocationPermissionsResponse, "output") } } } } }, (service, { params, body }) => service.setInvocationPermissions(params.triggerId, body.destinationTriggerIds), { body: invocationPermissionsInput }),
   route(
     "GET",
-    "/api/v1/jobs/{jobId}/events",
+    "/api/v1/triggers/{triggerId}/events",
     "runs:read",
     {
       summary: "List webhook activity",
@@ -954,70 +933,64 @@ export const API_ROUTES: RouteContract[] = [
       },
     },
     (service, { params, query }) =>
-      service.listJobEvents(params.jobId, query.limit),
+      service.listTriggerEvents(params.triggerId, query.limit),
     { query: eventQuery },
   ),
   route(
     "POST",
-    "/api/v1/jobs/{jobId}/enable",
-    "flows:write",
-    { summary: "Enable job", responses: { "200": { description: "Enabled" } } },
-    (service, { params }) => service.setJobEnabled(params.jobId, true),
+    "/api/v1/triggers/{triggerId}/enable",
+    "triggers:write",
+    { summary: "Enable trigger", responses: { "200": { description: "Enabled" } } },
+    (service, { params }) => service.setTriggerEnabled(params.triggerId, true),
   ),
   route(
     "POST",
-    "/api/v1/jobs/{jobId}/disable",
-    "flows:write",
+    "/api/v1/triggers/{triggerId}/disable",
+    "triggers:write",
     {
-      summary: "Disable job",
+      summary: "Disable trigger",
       responses: { "200": { description: "Disabled" } },
     },
-    (service, { params }) => service.setJobEnabled(params.jobId, false),
+    (service, { params }) => service.setTriggerEnabled(params.triggerId, false),
   ),
   route(
     "GET",
-    "/api/v1/jobs/{jobId}",
-    "flows:read",
-    { summary: "Get job", responses: { "200": { description: "Job", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } } } },
-    (service, { params }) => service.getJob(params.jobId),
+    "/api/v1/triggers/{triggerId}",
+    "triggers:read",
+    { summary: "Get trigger", responses: { "200": { description: "Trigger", content: { "application/json": { schema: jsonSchema(triggerResponse, "output") } } } } },
+    (service, { params }) => service.getTrigger(params.triggerId),
   ),
   route(
     "PUT",
-    "/api/v1/jobs/{jobId}",
-    "flows:write",
+    "/api/v1/triggers/{triggerId}",
+    "triggers:write",
     {
-      summary: "Replace job",
-      description: "Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_job. Omission preserves legacy REST/MCP last-writer-wins updates. Trigger identity is preserved.",
-      responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(jobResponse, "output") } } }, "409": { description: "stale_job: reload and reconcile before retrying" } },
+      summary: "Replace trigger",
+      description: "Supply expectedUpdatedAt from GET for atomic optimistic concurrency. Stale edits return 409 stale_trigger. Omission uses last-writer-wins updates. Event identity is preserved.",
+      responses: { "200": { description: "Updated", content: { "application/json": { schema: jsonSchema(triggerResponse, "output") } } }, "409": { description: "stale_trigger: reload and reconcile before retrying" } },
     },
-    (service, { params, body }) => service.updateJob(params.jobId, body),
-    { body: jobUpdateInput },
+    (service, { params, body }) => service.updateTrigger(params.triggerId, body),
+    { body: triggerUpdateInput },
   ),
   route(
     "DELETE",
-    "/api/v1/jobs/{jobId}",
-    "flows:write",
-    { summary: "Delete job", responses: { "200": { description: "Deleted" } } },
-    (service, { params }) => service.deleteJob(params.jobId),
+    "/api/v1/triggers/{triggerId}",
+    "triggers:write",
+    { summary: "Delete trigger", responses: { "200": { description: "Deleted" } } },
+    (service, { params }) => service.deleteTrigger(params.triggerId),
   ),
   route("POST","/api/v1/runs","runs:start",{
-    summary:"Start a project VM run with a prompt or script and per-run execution overrides",
-    description:"Supply exactly one of prompt or script. Omitted execution settings use project defaults, then user defaults. Omitted integrationIds inherit this MCP client's effective integration access; explicit IDs select a subset, including an empty set. runScopes is limited to the caller's effective permissions.",
+    summary:"Start a Team run from an optional skill and prompt, or a script",
+    description:"Supply a skill, a prompt, or both for an agent run, or a script without an agent skill or prompt. Omitted settings use Team defaults. Default scopes, integrations and invocation destinations are bounded by the caller's effective access. Explicit unauthorized permissions fail. Explicit empty selections grant none.",
     responses:{"202":{description:"Accepted run",content:{"application/json":{schema:jsonSchema(startRunReceipt,"output")}}}},
   },(service,{body})=>service.startRun(body),{body:startRunInput,maxBodyBytes:256_000}),
-  route("PUT","/api/v1/projects/{projectId}/run-defaults","projects:write",{
-    summary:"Set the VM configuration, permissions and capacity for direct launches",
-    responses:{"200":{description:"Project run defaults",content:{"application/json":{schema:jsonSchema(storedRunDefaults,"output")}}}},
-  },(service,{params,body})=>service.setRunDefaults(params.projectId,body),{body:projectRunDefaults,parameters:z.object({projectId:z.guid()}),ownerSession:true}),
-  route("GET","/api/v1/user/run-defaults","projects:read",{summary:"Get user defaults for direct VM runs",responses:{"200":{description:"User run defaults",content:{"application/json":{schema:jsonSchema(userRunDefaults.nullable(),"output")}}}}},service=>service.getUserRunDefaults()),
-  route("PUT","/api/v1/user/run-defaults","projects:write",{summary:"Set user defaults for direct VM runs",responses:{"200":{description:"User run defaults",content:{"application/json":{schema:jsonSchema(userRunDefaults,"output")}}}}},(service,{body})=>service.setUserRunDefaults(body),{body:userRunDefaults,ownerSession:true}),
   route(
     "GET",
     "/api/v1/runs",
     "runs:read",
     {
       summary: "List runs",
-      description: "Returns tenant-authorized runs. Project, job, and state filters accept repeated values and match any selected value within each filter; filters are applied before cursor pagination. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, queued, reserved, and starting runs come first, running runs second, and all other states last; each group is ordered by creation time descending, then run ID descending. The opaque default cursor includes the priority group and creation time. Legacy two-field cursors resume at their original chronological boundary. Run states can change between requests and move rows across groups; restart pagination from the first page after observing a state transition if a gap-free live view is needed.",
+      description: "Returns tenant-authorized runs. Trigger and state filters accept repeated values and match any selected value within each filter; filters are applied before cursor pagination. When sort is supplied, ordering is applied before cursor pagination; statuses sort lexically by their persisted state, missing values sort last, and ties use run ID. Without sort, queued, reserved, and starting runs come first, running runs second, and all other states last; each group is ordered by creation time descending, then run ID descending. The opaque default cursor includes the priority group and creation time. Legacy two-field cursors resume at their original chronological boundary. Run states can change between requests and move rows across groups; restart pagination from the first page after observing a state transition if a gap-free live view is needed.",
       responses: {
         "200": {
           description: "Paginated runs",
@@ -1035,10 +1008,10 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "GET",
     "/api/v1/search",
-    "runs:read",
+    "triggers:read+runs:read",
     {
-      summary: "Search jobs and runs by approximate metadata matches",
-      description: "Search uses PostgreSQL pg_trgm approximate matching over job names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.",
+      summary: "Search triggers and runs by approximate metadata matches",
+      description: "Search uses PostgreSQL pg_trgm approximate matching over trigger names/slugs and run names, issue titles, and issue identifiers. Identifier matching is whole-field trigram matching; names and titles use word-level trigram matching. Exact identifiers and metadata names rank first, followed by the strongest individual field score. Results are unique, tenant-scoped, deterministically ordered, and limited to 100. Blank or punctuation-only queries return no results. One- and two-character queries may return no results because trigram matching is approximate; this is not ordered-character or substring matching.",
       responses: { "200": { description: "Search results", content: { "application/json": { schema: jsonSchema(searchResponse, "output") } } } },
     },
     (service, { query }) => service.search(query.q),
@@ -1069,7 +1042,7 @@ export const API_ROUTES: RouteContract[] = [
   ),
   route("GET", "/api/v1/runs/{runId}/status", "runs:read", {
     summary: "Get lightweight run status",
-    description: "No prompt decryption, invocation context, artifacts, activity or diagnostics assembly. Continue polling terminal runs while finalizing is true. trace_revision changes on generation transition or canonical projection/replay; live appends retain the revision. Full detail remains available at GET /runs/{runId}.",
+    description: "Only bounded encrypted prompt/script previews are decrypted; full prompt, invocation context, artifacts, activity and diagnostics stay in the detail operation. Continue polling terminal runs while finalizing is true. trace_revision changes on generation transition or canonical projection/replay; live appends retain the revision. Full detail remains available at GET /runs/{runId}.",
     responses: { "200": { description: "Status", content: { "application/json": { schema: jsonSchema(runStatusResponse, "output") } } } },
   }, (service, { params }) => service.getRunStatus(params.runId), { parameters: z.object({ runId: z.guid() }) }),
   route("GET", "/api/v1/runs/{runId}/artifacts/{artifactId}", "runs:read", {
@@ -1078,7 +1051,7 @@ export const API_ROUTES: RouteContract[] = [
   }, (service, { params }) => service.downloadRunArtifact(params.runId, params.artifactId), { parameters: z.object({ runId: z.guid(), artifactId: z.guid() }) }),
   route("GET", "/api/v1/runs/{runId}/trace-pages", "runs:read", {
     summary: "Get revision-bound trace page",
-    description: "First request omits revision and uses after=0. Subsequent requests supply the returned revision. A changed generation or canonical projection returns reset=true and events from zero in the new revision, from one database snapshot. Discard all cached old pages before merging the response. nextCursor=null means caught up, not finalized; poll after the last sequence while active/finalizing. Legacy GET /trace remains unchanged.",
+    description: "First request omits revision and uses after=0. Subsequent requests supply the returned revision. A changed generation or canonical projection returns reset=true and events from zero in the new revision, from one database snapshot. Discard all cached old pages before merging the response. nextCursor=null means caught up, not finalized; poll after the last sequence while active/finalizing. The full trace endpoint provides its complete representation.",
     responses: { "200": { description: "Revision-bound page", content: { "application/json": { schema: jsonSchema(revisionTracePage, "output") } } } },
   }, (service, { params, query }) => query.before !== undefined || query.recent ? service.getRevisionTrace(params.runId, query.after, query.limit, query.revision, query.before, query.recent) : service.getRevisionTrace(params.runId, query.after, query.limit, query.revision), { query: revisionTraceQuery, parameters: z.object({ runId: z.guid() }) }),
   route(
@@ -1148,7 +1121,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "POST",
     "/api/v1/runs/{runId}/trace/replay",
-    "runs:write",
+    "runs:cancel",
     {
       summary:
         "Replay a retained trace artifact or restore a native-session projection",
@@ -1210,13 +1183,13 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "POST",
     "/api/v1/runs/{runId}/stop",
-    "runs:write",
+    "runs:cancel",
     { summary: "Stop run", responses: { "200": { description: "Stopped" } } },
     (service, { params }) => service.stopRun(params.runId),
   ),
   route("POST", "/api/v1/runs/{runId}/retry-launch", "runs:cancel", {
     summary: "Manually retry a blocked launch",
-    description: "Retries a blocked launch with its original immutable credential and API scope snapshot. Job edits affect future runs; revoked/deleted selections require job repair and a new run. An interactive owner must request this retry.",
+    description: "Retries a blocked launch with its original immutable credential and API scope snapshot. Trigger edits affect future runs; revoked/deleted selections require trigger repair and a new run. An interactive owner must request this retry.",
     responses: {
       "200": { description: "Manual retry queued", content: { "application/json": { schema: { type: "object", required: ["runId", "retryRequested"], properties: { runId: { type: "string", format: "uuid" }, retryRequested: { type: "boolean", const: true } }, additionalProperties: false } } } },
       "403": { description: "Interactive owner session required" },
@@ -1226,7 +1199,7 @@ export const API_ROUTES: RouteContract[] = [
   route(
     "POST",
     "/api/v1/runs/{runId}/kill",
-    "runs:write",
+    "runs:cancel",
     {
       summary: "Kill run and immediately release its concurrency slot",
       responses: { "200": { description: "Killed" } },
@@ -1308,9 +1281,9 @@ export function generateOpenApi() {
     ]),
   );
   const namedBodies: Record<string, z.ZodType> = {
-    JobInput: jobInputSchema,
+    TriggerInput: triggerInputSchema,
     ManualInvocation: manualInvocationSchema,
-    JobConditionsTest: jobConditionsTestSchema,
+    TriggerConditionsTest: triggerConditionsTestSchema,
     TraceReplayRequest: traceReplaySchema,
   };
   const schemas = {

@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/GenerationSoftware/factorize/actions/workflows/ci.yml/badge.svg)](https://github.com/GenerationSoftware/factorize/actions/workflows/ci.yml)
 
-Factorize hosts jobs for your coding agents. **Connect your agent → create a job → run it → inspect the result → automate it.**
+Factorize hosts triggers for your coding agents. **Connect your agent → create a trigger → run it → inspect the result → automate it.**
 
-Start at [app.factorize.sh](https://app.factorize.sh). Sign up with email and password, verify email, and connect an execution account in **Settings → Integrations**. You supply execution, repository/model access and any provider accounts; Factorize hosts job configuration, triggers, queues and run history.
+Start at [app.factorize.sh](https://app.factorize.sh). Sign up with email and password, verify email, and configure an OpenAI-compatible model integration in **Settings → Integrations**. Your personal team owns skills, runs, Triggers, integrations and defaults. Pi runs in Factorize with PostgreSQL persistence. Enable an optional exe.dev or Fly workspace for agent tasks that need a VM; scripts always require one.
 
 Connect a supported remote MCP client to:
 
@@ -14,11 +14,11 @@ https://app.factorize.sh/mcp
 
 Follow [Connect your agent](https://docs.factorize.sh/mcp/overview) for Codex/Claude Code configuration and browser consent. Then ask:
 
-> Show me my available execution integrations. Create a manual job called ‘Review recent changes’ using my repository’s target. Have it clone REPOSITORY_URL, review the latest commit and summarize any problems. Run it once and report the result.
+> Inspect my team defaults. Create a manual Trigger named review-recent-changes with a required workspace. Have it clone REPOSITORY_URL, review the latest commit and summarize any problems. Run it once and report the result.
 
-The conversational agent calls `list_execution_configs`, checks existing jobs, creates a job, invokes it with a stable idempotency key, and reads `get_run` until completion. Current exe.dev targets select an account/agent, not a repository: put the repository URL in the prompt. Browser-only signup, integration credentials, resource selection and consent are separate from MCP job management.
+The conversational agent calls `get_team` and reflection, checks existing Triggers, creates a Trigger, invokes it with a stable idempotency key, and reads `get_run` until completion. Skills and hosted Pi use the same MCP environment. Put the repository URL in the prompt; a VM configuration does not bind a repository. Browser-only signup, integration credentials, resource selection and consent are separate from MCP trigger management.
 
-Read [Your first job](https://docs.factorize.sh/quickstart), [safe editing and configuration replacement](https://docs.factorize.sh/work/jobs), and [stop/retry behavior](https://docs.factorize.sh/work/stop-retry). Add [schedules](https://docs.factorize.sh/recipes/scheduled-review), [Linear](https://docs.factorize.sh/recipes/linear-job), [GitHub](https://docs.factorize.sh/integrations/github), [ClickUp](https://docs.factorize.sh/integrations/clickup), or [job chaining](https://docs.factorize.sh/recipes/chaining) after a successful manual run.
+Read [Your first trigger](https://docs.factorize.sh/quickstart), [safe editing and configuration replacement](https://docs.factorize.sh/work/triggers), and [stop/retry behavior](https://docs.factorize.sh/work/stop-retry). Add [schedules](https://docs.factorize.sh/recipes/scheduled-review), [Linear](https://docs.factorize.sh/recipes/linear-trigger), [GitHub](https://docs.factorize.sh/integrations/github), [ClickUp](https://docs.factorize.sh/integrations/clickup), or [trigger chaining](https://docs.factorize.sh/recipes/chaining) after a successful manual run.
 
 MCP provides selected scoped operations, not every REST capability. REST contracts remain available in [OpenAPI](packages/docs/openapi.yaml) and [authentication reference](https://docs.factorize.sh/api/authentication). Credential management and trace replay require an interactive owner session. Agents can use the generated [llms.txt](packages/docs/llms.txt) and [llms-full.txt](packages/docs/llms-full.txt).
 

@@ -3,35 +3,29 @@ title: Connect your accounts
 description: Browser setup, resource access, and delivery verification.
 ---
 
-Factorize accounts own dashboard identity. Sign up with an email and password, verify your email to sign in automatically, then open [Integrations](https://app.factorize.sh/integrations) to connect Linear when using Linear-backed jobs. Linear OAuth only connects the workspace; it never signs you in. Register `/auth/linear/callback`, configure issue and issue-label webhooks at `/webhooks/linear`, and store the client credentials and signing secret as Worker secrets. ClickUp is optional: register `/auth/clickup/callback`; connecting it automatically registers its task webhook. GitHub uses an installed GitHub App, while exe.dev and Cloudflare Tail connections are configured in Integrations.
+Factorize accounts own dashboard identity. Sign up with an email and password, verify your email to sign in automatically, then open [Integrations](https://app.factorize.sh/integrations) to connect Linear when using Linear-backed triggers. Linear OAuth only connects the workspace; it never signs you in. Register `/auth/linear/callback`, configure issue and issue-label webhooks at `/webhooks/linear`, and store the client credentials and signing secret as Worker secrets. ClickUp is optional: register `/auth/clickup/callback`; connecting it automatically registers its task webhook. GitHub uses an installed GitHub App, while exe.dev and Cloudflare Tail connections are configured in Integrations.
 
 | Account | Browser action and required access | Verification |
 | --- | --- | --- |
-| exe.dev | Add an account-level token, test credentials, and save. Execution integrations select Codex/Claude/Pi; jobs select VM tags, model, and effort. Needs VM listing/creation/SSH/deletion, per-run WIF integration management and exclusive VM attachment; see [operations](/self-hosting/operations). | Test connection, then `list_execution_configs`; optionally diagnose the saved connection. |
-| Amp | Add access token and project; ensure project/model/repository access. | Test and save, then discover the `amp:` target. |
+| exe.dev | Add an account-level token, test credentials, and save. VM configurations select workspace images and tags; managed agents use hosted Pi with a separate model integration. Needs VM listing/creation/SSH/deletion, per-run WIF integration management and exclusive VM attachment; see [operations](/self-hosting/operations). | Test connection, then `list_execution_configs`; optionally diagnose the saved connection. |
 | Linear | Connect Linear and approve the workspace. Your account must access the selected project and issues; organization policies may require an administrator. | Select project/rules in the browser editor, send one matching event, inspect delivery/run. |
 | ClickUp | Connect ClickUp and approve the intended workspace/team with access to the list/tasks. | Select list/rules, change one matching task and inspect delivery/run. |
 | GitHub | Connect GitHub to install/authorize the Factorize App on the intended account/repositories; organization approval may be required. | Confirm active installation and repository selection, then send a matching event. |
 
-The provider consent/installation screen is the authority for granted permissions. Grant access to the selected resources; changing those resources can require provider reauthorization. Job-trigger access and execution-agent access are separate: select an existing GitHub installation or Linear connection in each job to authorize its backend proxy access. Factorize reuses those credentials and their existing upstream permissions; it does not deliver tokens to the VM.
+The provider consent/installation screen is the authority for granted permissions. Grant access to the selected resources; changing those resources can require provider reauthorization. Trigger-event access and execution-agent access are separate: select an existing GitHub installation or Linear connection in each trigger to authorize its backend proxy access. Factorize reuses those credentials and their existing upstream permissions; it does not deliver tokens to the VM.
 
-MCP exposes safe connection/installation/target metadata, not tokens. Account connections, resource pickers and credential management require browser setup. Reconnect Linear/ClickUp from Integrations; use GitHub's Configure installation link for repository access and verify the installation is active. Do not disconnect integrations while jobs still reference them; update those jobs first.
+MCP exposes safe connection/installation/target metadata, not tokens. Account connections, resource pickers and credential management require browser setup. Reconnect Linear/ClickUp from Integrations; use GitHub's Configure installation link for repository access and verify the installation is active. Do not disconnect integrations while triggers still reference them; update those triggers first.
 
-After changing access, create one controlled event and use `list_webhook_deliveries`, `get_webhook_delivery`, `list_job_webhook_activity`, and `list_runs` to verify delivery and execution. See [jobs not firing](/troubleshooting/events). Hosted Factorize manages OAuth application registration, callbacks and webhook infrastructure. Operators of their own deployment use [configuration](/self-hosting/configuration).
+After changing access, create one controlled event and use `list_webhook_deliveries`, `get_webhook_delivery`, `list_trigger_webhook_activity`, and `list_runs` to verify delivery and execution. See [triggers not firing](/troubleshooting/events). Hosted Factorize manages OAuth application registration, callbacks and webhook infrastructure. Operators of their own deployment use [configuration](/self-hosting/configuration).
 
 
-## Credentials selected by a job
+## Credentials selected by a trigger
 
 In Integrations, add custom bearer credentials with a fixed HTTPS
-origin. Add model accounts with ChatGPT device authorization or an OpenAI API
-key. Factorize encrypts these credentials on the server; stored secrets cannot
-be viewed and no unlock key is required. Replace an existing credential to
-rotate it without changing job selections. ChatGPT refresh happens server-side.
+origin. Add model integrations with an OpenAI-compatible provider URL and an optional API key. Factorize encrypts credentials on the server. Stored secrets cannot be viewed. A keyless provider requires only its URL. Model IDs and optional effort are selected in Team defaults, Triggers, or direct run overrides, independently of VM configuration.
 
-Select only the bearer integrations, GitHub installations, Linear connection
-and model account that each job needs. Managed model accounts support Codex;
-Fly Codex jobs require one. Native exe.dev model access remains available.
-Each run uses its saved selection and Factorize API scope snapshot; later job
+Select only the bearer integrations, GitHub installations, Linear connection and model integration that each Trigger needs. Pi runs in Factorize and uses MCP tools. VM scripts retain their own workload lifecycle.
+Each run uses its saved selection and Factorize API scope snapshot; later trigger
 edits affect future runs. Disconnect revokes existing run access permanently,
 even after reconnecting the same account. Select a replacement explicitly for
 future runs. Missing selections remain visible for repair and are never
@@ -96,7 +90,7 @@ every read. Revocation blocks subsequent calls and reads but cannot undo an
 upstream action already accepted. Existing VM proxy URLs retain true streaming.
 
 The same operations are documented under `/api/v1/agent/reflection`,
-`/api/v1/agent/requests`, and `/api/v1/agent/responses/read`. Authorize `proxy:use` to use the HTTP proxy with the agent credential. Existing MCP authorizations without this scope require renewed consent. Other REST operations retain their own authentication requirements. Clients migrating from `request_api` and `read_api_response` send the same JSON arguments to the reflected HTTP endpoints with the Factorize bearer token. Owner policy endpoints require an interactive browser session. In **Settings → Authorized clients**, choose **Edit permissions** to disable or restore originally authorized Factorize scopes. For each integration, choose **Default** to follow workspace policy and OAuth consent, **Allow** to approve the current integration, or **Block** to deny this connection access. Disabling or disconnecting a workspace integration invalidates per-connection approvals. Edits apply to subsequent requests from this connection and its delegated VMs. Owners can also revoke a connection. MCP clients can set their own connection label with `rename_mcp_client`.
+`/api/v1/agent/requests`, and `/api/v1/agent/responses/read`. Authorize `proxy:use` to use the HTTP proxy with the agent credential. Existing MCP authorizations without this scope require renewed consent. Other REST operations retain their own authentication requirements. MCP clients use `request_api` and `read_api_response` with the same validated arguments and authorization as these HTTP endpoints. Owner policy endpoints require an interactive browser session. In **Settings → Authorized clients**, choose **Edit permissions** to disable or restore originally authorized Factorize scopes. For each integration, choose **Default** to follow workspace policy and OAuth consent, **Allow** to approve the current integration, or **Block** to deny this connection access. Disabling or disconnecting a workspace integration invalidates per-connection approvals. Edits apply to subsequent requests from this connection and its delegated VMs. Owners can also revoke a connection. MCP clients can set their own connection label with `rename_mcp_client`.
 
 The scheduler maintenance heartbeat removes expired response objects and their
 PostgreSQL receipts. A receipt exists before any R2 block is written, including

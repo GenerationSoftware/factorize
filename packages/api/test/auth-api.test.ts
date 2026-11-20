@@ -21,7 +21,7 @@ const env = { APP_ORIGIN: "https://app.test", SESSION_SIGNING_SECRET: "test-only
 const ctx = {} as ExecutionContext;
 const identity = { tenantId: "tenant-a", userId: "user-a", email: "owner@test.com", sessionVersion: 4 };
 const member = { ...identity, role: "owner" as const };
-const auth: OAuthProps = { ...identity, scopes: ["flows:read", "flows:write", "runs:read", "runs:write"], authMethod: "session" };
+const auth: OAuthProps = { ...identity, scopes: ["team:read", "triggers:read", "integrations:read", "team:write", "triggers:write", "integrations:write", "runs:read", "runs:invoke", "runs:cancel", "runs:write"], authMethod: "session" };
 const openapi = parse(readFileSync(new URL("../../docs/openapi.yaml", import.meta.url), "utf8"));
 afterEach(() => vi.restoreAllMocks());
 
@@ -60,7 +60,7 @@ describe("public auth API and cookie security", () => {
   });
 
   it("keeps protected application operations authenticated and rejects undeclared public operations", async () => {
-    expect((await call("/api/v1/jobs")).status).toBe(401);
+    expect((await call("/api/v1/triggers")).status).toBe(401);
     expect((await call("/api/v1/auth/not-declared", {})).status).toBe(401);
     expect((await call("/api/v1/auth/login")).status).toBe(401);
   });
@@ -82,7 +82,7 @@ describe("public auth API and cookie security", () => {
 
   it("keeps malformed protected path encoding inside the JSON error boundary", async () => {
     const cookie = await signSession({ ...identity, exp: Math.floor(Date.now() / 1000) + 100 }, env.SESSION_SIGNING_SECRET);
-    const response = await call("/api/v1/jobs/%ZZ", undefined, { Cookie: "factorize_session=" + cookie });
+    const response = await call("/api/v1/triggers/%ZZ", undefined, { Cookie: "factorize_session=" + cookie });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: "invalid_request" } });
   });
@@ -123,7 +123,7 @@ describe("public auth API and cookie security", () => {
     vi.spyOn(IdentityRepository.prototype, "member").mockResolvedValue(member);
     vi.mocked(env.DATABASE!.pool.query).mockResolvedValue({ rows: [{ name: "Workspace A" }] } as never);
     const response = await call("/api/v1/session", undefined, { Cookie: "factorize_session=" + cookie });
-    expect(await contract(response, "/api/v1/session", "GET")).toMatchObject({ authenticated: true, user: { id: identity.userId, email: identity.email }, workspace: { id: identity.tenantId, name: "Workspace A", role: "owner" }, capabilities: expect.arrayContaining(["skills:read", "skills:write"]) });
+    expect(await contract(response, "/api/v1/session", "GET")).toMatchObject({ authenticated: true, user: { id: identity.userId, email: identity.email }, team: { id: identity.tenantId, name: "Workspace A", role: "owner" }, capabilities: expect.arrayContaining(["skills:read", "skills:write"]) });
     const query = vi.mocked(env.DATABASE!.pool.query).mock.calls.at(-1)!;
     expect(query[1]).toEqual([identity.tenantId]);
   });
@@ -206,8 +206,8 @@ describe("public auth API and cookie security", () => {
   });
 
   it("enforces origin for cookie application mutations while preserving bearer clients", async () => {
-    const create = vi.spyOn(ApiService.prototype, "createJob").mockResolvedValue({ id: "job" } as never);
-    const request = () => new Request(env.APP_ORIGIN + "/api/v1/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Job", slug: "job", promptTemplate: "Do work", executionConfigId: "exe-1" }) });
+    const create = vi.spyOn(ApiService.prototype, "createTrigger").mockResolvedValue({ id: "trigger" } as never);
+    const request = () => new Request(env.APP_ORIGIN + "/api/v1/triggers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "trigger",  prompt: "Do work", executionConfigId: "exe-1" }) });
     expect((await protectedApiFetch(request(), env, auth, ctx)).status).toBe(403);
     expect(create).not.toHaveBeenCalled();
     expect((await protectedApiFetch(request(), env, { ...auth, authMethod: "access_token" }, ctx)).status).toBe(201);
@@ -215,8 +215,8 @@ describe("public auth API and cookie security", () => {
 });
 
 describe("safe interrupted-flow navigation", () => {
-  it.each(["//evil.test", "https://evil.test", "/\\evil.test", "/device-evil", "/jobs/job-a/settings/extra", "/auth/logout", "/jobs\nLocation:evil", "/%2f%2fevil.test"])("rejects %s", value => expect(safeReturnTo(value)).toBe("/integrations"));
-  it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/jobs/job-a/edit", "/jobs/job-a/settings?tab=prompt", "/job-runs", "/job-runs/run-a"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
+  it.each(["//evil.test", "https://evil.test", "/\\evil.test", "/device-evil", "/triggers/trigger-a/settings/extra", "/auth/logout", "/triggers\nLocation:evil", "/%2f%2fevil.test"])("rejects %s", value => expect(safeReturnTo(value)).toBe("/integrations"));
+  it.each(["/authorize?client_id=a&state=b", "/device?user_code=ABCD-EFGH", "/triggers/trigger-a/edit", "/triggers/trigger-a/settings?tab=prompt", "/runs", "/runs/run-a"])("preserves %s", value => expect(safeReturnTo(value)).toBe(value));
 });
 
 describe("cookie-only consent and device API boundaries", () => {

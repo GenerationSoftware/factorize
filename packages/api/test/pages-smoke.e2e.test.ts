@@ -25,12 +25,12 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("every page E2E smoke", () 
     installSkillArtifacts(f.env);
     browser = await chromium.launch({ headless: true });
     const service = new ApiService(f.env, { ...f.auth, scopes: [...ACCESS_SCOPES] });
-    skillId = (await service.createSkill({ key: "smoke_skill", body: "Smoke test instructions" })).id;
+    skillId = (await service.createSkill({ key: "smoke-skill", body: "Smoke test instructions" })).id;
     // The provider SDK normally supplies this registered client and parses its
     // request. Consent validation/signing and device storage still run for real.
     Object.assign(f.env.OAUTH_PROVIDER!, {
       lookupClient: async () => ({ clientId: "smoke", clientName: "Smoke CLI", redirectUris: ["http://127.0.0.1/callback"], tokenEndpointAuthMethod: "none" }),
-      parseAuthRequest: async () => ({ responseType: "code", clientId: "smoke", redirectUri: "http://127.0.0.1/callback", scope: ["flows:read"], state: "smoke", codeChallenge: "smoke-challenge", codeChallengeMethod: "S256", resource: f.env.APP_ORIGIN + "/mcp", issuer: f.env.APP_ORIGIN }),
+      parseAuthRequest: async () => ({ responseType: "code", clientId: "smoke", redirectUri: "http://127.0.0.1/callback", scope: ["team:read", "triggers:read", "integrations:read"], state: "smoke", codeChallenge: "smoke-challenge", codeChallengeMethod: "S256", resource: f.env.APP_ORIGIN + "/mcp", issuer: f.env.APP_ORIGIN }),
     });
     const destination = "/authorize?" + new URLSearchParams({ client_id: "smoke", response_type: "code", redirect_uri: "http://127.0.0.1/callback", code_challenge: "smoke-challenge", code_challenge_method: "S256" });
     const connection = await startConnection(new Request(f.env.APP_ORIGIN + destination), f.env, destination);
@@ -40,7 +40,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("every page E2E smoke", () 
     authorizationPath = authorization.pathname + authorization.search;
     const [name, value] = connection!.cookie.split(";")[0].split("=");
     authorizationCookie = { name, value };
-    const issued = await deviceAuthorization(new Request(f.env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "smoke", scope: "flows:read" }) }), f.env, f.env.OAUTH_PROVIDER! as any, ["flows:read"]);
+    const issued = await deviceAuthorization(new Request(f.env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "smoke", scope: "team:read triggers:read integrations:read" }) }), f.env, f.env.OAUTH_PROVIDER! as any, ["team:read", "triggers:read", "integrations:read"]);
     expect(issued.status).toBe(200);
     deviceCode = (await issued.json() as any).user_code;
   });
@@ -49,43 +49,38 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("every page E2E smoke", () 
   type SmokePage = { path: () => string; ready: (page: Page) => Promise<unknown>; anonymous?: boolean; destination?: () => string };
   const heading = (name: string) => (page: Page) => page.getByRole("heading", { name, exact: true }).waitFor();
   const label = (name: string) => (page: Page) => page.getByLabel(name, { exact: true }).waitFor();
-  const job = () => `/jobs/${f.jobIds[0]}`;
-  const project = () => `/projects/${f.projectId}`;
-  const run = () => `/job-runs/${f.runId}`;
+  const trigger = () => `/triggers/${f.triggerIds[0]}`;
+  const run = () => `/runs/${f.runId}`;
   const info = (page: Page) => page.getByText("Prompt, context and provenance", { exact: true }).waitFor();
   const pages: Record<string, SmokePage> = {
     "not found": { path: () => "/missing-smoke-page", ready: heading("Page not found") },
     "home": { path: () => "/", ready: heading("Recent work") },
     "welcome": { path: () => "/", ready: heading("Welcome to Factorize"), anonymous: true },
-    "projects": { path: () => "/projects", ready: heading("Projects") },
-    "create project": { path: () => "/projects/new", ready: label("Name") },
-    "project": { path: project, ready: page => page.getByRole("group", { name: "Project view" }).waitFor() },
-    "project runs": { path: () => project() + "/runs", ready: heading("Project runs") },
-    "project settings": { path: () => project() + "/settings", ready: label("Name") },
-    "jobs": { path: () => "/jobs", ready: heading("Jobs") },
-    "create job": { path: () => "/jobs/new", ready: label("Name") },
-    "job": { path: job, ready: page => page.getByRole("group", { name: "Job actions" }).waitFor() },
-    "legacy job edit": { path: () => job() + "/edit", destination: () => job() + "/settings/general", ready: label("Name") },
-    "job settings": { path: () => job() + "/settings", destination: () => job() + "/settings/general", ready: label("Name") },
-    "job general": { path: () => job() + "/settings/general", ready: label("Name") },
-    "job execution": { path: () => job() + "/settings/execution", ready: page => page.getByRole("combobox", { name: /^Execution type/ }).waitFor() },
-    "job context": { path: () => job() + "/settings/context", ready: label("Prompt template") },
-    "job permissions": { path: () => job() + "/settings/permissions", ready: heading("Manual invocation permissions") },
-    "job triggers": { path: () => job() + "/settings/triggers", ready: heading("Triggers") },
-    "runs": { path: () => "/job-runs", ready: heading("Runs") },
+    "triggers": { path: () => "/triggers", ready: heading("Triggers") },
+    "create trigger": { path: () => "/triggers/new", ready: label("Name") },
+    "trigger": { path: trigger, ready: page => page.getByRole("group", { name: "Trigger actions" }).waitFor() },
+    "legacy trigger edit": { path: () => trigger() + "/edit", destination: () => trigger() + "/settings/general", ready: label("Name") },
+    "trigger settings": { path: () => trigger() + "/settings", destination: () => trigger() + "/settings/general", ready: label("Name") },
+    "trigger general": { path: () => trigger() + "/settings/general", ready: label("Name") },
+    "trigger VM": { path: () => trigger() + "/settings/vm", ready: label("Requires VM") },
+    "trigger context": { path: () => trigger() + "/settings/context", ready: label("Prompt") },
+    "trigger permissions": { path: () => trigger() + "/settings/permissions", ready: heading("Manual invocation permissions") },
+    "trigger events": { path: () => trigger() + "/settings/events", ready: heading("Events") },
+    "runs": { path: () => "/runs", ready: heading("Runs") },
     "run": { path: run, ready: heading("Trace") },
     "full trace": { path: () => run() + "/trace", ready: heading("Full trace") },
     "run info": { path: () => run() + "/info", ready: info },
     "legacy run context": { path: () => run() + "/context", destination: () => run() + "/info", ready: info },
     "legacy run settings": { path: () => run() + "/settings", destination: () => run() + "/info", ready: info },
-    "settings": { path: () => "/settings", ready: heading("VM presets") },
+    "settings": { path: () => "/settings", ready: heading("Team settings") },
+    "VM presets": { path: () => "/settings/vm-presets", ready: heading("VM presets") },
     "legacy integrations": { path: () => "/settings/integrations", destination: () => "/integrations", ready: heading("Available integrations") },
     "integrations": { path: () => "/integrations", ready: heading("Available integrations") },
     "API keys": { path: () => "/settings/api-keys", ready: heading("API keys") },
     "create API key": { path: () => "/settings/api-keys/new", ready: label("Key name") },
     "authorized clients": { path: () => "/settings/authorized-clients", ready: heading("Authorized clients") },
     "password": { path: () => "/settings/password", ready: label("Current password") },
-    "skills": { path: () => "/skills", ready: heading("smoke_skill") },
+    "skills": { path: () => "/skills", ready: heading("smoke-skill") },
     "skill": { path: () => `/skills/${skillId}`, ready: heading("Instructions") },
     "login": { path: () => "/auth/login", ready: label("Password"), anonymous: true },
     "signup": { path: () => "/auth/signup", ready: label("New password"), anonymous: true },

@@ -11,7 +11,7 @@ export const RUN_IDENTITY_HEADER = "X-Factorize-Run-Id";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type RunAuthorization = {
-  tenant_id: string; run_id: string; job_id: string | null; user_id: string; session_version: number;
+  tenant_id: string; run_id: string; trigger_id: string | null; user_id: string; session_version: number;
   scopes: string[]; provider: VendorIdentityProvider; vm_id: string; issuer: string;
   subject: string; audience: string; execution_config: Record<string, unknown>;
   execution_handle: { id?: string; vendorIdentityIntegrationName?: string } | null;
@@ -28,9 +28,9 @@ export async function authenticateVendorRunRequest(request: Request, env: Env, o
   // Application/proxy callers never enable this control-protocol mode.
   const states = options.artifactFinalization ? "('starting','running','blocked','stopping')" : "('starting','running','blocked')";
   const result = await database.pool.query<RunAuthorization>(`SELECT b.tenant_id,b.run_id,b.provider,b.vm_id,b.issuer,b.subject,b.audience,
-      c.user_id,c.session_version,c.scopes,j.job_id,r.execution_config,r.execution_handle
+      c.user_id,c.session_version,c.scopes,j.trigger_id,r.execution_config,r.execution_handle
     FROM app.vendor_run_identity_bindings b
-    JOIN app.job_runs j ON j.tenant_id=b.tenant_id AND j.id=b.run_id
+    JOIN app.trigger_runs j ON j.tenant_id=b.tenant_id AND j.id=b.run_id
     JOIN app.runs r ON r.tenant_id=j.tenant_id AND r.id=j.id
     JOIN app.run_authorizations c ON c.tenant_id=j.tenant_id AND c.run_id=j.id
     JOIN app.members m ON m.tenant_id=c.tenant_id AND m.user_id=c.user_id AND m.role='owner' AND m.session_version=c.session_version
@@ -65,7 +65,7 @@ export async function authenticateVendorRunRequest(request: Request, env: Env, o
       issuer: row.issuer, subject: row.subject, audience: row.audience, exeAttachment,
     } });
     return { tenantId: row.tenant_id, userId: row.user_id, sessionVersion: row.session_version,
-      scopes: normalizeScopes(row.scopes), authMethod: "vendor_identity", runId, runJobId: row.job_id ?? undefined,
+      scopes: normalizeScopes(row.scopes), authMethod: "vendor_identity", runId, runTriggerId: row.trigger_id ?? undefined,
       runIdentityProvider: row.provider };
   } catch {
     // Never surface provider response text, JWTs, or decrypted credentials.

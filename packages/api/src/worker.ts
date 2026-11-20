@@ -1,3 +1,4 @@
+import {authenticateHostedRunRequest} from "./hosted-run-auth";
 import { SkillLibrary } from "./skill-library";
 import { authenticateVmGrant, VM_GRANT_HEADER } from "./vm-grants";
 import { staticApp, securityHeaders } from "./static-app";
@@ -22,7 +23,7 @@ import { xOAuthCallback } from "./x-oauth-callback";
 const scopes = [...ACCESS_SCOPES];
 // Keep accepting grants issued by the pre-resource-scope protocol. New
 // consent screens and metadata advertise only the canonical scopes above.
-const oauthScopes = [...new Set([...AGENT_SCOPES, "flows:read", "flows:write", "runs:write"])];
+const oauthScopes = [...AGENT_SCOPES];
 async function currentOwner(request: Request, env: Env) {
   const session = await readSession(requestCookie(request, "factorize_session"), env.SESSION_SIGNING_SECRET);
   if (!session) return null;
@@ -83,7 +84,7 @@ function providerOptions(env: Env): OAuthProviderOptions<Env> { return {
   scopesSupported: oauthScopes, allowImplicitFlow: false, allowPlainPKCE: false,
   accessTokenTTL: 3600, refreshTokenTTL: 2_592_000,
   clientIdMetadataDocumentEnabled: true,
-  resourceMetadata: { resource: `${env.APP_ORIGIN}/mcp`, authorization_servers: [env.APP_ORIGIN], scopes_supported: [...AGENT_SCOPES], bearer_methods_supported: ["header"], resource_name: "Factorize jobs" },
+  resourceMetadata: { resource: `${env.APP_ORIGIN}/mcp`, authorization_servers: [env.APP_ORIGIN], scopes_supported: [...AGENT_SCOPES], bearer_methods_supported: ["header"], resource_name: "Factorize triggers" },
 }; }
 function provider(env: Env) { return new OAuthProvider<Env>(providerOptions(env)); }
 
@@ -105,6 +106,11 @@ const backend = { async fetch(request: Request, env: Env, ctx: ExecutionContext)
     return upload[1] === "artifacts" ? artifactUpload(request, env, token) : traceChunkUpload(request, env, token);
   }
   if (url.pathname.startsWith("/internal/")) return new Response("Not found", {status: 404});
+  if((url.pathname==="/mcp"||url.pathname.startsWith("/api/v1"))&&request.headers.get("Authorization")?.startsWith("Bearer fpi_")){
+    const auth=await authenticateHostedRunRequest(request,apiEnv);
+    if(!auth)return Response.json({error:{code:"invalid_token",message:"The hosted run identity is invalid or no longer active."}},{status:401});
+    return protectedApiFetch(request,apiEnv,auth,ctx);
+  }
   if ((url.pathname === "/mcp" || url.pathname.startsWith("/api/v1")) && request.headers.has(RUN_IDENTITY_HEADER)) {
     const auth = await authenticateVendorRunRequest(request, env);
     if (!auth) return Response.json({ error: { code: "invalid_token", message: "The vendor identity is invalid or the run is no longer authorized." } }, { status: 401, headers: { "WWW-Authenticate": 'Bearer error="invalid_token"' } });

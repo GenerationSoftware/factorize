@@ -13,7 +13,7 @@ export interface ExeConnection {
 }
 
 /**
- * Labels that may be selected by a job. Older connections stored their
+ * Labels that may be selected by a trigger. Older connections stored their
  * discovered/configured labels in `tags`; keep those labels usable while the
  * connection is migrated to the `availableTags` inventory.
  */
@@ -39,11 +39,4 @@ export interface ExeRunConnection extends ExeConnection {
 /** Single shell atom; prevents user-controlled values from becoming syntax. */
 export function shellAtom(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
-export function defaultAgentCommand(agentKind: string): string {
-  if (agentKind === "codex") return "codex exec --dangerously-bypass-approvals-and-sandbox";
-  if (agentKind === "claude") return "claude -p --dangerously-skip-permissions";
-  if (agentKind === "pi") return "pi -p";
-  return agentKind;
 }

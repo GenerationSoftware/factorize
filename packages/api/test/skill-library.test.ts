@@ -60,7 +60,7 @@ it("round trips skill directories through a real Git HTTPS-protocol backend and 
       execFileSync("git", ["-C", remotePath, "show", "main:skills/example/SKILL.md"], { encoding: "utf8" }),
     ).toBe("Two");
     expect(await withSkillGit({ ...remote, commit: first }, repo => repo.directories("skills"))).toEqual([{ key: "example", files }]);
-    const launcher = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-job", join(root, "guest"));
+    const launcher = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-trigger", join(root, "guest"));
     const payload = {
       version: 1,
       runId: "fixture",

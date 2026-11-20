@@ -29,7 +29,7 @@ export const sessionResponse = z.discriminatedUnion("authenticated", [
   z.object({
     authenticated: z.literal(true),
     user: z.object({ id: z.string(), email: z.email() }).strict(),
-    workspace: z.object({ id: z.string(), name: z.string().nullable(), role: z.literal("owner") }).strict(),
+    team: z.object({ id: z.string(), name: z.string().nullable(), role: z.literal("owner") }).strict(),
     capabilities: z.array(z.enum(SESSION_SCOPES)),
     expiresAt: z.iso.datetime(),
   }).strict(),
@@ -47,7 +47,7 @@ export function safeReturnTo(value: string | undefined): string {
   try {
     const url = new URL(value, "https://local.invalid");
     if (url.origin !== "https://local.invalid") return "/integrations";
-    if (!/^\/(?:authorize|device|integrations|jobs(?:\/[^/]+(?:\/(?:edit|settings))?)?|job-runs(?:\/[^/]+)?|settings(?:\/(?:integrations|api-keys(?:\/new)?|password))?)$/.test(url.pathname)) return "/integrations";
+    if (!/^\/(?:authorize|device|integrations|triggers(?:\/[^/]+(?:\/(?:edit|settings))?)?|runs(?:\/[^/]+)?|settings(?:\/(?:integrations|api-keys(?:\/new)?|password))?)$/.test(url.pathname)) return "/integrations";
     return url.pathname + url.search + url.hash;
   } catch { return "/integrations"; }
 }
@@ -108,7 +108,7 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
       const workspace = (await databaseFor(env).pool.query<{ name: string | null }>("SELECT name FROM app.tenants WHERE id=$1", [session.tenantId])).rows[0];
       return authJson(sessionResponse.parse({
         authenticated: true, user: { id: session.userId, email: session.email },
-        workspace: { id: session.tenantId, name: workspace?.name ?? null, role: "owner" },
+        team: { id: session.tenantId, name: workspace?.name ?? null, role: "owner" },
         capabilities: [...SESSION_SCOPES], expiresAt: new Date(session.exp * 1000).toISOString(),
       }));
     }

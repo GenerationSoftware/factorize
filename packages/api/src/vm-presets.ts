@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { jobInputSchema } from "./flow-schemas";
+import { triggerInputSchema } from "./flow-schemas";
 import { flyExecutionConfigurationInput } from "./fly-execution-configurations";
 
 export const vmPresetSettings = z.discriminatedUnion("provider", [
@@ -7,8 +7,8 @@ export const vmPresetSettings = z.discriminatedUnion("provider", [
   z.object({
     provider: z.literal("exe"),
     connectionId: z.string().min(1).max(256),
-    image: jobInputSchema.shape.vmImage.unwrap().pipe(z.string()),
-    tags: jobInputSchema.shape.tags.unwrap(),
+    image: triggerInputSchema.shape.vmImage.unwrap().pipe(z.string()),
+    tags: triggerInputSchema.shape.tags.unwrap(),
   }).strict(),
 ]);
 export const vmPresetInput = z.object({ name: flyExecutionConfigurationInput.shape.name, settings: vmPresetSettings }).strict();

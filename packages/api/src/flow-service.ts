@@ -1,11 +1,23 @@
+import {runPromptPreview} from "./run-prompt";
+import {createHash} from "node:crypto";
+import {Buffer} from "node:buffer";
+import {RunMedia} from "./run-media";
+import {mediaUploadInput,fetchMediaInput,mediaType,MEDIA_LIMIT} from "./media-contracts";
+import {WorkspaceVm} from "./workspace-vm";
+import {vmExecInput} from "./agent-api-contracts";
+import {activeHostedRunIdentity} from "./hosted-run-auth";
+import {configuredPiProvider,modelProviderConfiguration,type ModelProviderConfiguration} from "./pi-provider";
+import {parseSkillUri, skillEntry, skillResource,parseSnapshotSkillUri,snapshotSkillUri} from "./mcp-skills";
+import { TeamRepository, INITIAL_TEAM_DEFAULTS } from "./postgres/team-repository";
 import { vmPresetInput } from "./vm-presets";
 import { VmPresetRepository } from "./postgres/vm-preset-repository";
+import { SkillContentError } from "./skill-files";
 import { SkillContent } from "./skill-content";
 import { SkillLibrary } from "./skill-library";
 import { configureLibrary } from "./skill-library-contract";
 import { submitRun } from "./postgres/run-submission";
 import type { DatabaseClient } from "./postgres/database";
-import { startRunInput,projectRunDefaults,userRunDefaults as userRunDefaultsSchema,scopeSchema } from "./flow-schemas";
+import { startRunInput,projectRunDefaults,scopeSchema, teamRunDefaults } from "./flow-schemas";
 import { grantVm, revokeVmGrant } from "./vm-grants";
 import { AgentApiService, listAgentPolicies } from "./agent-api";
 import { apiPolicyInput, integrationRef, requestApiInput, readApiResponseInput } from "./agent-api-contracts";
@@ -16,50 +28,49 @@ import { integrationStatus, exeConnection, accessToken, createdAccessToken, clie
 import { namedOption, providerOptions, githubRepository, githubInstallation, tailIntegration } from "./editor-contracts";
 import { z } from "zod";
 import { runPageResponse, fullRunResponse, runtimeContextResponse, runtimeIntegrationsResponse } from "./run-read-contracts";
-import { triggerContextCatalog } from "./trigger-context";
+import { eventContextCatalog } from "./trigger-context";
 import type { Env, OAuthProps } from "./types";
-import { canonicalizeVmImage, renameRunSchema, reportRunErrorSchema, vmImageVerificationInput, type JobInput, type ManualInvocationInput } from "./flow-schemas";
+import { canonicalizeVmImage, renameRunSchema, reportRunErrorSchema, vmImageVerificationInput, type TriggerInput, type ManualInvocationInput } from "./flow-schemas";
 import { nextOccurrence, validateScheduleConfig } from "./schedule";
 import { databaseFor } from "./postgres/database";
 import { IdentityRepository } from "./postgres/identity-repository";
 import { AccessTokenRepository } from "./postgres/access-token-repository";
-import { InvalidJobSummaryCursor, JobSummaryRepository } from "./postgres/job-summary-repository";
-import { jobResponse } from "./job-contracts";
-import type { JobPageQuery } from "./job-contracts";
-import { PostgresJobRepository, StaleJobEdit } from "./postgres/job-repository";
+import { InvalidTriggerSummaryCursor, TriggerSummaryRepository } from "./postgres/job-summary-repository";
+import { triggerResponse } from "./job-contracts";
+import type { TriggerPageQuery } from "./job-contracts";
+import { PostgresTriggerRepository, StaleTriggerEdit, ContextReviewRequired } from "./postgres/job-repository";
 import { ConnectionRepository } from "./postgres/connection-repository";
 import { CredentialRepository, IntegrationIdempotencyConflictError, IntegrationValidationError, StaleIntegrationRevisionError } from "./postgres/credential-repository";
 import { XConnectionRepository } from "./postgres/x-connection-repository";
 import { createXPKCE, signXOAuthState, validateXOAuthScopes, type XOAuthScope } from "./x-oauth";
 import { decrypt, encrypt } from "./crypto";
-import { InvocationService, type Job, type Trigger } from "./job-domain";
+import { InvocationService, composeTriggerContext, renderRunName, type Trigger, type Event } from "./job-domain";
 import { RunQueryRepository } from "./postgres/run-query-repository";
 import { TraceRepository } from "./postgres/trace-repository";
 import { GitHubRepository } from "./postgres/github-repository";
 import { IntegrationService } from "./postgres/integration-service";
 import { OperationsRepository } from "./postgres/operations-repository";
-import { installedTriggerAvailability } from "./trigger-availability";
+import { installedEventAvailability } from "./trigger-availability";
 import { evaluateWebhookConditions } from "./webhook-conditions";
-import { jobConditionsTestSchema, invocationPermissionsResponse } from "./flow-schemas";
+import { triggerConditionsTestSchema, invocationPermissionsResponse } from "./flow-schemas";
 import { ProviderCatalog } from "./postgres/provider-catalog";
 import { ArtifactRepository } from "./postgres/artifact-repository";
 import { ACCESS_SCOPES, accessTokenDigest, issueAccessToken, normalizeScopes } from "./access-tokens";
 
 import { TraceProjectionRepository } from "./postgres/trace-projection-repository";
 import { replayTrace, traceReplaySchema, traceReplayRunIdSchema, TraceReplayError } from "./trace-replay";
-import { ProjectRepository } from "./postgres/project-repository";
 import { effortOptions, selectableExeTags, type ExeConnection } from "./exe";
 import { ExeImageVerificationError, ExeVmBackend } from "./exe-vm-backend";
 import { SkillRepository, SkillConflict, SkillReferenced } from "./postgres/skill-repository";
 import { RunRepository } from "./postgres/run-repository";
 import { safeDiagnosticText } from "./harness-diagnostics";
-import { skillInput, skillUpdateInput, skillPage, skillResponse, skillJobsResponse, previewSkillInput, composePrompt } from "./skills";
+import { skillInput, skillUpdateInput, skillPage, skillResponse, skillTriggersResponse, previewSkillInput, composePrompt } from "./skills";
 import { createFlyAccountClient, FlyAccountError, flyConnectionInput } from "./fly-account-client";
 import { FlyConnectionRepository } from "./postgres/fly-connection-repository";
 import { FlyExecutionConfigurationRepository } from "./postgres/fly-execution-configuration-repository";
 import { flyExecutionConfigurationInput, getFlyExecutionMetadata, type FlyExecutionMetadataLoader } from "./fly-execution-configurations";
 
-import {modelDeviceAuthorization, modelCredentialConfigured, ModelAccountUnavailable} from "./model-device-auth";
+
 
 const PROJECT_GRAPH_LABEL_MAX_CHARS = 24;
 
@@ -77,16 +88,15 @@ export function publicValue<T extends z.ZodType>(schema: T, value: unknown): z.o
   return result.data;
 }
 
-type Scope = "runs:start" | "projects:read" | "projects:write" | "jobs:read" | "jobs:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
+type Scope = "runs:start" | "team:read" | "team:write" | "triggers:read" | "triggers:write" | "runs:read" | "runs:invoke" | "runs:cancel" | "runs:write" | "integrations:read" | "integrations:write" | "skills:read" | "skills:write";
 
 export class ApiService {
   authorizationDuration = 0;
   constructor(private env: Env, private auth: OAuthProps, private ctx?: ExecutionContext, private flyMetadata: FlyExecutionMetadataLoader = getFlyExecutionMetadata) {}
 
-  private jobs() { return new PostgresJobRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS)); }
+  private triggers() { return new PostgresTriggerRepository(databaseFor(this.env), this.auth.tenantId, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), value => decrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY), new SkillContent(this.env.SKILL_ARTIFACTS)); }
   private connections() { return new ConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
   private flyConnections() { return new FlyConnectionRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY); }
-  private projects() { return new ProjectRepository(databaseFor(this.env), this.auth.tenantId); }
   private skills() { return new SkillRepository(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY, undefined, new SkillContent(this.env.SKILL_ARTIFACTS)); }
   private async executionConfig(id: string) {
     // Target IDs created by the migration are deterministic md5-derived UUIDs,
@@ -110,22 +120,30 @@ export class ApiService {
     return { targetId: id, connectionId: id, workspace: "", cwd: "", agentKind: "codex", tags: [], image: fly.image, region: fly.region, size: fly.size, executionProvider: "fly" as const };
   }
 
+  private async workspaceConfiguration(id:string|undefined, requiresVm:boolean, executionType:"agent"|"code", tags:string[]=[]) {
+    if(!requiresVm)return {connectionId:"",workspace:"",cwd:"",agentKind:"pi",tags:[],requiresVm:false};
+    if(!id)throw new ServiceError(409,"run_defaults_required","A required VM needs an explicit configuration or Team default.");
+    if(id.startsWith("amp:"))throw new ServiceError(400,"invalid_request","Select an exe.dev or Fly VM configuration.");
+    if(id!=="docker")await this.validateExecutionOptions(id,"","",tags);
+    const config=await this.executionConfig(id);
+    return {...config,agentKind:executionType==="code"?"code":"pi",requiresVm:true};
+  }
+
   private async portableSelections(
-    config: Awaited<ReturnType<ApiService["executionConfig"]>>,
+    config: {connectionId:string;executionProvider?:string},
     executionType: "agent" | "code",
     input: Pick<
-      JobInput,
+      TriggerInput,
       | "portableIntegrationIds"
       | "githubInstallationIds"
       | "linearConnectionId"
       | "xConnectionIds"
-      | "modelAccess"
       | "modelAccountId"
     >,
-    current?: Job,
+    current?: Trigger,
   ) {
     if (config.executionProvider === "docker" && executionType !== "code")
-      throw new ServiceError(400, "invalid_request", "Docker test execution supports code jobs only.");
+      throw new ServiceError(400, "invalid_request", "Docker test execution supports code triggers only.");
     const portableIntegrationIds =
       input.portableIntegrationIds ??
       current?.portableIntegrationIds ??
@@ -142,36 +160,21 @@ export class ApiService {
         : (current?.linearConnectionId ?? current?.executionConfig.linearConnectionId);
     const xConnectionIds =
       input.xConnectionIds ?? current?.xConnectionIds ?? current?.executionConfig.xConnectionIds ?? [];
-    if (executionType === "code" && input.modelAccess === "portable")
-      throw new ServiceError(400, "invalid_request", "Code jobs cannot select model access.");
-    const modelAccess =
-      executionType === "code"
-        ? "native"
-        : (input.modelAccess ??
-          current?.modelAccess ??
-          current?.executionConfig.modelAccess ??
-          (config.executionProvider === "fly" ? "portable" : "native"));
-    if (modelAccess === "portable" && config.agentKind !== "codex")
-      throw new ServiceError(400, "invalid_request", "Managed model accounts support Codex jobs.");
-    if (modelAccess === "native" && input.modelAccountId)
-      throw new ServiceError(
-        400,
-        "invalid_request",
-        "Native model access cannot select a portable model account.",
-      );
-    const modelAccountId =
-      modelAccess === "portable"
-        ? (input.modelAccountId ?? current?.modelAccountId ?? current?.executionConfig.modelAccountId)
-        : undefined;
-    if (executionType === "code" && modelAccountId)
-      throw new ServiceError(400, "invalid_request", "Code jobs cannot select a model account.");
-    if (
-      config.executionProvider === "fly" &&
-      executionType === "agent" &&
-      config.agentKind === "codex" &&
-      (!modelAccountId || modelAccess !== "portable")
-    )
-      throw new ServiceError(400, "invalid_request", "Fly Codex jobs require a portable model account.");
+    const modelAccountId=executionType==="code"?undefined:input.modelAccountId ?? current?.modelAccountId ?? current?.executionConfig.modelAccountId;
+    const modelAccess:"native"|"portable"=executionType==="code"?"native":"portable";
+    await this.validateSelectedCredentials({portableIntegrationIds,githubInstallationIds,linearConnectionId,xConnectionIds,modelAccountId});
+    return {
+      portableIntegrationIds,
+      githubInstallationIds,
+      ...(linearConnectionId ? { linearConnectionId } : {}),
+      xConnectionIds,
+      modelAccess,
+      ...(modelAccountId ? { modelAccountId } : {}),
+    };
+  }
+
+  private async validateSelectedCredentials(selection: {portableIntegrationIds?:string[];githubInstallationIds?:number[];linearConnectionId?:"linear"|null;xConnectionIds?:string[];modelAccountId?:string}) {
+    const {portableIntegrationIds=[],githubInstallationIds=[],linearConnectionId,xConnectionIds=[],modelAccountId}=selection;
     const records = await new CredentialRepository(
       databaseFor(this.env),
       this.auth.tenantId,
@@ -225,129 +228,107 @@ export class ApiService {
       throw new ServiceError(400, "invalid_request", "The selected model account is unavailable.");
     if (
       modelAccountId &&
-      !modelCredentialConfigured(
-        (await this.credentials().managedCredential(modelAccountId, "model"))?.payload ?? "",
-      )
+      !configuredPiProvider((await this.credentials().managedCredential(modelAccountId,"model"))?.payload ?? "")
     )
       throw new ServiceError(
         400,
         "invalid_request",
-        "Connect the selected model account before using it in a job.",
+        "Connect the selected model account before using it in a trigger.",
       );
     for (const id of portableIntegrationIds)
       if (!(await this.credentials().managedCredential(id, "bearer")))
         throw new ServiceError(
           400,
           "invalid_request",
-          "Re-enter the selected bearer credential before using it in a job.",
+          "Re-enter the selected bearer credential before using it in a trigger.",
         );
-    if (modelAccess === "portable" && executionType !== "code" && !modelAccountId)
-      throw new ServiceError(400, "invalid_request", "Portable model access requires a model account.");
-    return {
-      portableIntegrationIds,
-      githubInstallationIds,
-      ...(linearConnectionId ? { linearConnectionId } : {}),
-      xConnectionIds,
-      modelAccess,
-      ...(modelAccountId ? { modelAccountId } : {}),
-    };
   }
 
   private async validateExecutionOptions(id: string, model: string, effort: string, tags: string[], modelProvider?: keyof typeof effortOptions) {
-    if (id === "docker") throw new ServiceError(400, "invalid_request", "Docker test execution supports code jobs only.");
+    if (id === "docker") throw new ServiceError(400, "invalid_request", "Docker test execution supports code triggers only.");
     if (id.startsWith("amp:")) return;
     const connection = await this.connections().get<ExeConnection>(`exe:${id}`);
     if (!connection) {
       if (await this.flyExecutionConfigs().get(id)) return;
       throw new ServiceError(400, "invalid_request", "execution integration not found");
     }
-    const provider = modelProvider ?? connection.agentKind ?? "codex";
-    const sameProvider = provider === (connection.agentKind ?? "codex");
-    const availableModels = connection.modelsByAgent?.[provider] ?? (sameProvider ? connection.models : undefined) ?? [];
-    const availableEfforts = effortOptions[provider];
-    if (model && (availableModels.length || !sameProvider) && !availableModels.includes(model)) throw new ServiceError(400, "invalid_request", "Model is not available on this agent.");
-    if (effort && availableEfforts.length && !availableEfforts.includes(effort)) throw new ServiceError(400, "invalid_request", "Effort is not available on this agent.");
     const availableTags = new Set(selectableExeTags(connection));
     if (tags.some(tag => !availableTags.has(tag))) throw new ServiceError(400, "invalid_request", "VM tags must be selected from the available exe.dev labels.");
   }
 
-  private normalizedTriggers(input: JobInput["triggers"], existing: Trigger[] = []): Trigger[] {
-    const source = input.some(trigger => trigger.kind === "manual") ? input : [{ kind: "manual" as const, enabled: true, config: {} }, ...input];
-    const prior = new Map(existing.map(trigger => [trigger.id, trigger])), used = new Set(existing.map(trigger => trigger.slug));
+  private normalizedEvents(input: TriggerInput["events"], existing: Event[] = []): Event[] {
+    const source = input.some(event => event.kind === "manual") ? input : [{ kind: "manual" as const, enabled: true, config: {} }, ...input];
+    const prior = new Map(existing.map(event => [event.id, event])), used = new Set(existing.map(event => event.slug));
     let next = 1, timestamp = new Date().toISOString();
-    return source.map(trigger => {
-      // A trigger's kind is part of its identity. Changing kind is a removal
+    return source.map(event => {
+      // A event's kind is part of its identity. Changing kind is a removal
       // plus an insertion, never an in-place mutation of historical identity.
-      const candidate = trigger.id ? prior.get(trigger.id) : undefined;
-      const old = candidate?.kind === trigger.kind ? candidate : undefined;
-      while (used.has(`trigger-${next}`)) next++;
-      const slug = old?.slug ?? trigger.slug ?? `trigger-${next++}`; used.add(slug);
-      return { id: old?.id ?? crypto.randomUUID(), jobId: old?.jobId ?? "", kind: trigger.kind, slug, enabled: trigger.enabled !== false, config: trigger.config, createdAt: old?.createdAt ?? timestamp, updatedAt: timestamp };
+      const candidate = event.id ? prior.get(event.id) : undefined;
+      const old = candidate?.kind === event.kind ? candidate : undefined;
+      while (used.has(`event-${next}`)) next++;
+      const slug = old?.slug ?? event.slug ?? `event-${next++}`; used.add(slug);
+      return { id: old?.id ?? crypto.randomUUID(), triggerId: old?.triggerId ?? "", kind: event.kind, slug, enabled: event.enabled !== false, config: event.config, template:event.template, createdAt: old?.createdAt ?? timestamp, updatedAt: timestamp };
     });
   }
   private async skillSelections(ids: string[]) {
-    if (new Set(ids).size !== ids.length) throw new ServiceError(400, "invalid_request", "A skill may only be selected once per job.");
+    if (new Set(ids).size !== ids.length) throw new ServiceError(400, "invalid_request", "A skill may only be selected once per trigger.");
     const repository = this.skills();
     const values = await Promise.all(ids.map(id => repository.get(id)));
     if (values.some(value => !value)) throw new ServiceError(400, "invalid_request", "One or more selected skills are unavailable.");
     return values.map((value, position) => ({ id: value!.id, key: value!.key, revision: value!.revision, body: value!.body ?? "", position }));
   }
 
-  private async jobStatistics(ids: string[]) {
+  private async triggerStatistics(ids: string[]) {
     if (!ids.length) return new Map<string, { running_count: string; last_run_state: string | null }>();
-    const result = await databaseFor(this.env).pool.query<{ job_id: string; running_count: string; last_run_state: string | null }>(`
-      SELECT selected.job_id,active.running_count,latest.state last_run_state
-      FROM unnest($2::uuid[]) selected(job_id)
+    const result = await databaseFor(this.env).pool.query<{ trigger_id: string; running_count: string; last_run_state: string | null }>(`
+      SELECT selected.trigger_id,active.running_count,latest.state last_run_state
+      FROM unnest($2::uuid[]) selected(trigger_id)
       CROSS JOIN LATERAL (
-        SELECT count(*)::text running_count FROM app.job_runs r
-        WHERE r.tenant_id=$1 AND r.job_id=selected.job_id
+        SELECT count(*)::text running_count FROM app.trigger_runs r
+        WHERE r.tenant_id=$1 AND r.trigger_id=selected.trigger_id
           AND r.state IN ('reserved','starting','running','blocked','stopping')
       ) active
       LEFT JOIN LATERAL (
-        SELECT r.state FROM app.job_runs r
-        WHERE r.tenant_id=$1 AND r.job_id=selected.job_id
+        SELECT r.state FROM app.trigger_runs r
+        WHERE r.tenant_id=$1 AND r.trigger_id=selected.trigger_id
         ORDER BY r.created_at DESC,r.id DESC LIMIT 1
       ) latest ON true`, [this.auth.tenantId, ids]);
-    return new Map(result.rows.map(row => [row.job_id, row]));
+    return new Map(result.rows.map(row => [row.trigger_id, row]));
   }
 
-  private async presentJob(job: Job, loadedStats?: { running_count: string; last_run_state: string | null }) {
-    const stats = loadedStats ?? (await this.jobStatistics([job.id])).get(job.id);
+  private async presentTrigger(trigger: Trigger, loadedStats?: { running_count: string; last_run_state: string | null }) {
+    const stats = loadedStats ?? (await this.triggerStatistics([trigger.id])).get(trigger.id);
     const runningCount = Number(stats?.running_count ?? 0);
-    return publicValue(jobResponse, {
-      ...job,
-      launchSkillId: job.executionConfig.launchSkillId ?? null,
-      runScopes: job.runScopes ?? [...DEFAULT_RUN_SCOPES],
-      executionType: job.executionType ?? "agent",
-      skills: (job.selectedSkills ?? []).map((skill) => ({
-        id: skill.id,
-        key: skill.key,
-        revision: skill.revision,
-        position: skill.position,
-      })),
-      triggers: job.triggers.map((trigger) => ({
-        ...trigger,
+    return publicValue(triggerResponse, {
+      ...trigger,
+      skillId: trigger.executionConfig.skillId ?? null,
+      runScopes: trigger.runScopes ?? [...DEFAULT_RUN_SCOPES],
+      executionType: trigger.executionType ?? "agent",
+      requiresVm: trigger.executionConfig.requiresVm ?? (trigger.executionType==="code" || Boolean(trigger.executionConfig.connectionId)),
+      skill:trigger.skill ? {id:trigger.skill.id,key:trigger.skill.key,revision:trigger.skill.revision} : null,
+      events: trigger.events.map((event) => ({
+        ...event,
         config:
-          trigger.kind === "webhook"
+          event.kind === "webhook"
             ? {
-                ...trigger.config,
-                ...(trigger.config.signingSecret || trigger.config.secret ? { secretConfigured: true } : {}),
-                ...(trigger.config.provider === "cloudflareTail"
+                ...event.config,
+                ...(event.config.signingSecret || event.config.secret ? { secretConfigured: true } : {}),
+                ...(event.config.provider === "cloudflareTail"
                   ? {
-                      destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(job.id)}`,
+                      destination: `${this.env.APP_ORIGIN}/webhooks/cloudflare/${encodeURIComponent(this.auth.tenantId)}/${encodeURIComponent(trigger.id)}`,
                     }
                   : {}),
               }
-            : trigger.config,
+            : event.config,
       })),
-      runNameTemplate: job.runNameTemplate ?? "",
+      runNameTemplate: trigger.runNameTemplate ?? "",
       executionConfigId:
-        job.executionConfig.targetId ??
-        `${job.executionConfig.agentKind === "Amp" ? "amp:" : ""}${job.executionConfig.connectionId}`,
-      agentKind: job.executionConfig.agentKind,
+        trigger.executionConfig.targetId ??
+        `${trigger.executionConfig.agentKind === "Amp" ? "amp:" : ""}${trigger.executionConfig.connectionId}`,
+      agentKind: trigger.executionConfig.agentKind,
       runningCount,
       currentRuns: runningCount,
-      maxConcurrency: job.concurrencyLimit,
+      maxConcurrency: trigger.concurrencyLimit,
       lastRunState: stats?.last_run_state ?? null,
     });
   }
@@ -371,18 +352,76 @@ export class ApiService {
   }
   async syncSkillLibrary() { await this.authorize("skills:write"); const library=this.library(); await library.sync(); return library.status(); }
   async listSkills(query: { q: string; limit: number; cursor?: string }) { await this.authorize("skills:read"); return publicValue(skillPage, await this.skills().list(query.q, query.limit, query.cursor)); }
+  private async pinnedSkills() {
+    if(!this.auth.runId)return [];
+    const row=(await databaseFor(this.env).pool.query(`SELECT j.encrypted_skill_snapshot FROM app.trigger_runs j JOIN app.runs r ON r.tenant_id=j.tenant_id AND r.id=j.id
+      WHERE j.tenant_id=$1 AND j.id=$2 AND j.state IN ('starting','running','blocked') AND r.state IN ('starting','running','blocked')`,[this.auth.tenantId,this.auth.runId])).rows[0];
+    if(!row)throw new ServiceError(401,"invalid_token","The run is no longer active.");
+    return row.encrypted_skill_snapshot?JSON.parse(await decrypt(row.encrypted_skill_snapshot,this.env.CREDENTIAL_ENCRYPTION_KEY)) as {id:string;key:string;body:string;version?:import("./skill-files").SkillVersion}[]:[];
+  }
+  async mcpListSkills(cursor?:string) {
+    await this.authorizeIdentity();const pinned=await this.pinnedSkills();
+    const skills=cursor?[]:await Promise.all(pinned.map(skill=>skillEntry(this.auth.tenantId,skill,path=>snapshotSkillUri(this.auth.tenantId,this.auth.runId!,skill.key,path))));
+    if(!this.auth.scopes.includes("skills:read")){
+      if(!this.auth.runId)await this.authorize("skills:read");
+      return {resultType:"complete" as const,skills,ttlMs:0,cacheScope:"private" as const};
+    }
+    await this.authorize("skills:read");const store=this.skills(),page=await store.list("",30,cursor);
+    for(const item of page.items){if(pinned.some(skill=>skill.id===item.id))continue;const skill=await store.get(item.id);if(skill)skills.push(await skillEntry(this.auth.tenantId,skill));}
+    return {resultType:"complete" as const,skills,...(page.nextCursor?{nextCursor:page.nextCursor}:{}),ttlMs:0,cacheScope:"private" as const};
+  }
+  async mcpGetSkill(uri:string) {
+    await this.authorizeIdentity();
+    if(uri.startsWith("skill://runs/")){
+      if(!this.auth.runId)throw new SkillContentError("Unknown skill resource.");
+      const {name,path}=parseSnapshotSkillUri(uri,this.auth.tenantId,this.auth.runId);
+      const skill=(await this.pinnedSkills()).find(skill=>skill.key===name);
+      if(!skill||path!=="SKILL.md")throw new SkillContentError("Unknown skill resource.");
+      return {resultType:"complete" as const,skill:await skillEntry(this.auth.tenantId,skill,path=>snapshotSkillUri(this.auth.tenantId,this.auth.runId!,skill.key,path)),ttlMs:0,cacheScope:"private" as const};
+    }
+    await this.authorize("skills:read");
+    const {name,path}=parseSkillUri(uri,this.auth.tenantId);
+    if(path!=="SKILL.md")throw new SkillContentError("Unknown skill resource.");
+    const skill=await this.skills().get(name);if(!skill)throw new SkillContentError("Unknown skill resource.");
+    return {resultType:"complete" as const,skill:await skillEntry(this.auth.tenantId,skill),ttlMs:0,cacheScope:"private" as const};
+  }
+  async mcpReadSkill(uri:string) {
+    await this.authorizeIdentity();
+    if(uri.startsWith("skill://runs/")){
+      if(!this.auth.runId)throw new SkillContentError("Unknown skill resource.");
+      const {name,path}=parseSnapshotSkillUri(uri,this.auth.tenantId,this.auth.runId);
+      const skill=(await this.pinnedSkills()).find(skill=>skill.key===name);if(!skill)throw new SkillContentError("Unknown skill resource.");
+      return {contents:[skillResource(this.auth.tenantId,skill,path,path=>snapshotSkillUri(this.auth.tenantId,this.auth.runId!,skill.key,path))],ttlMs:0,cacheScope:"private" as const};
+    }
+    await this.authorize("skills:read");const {name,path}=parseSkillUri(uri,this.auth.tenantId),skill=await this.skills().get(name);
+    if(!skill)throw new SkillContentError("Unknown skill resource.");
+    return {contents:[skillResource(this.auth.tenantId,skill,path)],ttlMs:0,cacheScope:"private" as const};
+  }
   async getSkill(id: string) { await this.authorize("skills:read"); const value = await this.skills().get(id); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); }
   async createSkill(input: unknown) { await this.authorize("skills:write"); const parsed = skillInput.parse(input); try { return publicValue(skillResponse, await this.library().edit(store => store.create(parsed.key,parsed.body))); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409,"skill_conflict",e.message); throw e; } }
   async updateSkill(id: string, input: unknown) { await this.authorize("skills:write"); try { const value = await this.library().edit(store => store.update(id, skillUpdateInput.parse(input))); if (!value) throw new ServiceError(404, "not_found", "Skill not found"); return publicValue(skillResponse, value); } catch (e) { if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
-  async deleteSkill(id: string, expectedRevision: number) { await this.authorize("skills:write"); try { if (!await this.library().edit(store => store.remove(id, expectedRevision))) throw new ServiceError(404, "not_found", "Skill not found"); return { id, deleted: true }; } catch (e) { if (e instanceof SkillReferenced) throw new ServiceError(409, "skill_referenced", `${e.message} Jobs: ${e.jobs.map(job => job.name).join(", ")}`); if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
-  async listSkillJobs(id: string) { await this.authorize("skills:read"); return publicValue(skillJobsResponse, { skillId: id, jobs: await this.skills().jobs(id) }); }
-  async previewJobPrompt(input: unknown) { await this.authorize("skills:read"); const parsed = previewSkillInput.parse(input); const repository = this.skills(); const skills = await Promise.all(parsed.skillIds.map(async id => { const skill = await repository.get(id); if (!skill) throw new ServiceError(400, "invalid_request", "A selected skill is unavailable."); return skill; })); return { prompt: composePrompt(skills.map(skill => ({ body: skill.body ?? "" })), parsed.jobContext), skills: skills.map(skill => ({ id: skill.id, key: skill.key, revision: skill.revision })) }; }
+  async deleteSkill(id: string, expectedRevision: number) { await this.authorize("skills:write"); try { if (!await this.library().edit(store => store.remove(id, expectedRevision))) throw new ServiceError(404, "not_found", "Skill not found"); return { id, deleted: true }; } catch (e) { if (e instanceof SkillReferenced) throw new ServiceError(409, "skill_referenced", `${e.message} Triggers: ${e.triggers.map(trigger => trigger.name).join(", ")}`); if (e instanceof SkillConflict) throw new ServiceError(409, "stale_skill", e.message); throw e; } }
+  async listSkillTriggers(id: string) { await this.authorize("skills:read"); return publicValue(skillTriggersResponse, { skillId: id, triggers: await this.skills().triggers(id) }); }
+  async previewTriggerPrompt(input: unknown) {
+    await this.authorize("skills:read");
+    const parsed=previewSkillInput.parse(input);
+    const skill=parsed.skillId ? await this.skills().get(parsed.skillId) : null;
+    if (parsed.skillId && !skill) throw new ServiceError(400,"invalid_request","The selected skill is unavailable.");
+    if(parsed.eventKind!=="manual" && parsed.instructions.trim()) throw new ServiceError(400,"invalid_request","Only manual Event previews accept caller instructions.");
+    const fields=parsed.eventKind==="manual" ? {...parsed.eventData,prompt:parsed.instructions} : parsed.eventData ?? {};
+    const values={...fields,...(parsed.eventSlug ? {[parsed.eventSlug]:fields} : {}),...(parsed.eventKind==="webhook" ? {webhook:fields} : {})};
+    const preview=composeTriggerContext(parsed.prompt,parsed.eventTemplate,values,parsed.instructions,skill ? {body:skill.body ?? ""} : undefined);
+    return {...preview,skill:skill ? {id:skill.id,key:skill.key,revision:skill.revision} : null,
+      runName:renderRunName(parsed.runNameTemplate ?? "",values,"Preview")};
+  }
+
 
   private async authorize(scope: Scope): Promise<void> {
     if (!(this.auth.oauthGrantId ? this.auth.scopes : normalizeScopes(this.auth.scopes)).includes(scope)) throw new ServiceError(403, "insufficient_scope", `The ${scope} scope is required.`);
     await this.authorizeIdentity();
   }
   private async authorizeIdentity(): Promise<void> {
+    if(this.auth.authMethod==="hosted_pi" && !await activeHostedRunIdentity(databaseFor(this.env),this.auth))throw new ServiceError(401,"invalid_token","The hosted run lease is no longer authorized.");
     const started = performance.now();
     try {
       const database = databaseFor(this.env);
@@ -396,7 +435,48 @@ export class ApiService {
   agentApi() { return new AgentApiService(this.env, this.auth); }
   grantVm(input: unknown) { return grantVm(this.env,this.auth,input); }
   revokeVmGrant(id: string) { return revokeVmGrant(this.env,this.auth,id); }
-  async getApiReflection() { return this.agentApi().reflection(); }
+  async getApiReflection() {
+    const reflection=await this.agentApi().reflection();
+    const hosted=this.auth.authMethod==="hosted_pi";
+    return {...reflection,media:{frameworkVersion:"1.5.2" as const,contentTypes:["text","image"] as ("text"|"image")[],maxUploadBytes:MEDIA_LIMIT,maxTurnMediaBytes:16*1024*1024,uploadUrl:this.env.APP_ORIGIN+"/api/v1/media/uploads",fetchTool:"fetch_media" as const,readTool:"read_media" as const},agentHost:hosted?"factorize" as const:this.auth.authMethod==="vendor_identity"?"vm" as const:"external" as const,current_vm:hosted&&this.auth.runId?await new WorkspaceVm(databaseFor(this.env),this.env).current(this.auth.tenantId,this.auth.runId):null};
+  }
+  async vmExec(input:z.infer<typeof vmExecInput>,signal?:AbortSignal){
+    await this.authorizeIdentity();
+    if(this.auth.authMethod!=="hosted_pi" || !this.auth.runId)throw new ServiceError(403,"workspace_required","This identity has no server-bound workspace VM.");
+    return new WorkspaceVm(databaseFor(this.env),this.env).execute(this.auth.tenantId,this.auth.runId,input.command,input.cwd,signal,()=>this.authorizeIdentity());
+  }
+  private async media(write=false){
+    await this.authorizeIdentity();if(!this.auth.runId)await this.authorize(write?"runs:start":"runs:read");
+    return new RunMedia(databaseFor(this.env),this.env,this.auth);
+  }
+  async createMediaUpload(input:unknown){return (await this.media(true)).create(mediaUploadInput.parse(input));}
+  async uploadMedia(id:string,request:Request){return (await this.media(true)).upload(id,request);}
+  async downloadMedia(id:string){const {row,object}=await (await this.media()).read(id);return new Response(object.body,{headers:{"Content-Type":row.media_type,"Content-Length":String(row.byte_size),"Content-Disposition":"attachment","Content-Security-Policy":"default-src 'none'; sandbox","Cache-Control":"private, no-store"}});}
+  async readMedia(id:string){const media=await this.media();return {content:[await media.image(id)]};}
+  async fetchMedia(input:unknown,signal?:AbortSignal){
+    const value=fetchMediaInput.parse(input),media=await this.media(true);
+    const response=await this.agentApi().request(requestApiInput.parse({integration:value.integration,path:value.path,headers:value.headers,method:"GET"}),signal);
+    try{
+    if(response.status<200 || response.status>=300)throw new ServiceError(502,"media_fetch_failed",`The authorized media source returned HTTP ${response.status}.`);
+    const mime=mediaType.parse(response.headers["content-type"]?.split(";",1)[0].trim());
+    if(response.size<1 || response.size>MEDIA_LIMIT)throw new ServiceError(413,"invalid_media","Fetched media exceeds the 32 MiB limit or is empty.");
+    const inline=response.body!==undefined?new Uint8Array(response.encoding==="base64"?Buffer.from(response.body,"base64"):new TextEncoder().encode(response.body)):undefined;
+    const source=()=>{
+      let offset=0,done=false;
+      return new ReadableStream<Uint8Array>({pull:async controller=>{
+        if(signal?.aborted)throw signal.reason;
+        if(inline){if(!done)controller.enqueue(inline);done=true;controller.close();return;}
+        if(!response.handle)throw new ServiceError(502,"media_fetch_failed","Media response has no body.");
+        const chunk=await this.agentApi().read({handle:response.handle,offset});offset=chunk.nextOffset;controller.enqueue(new Uint8Array(Buffer.from(chunk.body,"base64")));if(chunk.done)controller.close();
+      }});
+    };
+    const hash=createHash("sha256"),reader=source().getReader();for(;;){const {value,done}=await reader.read();if(done)break;hash.update(value);}
+    const receipt=await media.create({mediaType:mime,byteSize:response.size,sha256:hash.digest("hex"),idempotencyKey:value.idempotencyKey});
+    if(receipt.state==="ready")return receipt;
+    return await media.upload(receipt.artifactId,new Request(this.env.APP_ORIGIN,{method:"PUT",headers:{"Content-Type":mime},body:source(),signal,duplex:"half"} as RequestInit));
+    }finally{if(response.handle)await databaseFor(this.env).pool.query("UPDATE app.agent_proxy_responses SET expires_at=now() WHERE tenant_id=$1 AND id=$2",[this.auth.tenantId,response.handle]);}
+
+  }
   async requestApi(input: unknown, signal?: AbortSignal) { return this.agentApi().request(requestApiInput.parse(input), signal); }
   async readApiResponse(input: unknown) { return this.agentApi().read(readApiResponseInput.parse(input)); }
   async listApiPolicies() { await this.authorizeOwnerSession("integrations:read"); return listAgentPolicies(this.env, this.auth.tenantId); }
@@ -412,7 +492,7 @@ export class ApiService {
     await this.authorizeIdentity();
     if (this.auth.authMethod !== "vendor_identity" || !this.auth.runId) throw new ServiceError(403, "forbidden", "A vendor-verified run identity is required.");
     const db = databaseFor(this.env), tenantId = this.auth.tenantId, runId = this.auth.runId;
-    const active = (await db.pool.query<{execution_config: Record<string, any>}>(`SELECT r.execution_config FROM app.runs r JOIN app.job_runs j ON j.tenant_id=r.tenant_id AND j.id=r.id
+    const active = (await db.pool.query<{execution_config: Record<string, any>}>(`SELECT r.execution_config FROM app.runs r JOIN app.trigger_runs j ON j.tenant_id=r.tenant_id AND j.id=r.id
       WHERE r.tenant_id=$1 AND r.id=$2 AND r.state IN ('starting','running','blocked') AND j.state IN ('starting','running','blocked')`, [tenantId, runId])).rows[0];
     if (!active) throw new ServiceError(403, "forbidden", "The run is no longer active.");
     const config = active.execution_config;
@@ -431,7 +511,7 @@ export class ApiService {
     return publicValue(runtimeIntegrationsResponse, {
       kind: "factorize-run-integrations-v1",
       integrations: ids.map((id: string) => { const record = records.rows.find(row => row.id === id); return {id, name: record?.name ?? "Unavailable integration", description: record?.description ?? null, path: `/integrations/${id}/`, available: Boolean(record) && !denied.has(`bearer:${id}`)}; }),
-      xConnections: xIds.map((id: string) => { const connection = xConnections.rows.find(row => row.id === id); return { id, name: connection?.name ?? "Unavailable X connection", accountHandle: connection?.account_handle ?? null, scopes: connection?.granted_scopes ?? [], path: `/x/${id}/`, available: connection?.status === "connected" }; }),
+      xConnections: xIds.map((id: string) => { const connection = xConnections.rows.find(row => row.id === id); return { id, name: connection?.name ?? "Unavailable X connection", accountHandle: connection?.account_handle ?? null, scopes: connection?.granted_scopes ?? [], path: `/x/${id}/`, available: connection?.status === "connected" && !denied.has(`x:${id}`) }; }),
       providers: {
         githubInstallations: githubIds.map((installationId: number) => ({installationId, path: `/providers/github/${installationId}/`, available: installations.rows.some(row => Number(row.installation_id) === installationId && row.state === "active") && !denied.has(`github:${installationId}`)})),
         linear: config.linearConnectionId === "linear" ? {path: "/providers/linear/", available: Boolean(linear?.rowCount) && !denied.has("linear:linear")} : null,
@@ -442,7 +522,7 @@ export class ApiService {
 
   async getRuntimeContext() {
     await this.authorizeIdentity();
-    return publicValue(runtimeContextResponse, { kind: "factorize-runtime-context-v1", authMethod: this.auth.authMethod ?? "oauth", runId: this.auth.runId ?? null, jobId: this.auth.runJobId ?? null, scopes: this.auth.oauthGrantId ? this.auth.scopes : normalizeScopes(this.auth.scopes) });
+    return publicValue(runtimeContextResponse, { kind: "factorize-runtime-context-v1", authMethod: this.auth.authMethod ?? "oauth", runId: this.auth.runId ?? null, triggerId: this.auth.runTriggerId ?? null, scopes: this.auth.oauthGrantId ? this.auth.scopes : normalizeScopes(this.auth.scopes) });
   }
 
   async getRuntimeLaunchPayload() {
@@ -525,15 +605,22 @@ export class ApiService {
   }
   async listGitHubInstallations() { await this.authorize("integrations:read"); return publicValue(z.array(githubInstallation), JSON.parse(JSON.stringify(await new GitHubRepository(databaseFor(this.env), this.auth.tenantId).installations()))); }
   async listTailIntegrations() { await this.authorize("integrations:read"); return publicValue(z.array(tailIntegration), await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).tails()); }
-  async listRuns(query: URLSearchParams) { await this.authorize("runs:read"); return publicValue(runPageResponse, JSON.parse(JSON.stringify(await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).list(query)))); }
-  async search(query: string) { await this.authorize("jobs:read"); await this.authorize("runs:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
-  async triggerContextMetadata() { await this.authorize("jobs:read"); return triggerContextCatalog; }
+  async listRuns(query:URLSearchParams){
+    await this.authorize("runs:read");const page=await new RunQueryRepository(databaseFor(this.env),this.auth.tenantId).list(query);
+    const items=await Promise.all(page.items.map(async row=>{
+      const text=row.legacy_script??(row.encrypted_preview?await decrypt(row.encrypted_preview,this.env.CREDENTIAL_ENCRYPTION_KEY):"");
+      return {...row,prompt_preview:runPromptPreview(text)};
+    }));
+    return publicValue(runPageResponse,JSON.parse(JSON.stringify({...page,items})));
+  }
+  async search(query: string) { await this.authorize("triggers:read"); await this.authorize("runs:read"); return publicValue(searchResponse, await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).search(query)); }
+  async eventContextMetadata() { await this.authorize("triggers:read"); return eventContextCatalog; }
   async getRunStatus(runId: string) { await this.authorize("runs:read"); const status = await new RunQueryRepository(databaseFor(this.env), this.auth.tenantId).status(runId); if (!status) throw new ServiceError(404, "not_found", "Run not found"); return status; }
   async reportRunError(runId: string, input: unknown) {
     await this.authorize("runs:write");
     const parsed = reportRunErrorSchema.parse(input), reason = safeDiagnosticText(parsed.reason, 1000);
     if (!reason.trim()) throw new ServiceError(400, "invalid_request", "Reason must contain safe text.");
-    const reporterKind = this.auth.authMethod === "oauth" ? "oauth" : this.auth.authMethod === "access_token" ? "api_key" : this.auth.authMethod === "vendor_identity" ? "run_token" : "session";
+    const reporterKind = this.auth.authMethod === "oauth" ? "oauth" : this.auth.authMethod === "access_token" ? "api_key" : ["vendor_identity","hosted_pi"].includes(this.auth.authMethod ?? "") ? "run_token" : "session";
     const reporterId = reporterKind === "oauth" ? this.auth.oauthGrantId && this.auth.oauthClientId ? `${this.auth.oauthClientId}:${this.auth.oauthGrantId}` : undefined : reporterKind === "api_key" ? this.auth.accessTokenId : reporterKind === "run_token" ? this.auth.runId : this.auth.userId;
     if (!reporterId) throw new ServiceError(403, "invalid_token", "Authenticated reporter identity is unavailable.");
     const result = await new RunRepository(databaseFor(this.env)).reportAgentError({ tenantId: this.auth.tenantId, runId, reason, userId: this.auth.userId, reporterKind, reporterId });
@@ -565,11 +652,11 @@ export class ApiService {
       id: run.invocation_id,
       source: run.invocation_source,
       claim_key: run.invocation_claim_key,
-      trigger_id: run.invocation_trigger_id,
-      template_job_id: run.template_job_id,
+      event_id: run.invocation_event_id,
+      template_trigger_id: run.template_trigger_id,
       context: run.context,
       occurrence: run.occurrence,
-      source_job_id: run.invocation_source_job_id ?? null,
+      source_trigger_id: run.invocation_source_trigger_id ?? null,
       source_run_id: run.invocation_source_run_id ?? null,
       created_at: run.invocation_created_at,
     };
@@ -609,8 +696,7 @@ export class ApiService {
         JSON.stringify({
           id: run.id,
           tenant_id: run.tenant_id,
-          job_id: run.job_id,
-          project_id: run.project_id,
+          trigger_id: run.trigger_id,
           launch_skill_id: run.launch_skill_id,
           launch_skill_key: run.launch_skill_key,
           launch_skill_revision: run.launch_skill_revision,
@@ -655,14 +741,17 @@ export class ApiService {
           created_at: run.created_at,
           updated_at: run.updated_at,
           started_at: run.started_at,
-          job_name: run.job_name,
+          trigger_name: run.trigger_name,
+          source:run.source,
+          prompt_preview:runPromptPreview(run.execution_config?.script??(run.encrypted_prompt_preview?await decrypt(run.encrypted_prompt_preview,this.env.CREDENTIAL_ENCRYPTION_KEY):run.prompt)),
+          context_prompt:run.encrypted_context_prompt?await decrypt(run.encrypted_context_prompt,this.env.CREDENTIAL_ENCRYPTION_KEY):run.prompt,
           prompt: run.prompt,
           context: run.context,
           occurrence: run.occurrence,
           invocation: run.invocation,
           invocation_source: run.invocation_source,
           invocation_claim_key: run.invocation_claim_key,
-          invocation_trigger_id: run.invocation_trigger_id,
+          invocation_event_id: run.invocation_event_id,
           invocation_created_at: run.invocation_created_at,
           activity: run.activity,
           execution_diagnostics: run.execution_diagnostics,
@@ -670,7 +759,7 @@ export class ApiService {
           trace_projection: run.trace_projection,
           trace_generation: run.trace_generation,
           harness_log: run.harness_log,
-          job_result: run.job_result ?? null,
+          trigger_result: run.trigger_result ?? null,
           run_artifacts: artifacts
             .filter((item) => !["execution_stream", "native_session"].includes(item.kind))
             .map((item) => ({
@@ -707,7 +796,7 @@ export class ApiService {
       new ArtifactRepository(database, this.auth.tenantId).list(runId),
     ]);
     const primary = run.trace_sources?.primary ?? null;
-    return { runId: run.id, jobId: run.job_id, state: run.state, failureSource: run.failure_source, failure: run.failure, agentError: run.agent_error, provider: run.provider, backendKind: run.execution_backend_kind,
+    return { runId: run.id, triggerId: run.trigger_id, state: run.state, failureSource: run.failure_source, failure: run.failure, agentError: run.agent_error, provider: run.provider, backendKind: run.execution_backend_kind,
       execution: run.execution_diagnostics, traceSources: run.trace_sources,
       trace: { ...evidence, provider: primary?.provider ?? artifacts.find(item => item.kind === "native_session")?.provider ?? run.agent_kind ?? null, primarySource: primary?.kind ?? "native_session", sourceVersion: primary?.formatVersion ?? null,
         artifacts: artifacts.filter(item => ["execution_stream", "native_session"].includes(item.kind)),
@@ -730,97 +819,85 @@ export class ApiService {
     return { runId, retryRequested: true };
   }
   killRun(runId: string) { return this.stopRun(runId); }
-  async listJobSummaries(input: JobPageQuery, selector = false) { await this.authorize("jobs:read"); try { return await new JobSummaryRepository(databaseFor(this.env), this.auth.tenantId).page(input, selector); } catch (error) { if (error instanceof InvalidJobSummaryCursor) throw new ServiceError(400, "invalid_request", error.message); throw error; } }
-  async listJobs() { await this.authorize("jobs:read"); const jobs = await this.jobs().list(), stats = await this.jobStatistics(jobs.map(job => job.id)); return Promise.all(jobs.map(job => this.presentJob(job, stats.get(job.id) ?? { running_count: "0", last_run_state: null }))); }
-  async getJob(jobId: string) { await this.authorize("jobs:read"); const job = await this.jobs().getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found"); return this.presentJob(job); }
-  async listProjects(options?: { limit?: number; sort?: "name" | "updated" }) { await this.authorize("projects:read"); return this.projects().list(options); }
-  async getProject(projectId: string) { await this.authorize("projects:read"); const project = await this.projects().get(projectId); if (!project) throw new ServiceError(404, "not_found", "Project not found"); return project; }
-  async getProjectGraph(projectId: string) {
-    await this.authorize("projects:read");
-    if (!await this.projects().get(projectId)) throw new ServiceError(404, "not_found", "Project not found");
+  async listTriggerSummaries(input: TriggerPageQuery, selector = false) { await this.authorize("triggers:read"); try { return await new TriggerSummaryRepository(databaseFor(this.env), this.auth.tenantId).page(input, selector); } catch (error) { if (error instanceof InvalidTriggerSummaryCursor) throw new ServiceError(400, "invalid_request", error.message); throw error; } }
+  async listTriggers() { await this.authorize("triggers:read"); const triggers = await this.triggers().list(), stats = await this.triggerStatistics(triggers.map(trigger => trigger.id)); return Promise.all(triggers.map(trigger => this.presentTrigger(trigger, stats.get(trigger.id) ?? { running_count: "0", last_run_state: null }))); }
+  async getTrigger(triggerId: string) { await this.authorize("triggers:read"); const trigger = await this.triggers().getTrigger(triggerId); if (!trigger) throw new ServiceError(404, "not_found", "Trigger not found"); return this.presentTrigger(trigger); }
+  async getTeamGraph() {
+    await this.authorize("triggers:read");
     const db = databaseFor(this.env), tenantId = this.auth.tenantId;
-    const jobs = await db.pool.query<any>(`SELECT j.id,j.name,j.enabled,j.execution_config,j.concurrency_limit,
-      (SELECT count(*)::int FROM app.job_runs r WHERE r.tenant_id=j.tenant_id AND r.job_id=j.id AND r.state IN ('reserved','starting','running','blocked','stopping')) running_count,
+    const triggers = await db.pool.query<any>(`SELECT j.id,j.name,j.enabled,j.execution_config,j.concurrency_limit,
+      (SELECT count(*)::int FROM app.trigger_runs r WHERE r.tenant_id=j.tenant_id AND r.trigger_id=j.id AND r.state IN ('reserved','starting','running','blocked','stopping')) running_count,
       COALESCE(jsonb_agg(jsonb_build_object('id',t.id,'kind',t.kind,'enabled',t.enabled,'config',CASE
-        WHEN t.kind='jobLifecycle' THEN jsonb_build_object('sourceJobIds',t.config->'sourceJobIds','sourceJobId',t.config->'sourceJobId','states',t.config->'states')
-        WHEN t.kind='jobIdle' THEN jsonb_build_object('sourceJobIds',t.config->'sourceJobIds')
+        WHEN t.kind='triggerLifecycle' THEN jsonb_build_object('sourceTriggerIds',t.config->'sourceTriggerIds','sourceTriggerId',t.config->'sourceTriggerId','states',t.config->'states')
+        WHEN t.kind='triggerIdle' THEN jsonb_build_object('sourceTriggerIds',t.config->'sourceTriggerIds')
         WHEN t.kind='webhook' THEN jsonb_build_object('provider',t.config->>'provider','projectId',t.config->>'projectId','listId',t.config->>'listId','repositoryId',t.config->>'repositoryId','event',t.config->>'event','integrationId',t.config->>'integrationId')
-        ELSE '{}'::jsonb END) ORDER BY t.position,t.id) FILTER (WHERE t.id IS NOT NULL),'[]'::jsonb) triggers
-      FROM app.jobs j LEFT JOIN app.triggers t ON t.tenant_id=j.tenant_id AND t.job_id=j.id AND t.removed_at IS NULL
-      WHERE j.tenant_id=$1 AND j.project_id=$2 GROUP BY j.tenant_id,j.id ORDER BY j.id`, [tenantId, projectId]);
-    const ids = new Set<string>(jobs.rows.map(row => row.id));
-    const nodes: any[] = jobs.rows.map(row => ({ id: row.id, type: "job", label: row.name, jobKind: row.execution_config?.executionType === "code" ? "Code" : "Agent", enabled: row.enabled, runningCount: Number(row.running_count ?? 0), concurrencyLimit: row.concurrency_limit }));
+        ELSE '{}'::jsonb END) ORDER BY t.position,t.id) FILTER (WHERE t.id IS NOT NULL),'[]'::jsonb) events
+      FROM app.triggers j LEFT JOIN app.events t ON t.tenant_id=j.tenant_id AND t.trigger_id=j.id AND t.removed_at IS NULL
+      WHERE j.tenant_id=$1 GROUP BY j.tenant_id,j.id ORDER BY j.id`, [tenantId]);
+    const ids = new Set<string>(triggers.rows.map(row => row.id));
+    const nodes: any[] = triggers.rows.map(row => ({ id: row.id, type: "trigger", label: row.name, triggerKind: row.execution_config?.executionType === "code" ? "Code" : "Agent", enabled: row.enabled, runningCount: Number(row.running_count ?? 0), concurrencyLimit: row.concurrency_limit }));
     const edges: any[] = [];
     const shortLabel = (value: string) => value.length > PROJECT_GRAPH_LABEL_MAX_CHARS ? `${value.slice(0, PROJECT_GRAPH_LABEL_MAX_CHARS - 1).trimEnd()}…` : value;
     const providerLabels: Record<string, string> = { linear: "Linear", clickup: "ClickUp", github: "GitHub", cloudflareTail: "Cloudflare Tail" };
-    for (const job of jobs.rows) for (const trigger of job.triggers) {
-      if (trigger.kind === "jobLifecycle") for (const source of trigger.config?.sourceJobIds ?? (trigger.config?.sourceJobId ? [trigger.config.sourceJobId] : [])) if (ids.has(source)) {
-        const states = (trigger.config?.states ?? []) as string[];
+    for (const trigger of triggers.rows) for (const event of trigger.events) {
+      if (event.kind === "triggerLifecycle") for (const source of event.config?.sourceTriggerIds ?? (event.config?.sourceTriggerId ? [event.config.sourceTriggerId] : [])) if (ids.has(source)) {
+        const states = (event.config?.states ?? []) as string[];
         const fullLabel = states.map(state => ({ succeeded: "Succeeded", failed: "Failed", stopped: "Stopped", edited: "Edited" } as Record<string, string>)[state] ?? state).join(", ") || "Lifecycle";
-        edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: shortLabel(fullLabel), details: fullLabel, kind: "lifecycle", enabled: Boolean(job.enabled && trigger.enabled) });
+        edges.push({ id: `${event.id}:${source}:${trigger.id}`, source, target: trigger.id, label: shortLabel(fullLabel), details: fullLabel, kind: "lifecycle", enabled: Boolean(trigger.enabled && event.enabled) });
       }
-      if (trigger.kind === "jobIdle") for (const source of trigger.config?.sourceJobIds ?? []) if (ids.has(source)) edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: "Idle", details: "Runs when the source job becomes idle", kind: "idle", enabled: Boolean(job.enabled && trigger.enabled) });
-      if (trigger.kind === "webhook") {
-        const config = trigger.config ?? {}, provider = String(config.provider ?? "webhook").slice(0, 50), displayProvider = providerLabels[provider] ?? "Webhook";
+      if (event.kind === "triggerIdle") for (const source of event.config?.sourceTriggerIds ?? []) if (ids.has(source)) edges.push({ id: `${event.id}:${source}:${trigger.id}`, source, target: trigger.id, label: "Idle", details: "Runs when the source trigger becomes idle", kind: "idle", enabled: Boolean(trigger.enabled && event.enabled) });
+      if (event.kind === "webhook") {
+        const config = event.config ?? {}, provider = String(config.provider ?? "webhook").slice(0, 50), displayProvider = providerLabels[provider] ?? "Webhook";
         const resource = (provider === "linear" ? String(config.projectId ?? "Project") : provider === "clickup" ? String(config.listId ?? "List") : provider === "github" ? String(config.repositoryId ? `Repository ${config.repositoryId}` : config.event ?? "Repository") : provider === "cloudflareTail" ? "Tail" : "External source").slice(0, 120);
         const source = `webhook:${provider}:${resource}`;
-        const event = String(config.event ?? "").toLowerCase();
-        const label = provider === "github" && ["pull_request", "pull_request_target"].includes(event) ? "GitHub PR" : provider === "github" && event === "issues" ? "GitHub Issue" : provider === "github" && event === "push" ? "GitHub Push" : displayProvider;
+        const inputEvent = String(config.event ?? "").toLowerCase();
+        const label = provider === "github" && ["pull_request", "pull_request_target"].includes(inputEvent) ? "GitHub PR" : provider === "github" && inputEvent === "issues" ? "GitHub Issue" : provider === "github" && inputEvent === "push" ? "GitHub Push" : displayProvider;
         const details = [displayProvider, [config.event, config.action].filter(Boolean).join(" "), resource && !["Tail", "External source"].includes(resource) ? resource : ""].filter(Boolean).join(" · ");
         if (!nodes.some(node => node.id === source)) nodes.push({ id: source, type: "webhook", label: displayProvider, provider, resource });
-        edges.push({ id: `${trigger.id}:${source}:${job.id}`, source, target: job.id, label: shortLabel(label), details, kind: "webhook", enabled: Boolean(job.enabled && trigger.enabled) });
+        edges.push({ id: `${event.id}:${source}:${trigger.id}`, source, target: trigger.id, label: shortLabel(label), details, kind: "webhook", enabled: Boolean(trigger.enabled && event.enabled) });
       }
     }
-    const grants = await db.pool.query<any>(`SELECT p.source_job_id,p.destination_job_id FROM app.manual_invocation_permissions p JOIN app.jobs s ON s.tenant_id=p.tenant_id AND s.id=p.source_job_id JOIN app.jobs d ON d.tenant_id=p.tenant_id AND d.id=p.destination_job_id WHERE p.tenant_id=$1 AND s.project_id=$2 AND d.project_id=$2 ORDER BY p.source_job_id,p.destination_job_id`, [tenantId, projectId]);
-    for (const grant of grants.rows) edges.push({ id: `manual:${grant.source_job_id}:${grant.destination_job_id}`, source: grant.source_job_id, target: grant.destination_job_id, label: "Manual", details: "Manual invocation permission", kind: "manual", enabled: Boolean(jobs.rows.find(row => row.id === grant.source_job_id)?.enabled && jobs.rows.find(row => row.id === grant.destination_job_id)?.enabled) });
+    const grants = await db.pool.query<any>(`SELECT p.source_trigger_id,p.destination_trigger_id FROM app.manual_invocation_permissions p JOIN app.triggers s ON s.tenant_id=p.tenant_id AND s.id=p.source_trigger_id JOIN app.triggers d ON d.tenant_id=p.tenant_id AND d.id=p.destination_trigger_id WHERE p.tenant_id=$1 ORDER BY p.source_trigger_id,p.destination_trigger_id`, [tenantId]);
+    for (const grant of grants.rows) edges.push({ id: `manual:${grant.source_trigger_id}:${grant.destination_trigger_id}`, source: grant.source_trigger_id, target: grant.destination_trigger_id, label: "Manual", details: "Manual invocation permission", kind: "manual", enabled: Boolean(triggers.rows.find(row => row.id === grant.source_trigger_id)?.enabled && triggers.rows.find(row => row.id === grant.destination_trigger_id)?.enabled) });
     return { nodes, edges };
   }
-  async createProject(input: { name: string; description?: string }) { await this.authorize("projects:write"); try { return await this.projects().create(input.name, input.description); } catch (error: any) { if (error?.code === "23505") throw new ServiceError(409, "conflict", "A project with this name already exists"); throw error; } }
-  async updateProject(projectId: string, input: { name: string; description?: string }) { await this.authorize("projects:write"); const result = await this.projects().update(projectId, input.name, input.description); if (!result) throw new ServiceError(404, "not_found", "Project not found"); return result; }
-  async deleteProject(projectId: string) {
-    await this.authorize("projects:write");
-    const result = await this.projects().remove(projectId);
-    if (result === "missing") throw new ServiceError(404, "not_found", "Project not found");
-    if (result === "nonempty")
-      throw new ServiceError(409, "conflict", "The project contains jobs or retained runs");
-    return { id: projectId, deleted: true };
-  }
-  async listJobEvents(jobId: string, limit = 50) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).jobEvents(jobId, limit); }
+  async listTriggerEvents(triggerId: string, limit = 50) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).triggerEvents(triggerId, limit); }
   async listWebhookDeliveries(query: URLSearchParams) { await this.authorize("runs:read"); return new OperationsRepository(databaseFor(this.env), this.auth.tenantId).deliveries(query); }
   async getWebhookDelivery(deliveryId: string) { await this.authorize("runs:read"); const value = await new OperationsRepository(databaseFor(this.env), this.auth.tenantId).delivery(deliveryId); if (!value) throw new ServiceError(404,"not_found","Webhook delivery not found"); return value; }
-  async testJobConditions(input: unknown) { await this.authorize("jobs:write"); const parsed = jobConditionsTestSchema.parse(input); return evaluateWebhookConditions(parsed.conditions, parsed.webhook); }
-  async createJob(input: JobInput) {
-    await this.authorize("jobs:write");
+  async testTriggerConditions(input: unknown) { await this.authorize("triggers:write"); const parsed = triggerConditionsTestSchema.parse(input); return evaluateWebhookConditions(parsed.conditions, parsed.webhook); }
+  async createTrigger(request: TriggerInput) {
+    await this.authorize("triggers:write");
+    const team = await new TeamRepository(databaseFor(this.env), this.auth.tenantId).get();
+    if (!team) throw new ServiceError(404, "not_found", "Team not found");
+    const defaults = team.runDefaults;
+    const executionConfigId = request.executionConfigId ?? defaults.executionConfigId;
+    const requiresVm=request.executionType==="code" || (request.requiresVm ?? (request.executionConfigId ? true : defaults.requiresVm ?? false));
+    if(request.executionConfigId && request.requiresVm===false)throw new ServiceError(400,"invalid_request","A VM override requires requiresVm=true.");
+    const input = {
+      ...defaults,
+      ...Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined)) as TriggerInput,
+      executionConfigId,
+      concurrencyLimit: request.concurrencyLimit ?? defaults.concurrencyLimit ?? 1,
+      modelAccountId: request.executionType === "code" ? undefined : request.modelAccountId ?? defaults.modelAccountId,
+    };
     const timestamp = new Date().toISOString(),
       id = crypto.randomUUID();
     const vmImage = input.vmImage ? canonicalizeVmImage(input.vmImage) : input.vmImage;
     const executionType = input.executionType ?? "agent";
-    if (executionType === "code" && input.executionConfigId.startsWith("amp:"))
-      throw new ServiceError(400, "invalid_request", "Code jobs require an exe.dev integration.");
-    if (executionType !== "code")
-      await this.validateExecutionOptions(
-        input.executionConfigId,
-        input.model ?? "",
-        input.effort ?? "",
-        input.tags ?? [],
-      );
-    const executionConfig = await this.executionConfig(input.executionConfigId);
+    const executionConfig = await this.workspaceConfiguration(input.executionConfigId,requiresVm,executionType,input.tags);
     const portable = await this.portableSelections(executionConfig, executionType, input);
-    const triggers = this.normalizedTriggers(input.triggers).map((trigger) => ({ ...trigger, jobId: id }));
-    const projectId = input.projectId ?? (await this.projects().defaultProjectId());
-    const selectedSkills = executionType === "code" ? [] : await this.skillSelections(input.skillIds ?? []);
-    const launchSkill =
-      executionType === "agent" && input.launchSkillId
-        ? (await this.skillSelections([input.launchSkillId]))[0]
+    const events = this.normalizedEvents(input.events).map((event) => ({ ...event, triggerId: id }));
+    const skill =
+      executionType === "agent" && input.skillId
+        ? (await this.skillSelections([input.skillId]))[0]
         : undefined;
-    const job: Job = {
+    const trigger: Trigger = {
       id,
-      projectId,
       runScopes: input.runScopes ?? [...DEFAULT_RUN_SCOPES],
       name: input.name,
-      description: input.description ?? "",
-      slug: input.slug,
-      promptTemplate: input.promptTemplate ?? "",
+
+      slug: input.name,
+      prompt: input.prompt ?? "",
       executionType,
       script: executionType === "code" ? input.script : undefined,
       runNameTemplate: input.runNameTemplate ?? "",
@@ -830,7 +907,7 @@ export class ApiService {
       ...(input.effort ? { effort: input.effort } : {}),
       executionConfig: {
         ...executionConfig,
-        launchSkillId: executionType === "agent" ? (input.launchSkillId ?? undefined) : undefined,
+        skillId: executionType === "agent" ? (input.skillId ?? undefined) : undefined,
         ...portable,
         executionType,
         ...(input.script ? { script: input.script } : {}),
@@ -838,60 +915,59 @@ export class ApiService {
       },
       concurrencyLimit: input.concurrencyLimit,
       enabled: true,
-      triggers,
-      launchSkill,
-      selectedSkills,
+      events,
+      skill,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
     try {
-      return this.presentJob(await this.jobs().create(job));
+      return this.presentTrigger(await this.triggers().create(trigger, defaults.allowedTriggerIds ?? []));
     } catch (error: any) {
-      if (error?.code === "23505") throw new ServiceError(409, "conflict", "Job slug is already in use");
+      if ((error?.code ?? error?.cause?.code) === "23505") throw new ServiceError(409, "conflict", "A skill or Trigger already uses this name");
+      if ((error?.code ?? error?.cause?.code) === "23503" && String(error?.constraint ?? error?.cause?.constraint).includes("manual_invocation_permissions")) throw new ServiceError(409, "run_defaults_required", "A default invocation destination is unavailable. Update Team permissions defaults.");
       throw error;
     }
   }
-  async updateJob(jobId: string, input: JobInput & { expectedUpdatedAt?: string }) {
-    await this.authorize("jobs:write");
-    const repository = this.jobs(),
-      current = await repository.getJob(jobId);
-    if (!current) throw new ServiceError(404, "not_found", "Job not found");
+  async updateTrigger(triggerId: string, request: TriggerInput & { expectedUpdatedAt?: string }) {
+    await this.authorize("triggers:write");
+    const repository = this.triggers(),
+      current = await repository.getTrigger(triggerId);
+    if (!current) throw new ServiceError(404, "not_found", "Trigger not found");
+    const input = {
+      ...request,
+      executionConfigId: request.executionConfigId ?? current.executionConfig.connectionId,
+      concurrencyLimit: request.concurrencyLimit ?? current.concurrencyLimit,
+      model: request.model ?? current.model,
+      effort: request.effort ?? current.effort,
+      tags: request.tags ?? current.tags,
+    };
+    if(request.executionConfigId && request.requiresVm===false)throw new ServiceError(400,"invalid_request","A VM override requires requiresVm=true.");
     const vmImage = input.vmImage ? canonicalizeVmImage(input.vmImage) : input.vmImage;
     const executionType = input.executionType ?? current.executionType ?? "agent";
-    if (executionType === "code" && input.executionConfigId.startsWith("amp:"))
-      throw new ServiceError(400, "invalid_request", "Code jobs require an exe.dev integration.");
-    if (executionType !== "code")
-      await this.validateExecutionOptions(
-        input.executionConfigId,
-        input.model ?? "",
-        input.effort ?? "",
-        input.tags ?? [],
-      );
-    const executionConfig = await this.executionConfig(input.executionConfigId);
+    const requiresVm=executionType==="code" || (request.requiresVm ?? (request.executionConfigId ? true : current.executionConfig.requiresVm ?? Boolean(current.executionConfig.connectionId)));
+    const executionConfig = await this.workspaceConfiguration(input.executionConfigId,requiresVm,executionType,input.tags);
     const portable = await this.portableSelections(executionConfig, executionType, input, current);
-    const triggers = this.normalizedTriggers(input.triggers, current.triggers).map((trigger) => ({
-      ...trigger,
-      jobId,
+    const events = this.normalizedEvents(input.events, current.events).map((event) => ({
+      ...event,
+      triggerId,
     }));
-    const launchSkillId =
-      input.launchSkillId === undefined ? current.executionConfig.launchSkillId : input.launchSkillId;
-    const skillIds = input.skillIds ?? (current.selectedSkills ?? []).map((skill) => skill.id);
-    const selectedSkills = executionType === "code" ? [] : await this.skillSelections(skillIds);
-    const launchSkill =
-      executionType === "agent" && launchSkillId
-        ? (await this.skillSelections([launchSkillId]))[0]
+    const skillId =
+      input.skillId === undefined ? current.executionConfig.skillId : input.skillId;
+    const skill =
+      executionType === "agent" && skillId
+        ? (await this.skillSelections([skillId]))[0]
         : undefined;
     const updated = await repository
       .update(
         {
           ...current,
+          contextReviewRequired:input.skillId !== undefined ? false : current.contextReviewRequired,
           ...portable,
           runScopes: input.runScopes ?? current.runScopes ?? [...DEFAULT_RUN_SCOPES],
-          projectId: input.projectId ?? current.projectId,
           name: input.name,
-          description: input.description ?? current.description ?? "",
-          slug: input.slug,
-          promptTemplate: input.promptTemplate ?? "",
+          description: current.description ?? "",
+          slug: input.name,
+          prompt: input.prompt ?? "",
           executionType,
           script: executionType === "code" ? input.script : undefined,
           runNameTemplate: input.runNameTemplate ?? "",
@@ -900,40 +976,39 @@ export class ApiService {
           effort: input.effort,
           executionConfig: {
             ...executionConfig,
-            launchSkillId: executionType === "agent" ? (launchSkillId ?? undefined) : undefined,
+            skillId: executionType === "agent" ? (skillId ?? undefined) : undefined,
             ...portable,
             executionType,
             ...(input.script ? { script: input.script } : {}),
             ...(vmImage ? { image: vmImage } : {}),
           },
           concurrencyLimit: input.concurrencyLimit,
-          triggers,
-          launchSkill,
-          selectedSkills,
-          updatedAt: new Date().toISOString(),
+          events,
+          skill,
+              updatedAt: new Date().toISOString(),
         },
         input.expectedUpdatedAt,
       )
       .catch((error) => {
-        if (error instanceof StaleJobEdit)
+        if ((error?.code ?? error?.cause?.code) === "23505") throw new ServiceError(409, "conflict", "A skill or Trigger already uses this name");
+        if (error instanceof StaleTriggerEdit)
           throw new ServiceError(
             409,
-            "stale_job",
-            "This job changed. Reload its configuration before saving.",
+            "stale_trigger",
+            "This trigger changed. Reload its configuration before saving.",
           );
         throw error;
       });
     await this.wakeScheduler();
-    return this.presentJob(updated);
+    return this.presentTrigger(updated);
   }
   async startVmImageVerification(input: unknown) {
-    await this.authorize("jobs:write");
+    await this.authorize("triggers:write");
     const value = vmImageVerificationInput.parse(input), connection = await this.connections().get<ExeConnection>(`exe:${value.connectionId}`);
     if (!connection) throw new ServiceError(404, "not_found", "exe.dev integration not found");
-    if (value.executionType !== "code" && connection.agentKind !== value.agentKind) throw new ServiceError(400, "invalid_request", "The selected agent does not match this exe.dev integration.");
     const allowedTags = new Set(selectableExeTags(connection));
     if (value.tags.some(tag => !allowedTags.has(tag))) throw new ServiceError(400, "invalid_request", "VM tags must be selected from the available exe.dev labels.");
-    const id = crypto.randomUUID(), db = databaseFor(this.env), config = { connectionId: value.connectionId, image: value.image, tags: value.tags, agentKind: value.agentKind, executionType: value.executionType ?? "agent" };
+    const id = crypto.randomUUID(), db = databaseFor(this.env), config = { connectionId: value.connectionId, image: value.image, tags: value.tags, executionType: "code" };
     await db.pool.query("INSERT INTO app.vm_image_verifications(tenant_id,id,status,phase,config) VALUES ($1,$2,'queued','queued',$3)", [this.auth.tenantId, id, config]);
     const task = this.runVmImageVerification(id, connection, value);
     if (this.ctx) this.ctx.waitUntil(task); else void task.catch(error => console.error("VM image verification failed", error));
@@ -946,8 +1021,8 @@ export class ApiService {
     const backend = new ExeVmBackend({ ...connection, tags: input.tags });
     try {
       await update("creating");
-      await backend.verifyImage(id, input.image, input.agentKind, phase => update(phase), input.executionType ?? "agent");
-      await update("succeeded", input.executionType === "code" ? "Verification passed. Image pull, SSH, and code prerequisites worked at this time." : "Verification passed. Image pull, SSH, and agent prerequisites worked at this time.");
+      await backend.verifyImage(id, input.image, phase => update(phase));
+      await update("succeeded", "Verification passed. Image pull, SSH, and workspace prerequisites worked at this time.");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Image verification failed.";
       const cleanup = message.startsWith("cleanup:"), kind = cleanup ? "cleanup" : message.startsWith("ssh:") ? "ssh" : message.startsWith("agent:") ? "agent" : cause instanceof ExeImageVerificationError ? cause.kind : "image_pull";
@@ -955,64 +1030,49 @@ export class ApiService {
     }
   }
   async getVmImageVerification(id: string) {
-    await this.authorize("jobs:read");
+    await this.authorize("triggers:read");
     const result = await databaseFor(this.env).pool.query<any>("SELECT id,status,phase,error_kind,error,created_at,updated_at FROM app.vm_image_verifications WHERE tenant_id=$1 AND id=$2", [this.auth.tenantId, id]);
     const row = result.rows[0]; if (!row) throw new ServiceError(404, "not_found", "VM image verification not found");
     return { id: row.id, status: row.status, phase: row.phase, errorKind: row.error_kind, error: row.error, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() };
   }
-  async moveJob(jobId: string, projectId: string, expectedUpdatedAt?: string) { await this.authorize("projects:write"); try { return this.presentJob(await this.jobs().move(jobId, projectId, expectedUpdatedAt)); } catch (error) { if (error instanceof StaleJobEdit) throw new ServiceError(409, "stale_job", "This job changed. Reload it before moving it."); if (error instanceof Error && error.message === "Project not found") throw new ServiceError(404, "not_found", "Project not found"); if (error instanceof Error && error.message === "Job not found") throw new ServiceError(404, "not_found", "Job not found"); throw error; } }
-  async deleteJob(jobId: string) {
-    await this.authorize("jobs:write");
-    if (!(await this.jobs().delete(jobId))) throw new ServiceError(404, "not_found", "Job not found");
-    return { id: jobId, deleted: true };
+
+  async deleteTrigger(triggerId: string) {
+    await this.authorize("triggers:write");
+    if (!(await this.triggers().delete(triggerId))) throw new ServiceError(404, "not_found", "Trigger not found");
+    return { id: triggerId, deleted: true };
   }
   private async wakeScheduler() {
     if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" });
   }
-  async setJobEnabled(jobId: string, enabled: boolean) { await this.authorize("jobs:write"); const repository = this.jobs(); if (!await repository.setEnabled(jobId, enabled, new Date().toISOString())) throw new ServiceError(404, "not_found", "Job not found"); await this.wakeScheduler(); return { id: jobId, enabled }; }
-  async setRunDefaults(projectId: string, input: z.infer<typeof projectRunDefaults>) {
-    await this.authorizeOwnerSession("projects:write");
-    await this.resolveRunDefaults(input);
-    const result = await databaseFor(this.env).pool.query(
-      "UPDATE app.projects SET run_defaults=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING id",
-      [this.auth.tenantId, projectId, input],
-    );
-    if (!result.rowCount) throw new ServiceError(404, "not_found", "Project not found");
-    return input;
+  async setTriggerEnabled(triggerId: string, enabled: boolean) { await this.authorize("triggers:write"); const repository = this.triggers(); try { if (!await repository.setEnabled(triggerId, enabled, new Date().toISOString())) throw new ServiceError(404, "not_found", "Trigger not found"); } catch(error) { if(error instanceof ContextReviewRequired) throw new ServiceError(409,"configuration_review_required",error.message); throw error; } await this.wakeScheduler(); return { id: triggerId, enabled }; }
+  async getTeam() {
+    await this.authorize("team:read");
+    const team = await new TeamRepository(databaseFor(this.env), this.auth.tenantId).get();
+    if (!team) throw new ServiceError(404, "not_found", "Team not found");
+    return team;
   }
 
-  async getUserRunDefaults() {
-    await this.authorize("projects:read");
-    const result = await databaseFor(this.env).pool.query("SELECT run_defaults FROM app.user_run_defaults WHERE tenant_id=$1 AND user_id=$2", [this.auth.tenantId, this.auth.userId]);
-    return result.rows[0]?.run_defaults ?? null;
-  }
-
-  async setUserRunDefaults(input: z.infer<typeof userRunDefaultsSchema>) {
-    await this.authorizeOwnerSession("projects:write");
-    await this.resolveRunDefaults({...input, capacity: 4});
-    const result = await databaseFor(this.env).pool.query(`INSERT INTO app.user_run_defaults(tenant_id,user_id,run_defaults)
-      VALUES($1,$2,$3) ON CONFLICT(tenant_id,user_id) DO UPDATE SET run_defaults=excluded.run_defaults,updated_at=now() RETURNING run_defaults`, [this.auth.tenantId, this.auth.userId, input]);
-    return result.rows[0].run_defaults;
+  async setTeamRunDefaults(input: z.infer<typeof teamRunDefaults>) {
+    await this.authorizeOwnerSession("team:write");
+    if (input.allowedTriggerIds?.length) {
+      const found = await databaseFor(this.env).pool.query("SELECT id FROM app.triggers WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [this.auth.tenantId, input.allowedTriggerIds]);
+      if (found.rowCount !== input.allowedTriggerIds.length) throw new ServiceError(400, "invalid_request", "Every default destination must be a Trigger in this team.");
+    }
+    if (input.executionConfigId) {
+      await this.executionConfig(input.executionConfigId);
+      await this.validateExecutionOptions(input.executionConfigId,"","",input.tags ?? []);
+      await this.validateSelectedCredentials(input);
+    }
+    if (!input.executionConfigId) await this.validateSelectedCredentials(input);
+    const saved = await new TeamRepository(databaseFor(this.env), this.auth.tenantId).setRunDefaults(input);
+    if (!saved) throw new ServiceError(404, "not_found", "Team not found");
+    return {...INITIAL_TEAM_DEFAULTS,...input};
   }
 
   private async resolveRunDefaults(input: z.infer<typeof projectRunDefaults>, executionType: "agent" | "code" = "agent") {
-    if (input.executionConfigId !== "docker" || executionType === "agent") await this.validateExecutionOptions(
-      input.executionConfigId,
-      input.model ?? "",
-      input.effort ?? "",
-      input.tags ?? [],
-      input.modelProvider,
-    );
-    const config = await this.executionConfig(input.executionConfigId);
-    if (config.agentKind === "Amp")
-      throw new ServiceError(400, "invalid_request", "Select a VM agent configuration.");
-    if (input.modelProvider && config.executionProvider !== "exe" && input.modelProvider !== config.agentKind)
-      throw new ServiceError(400, "invalid_request", "Model provider is unavailable on the selected VM configuration.");
-    if (input.modelProvider) config.agentKind = input.modelProvider;
-    const portable = await this.portableSelections(config, executionType, {
-      ...input,
-      modelAccess: input.modelAccountId ? "portable" : undefined,
-    });
+    const config = await this.workspaceConfiguration(input.executionConfigId,executionType==="code" || Boolean(input.requiresVm),executionType,input.tags);
+    const portable = await this.portableSelections(config, executionType, input);
+    if(executionType==="agent" && (!input.model?.trim() || !portable.modelAccountId))throw new ServiceError(409,"model_configuration_required","Select a model integration and model in the run or Team settings.");
     return {
       ...config,
       ...portable,
@@ -1029,37 +1089,23 @@ export class ApiService {
     await this.authorize("runs:start");
     const db = databaseFor(this.env),
       auth = this.auth;
-    let projectId = input.projectId;
     if (auth.runId) {
-      const parent = (
-        await db.pool.query(
-          "SELECT project_id FROM app.runs WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked')",
-          [auth.tenantId, auth.runId],
-        )
-      ).rows[0];
-      if (!parent || (projectId && projectId !== parent.project_id))
-        throw new ServiceError(403, "forbidden", "Delegation requires an active parent in the same project.");
-      projectId = parent.project_id;
-    }
-    if (!projectId) {
-      const projects = await this.projects().list({ limit: 2 });
-      if (projects.length !== 1)
-        throw new ServiceError(400, "project_required", "Select a project to start this run.");
-      projectId = projects[0].id;
+      const parent = await db.pool.query("SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked')", [auth.tenantId, auth.runId]);
+      if (!parent.rowCount) throw new ServiceError(403, "forbidden", "Delegation requires an active parent run in this team.");
     }
     const caller = [
       auth.authMethod ?? "oauth",
       auth.runId ?? auth.vmGrantId ?? auth.accessTokenId ?? auth.oauthGrantId ?? auth.userId,
     ].join(":");
-    const claim = projectId + ":" + (input.idempotencyKey ?? crypto.randomUUID());
+    const claim = auth.tenantId + ":" + (input.idempotencyKey ?? crypto.randomUUID());
     const digest = (
       await db.pool.query("SELECT encode(sha256(convert_to($1::jsonb::text,'UTF8')),'hex') hash", [
-        JSON.stringify({ ...input, projectId }),
+        JSON.stringify(input),
       ])
     ).rows[0].hash;
     const receipt = (runId: string, duplicate: boolean) => ({
       runId,
-      url: new URL("/job-runs/" + runId, this.env.APP_ORIGIN).href,
+      url: new URL("/runs/" + runId, this.env.APP_ORIGIN).href,
       outcomeUri: `factorize://runs/${runId}/outcome`,
       duplicate,
     });
@@ -1082,63 +1128,71 @@ export class ApiService {
     };
     const prior = await existing(db.pool);
     if (prior) return prior;
-    const project = await this.projects().get(projectId);
-    if (!project) throw new ServiceError(404, "not_found", "Project not found");
-    const userDefaultsResult = await db.pool.query("SELECT run_defaults FROM app.user_run_defaults WHERE tenant_id=$1 AND user_id=$2", [auth.tenantId, auth.userId]);
-    const userDefaults = userDefaultsResult.rows[0]?.run_defaults;
-    const defaults = { ...(userDefaults ?? {}), ...(project.runDefaults ?? {}) };
-    if (!defaults.executionConfigId && !input.executionConfigId)
-      throw new ServiceError(409, "run_defaults_required", "Configure project or user VM run defaults first.");
-    const isAgentClient = auth.authMethod === "oauth" || auth.authMethod === "vm_grant" || auth.authMethod === "vendor_identity";
+    const team = await new TeamRepository(db, auth.tenantId).get();
+    if (!team) throw new ServiceError(404, "not_found", "Team not found");
+    const defaults = team.runDefaults;
+    const selectedModelAccountId=input.modelAccountId ?? defaults.modelAccountId;
+    const executionConfigId = input.executionConfigId ?? defaults.executionConfigId;
+    if(input.executionConfigId && input.requiresVm===false)throw new ServiceError(400,"invalid_request","A VM override requires requiresVm=true.");
+    const requiresVm=Boolean(input.script) || (input.requiresVm ?? (input.executionConfigId ? true : defaults.requiresVm ?? false));
+    const isAgentClient = auth.authMethod === "oauth" || auth.authMethod === "vm_grant" || auth.authMethod === "vendor_identity" || auth.authMethod === "hosted_pi";
     const access = isAgentClient ? await this.agentApi().reflection() : undefined;
     const effectiveScopes = access?.scopes ?? normalizeScopes(auth.scopes);
-    const callerScopes = auth.runId ? [] : scopeSchema.options.filter(scope => effectiveScopes.includes(scope));
-    const runScopes = input.runScopes ?? callerScopes;
+    const callerScopes = scopeSchema.options.filter(scope => effectiveScopes.includes(scope));
+    const runScopes = input.runScopes ?? (defaults.runScopes ?? callerScopes).filter(scope => callerScopes.includes(scope));
     if (runScopes.some(scope => !callerScopes.includes(scope)))
       throw new ServiceError(403, "forbidden", "Requested run permissions exceed this client's effective Factorize access.");
 
     const granted = access?.integrations.filter(item => item.access === "granted" &&
       (auth.authMethod !== "oauth" || effectiveScopes.includes("proxy:use"))) ?? [];
     const byId = new Map(granted.map(item => [item.id, item]));
-    const integrationIds = input.integrationIds ?? granted.map(item => item.id);
+    const permissionFields = ["portableIntegrationIds", "githubInstallationIds", "linearConnectionId", "xConnectionIds", "modelAccountId"] as const;
+    const configuredPermissions = permissionFields.some(field => defaults[field] !== undefined);
+    const defaultIntegrations = configuredPermissions ? granted.filter(item =>
+      item.kind === "bearer" ? defaults.portableIntegrationIds?.includes(item.credentialId) :
+      item.kind === "github" ? defaults.githubInstallationIds?.includes(Number(item.credentialId)) :
+      item.kind === "linear" ? defaults.linearConnectionId === "linear" :
+      item.kind === "x" ? defaults.xConnectionIds?.includes(item.credentialId) :
+      item.kind === "model" ? selectedModelAccountId === item.credentialId : false) : granted;
+    const integrationIds = input.integrationIds ?? defaultIntegrations.map(item => item.id);
     const selected = integrationIds.map(id => {
       const integration = byId.get(id);
       if (!integration) throw new ServiceError(403, "forbidden", "Requested integrations exceed this client's effective integration access.");
       return integration;
     });
     const inheritConfigured = auth.authMethod === "session" && input.integrationIds === undefined;
-    const selections = inheritConfigured ? defaults : {
+    const selections = inheritConfigured ? {...defaults,modelAccountId:selectedModelAccountId} : {
       portableIntegrationIds: selected.filter(item => item.kind === "bearer").map(item => item.credentialId),
       githubInstallationIds: selected.filter(item => item.kind === "github").map(item => Number(item.credentialId)),
-      linearConnectionId: selected.some(item => item.kind === "linear") ? "linear" : undefined,
+      linearConnectionId: selected.some(item => item.kind === "linear") ? "linear" as const : undefined,
       xConnectionIds: selected.filter(item => item.kind === "x").map(item => item.credentialId),
-      modelAccountId: selected.find(item => item.kind === "model" && item.credentialId === defaults.modelAccountId)?.credentialId,
+      modelAccountId: selected.find(item => item.kind === "model" && item.credentialId === selectedModelAccountId)?.credentialId,
     };
+    if(input.modelAccountId && selections.modelAccountId!==input.modelAccountId)throw new ServiceError(403,"forbidden","The requested model integration exceeds this client's effective integration access.");
     const resolved = await this.resolveRunDefaults({
       ...defaults,
       ...selections,
       capacity: defaults.capacity ?? 4,
-      executionConfigId: input.executionConfigId ?? defaults.executionConfigId,
-      vmImage: input.vmImage ?? (project.runDefaults?.vmImage || userDefaults?.vmImage),
-      model: input.script ? "" : input.model ?? (project.runDefaults?.model || userDefaults?.model),
-      modelProvider: input.script ? undefined : input.modelProvider ?? defaults.modelProvider,
+      executionConfigId,
+      requiresVm,
+      vmImage: input.vmImage ?? defaults.vmImage,
+      model: input.script ? "" : input.model ?? defaults.model,
       effort: input.script ? undefined : defaults.effort,
       modelAccountId: input.script ? undefined : selections.modelAccountId,
     }, input.script ? "code" : "agent");
     const config = {
       ...resolved,
       runScopes,
+      allowedTriggerIds: [] as string[],
       ...(inheritConfigured ? {} : {agentIntegrationIds: integrationIds}),
+      inputMediaIds:input.attachments?.map(item=>item.artifactId) ?? [],
       ...(input.script ? {script: input.script} : {}),
     };
     const skill = input.skill ? await this.skills().get(input.skill) : null;
     if (input.script && skill) throw new ServiceError(400, "invalid_request", "Script runs cannot include an agent skill.");
     if (input.skill && !skill) throw new ServiceError(404, "not_found", "Launch skill not found");
-    const text = input.prompt ?
-      input.inputs && Object.keys(input.inputs).length
-        ? input.prompt + "\n\nInputs (JSON)\n" + JSON.stringify(input.inputs)
-        : input.prompt : "";
-    const prompt = composePrompt(skill ? [{ body: skill.body! }] : [], text);
+    const text=[input.prompt ?? "", input.inputs && Object.keys(input.inputs).length ? "Inputs (JSON)\n"+JSON.stringify(input.inputs) : ""].filter(Boolean).join("\n\n");
+    const prompt = composePrompt(skill ? {body:skill.body!} : undefined,text);
     const encryptedPrompt = await encrypt(prompt, this.env.CREDENTIAL_ENCRYPTION_KEY);
     const encryptedSkills = skill
       ? await encrypt(
@@ -1149,48 +1203,55 @@ export class ApiService {
         )
       : undefined;
     const result = await db.transaction(async (client) => {
-      const locked = await client.query("SELECT run_defaults IS NOT DISTINCT FROM $3::jsonb matches FROM app.projects WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [auth.tenantId, projectId, project.runDefaults ?? null]);
+      const locked = await client.query("SELECT run_defaults IS NOT DISTINCT FROM $2::jsonb matches FROM app.team_settings WHERE tenant_id=$1 FOR UPDATE", [auth.tenantId, defaults]);
       const duplicate = await existing(client);
       if (duplicate) return duplicate;
       if (!locked.rows[0]?.matches)
         throw new ServiceError(
           409,
           "configuration_changed",
-          "Project configuration changed. Retry this request.",
+          "Team configuration changed. Retry this request.",
         );
-      const currentUserDefaults = await client.query("SELECT run_defaults FROM app.user_run_defaults WHERE tenant_id=$1 AND user_id=$2 FOR SHARE", [auth.tenantId, auth.userId]);
-      if (JSON.stringify(currentUserDefaults.rows[0]?.run_defaults ?? null) !== JSON.stringify(userDefaults ?? null))
-        throw new ServiceError(409, "configuration_changed", "User run defaults changed. Retry this request.");
       if (auth.runId) {
         const active = await client.query(
-          "SELECT id FROM app.runs WHERE tenant_id=$1 AND id=$2 AND project_id=$3 AND state IN ('starting','running','blocked') FOR SHARE",
-          [auth.tenantId, auth.runId, projectId],
+          "SELECT id,trigger_id,execution_config FROM app.runs WHERE tenant_id=$1 AND id=$2 AND state IN ('starting','running','blocked') FOR SHARE",
+          [auth.tenantId, auth.runId],
         );
         if (!active.rowCount) throw new ServiceError(403, "forbidden", "The parent run is no longer active.");
+        const parent=active.rows[0];
+        const destinations=parent.trigger_id
+          ? (await client.query("SELECT destination_trigger_id FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_trigger_id=$2 FOR SHARE",[auth.tenantId,parent.trigger_id])).rows.map(row=>row.destination_trigger_id)
+          : parent.execution_config.allowedTriggerIds ?? [];
+        config.allowedTriggerIds=(defaults.allowedTriggerIds ?? []).filter(id=>destinations.includes(id));
+      } else {
+        config.allowedTriggerIds=defaults.allowedTriggerIds ?? [];
       }
+      if (!config.runScopes.includes("runs:invoke")) config.allowedTriggerIds=[];
       const id = crypto.randomUUID(),
         invocationId = crypto.randomUUID(),
         inputs = input.inputs ?? {};
       await client.query(
-        `INSERT INTO app.invocations(tenant_id,id,source,claim_key,caller,request_hash,context,source_run_id,source_job_id)
+        `INSERT INTO app.invocations(tenant_id,id,source,claim_key,caller,request_hash,context,source_run_id,source_trigger_id)
         VALUES ($1,$2,'direct',$3,$4,$5,$6,$7,$8)`,
-        [auth.tenantId, invocationId, claim, caller, digest, inputs, auth.runId, auth.runJobId],
+        [auth.tenantId, invocationId, claim, caller, digest, inputs, auth.runId, auth.runTriggerId],
       );
       await submitRun(client, auth.tenantId, {
         id,
         invocationId,
-        projectId: project.id,
-        jobId: null,
+        triggerId: null,
         name: input.name ?? (skill ? `/${skill.key} run` : "Direct run"),
         source: "direct",
         claim,
         encryptedPrompt,
         encryptedSkills,
+        encryptedPromptPreview:await encrypt(runPromptPreview(input.script??(text || (config.inputMediaIds.length?`[${config.inputMediaIds.length} image${config.inputMediaIds.length===1?"":"s"}]`:""))),this.env.CREDENTIAL_ENCRYPTION_KEY),
+        encryptedContextPrompt:await encrypt(input.script??text,this.env.CREDENTIAL_ENCRYPTION_KEY),
         skill: skill ?? undefined,
         config: { ...config, inputContext: inputs },
         workspaceName: "",
         createdAt: new Date().toISOString(),
       });
+      await new RunMedia(db,this.env,auth).attach(client,id,config.inputMediaIds);
       await client.query(
         "INSERT INTO app.run_authorizations(tenant_id,run_id,user_id,session_version,scopes) VALUES ($1,$2,$3,$4,$5::jsonb)",
         [auth.tenantId, id, auth.userId, auth.sessionVersion, JSON.stringify(config.runScopes)],
@@ -1214,7 +1275,7 @@ export class ApiService {
     await this.authorize("runs:read");
     const db = databaseFor(this.env);
     const result = await db.pool.query(
-      `SELECT id AS "runId",state,outcome_id AS "eventId",job_result AS result,
+      `SELECT id AS "runId",state,outcome_id AS "eventId",trigger_result AS result,
       CASE WHEN failure_code IS NOT NULL THEN json_build_object('code',failure_code,'reason',failure_reason,'source',CASE WHEN failure_source='agent' THEN 'run' ELSE 'system' END) END failure
       FROM app.runs WHERE tenant_id=$1 AND id=$2`,
       [this.auth.tenantId, runId],
@@ -1224,64 +1285,64 @@ export class ApiService {
     const artifacts = outcome.eventId ? await new ArtifactRepository(db, this.auth.tenantId).list(runId) : [];
     return {
       ...outcome,
-      url: new URL("/job-runs/" + runId, this.env.APP_ORIGIN).href,
+      url: new URL("/runs/" + runId, this.env.APP_ORIGIN).href,
       artifacts: artifacts
-        .filter((item) => item.kind === "job_file")
+        .filter((item) => item.kind === "trigger_file")
         .map((item) => ({ id: item.id, format: item.format })),
     };
   }
-  async invokeJob(jobId: string, input: ManualInvocationInput) {
-    await this.authorize("runs:invoke"); const repository = this.jobs(), job = await repository.getJob(jobId); if (!job) throw new ServiceError(404, "not_found", "Job not found");
-    if (this.auth.authMethod === "vendor_identity") {
-      if (!this.auth.runId || !this.auth.runJobId) throw new ServiceError(401, "invalid_token", "A verified run identity is required.");
-      const permission = await databaseFor(this.env).pool.query(`SELECT 1 FROM app.vendor_run_identity_bindings b
-          JOIN app.job_runs r ON r.tenant_id=b.tenant_id AND r.id=b.run_id
-          JOIN app.jobs source ON source.tenant_id=r.tenant_id AND source.id=r.job_id
-          JOIN app.jobs destination ON destination.tenant_id=source.tenant_id AND destination.id=$3 AND destination.project_id=source.project_id
-          JOIN app.manual_invocation_permissions p ON p.tenant_id=b.tenant_id AND p.source_job_id=r.job_id AND p.destination_job_id=$3
-          WHERE b.tenant_id=$1 AND b.run_id=$2 AND b.provider=$4 AND b.revoked_at IS NULL
-            AND r.state IN ('starting','running','blocked')`, [this.auth.tenantId, this.auth.runId, jobId, this.auth.runIdentityProvider]);
-      if (!permission.rowCount) throw new ServiceError(403, "forbidden", "This run is no longer active or its source job is not authorized to invoke the destination.");
+  async invokeTrigger(triggerId: string, input: ManualInvocationInput) {
+    await this.authorize("runs:invoke"); const repository = this.triggers(), trigger = await repository.getTrigger(triggerId); if (!trigger) throw new ServiceError(404, "not_found", "Trigger not found");
+    const runIdentity=this.auth.authMethod==="vendor_identity"||this.auth.authMethod==="hosted_pi";
+    if (runIdentity) {
+      if (!this.auth.runId) throw new ServiceError(401, "invalid_token", "A verified run identity is required.");
+      const permission = await databaseFor(this.env).pool.query(`SELECT 1 FROM app.runs r
+          JOIN app.triggers destination ON destination.tenant_id=r.tenant_id AND destination.id=$3
+          WHERE r.tenant_id=$1 AND r.id=$2 AND r.state IN ('starting','running','blocked')
+            AND ($5::boolean OR EXISTS(SELECT 1 FROM app.vendor_run_identity_bindings b WHERE b.tenant_id=r.tenant_id AND b.run_id=r.id AND b.provider=$4 AND b.revoked_at IS NULL))
+            AND ((r.trigger_id IS NULL AND COALESCE(r.execution_config->'allowedTriggerIds','[]'::jsonb) ? $3::text)
+              OR EXISTS(SELECT 1 FROM app.manual_invocation_permissions p WHERE p.tenant_id=r.tenant_id AND p.source_trigger_id=r.trigger_id AND p.destination_trigger_id=$3))`, [this.auth.tenantId, this.auth.runId, triggerId, this.auth.runIdentityProvider ?? null,this.auth.authMethod==="hosted_pi"]);
+      if (!permission.rowCount) throw new ServiceError(403, "forbidden", "This run is no longer active or its source trigger is not authorized to invoke the destination.");
     }
-    const trigger = job.triggers.find(value => value.kind === "manual" && value.enabled); if (!trigger) throw new ServiceError(409, "operation_failed", "The manual trigger is disabled");
+    const event = trigger.events.find(value => value.kind === "manual" && value.enabled); if (!event) throw new ServiceError(409, "operation_failed", "The manual event is disabled");
     const service = new InvocationService(repository, value => encrypt(value, this.env.CREDENTIAL_ENCRYPTION_KEY));
-    const claimKey = input.idempotencyKey ? `manual:${this.auth.authMethod === "vendor_identity" ? `run:${this.auth.runId}:` : ""}${input.idempotencyKey}` : `manual:${crypto.randomUUID()}`;
-    const result = await service.invoke(jobId, { source: "manual", name: input.name, triggerId: trigger.id, claimKey, ...(this.auth.authMethod === "vendor_identity" ? { sourceJobId: this.auth.runJobId, sourceRunId: this.auth.runId } : {}), context: { [trigger.slug]: { prompt: input.prompt, data: input.data ?? {} } } });
+    const claimKey = input.idempotencyKey ? `manual:${runIdentity ? `run:${this.auth.runId}:` : ""}${input.idempotencyKey}` : `manual:${crypto.randomUUID()}`;
+    const result = await service.invoke(triggerId, { source: "manual", name: input.name, eventId: event.id, claimKey, ...(runIdentity ? { sourceTriggerId: this.auth.runTriggerId, sourceRunId: this.auth.runId } : {}), context: { [event.slug]: { prompt: input.prompt, data: input.data ?? {} } } });
     if (this.env.SCHEDULER) await this.env.SCHEDULER.get(this.env.SCHEDULER.idFromName("global")).fetch("https://scheduler/wake", { method: "POST" });
     return { invocationId: result.invocation.id, runId: result.run.id, state: result.run.state, duplicate: result.duplicate };
   }
-  async getInvocationPermissions(sourceJobId: string) {
-    await this.authorize("jobs:read");
-    if (!await this.jobs().getJob(sourceJobId)) throw new ServiceError(404, "not_found", "Job not found");
-    const rows = await databaseFor(this.env).pool.query<{ destination_job_id: string }>(`SELECT p.destination_job_id FROM app.manual_invocation_permissions p
-      JOIN app.jobs source ON source.tenant_id=p.tenant_id AND source.id=p.source_job_id
-      JOIN app.jobs destination ON destination.tenant_id=p.tenant_id AND destination.id=p.destination_job_id AND destination.project_id=source.project_id
-      WHERE p.tenant_id=$1 AND p.source_job_id=$2 ORDER BY p.destination_job_id`, [this.auth.tenantId, sourceJobId]);
-    return publicValue(invocationPermissionsResponse, { sourceJobId, destinationJobIds: rows.rows.map(row => row.destination_job_id) });
+  async getInvocationPermissions(sourceTriggerId: string) {
+    await this.authorize("triggers:read");
+    if (!await this.triggers().getTrigger(sourceTriggerId)) throw new ServiceError(404, "not_found", "Trigger not found");
+    const rows = await databaseFor(this.env).pool.query<{ destination_trigger_id: string }>(`SELECT p.destination_trigger_id FROM app.manual_invocation_permissions p
+      JOIN app.triggers source ON source.tenant_id=p.tenant_id AND source.id=p.source_trigger_id
+      JOIN app.triggers destination ON destination.tenant_id=p.tenant_id AND destination.id=p.destination_trigger_id
+      WHERE p.tenant_id=$1 AND p.source_trigger_id=$2 ORDER BY p.destination_trigger_id`, [this.auth.tenantId, sourceTriggerId]);
+    return publicValue(invocationPermissionsResponse, { sourceTriggerId, destinationTriggerIds: rows.rows.map(row => row.destination_trigger_id) });
   }
-  async setInvocationPermissions(sourceJobId: string, destinationJobIds: string[]) {
-    await this.authorize("jobs:write");
-    // A run with jobs:write still cannot expand its invocation destinations.
-    if (this.auth.authMethod === "vendor_identity") throw new ServiceError(403, "insufficient_scope", "Run credentials cannot change invocation permissions.");
-    const unique = [...new Set(destinationJobIds)];
-    if (unique.length !== destinationJobIds.length) throw new ServiceError(400, "invalid_request", "Destination jobs must be unique.");
+  async setInvocationPermissions(sourceTriggerId: string, destinationTriggerIds: string[]) {
+    await this.authorize("triggers:write");
+    // A run with triggers:write still cannot expand its invocation destinations.
+    if (["vendor_identity","hosted_pi"].includes(this.auth.authMethod ?? "")) throw new ServiceError(403, "insufficient_scope", "Run credentials cannot change invocation permissions.");
+    const unique = [...new Set(destinationTriggerIds)];
+    if (unique.length !== destinationTriggerIds.length) throw new ServiceError(400, "invalid_request", "Destination triggers must be unique.");
     const db = databaseFor(this.env);
     await db.transaction(async client => {
-      const sources = await client.query<{ project_id: string }>("SELECT project_id FROM app.jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.auth.tenantId, sourceJobId]);
-      if (!sources.rowCount) throw new ServiceError(404, "not_found", "Source job not found");
+      const sources = await client.query<{ id: string }>("SELECT id FROM app.triggers WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [this.auth.tenantId, sourceTriggerId]);
+      if (!sources.rowCount) throw new ServiceError(404, "not_found", "Source trigger not found");
       if (unique.length) {
-        const found = await client.query("SELECT id FROM app.jobs WHERE tenant_id=$1 AND project_id=$3 AND id=ANY($2::uuid[])", [this.auth.tenantId, unique, sources.rows[0].project_id]);
-        if (found.rowCount !== unique.length) throw new ServiceError(400, "invalid_request", "Every destination must be an existing job in the source job's project.");
+        const found = await client.query("SELECT id FROM app.triggers WHERE tenant_id=$1 AND id=ANY($2::uuid[])", [this.auth.tenantId, unique]);
+        if (found.rowCount !== unique.length) throw new ServiceError(400, "invalid_request", "Every destination must be an existing trigger in the source trigger's team.");
       }
-      await client.query("DELETE FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_job_id=$2", [this.auth.tenantId, sourceJobId]);
-      if (unique.length) await client.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_job_id,destination_job_id) SELECT $1,$2,unnest($3::uuid[])", [this.auth.tenantId, sourceJobId, unique]);
+      await client.query("DELETE FROM app.manual_invocation_permissions WHERE tenant_id=$1 AND source_trigger_id=$2", [this.auth.tenantId, sourceTriggerId]);
+      if (unique.length) await client.query("INSERT INTO app.manual_invocation_permissions(tenant_id,source_trigger_id,destination_trigger_id) SELECT $1,$2,unnest($3::uuid[])", [this.auth.tenantId, sourceTriggerId, unique]);
     });
-    return publicValue(invocationPermissionsResponse, { sourceJobId, destinationJobIds: unique });
+    return publicValue(invocationPermissionsResponse, { sourceTriggerId, destinationTriggerIds: unique });
   }
   async diagnoseExeIntegration(connectionId: string) { await this.authorize("integrations:write"); const value = await new IntegrationService(databaseFor(this.env), this.auth.tenantId, this.env.CREDENTIAL_ENCRYPTION_KEY).diagnoseExe(connectionId); if (!value) throw new ServiceError(404,"not_found","Integration not found"); return value; }
-  async listJobTriggerAvailability() { await this.authorize("jobs:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedTriggerAvailability(kinds.includes("linear"),kinds.includes("clickup"),states,kinds.filter(x=>x.startsWith("cloudflare-tail:")).length); }
+  async listTriggerEventAvailability() { await this.authorize("triggers:read"); const [kinds, installations] = await Promise.all([this.connections().kinds(), new GitHubRepository(databaseFor(this.env),this.auth.tenantId).installations()]), states=installations.map((x:any)=>x.state); return installedEventAvailability(kinds.includes("linear"),kinds.includes("clickup"),states,kinds.filter(x=>x.startsWith("cloudflare-tail:")).length); }
   async previewSchedule(input: unknown) {
-    await this.authorize("jobs:read");
+    await this.authorize("triggers:read");
     try {
       const config = validateScheduleConfig(input);
       return { nextRunAt: nextOccurrence(config, new Date()).toISOString() };
@@ -1296,7 +1357,7 @@ export class ApiService {
   async integrationStatus() { await this.authorize("integrations:read"); return publicValue(integrationStatus, await this.integrations().status()); }
   async saveExeIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveExe(input); }
   async testExeIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().testExe(input); }
-  async removeIntegration(kind: "exe" | "amp", id: string) { await this.authorize("integrations:write"); const result = await this.integrations().remove(kind, id); if (result.conflict) throw new ServiceError(409, "conflict", "This integration is used by a job."); if (!result.deleted) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
+  async removeIntegration(kind: "exe" | "amp", id: string) { await this.authorize("integrations:write"); const result = await this.integrations().remove(kind, id); if (result.conflict) throw new ServiceError(409, "conflict", "This integration is used by a trigger."); if (!result.deleted) throw new ServiceError(404, "not_found", "Integration not found"); return { id, deleted: true }; }
   async saveAmpIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveAmp(input); }
   async testAmpIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().testAmp(input); }
   async saveTailIntegration(input: any) { await this.authorize("integrations:write"); return this.integrations().saveTail(input); }
@@ -1422,16 +1483,11 @@ export class ApiService {
     const result = await this.bearerWrite({ id, name: existing.name, origin: existing.origin!, description: existing.description, ...input, operation: "delete" });
     return { id, deleted: true as const, ...result };
   }
-  async modelAuthorization(accountId: string, action: "authorize" | "status" | "cancel") {
-    await this.authorizeOwnerSession("integrations:write");
-    try {return await modelDeviceAuthorization(this.env,this.auth,accountId,action);}
-    catch (error) {if (error instanceof ModelAccountUnavailable) throw new ServiceError(404,"not_found","Model account not found."); throw new ServiceError(503,"model_authorization_unavailable","Model account authorization is unavailable. Try connecting again.");}
-  }
   async listModelAccounts() {
     await this.authorizeOwnerSession("integrations:read");
     const repository = this.credentials();
     const [revision, accounts] = await Promise.all([repository.revision(), repository.metadata("model")]);
-    return {revision, accounts: await Promise.all(accounts.map(async ({id,name,description,revision}) => ({id,name,description,revision, credentialConfigured: modelCredentialConfigured((await repository.managedCredential(id,"model"))?.payload ?? "")})))};
+    return {revision, accounts: await Promise.all(accounts.map(async ({id,name,description,revision}) => {const config=configuredPiProvider((await repository.managedCredential(id,"model"))?.payload ?? "");return {id,name,description,revision,credentialConfigured:Boolean(config),providerUrl:config?.providerUrl ?? null,contextWindow:config?.contextWindow ?? null,maxTokens:config?.maxTokens ?? null};}))};
   }
   private async modelAccountWrite(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; description: string | null; operation: "upsert" | "delete" }) {
     try { return await this.credentials().write({ ...input, kind: "model", origin: null }); }
@@ -1442,10 +1498,10 @@ export class ApiService {
       throw error;
     }
   }
-  async createModelAccount(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; description: string | null; initialState: string }) {
+  async createModelAccount(input: { id: string; expectedRevision: number; idempotencyKey: string; name: string; description: string | null } & ModelProviderConfiguration) {
     await this.authorizeOwnerSession("integrations:write");
     const repository = this.credentials();
-    const managed = { ...input, initialState: undefined, managedModelPayload: input.initialState, kind: "model" as const, origin: null, operation: "upsert" as const };
+    const managed = { ...input, managedModelPayload: JSON.stringify(modelProviderConfiguration.parse({providerUrl:input.providerUrl,apiKey:input.apiKey,contextWindow:input.contextWindow,maxTokens:input.maxTokens})), kind: "model" as const, origin: null, operation: "upsert" as const };
     try {
       const replay = await repository.replay(managed);
       if (replay) return replay;
@@ -1463,11 +1519,11 @@ export class ApiService {
       throw error;
     }
   }
-  async updateModelAccount(id: string, input: {expectedRevision: number; idempotencyKey: string; name: string; description: string | null; initialState: string}) {
+  async updateModelAccount(id: string, input: {expectedRevision: number; idempotencyKey: string; name: string; description: string | null} & ModelProviderConfiguration) {
     await this.authorizeOwnerSession("integrations:write");
     const repository=this.credentials();
     if (!(await repository.metadata("model")).some(record=>record.id===id)) throw new ServiceError(404,"not_found","Model account not found.");
-    try {return await repository.write({...input,id,kind:"model",origin:null,operation:"upsert",managedModelPayload:input.initialState});}
+    try {return await repository.write({...input,id,kind:"model",origin:null,operation:"upsert",managedModelPayload:JSON.stringify(modelProviderConfiguration.parse({providerUrl:input.providerUrl,apiKey:input.apiKey,contextWindow:input.contextWindow,maxTokens:input.maxTokens}))});}
     catch (error) {if(error instanceof StaleIntegrationRevisionError) throw new ServiceError(409,"stale_revision","The model account collection changed. Reload and retry."); if(error instanceof IntegrationIdempotencyConflictError) throw new ServiceError(409,"conflict",error.message); if(error instanceof IntegrationValidationError) throw new ServiceError(400,"invalid_request",error.message); throw error;}
   }
   async deleteModelAccount(id: string, input: { expectedRevision: number; idempotencyKey: string }) {
@@ -1505,7 +1561,7 @@ export class ApiService {
     return { name };
   }
   async updateClientPermissions(grantId: string, input: unknown) {
-    await this.authorizeOwnerSession("jobs:write");
+    await this.authorizeOwnerSession("triggers:write");
     const edit = clientPermissionsInput.parse(input);
     const client = (await this.listAuthorizedClients()).find(client => client.grantId === grantId);
     if (!client) throw new ServiceError(404, "not_found", "Authorization not found.");
@@ -1528,7 +1584,7 @@ export class ApiService {
     return { ok: true };
   }
   async listAuthorizedClients() {
-    await this.authorizeOwnerSession("jobs:read");
+    await this.authorizeOwnerSession("triggers:read");
     if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503, "operation_failed", "OAuth management unavailable");
     const grants: any[] = []; let cursor: string | undefined;
     do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId, { limit: 100, cursor }); grants.push(...page.items.filter(grant => (grant.metadata as any)?.tenantId === this.auth.tenantId && (!grant.expiresAt || grant.expiresAt > Math.floor(Date.now() / 1000)))); cursor = page.cursor; } while (cursor);
@@ -1545,7 +1601,7 @@ export class ApiService {
     }));
   }
   async revokeOAuthAuthorization(grantId: string) {
-    await this.authorizeOwnerSession("jobs:write");
+    await this.authorizeOwnerSession("triggers:write");
     if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503,"operation_failed","OAuth management unavailable");
     let cursor: string | undefined, found = false;
     do { const page = await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId,{limit:100,cursor}); found ||= page.items.some(grant=>grant.id===grantId && (grant.metadata as any)?.tenantId===this.auth.tenantId); cursor=page.cursor; } while(cursor && !found);
@@ -1555,14 +1611,14 @@ export class ApiService {
     return {revoked:1};
   }
   async revokeAuthorizedClient(clientId: string) {
-    await this.authorizeOwnerSession("jobs:write");
+    await this.authorizeOwnerSession("triggers:write");
     if (!this.env.OAUTH_PROVIDER) throw new ServiceError(503,"operation_failed","OAuth management unavailable");
     const grants: any[]=[]; let cursor: string | undefined;
     do { const page=await this.env.OAUTH_PROVIDER.listUserGrants(this.auth.userId,{limit:100,cursor});grants.push(...page.items.filter(grant=>grant.clientId===clientId && (grant.metadata as any)?.tenantId===this.auth.tenantId));cursor=page.cursor; } while(cursor);
     for (const grant of grants) await this.revokeOAuthAuthorization(grant.id);
     return {revoked:grants.length};
   }
-  async listAccessTokens() { await this.authorizeOwnerSession("jobs:read"); return publicValue(z.array(accessToken), (await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).list()).map(token => ({ ...token, created_at: new Date(token.created_at).toISOString(), expires_at: new Date(token.expires_at).toISOString(), last_used_at: token.last_used_at ? new Date(token.last_used_at).toISOString() : null, revoked_at: token.revoked_at ? new Date(token.revoked_at).toISOString() : null, scopes: normalizeScopes(token.scopes) }))); }
-  async createAccessToken(input: any) { await this.authorizeOwnerSession("jobs:write"); const name = typeof input?.name === "string" ? input.name.trim() : "", requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], legacy = new Set(["flows:read", "flows:write"]), scopes = normalizeScopes(requested), expiryDays = Number(input?.expiryDays); if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any) && !legacy.has(scope)) || !scopes.length || ![7, 30, 90].includes(expiryDays)) throw new ServiceError(400, "invalid_request", "A name, supported scopes, and expiryDays of 7, 30, or 90 are required."); const token = issueAccessToken(this.auth.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString(); const metadata = await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).create({ name, scopes, expiresAt, digest: await accessTokenDigest(token), userId: this.auth.userId, sessionVersion: this.auth.sessionVersion }); if (!metadata) throw new ServiceError(401, "invalid_token", "The owner session is no longer active."); return publicValue(createdAccessToken, JSON.parse(JSON.stringify({ ...metadata, token }))); }
-  async revokeAccessToken(id: string) { await this.authorizeOwnerSession("jobs:write"); if (!await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).revoke(id)) throw new ServiceError(404, "not_found", "Access token not found"); return { revoked: true }; }
+  async listAccessTokens() { await this.authorizeOwnerSession("triggers:read"); return publicValue(z.array(accessToken), (await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).list()).map(token => ({ ...token, created_at: new Date(token.created_at).toISOString(), expires_at: new Date(token.expires_at).toISOString(), last_used_at: token.last_used_at ? new Date(token.last_used_at).toISOString() : null, revoked_at: token.revoked_at ? new Date(token.revoked_at).toISOString() : null, scopes: normalizeScopes(token.scopes) }))); }
+  async createAccessToken(input: any) { await this.authorizeOwnerSession("triggers:write"); const name = typeof input?.name === "string" ? input.name.trim() : "", requested: string[] = Array.isArray(input?.scopes) ? [...new Set<string>(input.scopes.filter((scope: unknown): scope is string => typeof scope === "string"))] : [], scopes = normalizeScopes(requested), expiryDays = Number(input?.expiryDays); if (!name || name.length > 100 || !requested.length || requested.some(scope => !ACCESS_SCOPES.includes(scope as any)) || !scopes.length || ![7, 30, 90].includes(expiryDays)) throw new ServiceError(400, "invalid_request", "A name, supported scopes, and expiryDays of 7, 30, or 90 are required."); const token = issueAccessToken(this.auth.tenantId), expiresAt = new Date(Date.now() + expiryDays * 86_400_000).toISOString(); const metadata = await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).create({ name, scopes, expiresAt, digest: await accessTokenDigest(token), userId: this.auth.userId, sessionVersion: this.auth.sessionVersion }); if (!metadata) throw new ServiceError(401, "invalid_token", "The owner session is no longer active."); return publicValue(createdAccessToken, JSON.parse(JSON.stringify({ ...metadata, token }))); }
+  async revokeAccessToken(id: string) { await this.authorizeOwnerSession("triggers:write"); if (!await new AccessTokenRepository(databaseFor(this.env), this.auth.tenantId).revoke(id)) throw new ServiceError(404, "not_found", "Access token not found"); return { revoked: true }; }
 }

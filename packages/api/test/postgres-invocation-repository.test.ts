@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { InvocationRepository } from "../src/postgres/invocation-repository";
 import type { Database } from "../src/postgres/database";
-import type { Invocation, JobRun } from "../src/job-domain";
+import type { Invocation, TriggerRun } from "../src/job-domain";
 
 const tenantId = "10000000-0000-4000-8000-000000000001";
-const invocation: Invocation = { id: "20000000-0000-4000-8000-000000000001", jobId: "30000000-0000-4000-8000-000000000001", source: "manual", claimKey: "manual:one", triggerId: "40000000-0000-4000-8000-000000000001", context: { value: 1 }, createdAt: "2026-09-18T00:00:00.000Z" };
-const run: JobRun = { id: "50000000-0000-4000-8000-000000000001", jobId: invocation.jobId, invocationId: invocation.id, state: "queued", encryptedPrompt: "ciphertext", runName: "GEN-2106 — Issue title", createdAt: invocation.createdAt, updatedAt: invocation.createdAt };
-const row = { invocation_id: invocation.id, job_id: invocation.jobId, source: invocation.source, claim_key: invocation.claimKey, trigger_id: invocation.triggerId, context: invocation.context, occurrence: null, invocation_created_at: new Date(invocation.createdAt), run_id: run.id, run_state: run.state, encrypted_prompt: run.encryptedPrompt, run_name: run.runName, run_created_at: new Date(run.createdAt), run_updated_at: new Date(run.updatedAt), started_at: null };
+const invocation: Invocation = { id: "20000000-0000-4000-8000-000000000001", triggerId: "30000000-0000-4000-8000-000000000001", source: "manual", claimKey: "manual:one", eventId: "40000000-0000-4000-8000-000000000001", context: { value: 1 }, createdAt: "2026-09-18T00:00:00.000Z" };
+const run: TriggerRun = { id: "50000000-0000-4000-8000-000000000001", triggerId: invocation.triggerId, invocationId: invocation.id, state: "queued", encryptedPrompt: "ciphertext", runName: "GEN-2106 — Issue title", createdAt: invocation.createdAt, updatedAt: invocation.createdAt };
+const row = { invocation_id: invocation.id, trigger_id: invocation.triggerId, source: invocation.source, claim_key: invocation.claimKey, event_id: invocation.eventId, context: invocation.context, occurrence: null, invocation_created_at: new Date(invocation.createdAt), run_id: run.id, run_state: run.state, encrypted_prompt: run.encryptedPrompt, run_name: run.runName, run_created_at: new Date(run.createdAt), run_updated_at: new Date(run.updatedAt), started_at: null };
 
 describe("InvocationRepository", () => {
   it("creates invocation, run, and wake hint in one transaction", async () => {
@@ -27,7 +27,7 @@ describe("InvocationRepository", () => {
     expect(query).toHaveBeenCalledTimes(8);
     expect(query.mock.calls[0][1][0]).toBe(tenantId);
     expect(query.mock.calls[6][0]).toContain("app.wake_hints");
-    expect(query.mock.calls[7][1]).toEqual([tenantId, invocation.jobId, invocation.claimKey]);
+    expect(query.mock.calls[7][1]).toEqual([tenantId, invocation.triggerId, invocation.claimKey]);
   });
 
   it("returns the canonical winner without creating a second run", async () => {

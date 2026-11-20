@@ -3,10 +3,10 @@ import type { Env } from "./types";
 import { CredentialRepository } from "./postgres/credential-repository";
 import { GitHubRepository } from "./postgres/github-repository";
 import { isPublicHttpsOrigin } from "./public-address";
-import { resolveManagedModelCredential } from "./managed-model-credentials";
+import {configuredPiProvider} from "./pi-provider";
 
 export class RunCredentialRepairRequired extends Error {
-  constructor() { super("A selected credential is unavailable or requires reconnection. Repair the job's selections and start a new run; this run's selection snapshot is unchanged."); }
+  constructor(message="A selected credential is unavailable or requires reconnection. Repair the trigger's selections and start a new run; this run's selection snapshot is unchanged.") { super(message); }
 }
 /** Fail closed before provisioning, preserving all unavailable selections for
  * explicit repair. No unlock/proxy service is a launch prerequisite. */
@@ -29,7 +29,7 @@ export async function requireRunCredentials(input: {database: Database; env: Env
   if (config.linearConnectionId !== undefined && (config.linearConnectionId !== "linear" || !(await database.pool.query("SELECT 1 FROM app.connections WHERE tenant_id=$1 AND kind='linear'", [tenantId])).rowCount)) throw new RunCredentialRepairRequired();
   if (config.modelAccess === "portable") {
     if (typeof config.modelAccountId !== "string") throw new RunCredentialRepairRequired();
-    try { if (!await resolveManagedModelCredential({database, env, tenantId, accountId: config.modelAccountId})) throw new RunCredentialRepairRequired(); }
+    try { if (!configuredPiProvider((await repository.managedCredential(config.modelAccountId,"model"))?.payload ?? "")) throw new RunCredentialRepairRequired(); }
     catch { throw new RunCredentialRepairRequired(); }
   }
 }

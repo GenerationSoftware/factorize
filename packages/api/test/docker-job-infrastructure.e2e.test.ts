@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { expect, it } from "vitest";
-import { createDockerJobInfrastructure } from "./helpers/docker-job-infrastructure";
+import { createDockerTriggerInfrastructure } from "./helpers/docker-job-infrastructure";
 
 it("recovers real containers by operation identity, isolates ownership and removes stopped containers", async () => {
   const namespace = process.env.FACTORIZE_E2E_NAMESPACE ? `${process.env.FACTORIZE_E2E_NAMESPACE}-infra` : `factorize-test-${randomUUID()}`;
   const image = process.env.FACTORIZE_E2E_JOB_IMAGE ?? "alpine:3.22";
   execFileSync("docker", ["network", "create", "--internal", namespace], { timeout: 15_000 });
-  const infra = createDockerJobInfrastructure({ testMode: true, namespace, network: namespace });
-  const other = createDockerJobInfrastructure({ testMode: true, namespace: `other-${randomUUID()}`, network: namespace });
+  const infra = createDockerTriggerInfrastructure({ testMode: true, namespace, network: namespace });
+  const other = createDockerTriggerInfrastructure({ testMode: true, namespace: `other-${randomUUID()}`, network: namespace });
   const operation = randomUUID();
   let id: string | undefined;
   try {

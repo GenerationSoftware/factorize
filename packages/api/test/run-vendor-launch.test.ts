@@ -24,7 +24,7 @@ describe("vendor-authenticated run launch", () => {
     expect(backend).not.toHaveBeenCalled();
   });
 
-  it.each(["codex", "claude", "pi", "code"])("launches %s with public identity configuration and snapshotted scopes", async agentKind => {
+  it.each(["code"])("launches %s with public identity configuration and snapshotted scopes", async agentKind => {
     const runId = "00000000-0000-4000-8000-000000000001", key = btoa("a".repeat(32));
     let issuedScopes: unknown;
     const database = { pool: { query: async (sql: string, values: unknown[] = []) => {
@@ -41,7 +41,7 @@ describe("vendor-authenticated run launch", () => {
     vi.spyOn(RunRepository.prototype, "markLaunched").mockResolvedValue();
     const snapshot = vi.spyOn(RunRepository.prototype, "snapshotLaunchPayload").mockResolvedValue();
     const recordHandle = vi.spyOn(RunRepository.prototype, "recordLaunchHandle").mockResolvedValue();
-    await scheduler.launch({ id: runId, tenantId: "tenant", executionConfig: { agentKind, runScopes: ["jobs:read", "jobs:write"], ...(agentKind === "code" ? { executionType: "code", script: "echo test", inputContext: {} } : {}) }, encryptedPrompt: await encrypt("Complete the task", key) });
+    await scheduler.launch({ id: runId, tenantId: "tenant", executionConfig: { agentKind, runScopes: ["triggers:read", "triggers:write"], ...(agentKind === "code" ? { executionType: "code", script: "echo test", inputContext: {} } : {}) }, encryptedPrompt: await encrypt("Complete the task", key) });
     const request = launch.mock.calls[0][0];
     expect(snapshot.mock.invocationCallOrder[0]).toBeLessThan(launch.mock.invocationCallOrder[0]);
     expect(await decrypt(snapshot.mock.calls[0][1], key)).toBe(serializeLaunchPayload(request));
@@ -50,7 +50,7 @@ describe("vendor-authenticated run launch", () => {
     expect(request).not.toHaveProperty("runProxy");
     expect(request.runIdentity).toEqual({backendOrigin: env.APP_ORIGIN});
     expect(typeof request.verifyVendorIdentity).toBe("function");
-    expect(issuedScopes).toEqual(["jobs:read", "jobs:write"]);
+    expect(issuedScopes).toEqual(["triggers:read", "triggers:write"]);
     if (agentKind === "code") { expect(request.code?.script).toBe("echo test"); return; }
     expect(request.harness?.env).toHaveProperty("FACTORIZE_RESULT_PATH");
     expect(request.harness?.env).not.toHaveProperty("FACTORIZE_API_URL");

@@ -8,7 +8,7 @@ import {
   isDeclaredApiOperation,
   matchApiOperation,
 } from "../src/api-contract";
-import { listRunsSchema, jobInputSchema, vmImageVerificationInput, startRunInput } from "../src/flow-schemas";
+import { listRunsSchema, triggerInputSchema, vmImageVerificationInput, startRunInput } from "../src/flow-schemas";
 
 export const openapi = parse(
   readFileSync(new URL("../../docs/openapi.yaml", import.meta.url), "utf8"),
@@ -35,7 +35,7 @@ describe("versioned API contract", () => {
     expect(startRunInput.safeParse({ script: "echo ok", runScopes: ["integration:private"] }).success).toBe(false);
   });
   it("validates run sorting fields and directions", () => {
-    expect(listRunsSchema.safeParse({ sort: "job", direction: "asc" }).success).toBe(true);
+    expect(listRunsSchema.safeParse({ sort: "source", direction: "asc" }).success).toBe(true);
     expect(listRunsSchema.safeParse({ sort: "agent", direction: "desc" }).success).toBe(true);
     expect(listRunsSchema.safeParse({ sort: "not-a-column" }).success).toBe(false);
     expect(listRunsSchema.safeParse({ direction: "asc" }).success).toBe(false);
@@ -43,35 +43,32 @@ describe("versioned API contract", () => {
     expect(listRunsSchema.safeParse({ state: ["failed", "not-a-state"] }).success).toBe(false);
   });
   it("accepts public image references and publishes tenant-scoped verification operations", () => {
-    const job = { name: "Image job", slug: "image-job", promptTemplate: "Run", executionConfigId: "exe", vmImage: "ghcr.io/org/image:tag", triggers: [] };
-    expect(jobInputSchema.safeParse(job).success).toBe(true);
-    expect(jobInputSchema.parse({ ...job, vmImage: "ghcr.io/GenerationSoftware/anarack:ReleaseA" }).vmImage).toBe("ghcr.io/generationsoftware/anarack:ReleaseA");
-    expect(jobInputSchema.parse({ ...job, vmImage: "" }).vmImage).toBe("");
+    const trigger = { name: "image-trigger",  prompt: "Run", executionConfigId: "exe", vmImage: "ghcr.io/org/image:tag", events: [] };
+    expect(triggerInputSchema.safeParse(trigger).success).toBe(true);
+    expect(triggerInputSchema.parse({ ...trigger, vmImage: "ghcr.io/GenerationSoftware/anarack:ReleaseA" }).vmImage).toBe("ghcr.io/generationsoftware/anarack:ReleaseA");
+    expect(triggerInputSchema.parse({ ...trigger, vmImage: "" }).vmImage).toBe("");
     const digest = `ghcr.io/GenerationSoftware/anarack:ReleaseA@sha256:${"a".repeat(64)}`;
-    expect(jobInputSchema.parse({ ...job, vmImage: digest }).vmImage).toBe(`ghcr.io/generationsoftware/anarack:ReleaseA@sha256:${"a".repeat(64)}`);
-    const invalid = jobInputSchema.safeParse({ ...job, vmImage: "https://private.example/image" });
+    expect(triggerInputSchema.parse({ ...trigger, vmImage: digest }).vmImage).toBe(`ghcr.io/generationsoftware/anarack:ReleaseA@sha256:${"a".repeat(64)}`);
+    const invalid = triggerInputSchema.safeParse({ ...trigger, vmImage: "https://private.example/image" });
     expect(invalid.success).toBe(false);
     if (!invalid.success) expect(invalid.error.issues[0].message).toContain("without a URL scheme");
-    expect(vmImageVerificationInput.parse({ connectionId: "exe", image: "ghcr.io/GenerationSoftware/anarack:ReleaseA", tags: [], agentKind: "codex" }).image).toBe("ghcr.io/generationsoftware/anarack:ReleaseA");
-    expect(vmImageVerificationInput.safeParse({ connectionId: "exe", image: "bad image", tags: [], agentKind: "codex" }).success).toBe(false);
+    expect(vmImageVerificationInput.parse({ connectionId: "exe", image: "ghcr.io/GenerationSoftware/anarack:ReleaseA", tags: [] }).image).toBe("ghcr.io/generationsoftware/anarack:ReleaseA");
+    expect(vmImageVerificationInput.safeParse({ connectionId: "exe", image: "bad image", tags: [] }).success).toBe(false);
     const post = API_ROUTES.find(route => route.path === "/api/v1/vm-image-verifications" && route.method === "POST");
     const get = API_ROUTES.find(route => route.path === "/api/v1/vm-image-verifications/{verificationId}" && route.method === "GET");
-    expect(post?.scope).toBe("jobs:write"); expect(get?.scope).toBe("jobs:read");
+    expect(post?.scope).toBe("triggers:write"); expect(get?.scope).toBe("triggers:read");
     expect(openapi.paths["/api/v1/vm-image-verifications"].post.requestBody).toBeDefined();
   });
   it("publishes the authorized complete project graph operation", () => {
-    const operation = API_ROUTES.find(route => route.method === "GET" && route.path === "/api/v1/projects/{projectId}/graph");
-    expect(operation?.scope).toBe("projects:read");
-    expect(operation?.parameters.shape.projectId).toBeDefined();
-    expect(openapi.paths["/api/v1/projects/{projectId}/graph"].get["x-required-scope"]).toBe("projects:read");
+    const operation = API_ROUTES.find(route => route.method === "GET" && route.path === "/api/v1/triggers/graph");
+    expect(operation?.scope).toBe("triggers:read");
+    expect(openapi.paths["/api/v1/triggers/graph"].get["x-required-scope"]).toBe("triggers:read");
   });
   it("retires unlock and browser-capability operations and publishes owner-only model authorization", () => {
     expect(API_ROUTES.some(route=>route.path.includes("unlock-key")||route.path.includes("browser-capability")||route.path.includes("credential-proxy"))).toBe(false);
     for(const action of ["authorize","status","cancel"]){
       const route=API_ROUTES.find(item=>item.method==="POST"&&item.path===`/api/v1/model-accounts/{accountId}/authorization/${action}`);
-      expect(route?.scope).toBe("integrations:write");expect(route?.ownerSession).toBe(true);
-      expect(route?.body?.safeParse({}).success).toBe(true);
-      expect(route?.body?.safeParse({token:"guest-supplied"}).success).toBe(false);
+      expect(route).toBeUndefined();
     }
   });
   it("lists only safe model account metadata for the owner browser", () => {
@@ -82,8 +79,8 @@ describe("versioned API contract", () => {
     expect(route?.ownerSession).toBe(true);
     expect(route?.documentation.responses["200"].content["application/json"].schema.properties.accounts.items.properties.encryptedPayload).toBeUndefined();
     expect(create?.scope).toBe("integrations:write"); expect(create?.ownerSession).toBe(true);
-    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, initialState: "{}" }).success).toBe(true);
-    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, initialState: "{}", unlockKey: "must-not-be-accepted" }).success).toBe(false);
+    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, providerUrl:"https://models.fixture/v1" }).success).toBe(true);
+    expect(create?.body?.safeParse({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", expectedRevision: 0, idempotencyKey: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Account", description: null, providerUrl:"https://models.fixture/v1", unlockKey: "must-not-be-accepted" }).success).toBe(false);
     expect(remove?.scope).toBe("integrations:write"); expect(remove?.ownerSession).toBe(true);
     expect(remove?.parameters.shape.accountId).toBeDefined();
     expect(openapi.paths["/api/v1/model-accounts"].post).toBeDefined();
@@ -101,11 +98,11 @@ describe("versioned API contract", () => {
     expect(create?.body?.safeParse({ ...input, encryptedPayload: "legacy-user-ciphertext" }).success).toBe(false);
     expect(list?.documentation.responses["200"].content["application/json"].schema.properties.integrations.items.properties.encryptedPayload).toBeUndefined();
   });
-  it("accepts code jobs without agent prompts or models and rejects missing scripts", () => {
-    const code = { name: "Export", slug: "export", executionType: "code", script: "#!/bin/sh\nprintf '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"", executionConfigId: "exe", triggers: [] };
-    expect(jobInputSchema.safeParse(code).success).toBe(true);
-    expect(jobInputSchema.safeParse({ ...code, script: " " }).success).toBe(false);
-    expect(jobInputSchema.safeParse({ name: "Agent", slug: "agent", promptTemplate: "Run", executionConfigId: "exe", triggers: [] }).success).toBe(true);
+  it("accepts code triggers without agent prompts or models and rejects missing scripts", () => {
+    const code = { name: "export",  executionType: "code", script: "#!/bin/sh\nprintf '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"", executionConfigId: "exe", events: [] };
+    expect(triggerInputSchema.safeParse(code).success).toBe(true);
+    expect(triggerInputSchema.safeParse({ ...code, script: " " }).success).toBe(false);
+    expect(triggerInputSchema.safeParse({ name: "agent",  prompt: "Run", executionConfigId: "exe", events: [] }).success).toBe(true);
   });
   it("has full bidirectional method/path equality with the executable catalog", () => {
     const documented = Object.entries(openapi.paths).flatMap(([path, item]) =>
@@ -133,8 +130,8 @@ describe("versioned API contract", () => {
         isDeclaredApiOperation(route.method, path + "/extra/extra/extra"),
       ).toBe(false);
     }
-    expect(matchApiOperation("GET", "/api/v1/jobs/job%20one")?.params).toEqual({
-      jobId: "job one",
+    expect(matchApiOperation("GET", "/api/v1/triggers/trigger%20one")?.params).toEqual({
+      triggerId: "trigger one",
     });
     expect(isDeclaredApiOperation("GET", "/api" + "/connections/status")).toBe(
       false,
@@ -156,7 +153,7 @@ describe("versioned API contract", () => {
           .map((p: any) => p.name)
           .sort() ?? [],
       ).toEqual(Object.keys(route.parameters.shape).sort());
-      expect(Boolean(operation.requestBody)).toBe(Boolean(route.body));
+      expect(Boolean(operation.requestBody)).toBe(Boolean(route.body || route.rawBody));
       expect(operation.responses[route.status]).toBeDefined();
       const ajv = new Ajv2020({ strict: false, validateFormats: false });
       ajv.addSchema({
@@ -165,11 +162,7 @@ describe("versioned API contract", () => {
       });
       for (const parameter of operation.parameters ?? [])
         ajv.compile({ components: openapi.components, ...parameter.schema });
-      if (operation.requestBody)
-        ajv.compile({
-          components: openapi.components,
-          ...operation.requestBody.content["application/json"].schema,
-        });
+      if(operation.requestBody)for(const content of Object.values(operation.requestBody.content) as any[])ajv.compile({components:openapi.components,...content.schema});
       for (const [status, response] of Object.entries(operation.responses) as [
         string,
         any,

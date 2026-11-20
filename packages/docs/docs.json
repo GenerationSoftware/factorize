@@ -25,23 +25,23 @@
       {
         "group": "Work with your agent",
         "pages": [
-          "work/jobs",
+          "work/triggers",
           "work/prompts",
           "work/results",
           "work/stop-retry"
         ]
       },
       {
-        "group": "Automate jobs",
+        "group": "Automate triggers",
         "pages": [
           "recipes/scheduled-review",
-          "recipes/linear-job",
+          "recipes/linear-trigger",
           "integrations/github",
           "integrations/clickup",
           "recipes/chaining",
           "work/manual-invocation-permissions",
           "integrations/oauth",
-          "integrations/triggers"
+          "integrations/events"
         ]
       },
       {

@@ -1,14 +1,15 @@
 export type ContextValueType = "string" | "number" | "boolean" | "object" | "array" | "unknown";
 export interface ContextPath { path: string; type: ContextValueType; description: string; example?: unknown; }
-export interface TriggerContextReflection { slug: string; kind: string; provider?: string; dynamic: boolean; paths: ContextPath[]; }
+export interface EventContextReflection { slug: string; kind: string; provider?: string; dynamic: boolean; paths: ContextPath[]; }
 
 const commonWebhook: ContextPath[] = [
+  {path:"webhook",type:"object",description:"Full normalized webhook Event data. Include it only when needed."},
   { path: "provider", type: "string", description: "Normalized webhook provider name." },
   { path: "event", type: "string", description: "Provider event name." },
   { path: "delivery_id", type: "string", description: "Stable delivery identifier used for deduplication." },
 ];
 
-export const triggerContextCatalog: Record<string, ContextPath[]> = {
+export const eventContextCatalog: Record<string, ContextPath[]> = {
   manual: [
     { path: "prompt", type: "string", description: "Prompt supplied by the manual invocation.", example: "Review the failing build" },
     { path: "data", type: "object", description: "Complete manual JSON data; interpolate this path to insert the full object as JSON." },
@@ -59,27 +60,28 @@ export const triggerContextCatalog: Record<string, ContextPath[]> = {
     { path: "logs", type: "array", description: "Sanitized console log records." },
     { path: "exceptions", type: "array", description: "Sanitized exception records." },
   ],
-  jobIdle: [
-    { path: "source_job_id", type: "string", description: "Job whose runs have all completed." },
+  triggerIdle: [
+    { path: "source_trigger_id", type: "string", description: "Trigger whose runs have all completed." },
     { path: "event", type: "string", description: "Event name: runsZero." },
     { path: "completed_at", type: "string", description: "Completion timestamp of the last run (ISO 8601)." },
   ],
-  jobLifecycle: [
-    { path: "event", type: "string", description: "Event name: edited for a job edit." },
-    { path: "edited_at", type: "string", description: "Job save timestamp for an edited event (ISO 8601)." },
-    { path: "source_job_id", type: "string", description: "Job that was edited or whose run reached a final state." },
-    { path: "source_run_id", type: "string", description: "Run that reached a final state." },
-    { path: "final_state", type: "string", description: "Observed final state: succeeded, failed, or stopped." },
-    { path: "transitioned_at", type: "string", description: "State transition as an ISO 8601 timestamp." },
-    { path: "observation_destination", type: "string", description: "Backend observation URL, when available." },
+  triggerLifecycle: [
+    { path: "event", type: "string", description: "Event name: edited for a trigger edit." },
+    { path: "edited_at", type: "string", description: "Trigger save timestamp for an edited event (ISO 8601)." },
+    { path: "source_trigger_id", type: "string", description: "Trigger that was edited or whose run reached a final state." },
+    { path: "sourceTriggerId", type: "string", description: "Trigger whose run reached a terminal state." },
+    { path: "sourceRunId", type: "string", description: "Run that reached a terminal state." },
+    { path: "state", type: "string", description: "Terminal state: succeeded, failed, or stopped." },
+    { path: "completedAt", type: "string", description: "Terminal transition time (ISO 8601)." },
+    { path: "outputs", type: "object", description: "Structured outputs from the source run, when available." },
   ],
 };
 
-export function reflectTriggerContext(trigger: { slug?: unknown; kind?: unknown; config?: any }): TriggerContextReflection {
-  const kind = String(trigger.kind ?? ""), provider = kind === "webhook" ? String(trigger.config?.provider ?? "") : undefined;
+export function reflectEventContext(event: { slug?: unknown; kind?: unknown; config?: any }): EventContextReflection {
+  const kind = String(event.kind ?? ""), provider = kind === "webhook" ? String(event.config?.provider ?? "") : undefined;
   const key = provider ?? kind;
   return {
-    slug: String(trigger.slug ?? ""), kind, ...(provider ? { provider } : {}), dynamic: false,
-    paths: (triggerContextCatalog[key] ?? [{ path: "*", type: "unknown", description: "Context shape is not known." }]),
+    slug: String(event.slug ?? ""), kind, ...(provider ? { provider } : {}), dynamic: false,
+    paths: (eventContextCatalog[key] ?? [{ path: "*", type: "unknown", description: "Context shape is not known." }]),
   };
 }

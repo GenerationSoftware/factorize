@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExeImageVerificationError, ExeVmBackend, isOwnedVmName, tagsFromInventory, vmNameFor } from "../src/exe-vm-backend";
 import type { ExecutionBackend, ExecutionObservation, LaunchRequest, RunHandle } from "../src/execution";
 import { effortOptions, selectableExeTags, type ExeRunConnection } from "../src/exe";
-import { agentDriver } from "../src/agent-driver";
+import { agentDriver } from "./helpers/legacy-agent-fixture";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -84,7 +84,7 @@ describe("ExeVmBackend", () => {
       return new Response(requests.length === 1 ? '{"name":"factorize-run-1"}' : "started", { headers: { "X-Exe-Exit": "0" } });
     }));
     const harness = agentDriver("codex").launch("run-1", { codexModel: { baseUrl: "https://models.example/v1" } });
-    harness.env = { FACTORIZE_RESULT_PATH: "/home/exedev/.factorize-job/results.json" };
+    harness.env = { FACTORIZE_RESULT_PATH: "/home/exedev/.factorize-trigger/results.json" };
     const launched = await new ExeVmBackend(connection).launch({ runId: "run-1", prompt: "do the work", harness, traceSources: { primary: { kind: "execution_stream", path: "/tmp/trace/events.jsonl", mediaType: "application/x-ndjson", provider: "codex" } } });
     expect(launched.handle).toEqual({ backendKind: "exe-vm", id: "factorize-run-1" });
     expect(requests[0]).toContain("new --name='factorize-run-1'");
@@ -92,8 +92,8 @@ describe("ExeVmBackend", () => {
     expect(requests[0]).toContain("--tag='llm'");
     expect(requests[1]).toContain("cd /home/exedev/workspace");
     expect(requests[1]).not.toContain("git clone");
-    expect(requests[1]).toContain("factorize-job launch --foreground");
-    expect(requests[1]).toContain("base64 -d > /usr/local/bin/factorize-job");
+    expect(requests[1]).toContain("factorize-trigger launch --foreground");
+    expect(requests[1]).toContain("base64 -d > /usr/local/bin/factorize-trigger");
     expect(launchPayload(requests[1]).harness).toMatchObject({ executable: "codex", args: expect.arrayContaining(["--color", "never", "-c", "model_provider=factorize", "-c", "model_providers.factorize.base_url=\"https://models.example/v1\""]) });
     expect(requests[1]).toContain("sudo systemd-run");
     expect(requests[1]).toContain("--uid=exedev --gid=exedev");
@@ -134,7 +134,7 @@ describe("ExeVmBackend", () => {
     expect(work).toContain("/run/factorize-identity/proxy.mjs");
     expect(work).toContain("FACTORIZE_PROXY_URL=http://127.0.0.1:18180");
     expect(work).toContain("--fetch-payload");
-    expect(work).not.toContain("base64 -d > '/home/exedev/.factorize-job/launch.json'");
+    expect(work).not.toContain("base64 -d > '/home/exedev/.factorize-trigger/launch.json'");
     expect(requests.every(command => Buffer.byteLength(command) < 65_536)).toBe(true);
     expect(requests.some(command => command.includes(large) || command.includes(Buffer.from(large).toString("base64")))).toBe(false);
     expect(launched.handle).not.toHaveProperty("runProxyName");
@@ -198,10 +198,10 @@ describe("ExeVmBackend", () => {
     expect(requests[0]).toContain("--image='ghcr.io/acme/base:release'\"'\"'candidate'");
   });
 
-  it("runs code jobs as exedev without an agent harness and writes their input context", async () => {
+  it("runs code triggers as exedev without an agent harness and writes their input context", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => { requests.push(String(init.body)); return new Response(requests.length === 1 ? '{"name":"factorize-code"}' : "started", { headers: { "X-Exe-Exit": "0" } }); }));
-    const launched = await new ExeVmBackend({ apiToken: "secret", tags: ["jobs"], image: "example/base:latest" }).launch({ runId: "code", prompt: "", code: { script: "echo done", context: { source: { outputs: { count: 3 } } } } });
+    const launched = await new ExeVmBackend({ apiToken: "secret", tags: ["triggers"], image: "example/base:latest" }).launch({ runId: "code", prompt: "", code: { script: "echo done", context: { source: { outputs: { count: 3 } } } } });
     expect(launched.handle.id).toBe("factorize-code");
     expect(launchPayload(requests[1]).code).toEqual({ script: "echo done", context: { source: { outputs: { count: 3 } } } });
     expect(requests[1]).toContain("--uid=exedev --gid=exedev");
@@ -231,7 +231,7 @@ describe("ExeVmBackend", () => {
       if (command.startsWith("ls ")) return new Response('{"vms":[{"name":"factorize-verify-verification-1","comment":"Factorize VM factorize-verify-verification-1"}]}', { headers: { "X-Exe-Exit": "0" } });
       return new Response("ok", { headers: { "X-Exe-Exit": "0" } });
     }));
-    await new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable", "codex", async phase => { phases.push(phase); });
+    await new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable", async phase => { phases.push(phase); });
     expect(commands[0]).toContain("--image='ghcr.io/acme/agent:stable'");
     expect(commands.some(command => command.includes("factorize-prompt"))).toBe(false);
     expect(commands.at(-1)).toBe("rm 'factorize-verify-verification-1'");
@@ -240,7 +240,7 @@ describe("ExeVmBackend", () => {
 
   it.each([[403, "permission"], [429, "capacity"], [404, "image_pull"]] as const)("classifies image creation failure %s as %s", async (status, kind) => {
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => String(init.body) === "ls --json" ? new Response('{"vms":[]}') : new Response("failed", { status })));
-    await expect(new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:bad", "codex")).rejects.toMatchObject({ kind });
+    await expect(new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:bad")).rejects.toMatchObject({ kind });
   });
 
   it("reconciles an ambiguous create timeout by the Factorize ownership marker", async () => {
@@ -251,7 +251,7 @@ describe("ExeVmBackend", () => {
       if (command === "ls --json") return new Response('{"vms":[{"name":"factorize-verify-verification-1","comment":"Factorize VM factorize-verify-verification-1"}]}', { headers: { "X-Exe-Exit": "0" } });
       return new Response("ok", { headers: { "X-Exe-Exit": "0" } });
     }));
-    await new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable", "codex");
+    await new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable");
     expect(commands.filter(command => command.startsWith("new "))).toHaveLength(1);
     expect(commands.at(-1)).toBe("rm 'factorize-verify-verification-1'");
   });
@@ -265,7 +265,7 @@ describe("ExeVmBackend", () => {
       if (command === "ls --json") return new Response('{"vms":[{"name":"factorize-verify-verification-1","comment":"Factorize VM factorize-verify-verification-1"}]}', { headers: { "X-Exe-Exit": "0" } });
       return new Response("removed", { headers: { "X-Exe-Exit": "0" } });
     }));
-    await expect(new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable", "codex")).rejects.toThrow("inventory was unavailable");
+    await expect(new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable")).rejects.toThrow("inventory was unavailable");
     expect(commands.at(-1)).toBe("rm 'factorize-verify-verification-1'");
   });
 
@@ -279,7 +279,7 @@ describe("ExeVmBackend", () => {
       if (failedCheck === "agent" && command.includes("command -v")) return new Response("missing", { headers: { "X-Exe-Exit": "1" } });
       return new Response("ok", { headers: { "X-Exe-Exit": "0" } });
     }));
-    await expect(new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable", "codex")).rejects.toThrow(failedCheck === "ssh" ? "ssh:" : "agent:");
+    await expect(new ExeVmBackend(connection).verifyImage("verification-1", "ghcr.io/acme/agent:stable")).rejects.toThrow(failedCheck === "ssh" ? "ssh:" : "agent:");
     expect(commands.at(-1)).toBe("rm 'factorize-verify-verification-1'");
   });
 
@@ -377,11 +377,10 @@ describe("ExeVmBackend", () => {
       if (command === "ls --json") return new Response(JSON.stringify({ vms: [{ name: vm, comment: `Factorize VM ${vm}` }] }), { headers: { "X-Exe-Exit": "0" } });
       return new Response("removed", { headers: { "X-Exe-Exit": "0" } });
     }));
-    const result = await new ExeVmBackend(connection).validateAgentAndModels("codex");
-    expect(result.models).toEqual(["gpt-5.5", "gpt-5.6"]);
+    await new ExeVmBackend(connection).verifyImage("validation","alpine:3.22");
     expect(requests[0]).toContain("--tag='github'");
-    expect(requests[1]).toContain("command -v codex");
-    expect(requests[1]).toContain("https://llm.int.exe.xyz/v1/models");
+    expect(requests.some(command=>command.includes("command -v bash"))).toBe(true);
+    expect(requests.join(" ")).not.toContain("llm.int.exe.xyz");
     expect(requests.at(-1)).toBe(`rm '${vm}'`);
   });
 
@@ -430,11 +429,11 @@ describe("ExecutionBackend contract", () => {
 
 describe("exe validation diagnostics", () => {
   it("reports VM creation failure without exposing the account token", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("Capacity exhausted secret", { status: 422 })));
-    await expect(new ExeVmBackend(connection).validateAgentAndModels("codex")).rejects.toThrow("Capacity exhausted [REDACTED]");
+    vi.stubGlobal("fetch", vi.fn(async (_url,init) => String(init.body)==="ls --json"?new Response('{"vms":[]}'):new Response("Capacity exhausted secret", { status: 422 })));
+    await expect(new ExeVmBackend(connection).verifyImage("validation","alpine:3.22")).rejects.toThrow("Capacity exhausted [REDACTED]");
   });
 
-  it("cleans up the temporary VM when model discovery fails", async () => {
+  it("cleans up the temporary VM when SSH readiness fails", async () => {
     let vm = "";
     const commands: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
@@ -444,7 +443,7 @@ describe("exe validation diagnostics", () => {
       if (command === "ls --json") return new Response(JSON.stringify({ vms: [{ name: vm, comment: `Factorize VM ${vm}` }] }));
       return new Response("removed");
     }));
-    await expect(new ExeVmBackend(connection).validateAgentAndModels("codex")).rejects.toThrow("llm integration is attached to VMs with the selected tags");
+    await expect(new ExeVmBackend(connection).verifyImage("validation","alpine:3.22")).rejects.toThrow("ssh:");
     expect(commands.at(-1)).toBe(`rm '${vm}'`);
   });
 });

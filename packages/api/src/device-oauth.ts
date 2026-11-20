@@ -131,7 +131,7 @@ export async function deviceAuthorization(request: Request, env: Env, oauth: OAu
   if (!compactUserCode) return oauthError("server_error", "Could not allocate a user code.", 500);
   const now = Math.floor(Date.now() / 1000);
   const record: DeviceRecord = {
-    clientId, clientName: client.clientName ?? "this client", tokenEndpointAuthMethod: client.tokenEndpointAuthMethod ?? "none", scope: requested.some(scope => scope === "flows:read" || scope === "flows:write" || scope === "runs:write") ? requested : normalizeScopes(requested), resource,
+    clientId, clientName: client.clientName ?? "this client", tokenEndpointAuthMethod: client.tokenEndpointAuthMethod ?? "none", scope: normalizeScopes(requested), resource,
     redirectUri: client.redirectUris[0], codeChallenge: await challenge(codeVerifier),
     createdAt: now, expiresAt: now + DEVICE_TTL, interval: DEFAULT_INTERVAL, status: "pending",
   };

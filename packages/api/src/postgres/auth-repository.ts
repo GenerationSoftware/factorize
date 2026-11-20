@@ -19,6 +19,7 @@ export class AuthRepository {
       await this.database.transaction(async client => {
         await client.query("INSERT INTO app.auth_users(id,email,email_verified) VALUES ($1,$2,false)", [userId, email]);
         await client.query("INSERT INTO app.auth_accounts(id,user_id,provider,provider_account_id,password_hash) VALUES ($1,$2::uuid,'credential',$2::uuid::text,$3)", [crypto.randomUUID(), userId, passwordHash]);
+        await this.ensurePersonalTeam(client, userId, email);
       });
     } catch (error: any) {
       if (error?.code === "23505") return { status: 409, body: { error: "That email is already registered. Sign in, resend verification, or reset your password." } };
@@ -37,7 +38,7 @@ export class AuthRepository {
       if (!row.email_verified) return { status: 403, body: { error: "Verify your email before signing in. You can resend the verification email below." } };
       // Existing accounts keep their existing workspace; never derive tenancy from OAuth.
       const member = (await client.query<{ tenant_id: string; session_version: number }>("SELECT tenant_id,session_version FROM app.members WHERE user_id=$1 AND role='owner' ORDER BY created_at,tenant_id LIMIT 1", [row.id])).rows[0];
-      if (!member) return { status: 403, body: { error: "This account needs a workspace owner invitation." } };
+      if (!member) return { status: 403, body: { error: "This account needs a team owner invitation." } };
       return { status: 200, body: { userId: row.id, email: row.email, tenantId: member.tenant_id, sessionVersion: member.session_version } };
     });
   }
@@ -62,12 +63,13 @@ export class AuthRepository {
   }
   async requestReset(input: Record<string, unknown>) { return this.requestEmail(input, "reset"); }
 
-  private async ensureWorkspace(client: DatabaseClient, userId: string, email: string) {
-    // A legacy member must never become an owner simply by resetting a password.
-    const existing = await client.query("SELECT tenant_id FROM app.members WHERE user_id=$1", [userId]);
+  private async ensurePersonalTeam(client: DatabaseClient, userId: string, email: string) {
+    const existing = await client.query("SELECT tenant_id FROM app.members WHERE user_id=$1 AND role='owner'", [userId]);
     if (existing.rows.length) return;
-    await client.query("INSERT INTO app.tenants(id) VALUES ($1) ON CONFLICT DO NOTHING", [userId]);
-    await client.query("INSERT INTO app.members(tenant_id,user_id,email,role) VALUES ($1,$1,$2,'owner')", [userId, email]);
+    // Personal ownership never changes membership in an existing team.
+    const teamId = crypto.randomUUID();
+    await client.query("INSERT INTO app.tenants(id) VALUES ($1)", [teamId]);
+    await client.query("INSERT INTO app.members(tenant_id,user_id,email,role) VALUES ($1,$2,$3,'owner')", [teamId, userId, email]);
   }
 
   async completeVerification(token: string) { return this.consumeToken(token, "verify"); }
@@ -96,7 +98,7 @@ export class AuthRepository {
           await client.query("UPDATE app.auth_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", [row.user_id]);
         }
         await client.query("UPDATE app.auth_users SET email_verified=true WHERE id=$1", [row.user_id]);
-        await this.ensureWorkspace(client, row.user_id, row.email);
+        await this.ensurePersonalTeam(client, row.user_id, row.email);
         await client.query("UPDATE app.auth_reset_tokens SET used_at=now() WHERE used_at IS NULL AND (digest=$1 OR (user_id=$2 AND purpose='reset' AND $3='reset'))", [digest, row.user_id, purpose]);
         const connection = active.rows[0].connection_id as string | null;
         if (connection) await client.query("UPDATE app.oauth_connections SET ready=true,ready_version=(SELECT session_version FROM app.members WHERE user_id=$2 AND role='owner' ORDER BY created_at,tenant_id LIMIT 1) WHERE id=$1 AND user_id=$2 AND expires_at>now() AND used_at IS NULL", [connection, row.user_id]);
@@ -111,7 +113,7 @@ export class AuthRepository {
     const password = String(input.password ?? ""), currentPassword = String(input.currentPassword ?? "");
     if (!validPassword(password) || !validPassword(currentPassword)) return { status: 400, body: { error: "Passwords must have 12–200 characters." } };
     const changed = await this.database.transaction(async client => {
-      // Same lock order as reset, preventing a stale current password from winning a race.
+      // Same lock order as reset, prfiring a stale current password from winning a race.
       await client.query("SELECT id FROM app.auth_users WHERE id=$1 FOR UPDATE", [userId]);
       const row = (await client.query<{ password_hash: string }>("SELECT password_hash FROM app.auth_accounts WHERE user_id=$1 AND provider='credential'", [userId])).rows[0];
       if (!row || !await verifyPassword(currentPassword, row.password_hash)) return false;

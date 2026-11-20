@@ -7,7 +7,7 @@ describe("global search", () => {
   it("finds a hyphenated identifier in a longer run name within the tenant", async () => {
     const query = vi.fn(async () => ({ rows: [{
       kind: "run", id: "run-id", title: "GEN-2310: PR #222: fix failed Test and validate Workers check (450b8cc6)",
-      subtitle: "succeeded", url: "/job-runs/run-id", source_id: "run-id", source_label: "GEN-2310: PR #222: fix failed Test and validate Workers check (450b8cc6)",
+      subtitle: "succeeded", url: "/runs/run-id", source_id: "run-id", source_label: "GEN-2310: PR #222: fix failed Test and validate Workers check (450b8cc6)",
       match_text: "GEN-2310: PR #222: fix failed Test and validate Workers check (450b8cc6)",
     }] }));
     const repository = new OperationsRepository({ pool: { query } } as any, "authorized-tenant");

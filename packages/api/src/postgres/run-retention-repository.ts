@@ -28,9 +28,9 @@ export class RunRetentionRepository {
           floor(extract(epoch FROM now()-min(created_at)))::int oldest_age_seconds
         FROM app.runs WHERE state IN ('succeeded','failed','stopped') AND NOT vm_cleanup_complete
         UNION ALL
-        SELECT 'deleted_job_provider'::text,count(*)::int,
+        SELECT 'deleted_trigger_provider'::text,count(*)::int,
           floor(extract(epoch FROM now()-min(created_at)))::int
-        FROM app.deleted_job_provider_cleanup
+        FROM app.deleted_trigger_provider_cleanup
         UNION ALL
         SELECT 'artifact_objects'::text,count(*)::int,
           floor(extract(epoch FROM now()-min(created_at)))::int
@@ -43,18 +43,18 @@ export class RunRetentionRepository {
         UNION ALL
         SELECT 'finalization_pending'::text,count(*)::int,
           floor(extract(epoch FROM now()-min(r.created_at)))::int
-        FROM app.runs r JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id
+        FROM app.runs r JOIN app.trigger_runs jr ON jr.tenant_id=r.tenant_id AND jr.id=r.id
         WHERE r.state IN ('succeeded','failed','stopped')
           AND (r.artifact_state IN ('pending','collecting') OR jr.state<>r.state)
         UNION ALL
         SELECT 'lifecycle_handoff'::text,count(DISTINCT (e.tenant_id,e.source_run_id))::int,
           floor(extract(epoch FROM now()-min(e.occurred_at)))::int
         FROM app.lifecycle_events e
-        JOIN app.triggers t ON t.tenant_id=e.tenant_id AND t.id=e.trigger_id
-        JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
-        WHERE t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
+        JOIN app.events t ON t.tenant_id=e.tenant_id AND t.id=e.event_id
+        JOIN app.triggers j ON j.tenant_id=t.tenant_id AND j.id=t.trigger_id
+        WHERE t.kind='triggerLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
           AND NOT EXISTS (SELECT 1 FROM app.lifecycle_deliveries d
-            WHERE d.tenant_id=e.tenant_id AND d.trigger_id=e.trigger_id
+            WHERE d.tenant_id=e.tenant_id AND d.event_id=e.event_id
               AND d.source_run_id=e.source_run_id AND d.terminal_state=e.terminal_state)
         UNION ALL
         SELECT 'webhook_processing'::text,count(*)::int,
@@ -65,8 +65,8 @@ export class RunRetentionRepository {
           GREATEST(0,floor(extract(epoch FROM now()-min(next_attempt_at)))::int)
         FROM app.pending_verifications
         UNION ALL
-        SELECT 'job_events'::text,count(*)::int,floor(extract(epoch FROM now()-min(received_at)))::int
-        FROM app.job_events WHERE received_at < now()-interval '14 days'
+        SELECT 'trigger_events'::text,count(*)::int,floor(extract(epoch FROM now()-min(received_at)))::int
+        FROM app.trigger_events WHERE received_at < now()-interval '14 days'
         UNION ALL
         SELECT 'webhook_deliveries'::text,count(*)::int,floor(extract(epoch FROM now()-min(d.received_at)))::int
         FROM app.webhook_deliveries d
@@ -111,10 +111,10 @@ export class RunRetentionRepository {
    */
   async cleanupIndependentHistory(): Promise<IndependentHistoryCleanupResult> {
     const lanes: Array<[string, string]> = [
-      ["job_events", `WITH expired AS (
-        SELECT tenant_id,id FROM app.job_events WHERE received_at < now()-interval '14 days'
+      ["trigger_events", `WITH expired AS (
+        SELECT tenant_id,id FROM app.trigger_events WHERE received_at < now()-interval '14 days'
         ORDER BY received_at,tenant_id,id LIMIT $1 FOR UPDATE SKIP LOCKED
-      ) DELETE FROM app.job_events e USING expired x WHERE e.tenant_id=x.tenant_id AND e.id=x.id`],
+      ) DELETE FROM app.trigger_events e USING expired x WHERE e.tenant_id=x.tenant_id AND e.id=x.id`],
       ["webhook_deliveries", `WITH expired AS (
         SELECT d.tenant_id,d.id FROM app.webhook_deliveries d
         WHERE d.received_at < now()-interval '14 days' AND d.outcome <> 'received'
@@ -219,19 +219,19 @@ export class RunRetentionRepository {
     const selected = await this.database.pool.query<{ tenant_id: string; invocation_id: string }>(`
       SELECT i.tenant_id,i.id invocation_id
       FROM app.runs r
-      JOIN app.job_runs jr ON jr.tenant_id=r.tenant_id AND jr.invocation_id=r.invocation_id
+      JOIN app.trigger_runs jr ON jr.tenant_id=r.tenant_id AND jr.invocation_id=r.invocation_id
       JOIN app.invocations i ON i.tenant_id=r.tenant_id AND i.id=r.invocation_id
       WHERE r.created_at < $1
         AND r.state IN ('succeeded','failed','stopped') AND jr.state=r.state
         AND r.vm_cleanup_complete AND r.artifact_state NOT IN ('pending','collecting')
         AND NOT EXISTS (
           SELECT 1 FROM app.lifecycle_events e
-          JOIN app.triggers t ON t.tenant_id=e.tenant_id AND t.id=e.trigger_id
-          JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
+          JOIN app.events t ON t.tenant_id=e.tenant_id AND t.id=e.event_id
+          JOIN app.triggers j ON j.tenant_id=t.tenant_id AND j.id=t.trigger_id
           WHERE e.tenant_id=r.tenant_id AND e.source_run_id=r.id
-            AND t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
+            AND t.kind='triggerLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
             AND NOT EXISTS (SELECT 1 FROM app.lifecycle_deliveries d
-              WHERE d.tenant_id=e.tenant_id AND d.trigger_id=e.trigger_id
+              WHERE d.tenant_id=e.tenant_id AND d.event_id=e.event_id
                 AND d.source_run_id=e.source_run_id AND d.terminal_state=e.terminal_state)
         )
       ORDER BY r.created_at,r.tenant_id,r.invocation_id
@@ -241,24 +241,24 @@ export class RunRetentionRepository {
     let cleanupQueued = 0;
     for (const candidate of selected.rows) {
       const result = await this.database.transaction(async client => {
-        // Lock in invocation -> job_run -> run order, the aggregate's ownership
+        // Lock in invocation -> trigger_run -> run order, the aggregate's ownership
         // direction. Recheck every eligibility condition after acquiring locks.
         const locked = await client.query<{ run_id: string }>(`
           SELECT r.id run_id
           FROM app.invocations i
-          JOIN app.job_runs jr ON jr.tenant_id=i.tenant_id AND jr.invocation_id=i.id
+          JOIN app.trigger_runs jr ON jr.tenant_id=i.tenant_id AND jr.invocation_id=i.id
           JOIN app.runs r ON r.tenant_id=i.tenant_id AND r.invocation_id=i.id
           WHERE i.tenant_id=$1 AND i.id=$2 AND r.created_at < $3
             AND r.state IN ('succeeded','failed','stopped') AND jr.state=r.state
             AND r.vm_cleanup_complete AND r.artifact_state NOT IN ('pending','collecting')
             AND NOT EXISTS (
               SELECT 1 FROM app.lifecycle_events e
-              JOIN app.triggers t ON t.tenant_id=e.tenant_id AND t.id=e.trigger_id
-              JOIN app.jobs j ON j.tenant_id=t.tenant_id AND j.id=t.job_id
+              JOIN app.events t ON t.tenant_id=e.tenant_id AND t.id=e.event_id
+              JOIN app.triggers j ON j.tenant_id=t.tenant_id AND j.id=t.trigger_id
               WHERE e.tenant_id=r.tenant_id AND e.source_run_id=r.id
-                AND t.kind='jobLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
+                AND t.kind='triggerLifecycle' AND t.enabled AND t.removed_at IS NULL AND j.enabled
                 AND NOT EXISTS (SELECT 1 FROM app.lifecycle_deliveries d
-                  WHERE d.tenant_id=e.tenant_id AND d.trigger_id=e.trigger_id
+                  WHERE d.tenant_id=e.tenant_id AND d.event_id=e.event_id
                     AND d.source_run_id=e.source_run_id AND d.terminal_state=e.terminal_state)
             )
           FOR UPDATE OF i,jr,r SKIP LOCKED`, [candidate.tenant_id, candidate.invocation_id, cutoff]);

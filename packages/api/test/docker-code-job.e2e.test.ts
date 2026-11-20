@@ -9,11 +9,11 @@ import {Database} from "../src/postgres/database";
 import {IdentityRepository} from "../src/postgres/identity-repository";
 import {FlyConnectionRepository} from "../src/postgres/fly-connection-repository";
 import {signSession} from "../src/session";
-import {FlyJobExecutionBackend} from "../src/fly-job-execution-backend";
+import {FlyTriggerExecutionBackend} from "../src/fly-job-execution-backend";
 import {createLocalExecutionRunner} from "../src/local-execution-runner";
 import {createLocalArtifactStorage} from "../src/local-execution-storage";
 import {startLocalApiServer} from "../src/local-api-server";
-import {createDockerJobInfrastructure} from "./helpers/docker-job-infrastructure";
+import {createDockerTriggerInfrastructure} from "./helpers/docker-job-infrastructure";
 import type {Env} from "../src/types";
 vi.mock("cloudflare:workers",()=>({WorkerEntrypoint:class{},DurableObject:class{}}));
 vi.mock("@cloudflare/workers-oauth-provider",()=>({OAuthProvider:class{},AuthorizationError:class{},getOAuthApi:()=>({})}));
@@ -30,7 +30,7 @@ it("runs saved code through vendor identity, selected backend egress, artifacts 
   const admin=new Database({connectionString:url}),address=new URL(url);address.pathname="/"+databaseName;
   const db=new Database({connectionString:address.href}),storage=await mkdtemp(join(tmpdir(),"factorize-artifacts-"));
   const tenantId=randomUUID(),userId=randomUUID(),marker=randomUUID(),secret="synthetic-"+randomUUID(),integrationId=randomUUID(),unselectedId=randomUUID();
-  const app=namespace+"-jobs",org="factorize-fixture",issuer="https://oidc.fly.io/"+org,network=namespace+"-jobs";
+  const app=namespace+"-triggers",org="factorize-fixture",issuer="https://oidc.fly.io/"+org,network=namespace+"-triggers";
   const pair=generateKeyPairSync("rsa",{modulusLength:2048}),jwk={...pair.publicKey.export({format:"jwk"}),kid:"docker-fixture",alg:"RS256",use:"sig"};
   const originalFetch=globalThis.fetch,receipts:unknown[]=[];
   let created=false,api:Awaited<ReturnType<typeof startLocalApiServer>>|undefined,runner:ReturnType<typeof createLocalExecutionRunner>|undefined;
@@ -62,7 +62,6 @@ it("runs saved code through vendor identity, selected backend egress, artifacts 
     const cookie="factorize_session="+await signSession({tenantId,userId,email:"docker-owner@example.test",sessionVersion:member!.sessionVersion,exp:Math.floor(Date.now()/1000)+600},env.SESSION_SIGNING_SECRET);
     const request=(path:string,method="GET",body?:unknown)=>originalFetch(env.APP_ORIGIN+"/api/v1"+path,{method,headers:{Cookie:cookie,Origin:env.APP_ORIGIN,"Content-Type":"application/json"},...(body===undefined?{}:{body:JSON.stringify(body)})});
     const json=async(path:string,method="GET",body?:unknown)=>{const r=await request(path,method,body),v=await r.json() as any;if(!r.ok)throw new Error(`${method} ${path}: ${r.status} ${JSON.stringify(v)}`);return v;};
-    const project=await json("/projects","POST",{name:"Docker vendor test"});
     for(const [index,id] of[integrationId,unselectedId].entries())await json("/integrations/bearer","POST",{id,expectedRevision:index,idempotencyKey:randomUUID(),name:"Fixture "+index,origin:"https://fixture-upstream.example.com",description:null,token:secret});
     const script=`#!/bin/bash
 set -eu
@@ -78,10 +77,10 @@ while(!fs.existsSync('/tmp/finish-test'))await new Promise(r=>setTimeout(r,100))
 fs.writeFileSync(process.env.FACTORIZE_RESULT_PATH,JSON.stringify({status:'succeeded',outputs:{marker:${JSON.stringify(marker)}}}));
 JS
 `;
-    const job=await json("/jobs","POST",{name:"Docker code",slug:"docker-code",projectId:project.id,executionType:"code",script,executionConfigId:"docker",portableIntegrationIds:[integrationId],triggers:[{kind:"manual",slug:"trigger-1",config:{}}]});
-    const invoked=await json(`/jobs/${job.id}/invocations`,"POST",{}),runId=invoked.runId;
-    const infrastructure=createDockerJobInfrastructure({testMode:true,namespace:app,network,beforeDestroy:async id=>{
-      const r=(await db.pool.query("SELECT job_result,artifact_state FROM app.runs WHERE tenant_id=$1 AND id=$2",[tenantId,runId])).rows[0];destructionEvidence={marker:r.job_result?.outputs?.marker,artifactState:r.artifact_state};
+    const trigger=await json("/triggers","POST",{name:"docker-code",executionType:"code",script,executionConfigId:"docker",portableIntegrationIds:[integrationId],events:[{kind:"manual",slug:"event-1",config:{}}]});
+    const invoked=await json(`/triggers/${trigger.id}/invocations`,"POST",{}),runId=invoked.runId;
+    const infrastructure=createDockerTriggerInfrastructure({testMode:true,namespace:app,network,beforeDestroy:async id=>{
+      const r=(await db.pool.query("SELECT trigger_result,artifact_state FROM app.runs WHERE tenant_id=$1 AND id=$2",[tenantId,runId])).rows[0];destructionEvidence={marker:r.trigger_result?.outputs?.marker,artifactState:r.artifact_state};
     }});
     const guests=new Map<string,ReturnType<typeof infrastructure.guest>>();
     const guest=(id:string)=>{
@@ -98,7 +97,7 @@ JS
       })();
       saved={...raw,run:async(command,input)=>{await prepare();return raw.run(["env","NODE_EXTRA_CA_CERTS=/tmp/fixture-ca.crt",...command],input);}};guests.set(id,saved);return saved;
     };
-    const backend=new FlyJobExecutionBackend({app,organizationSlug:org,image:process.env.FACTORIZE_E2E_JOB_IMAGE!,region:"iad",size:"shared-cpu-1x",machines:infrastructure.machines,guest:machine=>guest(machine.id)});
+    const backend=new FlyTriggerExecutionBackend({app,organizationSlug:org,image:process.env.FACTORIZE_E2E_JOB_IMAGE!,region:"iad",size:"shared-cpu-1x",machines:infrastructure.machines,guest:machine=>guest(machine.id)});
     runner=createLocalExecutionRunner(db,env,async()=>backend);
     await runner.tick();
     const row=(await db.pool.query("SELECT execution_handle,execution_diagnostics FROM app.runs WHERE tenant_id=$1 AND id=$2",[tenantId,runId])).rows[0];
@@ -109,23 +108,23 @@ JS
     expect(receipts).toEqual([{path:`/echo/${marker}`,body:marker}]);
     const probe=async(path:string)=>(await raw.run(["runuser","-u","exedev","--","node","-e",`fetch('http://127.0.0.1:18180${path}').then(r=>console.log(r.status))`])).stdout.trim();
     expect(await probe(`/integrations/${unselectedId}/echo/no`)).toBe("403");
-    expect(await probe("/api/v1/jobs")).toBe("200");
+    expect(await probe("/api/v1/triggers")).toBe("200");
     await json(`/integrations/bearer/${integrationId}`,"DELETE",{expectedRevision:2,idempotencyKey:randomUUID()});
     expect(await probe(`/integrations/${integrationId}/echo/no`)).toBe("403");
     expect(receipts).toHaveLength(1);
-    const surfaces=await raw.run(["sh","-c","cat /run/factorize-identity/config.json; cat /home/exedev/.factorize-job/launch.json 2>/dev/null || true"]);
+    const surfaces=await raw.run(["sh","-c","cat /run/factorize-identity/config.json; cat /home/exedev/.factorize-trigger/launch.json 2>/dev/null || true"]);
     expect(surfaces.stdout).not.toContain(secret);expect(surfaces.stdout).not.toMatch(/fzt_run_|fzc_/);
     await raw.run(["touch","/tmp/finish-test"]);
     let terminal:any;
-    const end=Date.now()+60_000;while(Date.now()<end){await runner.tick();terminal=(await db.pool.query("SELECT state,artifact_state,job_result FROM app.runs WHERE tenant_id=$1 AND id=$2",[tenantId,runId])).rows[0];if(["succeeded","failed","stopped"].includes(terminal.state))break;await wait(200);}
-    expect(terminal).toMatchObject({state:"succeeded",artifact_state:"stored",job_result:{outputs:{marker}}});
+    const end=Date.now()+60_000;while(Date.now()<end){await runner.tick();terminal=(await db.pool.query("SELECT state,artifact_state,trigger_result FROM app.runs WHERE tenant_id=$1 AND id=$2",[tenantId,runId])).rows[0];if(["succeeded","failed","stopped"].includes(terminal.state))break;await wait(200);}
+    expect(terminal).toMatchObject({state:"succeeded",artifact_state:"stored",trigger_result:{outputs:{marker}}});
     expect(destructionEvidence).toMatchObject({marker});
     expect(docker("ps","-aq","--filter",`id=${id}`)).toBe("");
     const artifacts=(await db.pool.query("SELECT object_key FROM app.run_artifacts WHERE tenant_id=$1 AND run_id=$2",[tenantId,runId])).rows;expect(artifacts.length).toBeGreaterThan(0);
     for(const artifact of artifacts){const object=await env.RUN_ARTIFACTS!.get(artifact.object_key);expect(await object!.text()).not.toContain(secret);}
 
     const direct = await json("/runs", "POST", {
-      projectId: project.id, executionConfigId: "docker", integrationIds: [], runScopes: [],
+      executionConfigId: "docker", integrationIds: [], runScopes: [],
       script: `#!/bin/bash
 set -eu
 printf '%s' '{"status":"succeeded","outputs":{"mode":"direct"}}' > "$FACTORIZE_RESULT_PATH"
@@ -135,11 +134,11 @@ printf '%s' '{"status":"succeeded","outputs":{"mode":"direct"}}' > "$FACTORIZE_R
     const directDeadline = Date.now() + 60_000;
     do {
       await runner.tick();
-      directRun = (await db.pool.query("SELECT job_id,state,job_result,failure_reason FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenantId,direct.runId])).rows[0];
+      directRun = (await db.pool.query("SELECT trigger_id,state,trigger_result,failure_reason FROM app.runs WHERE tenant_id=$1 AND id=$2", [tenantId,direct.runId])).rows[0];
       if (["succeeded", "failed", "stopped"].includes(directRun.state)) break;
       await wait(200);
     } while (Date.now() < directDeadline);
-    expect(directRun, directRun.failure_reason).toMatchObject({job_id: null, state: "succeeded", job_result: {outputs: {mode: "direct"}}});
+    expect(directRun, directRun.failure_reason).toMatchObject({trigger_id: null, state: "succeeded", trigger_result: {outputs: {mode: "direct"}}});
   }finally{
     await runner?.close();await api?.close();vi.unstubAllGlobals();
     for(const id of docker("ps","-aq","--filter",`label=sh.factorize.test.namespace=${app}`).split("\n").filter(Boolean))docker("rm","-f",id);

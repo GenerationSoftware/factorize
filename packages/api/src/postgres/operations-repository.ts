@@ -23,13 +23,13 @@ function markedMatch(value: string, fallback: string, query: string) {
 
 export class OperationsRepository {
   constructor(private database: Database, private tenantId: string) {}
-  async jobEvents(jobId: string, limit: number) { return (await this.database.pool.query(`SELECT id,provider,delivery_id "deliveryId",outcome,detail,received_at "receivedAt" FROM app.job_events WHERE tenant_id=$1 AND job_id=$2 ORDER BY received_at DESC,id DESC LIMIT $3`, [this.tenantId, jobId, limit])).rows; }
-  async delivery(id: string) { const row = (await this.database.pool.query<any>(`SELECT id,provider,delivery_id "deliveryId",event_type event,event_action action,outcome,detail,received_at "receivedAt" FROM app.webhook_deliveries WHERE tenant_id=$1 AND (id::text=$2 OR delivery_id=$2) ORDER BY received_at DESC LIMIT 1`, [this.tenantId, id])).rows[0]; if (!row) return null; const timeline = (await this.database.pool.query(`SELECT job_id "jobId",outcome,detail,created_at "createdAt" FROM app.webhook_delivery_events WHERE tenant_id=$1 AND delivery_id=$2 ORDER BY created_at,id`, [this.tenantId, row.id])).rows; return { ...row, timeline }; }
+  async triggerEvents(triggerId: string, limit: number) { return (await this.database.pool.query(`SELECT id,provider,delivery_id "deliveryId",outcome,detail,received_at "receivedAt" FROM app.trigger_events WHERE tenant_id=$1 AND trigger_id=$2 ORDER BY received_at DESC,id DESC LIMIT $3`, [this.tenantId, triggerId, limit])).rows; }
+  async delivery(id: string) { const row = (await this.database.pool.query<any>(`SELECT id,provider,delivery_id "deliveryId",event_type event,event_action action,outcome,detail,received_at "receivedAt" FROM app.webhook_deliveries WHERE tenant_id=$1 AND (id::text=$2 OR delivery_id=$2) ORDER BY received_at DESC LIMIT 1`, [this.tenantId, id])).rows[0]; if (!row) return null; const timeline = (await this.database.pool.query(`SELECT trigger_id "triggerId",outcome,detail,created_at "createdAt" FROM app.webhook_delivery_events WHERE tenant_id=$1 AND delivery_id=$2 ORDER BY created_at,id`, [this.tenantId, row.id])).rows; return { ...row, timeline }; }
   async deliveries(query: URLSearchParams) {
     const limit = Math.max(1, Math.min(100, Number(query.get("limit") ?? 50))), values: unknown[] = [this.tenantId], clauses = ["d.tenant_id=$1"];
     const add = (column: string, value: string | null) => { if (value) { values.push(value); clauses.push(`${column}=$${values.length}`); } };
     add("d.provider", query.get("provider")); add("d.delivery_id", query.get("deliveryId")); add("d.event_type", query.get("event")); add("d.event_action", query.get("action")); add("d.outcome", query.get("outcome"));
-    if (query.get("jobId")) { values.push(query.get("jobId")); clauses.push(`EXISTS (SELECT 1 FROM app.webhook_delivery_events e WHERE e.tenant_id=d.tenant_id AND e.delivery_id=d.id AND e.job_id=$${values.length})`); }
+    if (query.get("triggerId")) { values.push(query.get("triggerId")); clauses.push(`EXISTS (SELECT 1 FROM app.webhook_delivery_events e WHERE e.tenant_id=d.tenant_id AND e.delivery_id=d.id AND e.trigger_id=$${values.length})`); }
     if (query.get("q")) { values.push(`%${query.get("q")}%`); clauses.push(`(d.delivery_id ILIKE $${values.length} OR d.detail ILIKE $${values.length})`); }
     const cursor = query.get("cursor");
     if (cursor) { try { const parsed = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(cursor.replaceAll("-", "+").replaceAll("_", "/")), char => char.charCodeAt(0)))); values.push(parsed.at, parsed.id); clauses.push(`(d.received_at,d.id)<($${values.length - 1},$${values.length})`); } catch { /* Invalid cursors simply start at the first page. */ } }
@@ -40,13 +40,13 @@ export class OperationsRepository {
   async search(query: string) {
     const needle = query.trim(); if (!needle || !/[\p{L}\p{N}]/u.test(needle)) return { items: [] };
     const rows = await this.database.pool.query<any>(`SELECT * FROM (
-      SELECT 'job' kind,j.id::text id,j.name title,j.slug subtitle,'/jobs/'||j.id url,j.id::text source_id,j.name source_label,
+      SELECT 'trigger' kind,j.id::text id,j.name title,j.slug subtitle,'/triggers/'||j.id url,j.id::text source_id,j.name source_label,
         CASE WHEN word_similarity($2,j.name) >= word_similarity($2,j.slug) THEN j.name ELSE j.slug END match_text,
         GREATEST(word_similarity($2,j.name),word_similarity($2,j.slug)) score,
         CASE WHEN lower(j.name)=$2 OR lower(j.slug)=$2 THEN 1 ELSE 2 END category,j.id::text stable_key,NULL match_excerpt
-      FROM app.jobs j WHERE j.tenant_id=$1 AND ($2 <% j.name OR $2 <% j.slug)
+      FROM app.triggers j WHERE j.tenant_id=$1 AND ($2 <% j.name OR $2 <% j.slug)
       UNION ALL
-      SELECT 'run',r.id::text,coalesce(nullif(r.run_name,''),nullif(r.issue_title,''),'Run '||left(r.id::text,8)),r.state,'/job-runs/'||r.id,r.id::text,
+      SELECT 'run',r.id::text,coalesce(nullif(r.run_name,''),nullif(r.issue_title,''),'Run '||left(r.id::text,8)),r.state,'/runs/'||r.id,r.id::text,
         coalesce(nullif(r.run_name,''),nullif(r.issue_title,''),'Run '||left(r.id::text,8)),
         CASE WHEN r.issue_id % $2 THEN r.issue_id
           WHEN word_similarity($2,r.run_name) >= word_similarity($2,r.issue_title) THEN coalesce(nullif(r.run_name,''),r.issue_id)
@@ -55,7 +55,7 @@ export class OperationsRepository {
         CASE WHEN lower(r.issue_id)=$2 THEN 0 WHEN lower(r.run_name)=$2 OR lower(r.issue_title)=$2 THEN 1 ELSE 2 END category,r.id::text stable_key,NULL match_excerpt
       FROM app.runs r WHERE r.tenant_id=$1 AND (r.issue_id % $2 OR $2 <% r.run_name OR $2 <% r.issue_title)
       UNION ALL
-      SELECT 'trace',e.id,e.title,left(e.preview_text,120),'/job-runs/'||e.run_id,e.run_id::text,
+      SELECT 'trace',e.id,e.title,left(e.preview_text,120),'/runs/'||e.run_id,e.run_id::text,
         coalesce(nullif(r.run_name,''),nullif(r.issue_title,''),'Run '||left(r.id::text,8)),e.title,
         ts_rank(e.search_vector,websearch_to_tsquery('english',$2)),2,e.run_id::text||':'||e.sequence,
         ts_headline('english',e.title||' '||e.preview_text,websearch_to_tsquery('english',$2),
@@ -64,7 +64,7 @@ export class OperationsRepository {
       WHERE e.tenant_id=$1 AND e.search_vector @@ websearch_to_tsquery('english',$2)
     ) found ORDER BY category,score DESC,kind,stable_key LIMIT 100`, [this.tenantId, needle.toLowerCase()]);
     return { items: rows.rows.map(row => {
-      const ranked = row.kind === "trace" ? null : rankField(row.match_text, needle, row.kind === "job" ? "job" : "run");
+      const ranked = row.kind === "trace" ? null : rankField(row.match_text, needle, row.kind === "trigger" ? "trigger" : "run");
       const match = row.kind === "trace" ? markedMatch(row.match_excerpt, row.title, needle) : { text: row.match_text, ranges: ranked?.range ? [ranked.range] : searchMatches(row.match_text, needle) };
       return { kind: row.kind, id: row.id, title: row.title, subtitle: row.subtitle, url: row.url, source: { kind: row.kind, label: row.source_label, id: row.source_id }, match };
     }) };

@@ -24,7 +24,7 @@ export interface LaunchRequest {
   traceSources?: TraceSources;
   harness?: { executable: string; args: string[]; env: Record<string, string> };
   code?: { script: string; context: Record<string, unknown> };
-  /** Server-side only; the token is consumed before any job payload is launched. */
+  /** Server-side only; the token is consumed before any trigger payload is launched. */
   verifyVendorIdentity?: (input: { provider: "exe.dev" | "fly.io"; vmId: string; token: string; integrationName?: string; expectedIssuer?: string; expectedSubject?: string }) => Promise<void>;
 }
 
@@ -53,15 +53,15 @@ export interface PromptDeliveryReceipt {
   command?: BackendCommandResult;
 }
 export interface ArtifactCollectionRequest { uploadUrl: string; contentType: string; source?: TraceSource; discoverCommand?: string; }
-export interface JobFileCollectionRequest { path: string; uploadUrl: string; }
+export interface TriggerFileCollectionRequest { path: string; uploadUrl: string; }
 export interface TraceChunkCollectionRequest { uploadUrl: string; source?: TraceSource; discoverCommand?: string; generation: string | null; offset: number; previousHash: string; }
 export interface ArtifactCollectionReceipt { ok: boolean; detail?: string; command?: BackendCommandResult; }
 
 /** Optional execution backend capabilities used while collecting a finished run. */
-export interface JobResultReader { readJobResult(handle: RunHandle): Promise<string | null>; }
-export interface JobFileCollector {
-  listJobFiles(handle: RunHandle): Promise<string[]>;
-  collectJobFile(handle: RunHandle, request: JobFileCollectionRequest): Promise<ArtifactCollectionReceipt>;
+export interface TriggerResultReader { readTriggerResult(handle: RunHandle): Promise<string | null>; }
+export interface TriggerFileCollector {
+  listTriggerFiles(handle: RunHandle): Promise<string[]>;
+  collectTriggerFile(handle: RunHandle, request: TriggerFileCollectionRequest): Promise<ArtifactCollectionReceipt>;
 }
 export interface HarnessLogReader { readHarnessLog(handle: RunHandle): Promise<string>; }
 export interface ArtifactCollector {

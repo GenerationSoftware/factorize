@@ -1,5 +1,5 @@
 import { sourceCommand, validateTraceSources } from "./trace-source";
-import type { ArtifactCollectionRequest, JobFileCollectionRequest, TraceChunkCollectionRequest } from "./execution";
+import type { ArtifactCollectionRequest, TriggerFileCollectionRequest, TraceChunkCollectionRequest } from "./execution";
 import type { BackendCommandResult, ExecutionBackend, ExecutionObservation, LaunchReceipt, LaunchRequest, RunHandle } from "./execution";
 import { base64 } from "./crypto";
 import { shellAtom, type ExeConnection, type ExeRunConnection } from "./exe";
@@ -35,7 +35,6 @@ export class ExeImageVerificationError extends ExeIntegrationError {
 }
 
 export interface ExePermissionTest { ok: boolean; missingPermissions: string[]; tags: string[]; checks: BackendCommandResult[] }
-export interface ExeAgentValidation { models: string[]; command: BackendCommandResult }
 
 export function tagsFromInventory(inventory: unknown): string[] {
   const tags = new Set<string>();
@@ -49,7 +48,7 @@ export function tagsFromInventory(inventory: unknown): string[] {
   return [...tags].sort((a, b) => a.localeCompare(b));
 }
 
-function inventoryHasOwnedVm(body: string, vm: string): boolean | null {
+export function inventoryHasOwnedVm(body: string, vm: string): boolean | null {
   try {
     const value: unknown = JSON.parse(body);
     const visit = (item: unknown): boolean => Array.isArray(item) ? item.some(visit) : !!item && typeof item === "object" && ((item as any).name === vm || (item as any).vm_name === vm) && (item as any).comment === `Factorize VM ${vm}` || !!item && typeof item === "object" && Object.values(item as Record<string, unknown>).some(visit);
@@ -169,28 +168,7 @@ export class ExeVmBackend implements ExecutionBackend {
 
   async test(): Promise<BackendCommandResult> { return this.api("ls --json"); }
 
-  async validateAgentAndModels(agentKind: "codex" | "claude" | "pi"): Promise<ExeAgentValidation> {
-    const vm = vmNameFor(`validate-${crypto.randomUUID()}`);
-    const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
-    const created = await this.api(`new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)} ${tags}`.trim());
-    if (!created.ok) throw this.validationFailure("Could not create the validation VM. Check your exe.dev VM capacity and token permissions", created);
-    try {
-      const binary = agentKind;
-      const remote = `command -v ${binary} >/dev/null && curl --fail --silent --show-error https://llm.int.exe.xyz/v1/models | jq -cer '[.data[]?.id | strings] | unique'`;
-      let result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(remote)}`);
-      for (let attempt = 1; !result.ok && attempt < 5; attempt++) result = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(remote)}`);
-      if (!result.ok) throw this.validationFailure(`${binary} or its model integration is unavailable. Check that the agent is installed and the llm integration is attached to VMs with the selected tags`, result);
-      let parsed: unknown;
-      try { parsed = JSON.parse(result.body); } catch { throw new ExeIntegrationError("The exe.dev model endpoint returned invalid JSON"); }
-      if (!Array.isArray(parsed) || parsed.some(model => typeof model !== "string")) throw new ExeIntegrationError("The exe.dev model endpoint returned an invalid response");
-      return { models: [...new Set(parsed.map(model => model.trim()).filter(Boolean))].sort(), command: result };
-    } finally {
-      const removed = await this.deleteVm(vm);
-      if (!removed.ok) throw this.validationFailure(`The validation VM ${vm} could not be deleted. Remove it in exe.dev and check the token rm permission`, removed);
-    }
-  }
-
-  async verifyImage(verificationId: string, image: string, agentKind: "codex" | "claude" | "pi", progress: (phase: string) => Promise<void> = async () => {}, executionType: "agent" | "code" = "agent"): Promise<void> {
+  async verifyImage(verificationId: string, image: string, progress: (phase: string) => Promise<void> = async () => {}): Promise<void> {
     const vm = vmNameFor(`verify-${verificationId}`);
     const tags = [...new Set(this.connection.tags)].map(tag => `--tag=${shellAtom(tag)}`).join(" ");
     const command = `new --name=${shellAtom(vm)} --no-email --comment=${shellAtom(`Factorize VM ${vm}`)}${tags ? ` ${tags}` : ""} --image=${shellAtom(image)}`;
@@ -219,9 +197,9 @@ export class ExeVmBackend implements ExecutionBackend {
       for (let attempt = 1; (!ssh || !ssh.ok) && attempt < 6; attempt++) ssh = await this.api(`ssh ${shellAtom(vm)} ${shellAtom("true")}`).catch(() => null);
       if (!ssh?.ok) throw new ExeIntegrationError(`ssh: VM was created from the image, but SSH access failed (${ssh?.status ?? "timeout"}). Ensure the image boots an exe.dev-compatible system with SSH enabled.`);
       await progress("checking_agent");
-      const check = executionType === "code" ? "command -v bash >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1" : `command -v ${shellAtom(agentKind)} >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1`;
-      const agent = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(check)}`).catch(() => null);
-      if (!agent?.ok) throw new ExeIntegrationError(executionType === "code" ? "agent: SSH works, but bash, python3, or curl prerequisites are missing. Use an exe.dev-compatible image with bash, python3, and curl installed." : `agent: SSH works, but the selected ${agentKind} harness prerequisites are missing. Use an image with ${agentKind}, python3, curl, and jq installed.`);
+      const check="command -v bash >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1";
+      const runtime = await this.api(`ssh ${shellAtom(vm)} ${shellAtom(check)}`).catch(() => null);
+      if(!runtime?.ok)throw new ExeIntegrationError("agent: SSH works, but bash, python3, or curl prerequisites are missing. Use an exe.dev-compatible image with these workspace tools installed.");
     } finally {
       await progress("cleaning_up");
       const removed = await this.deleteVm(vm);
@@ -232,7 +210,7 @@ export class ExeVmBackend implements ExecutionBackend {
   async launch(request: LaunchRequest): Promise<LaunchReceipt> {
     const connection = this.connection as ExeRunConnection;
     if (request.fetchLaunchPayload && !request.runIdentity) throw new Error("Run identity is required to fetch the launch payload");
-    if (!request.code && (!connection.agentKind || !request.harness)) throw new Error("The job is missing its agent harness launch plan");
+    if (!request.code && (!connection.agentKind || !request.harness)) throw new Error("The trigger is missing its agent harness launch plan");
     if (request.traceSources) validateTraceSources(request.traceSources);
     const handle: RunHandle = request.reservation ?? { backendKind: this.kind, id: vmNameFor(request.runId) };
     if (request.verifyVendorIdentity ?? this.vendorIdentityVerifier) {
@@ -267,7 +245,7 @@ export class ExeVmBackend implements ExecutionBackend {
 
     const code = request.code, output = request.traceSources?.primary.formatVersion === "codex-exec-jsonl" ? request.traceSources.primary.path : "/tmp/factorize.log", unit = vm;
     const launchPayload = request.fetchLaunchPayload ? null : serializeLaunchPayload(request);
-    const launchPayloadPath = "/home/exedev/.factorize-job/launch.json";
+    const launchPayloadPath = "/home/exedev/.factorize-trigger/launch.json";
     const identitySetup = request.runIdentity ? [
       "command -v node >/dev/null && command -v curl >/dev/null",
       "sudo install -d -m 0700 /run/factorize-identity",
@@ -282,10 +260,10 @@ export class ExeVmBackend implements ExecutionBackend {
       "cd /home/exedev/workspace",
       ...identitySetup,
       ...(request.traceSources?.primary.kind === "execution_stream" ? [`mkdir -p -- ${shellAtom(request.traceSources.primary.path.slice(0, request.traceSources.primary.path.lastIndexOf("/")) || "/")}`, `touch -- ${shellAtom(request.traceSources.primary.path)}`] : []),
-      "sudo install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-job",
-      `printf '%s' ${shellAtom(base64(FACTORIZE_JOB_LAUNCHER))} | sudo sh -c ${shellAtom("base64 -d > /usr/local/bin/factorize-job && chmod 0755 /usr/local/bin/factorize-job")}`,
+      "sudo install -d -o exedev -g exedev -m 0700 /home/exedev/.factorize-trigger",
+      `printf '%s' ${shellAtom(base64(FACTORIZE_JOB_LAUNCHER))} | sudo sh -c ${shellAtom("base64 -d > /usr/local/bin/factorize-trigger && chmod 0755 /usr/local/bin/factorize-trigger")}`,
       ...(launchPayload === null ? [] : [`printf '%s' ${shellAtom(base64(launchPayload))} | base64 -d > ${shellAtom(launchPayloadPath)} && sudo chown exedev:exedev ${shellAtom(launchPayloadPath)}`]),
-      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=null --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr /bin/sh -c ${shellAtom(`exec ${request.runIdentity ? "/usr/bin/env FACTORIZE_PROXY_URL=http://127.0.0.1:18180 " : ""}/usr/local/bin/factorize-job launch --foreground ${request.fetchLaunchPayload ? `--fetch-payload ${shellAtom(request.runId)}` : `< ${launchPayloadPath}`}`)}; fi`,
+      `if [ "$(sudo systemctl show ${shellAtom(unit)} --property=LoadState --value 2>/dev/null || true)" != loaded ]; then sudo systemd-run --quiet --uid=exedev --gid=exedev --unit=${shellAtom(unit)} --property=Type=exec --property=RemainAfterExit=yes --property=WorkingDirectory=/home/exedev/workspace --property=StandardInput=null --property=StandardOutput=${output === "/tmp/factorize.log" ? `append:${output}` : shellAtom(`append:${output}`)} --property=StandardError=append:/tmp/factorize.stderr /bin/sh -c ${shellAtom(`exec ${request.runIdentity ? "/usr/bin/env FACTORIZE_PROXY_URL=http://127.0.0.1:18180 " : ""}/usr/local/bin/factorize-trigger launch --foreground ${request.fetchLaunchPayload ? `--fetch-payload ${shellAtom(request.runId)}` : `< ${launchPayloadPath}`}`)}; fi`,
       "echo started",
     ].join("; ");
     if (request.traceSources?.primary.formatVersion === "codex-exec-jsonl") {
@@ -366,40 +344,40 @@ export class ExeVmBackend implements ExecutionBackend {
   }
 
   /** null means the protocol file is confirmed absent; command errors remain retryable. */
-  async readJobResult(handle: RunHandle): Promise<string | null> {
-    const remote = "if [ -f /home/exedev/.factorize-job/results.json ]; then size=$(wc -c < /home/exedev/.factorize-job/results.json); if [ \"$size\" -gt 65536 ]; then printf OVERSIZE; else base64 -w0 /home/exedev/.factorize-job/results.json; fi; else printf MISSING; fi";
+  async readTriggerResult(handle: RunHandle): Promise<string | null> {
+    const remote = "if [ -f /home/exedev/.factorize-trigger/results.json ]; then size=$(wc -c < /home/exedev/.factorize-trigger/results.json); if [ \"$size\" -gt 65536 ]; then printf OVERSIZE; else base64 -w0 /home/exedev/.factorize-trigger/results.json; fi; else printf MISSING; fi";
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
-    if (!result.ok) throw new Error(`Structured job result collection failed (${result.status})`);
+    if (!result.ok) throw new Error(`Structured trigger result collection failed (${result.status})`);
     if (result.body.trim() === "MISSING") return null;
     if (result.body.trim() === "OVERSIZE") return "OVERSIZE";
     const encoded = result.body.trim();
-    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error("Structured job result transport returned invalid base64");
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error("Structured trigger result transport returned invalid base64");
     try { return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(encoded), c => c.charCodeAt(0))); }
-    catch { throw new Error("Structured job result transport returned invalid UTF-8"); }
+    catch { throw new Error("Structured trigger result transport returned invalid UTF-8"); }
   }
 
-  async listJobFiles(handle: RunHandle): Promise<string[]> {
-    const remote = "find /home/exedev/.factorize-job -mindepth 1 -type f ! -name results.json -printf '%P\\t%s\\n'";
+  async listTriggerFiles(handle: RunHandle): Promise<string[]> {
+    const remote = "find /home/exedev/.factorize-trigger -mindepth 1 -type f ! -name results.json -printf '%P\\t%s\\n'";
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
-    if (!result.ok) throw new Error(`Job output directory collection failed (${result.status})`);
+    if (!result.ok) throw new Error(`Trigger output directory collection failed (${result.status})`);
     const paths: string[] = []; let total = 0;
     for (const line of result.body.split("\n").filter(Boolean)) {
       const match = /^([^\t\r\0]+)\t(\d+)$/.exec(line);
-      if (!match || match[1].startsWith("/") || match[1].split("/").some(part => !part || part === "." || part === "..") || /[\\\\\r\n]/.test(match[1])) throw new Error("Job output directory contains an unsafe path");
+      if (!match || match[1].startsWith("/") || match[1].split("/").some(part => !part || part === "." || part === "..") || /[\\\\\r\n]/.test(match[1])) throw new Error("Trigger output directory contains an unsafe path");
       const size = Number(match[2]);
-      if (!Number.isSafeInteger(size) || size > 10 * 1024 * 1024) throw new Error("A job output file exceeds the 10 MiB per-file limit");
-      total += size; if (total > 50 * 1024 * 1024) throw new Error("Job output directory exceeds the 50 MiB total limit");
+      if (!Number.isSafeInteger(size) || size > 10 * 1024 * 1024) throw new Error("A trigger output file exceeds the 10 MiB per-file limit");
+      total += size; if (total > 50 * 1024 * 1024) throw new Error("Trigger output directory exceeds the 50 MiB total limit");
       paths.push(match[1]);
     }
-    if (paths.length > 100) throw new Error("Job output directory exceeds the 100 file limit");
+    if (paths.length > 100) throw new Error("Trigger output directory exceeds the 100 file limit");
     return paths;
   }
 
-  async collectJobFile(handle: RunHandle, request: JobFileCollectionRequest) {
-    const file = `/home/exedev/.factorize-job/${request.path}`;
-    const remote = `set -eu; file=${shellAtom(file)}; test -f "$file"; test ! -L "$file"; real=$(realpath -- "$file"); case "$real" in /home/exedev/.factorize-job/*) ;; *) exit 41;; esac; size=$(wc -c < "$file" | tr -d ' '); test "$size" -le 10485760; sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H 'Content-Type: application/octet-stream' -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(runArtifactTarget(handle, request.uploadUrl))}`;
+  async collectTriggerFile(handle: RunHandle, request: TriggerFileCollectionRequest) {
+    const file = `/home/exedev/.factorize-trigger/${request.path}`;
+    const remote = `set -eu; file=${shellAtom(file)}; test -f "$file"; test ! -L "$file"; real=$(realpath -- "$file"); case "$real" in /home/exedev/.factorize-trigger/*) ;; *) exit 41;; esac; size=$(wc -c < "$file" | tr -d ' '); test "$size" -le 10485760; sha=$(sha256sum "$file" | cut -d' ' -f1); curl --fail --silent --show-error -X PUT -H 'Content-Type: application/octet-stream' -H "Content-Length: $size" -H "X-Artifact-SHA256: $sha" --data-binary @"$file" ${shellAtom(runArtifactTarget(handle, request.uploadUrl))}`;
     const result = await this.api(`ssh ${shellAtom(this.vm(handle))} ${shellAtom(remote)}`);
-    return { ok: result.ok, detail: result.ok ? undefined : `Job file upload failed (${result.status})`, command: result };
+    return { ok: result.ok, detail: result.ok ? undefined : `Trigger file upload failed (${result.status})`, command: result };
   }
 
   async collectArtifact(handle: RunHandle, request: ArtifactCollectionRequest) {

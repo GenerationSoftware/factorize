@@ -1,8 +1,7 @@
 import { z } from "zod";
-import { jobInputSchema, scopeSchema, triggerSchema, webhookTriggerConfigSchema } from "./flow-schemas";
+import { triggerInputSchema, scopeSchema, eventSchema, webhookEventConfigSchema } from "./flow-schemas";
 
-export const jobPageQuery = z.object({
-  projectId: z.guid().optional(),
+export const triggerPageQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
   cursor: z.string().max(512).optional(),
   q: z.string().trim().max(120).default(""),
@@ -16,45 +15,46 @@ export const jobPageQuery = z.object({
     context.addIssue({ code: "custom", path: ["cursor"], message: "Cursor format does not match the selected sort" });
   }
 });
-export type JobPageQuery = z.infer<typeof jobPageQuery>;
-export const jobSelectorItem = z.object({ id: z.guid(), name: z.string(), slug: z.string(), enabled: z.boolean() });
-export const jobSummary = jobSelectorItem.extend({
-  projectId: z.guid(),
+export type TriggerPageQuery = z.infer<typeof triggerPageQuery>;
+export const triggerSelectorItem = z.object({ id: z.guid(), name: z.string(), enabled: z.boolean() });
+export const triggerSummary = triggerSelectorItem.extend({
   model: z.string(), effort: z.string(), agentKind: z.string(), executionType: z.enum(["agent", "code"]),
   concurrencyLimit: z.number().int(), runningCount: z.number().int(),
   lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(), createdAt: z.string(), updatedAt: z.string(),
 });
-export const jobSummaryPage = z.object({ items: z.array(jobSummary), nextCursor: z.string().nullable() });
-export const jobSelectorPage = z.object({ items: z.array(jobSelectorItem), nextCursor: z.string().nullable() });
-const triggerIdentity = { id: z.guid(), jobId: z.guid(), slug: z.string(), createdAt: z.string(), updatedAt: z.string() };
+export const triggerSummaryPage = z.object({ items: z.array(triggerSummary), nextCursor: z.string().nullable() });
+export const triggerSelectorPage = z.object({ items: z.array(triggerSelectorItem), nextCursor: z.string().nullable() });
+const eventIdentity = { id: z.guid(), triggerId: z.guid(), slug: z.string(), createdAt: z.string(), updatedAt: z.string() };
 const webhookResponse = z.discriminatedUnion("provider", [
-  webhookTriggerConfigSchema.options[0].extend({ secretConfigured: z.boolean().optional() }).strip(),
-  webhookTriggerConfigSchema.options[1].extend({ secretConfigured: z.boolean().optional() }).strip(),
-  webhookTriggerConfigSchema.options[2].extend({ secretConfigured: z.boolean().optional() }).strip(),
-  webhookTriggerConfigSchema.options[3].extend({ destination: z.string().optional(), secretConfigured: z.boolean().optional() }).strip(),
+  webhookEventConfigSchema.options[0].extend({ secretConfigured: z.boolean().optional() }).strip(),
+  webhookEventConfigSchema.options[1].extend({ secretConfigured: z.boolean().optional() }).strip(),
+  webhookEventConfigSchema.options[2].extend({ secretConfigured: z.boolean().optional() }).strip(),
+  webhookEventConfigSchema.options[3].extend({ destination: z.string().optional(), secretConfigured: z.boolean().optional() }).strip(),
 ]);
-export const triggerResponse = z.discriminatedUnion("kind", [
-  triggerSchema.options[0].extend(triggerIdentity),
-  triggerSchema.options[1].extend(triggerIdentity),
-  triggerSchema.options[2].extend({ ...triggerIdentity, config: webhookResponse }),
-  triggerSchema.options[3].extend(triggerIdentity),
-  triggerSchema.options[4].extend(triggerIdentity),
+export const eventResponse = z.discriminatedUnion("kind", [
+  eventSchema.options[0].extend(eventIdentity),
+  eventSchema.options[1].extend(eventIdentity),
+  eventSchema.options[2].extend({ ...eventIdentity, config: webhookResponse }),
+  eventSchema.options[3].extend(eventIdentity),
+  eventSchema.options[4].extend(eventIdentity),
 ]);
-export const jobResponse = z.object({
-  id: z.guid(), projectId: z.guid().optional(), name: z.string(), description: z.string().optional(), slug: z.string(), enabled: z.boolean(),
-  executionType: z.enum(["agent", "code"]).optional(), promptTemplate: z.string(), script: z.string().optional(), runNameTemplate: z.string(), tags: z.array(z.string()).optional(), model: z.string(), effort: z.string().optional(),
-  executionConfig: z.object({ connectionId: z.string(), workspace: z.string().optional(), cwd: z.string().optional(), agentKind: z.string(), image: z.string().optional(), region: z.string().optional(), size: z.string().optional(), executionType: z.enum(["agent", "code"]).optional(), script: z.string().optional() }),
+export const triggerResponse = z.object({
+  id: z.guid(), name: z.string(), enabled: z.boolean(),
+  requiresVm:z.boolean(),
+  executionType: z.enum(["agent", "code"]).optional(), prompt: z.string(), script: z.string().optional(), runNameTemplate: z.string(), tags: z.array(z.string()).optional(), model: z.string(), effort: z.string().optional(),
+  executionConfig: z.object({ connectionId: z.string(), requiresVm:z.boolean().optional(), workspace: z.string().optional(), cwd: z.string().optional(), agentKind: z.string(), image: z.string().optional(), region: z.string().optional(), size: z.string().optional(), executionType: z.enum(["agent", "code"]).optional(), script: z.string().optional() }),
   runScopes: z.array(scopeSchema),
-  portableIntegrationIds: z.array(z.guid()).optional(), modelAccess: z.enum(["native", "portable"]).optional(), modelAccountId: z.guid().optional(),
+  portableIntegrationIds: z.array(z.guid()).optional(), modelAccountId: z.guid().optional(),
   githubInstallationIds: z.array(z.number().int().positive()).optional(), linearConnectionId: z.literal("linear").nullable().optional(),
   xConnectionIds: z.array(z.guid()).optional(),
-  launchSkillId: z.guid().nullable().optional(),
+  skillId: z.guid().nullable().optional(),
   executionConfigId: z.string(), agentKind: z.string(), concurrencyLimit: z.number().int(),
   runningCount: z.number().int(), currentRuns: z.number().int(), maxConcurrency: z.number().int(), lastRunState: z.enum(["queued", "reserved", "starting", "running", "blocked", "stopping", "succeeded", "failed", "stopped", "done", "ignored"]).nullable(),
-  triggers: z.array(triggerResponse),
-  skills: z.array(z.object({ id: z.guid(), key: z.string(), revision: z.number().int().positive(), position: z.number().int().nonnegative() })).optional(),
+  events: z.array(eventResponse),
+  skill: z.object({id:z.guid(),key:z.string(),revision:z.number().int().positive()}).nullable().optional(),
+  contextReviewRequired:z.boolean().optional(),
   createdAt: z.string(), updatedAt: z.string(),
 });
 // Omission keeps legacy REST/MCP last-writer-wins behavior. New editors supply
-// the timestamp returned by get_job; the repository checks it under row lock.
-export const jobUpdateInput = jobInputSchema.extend({ expectedUpdatedAt: z.iso.datetime().optional() });
+// the timestamp returned by get_trigger; the repository checks it under row lock.
+export const triggerUpdateInput = triggerInputSchema.extend({ expectedUpdatedAt: z.iso.datetime().optional() });

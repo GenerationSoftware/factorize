@@ -6,7 +6,7 @@ describe("same-origin static ownership", () => {
   it("serves frontend deep links without a page allowlist with an external-bundle policy and revalidated entry HTML", async () => {
     const fetch = vi.fn(async (request: Request) => new Response(request.method === "HEAD" ? null : "entry", { headers: { "Content-Type": "text/html" } }));
     const env = { ASSETS: { fetch } } as unknown as Env;
-    for (const path of ["/projects/id/runs", "/projects/id/settings", "/projects/id/settings/", "/future-feature/nested/page?tab=one", "/unknown", "/api-tools", "/healthz-dashboard", "/skills", "/skills/id", "/", "/jobs", "/jobs/new", "/jobs/id/edit", "/jobs/id/settings", "/projects", "/projects/new", "/projects/id", "/job-runs", "/job-runs/id", "/job-runs/id/trace", "/settings/authorized-clients", "/settings/targets", "/auth/verify?token=one-time", "/authorize?client_id=test", "/device?user_code=ABCD-2345"]) {
+    for (const path of ["/projects/id/runs", "/projects/id/settings", "/projects/id/settings/", "/future-feature/nested/page?tab=one", "/unknown", "/api-tools", "/healthz-dashboard", "/skills", "/skills/id", "/", "/triggers", "/triggers/new", "/triggers/id/edit", "/triggers/id/settings", "/projects", "/projects/new", "/projects/id", "/runs", "/runs/id", "/runs/id/trace", "/settings/authorized-clients", "/settings/targets", "/auth/verify?token=one-time", "/authorize?client_id=test", "/device?user_code=ABCD-2345"]) {
       const response = await staticApp(new Request(`https://app.factorize.sh${path}`), env);
       expect(response?.status).toBe(200);
       expect(response?.headers.get("content-security-policy")).toBe(STATIC_CSP);
@@ -16,15 +16,15 @@ describe("same-origin static ownership", () => {
       expect(new URL(fetch.mock.calls.at(-1)![0].url).pathname).toBe("/index.html");
       expect(new URL(fetch.mock.calls.at(-1)![0].url).search).toBe("");
     }
-    const head = await staticApp(new Request("https://app.factorize.sh/jobs/id", { method: "HEAD" }), env);
+    const head = await staticApp(new Request("https://app.factorize.sh/triggers/id", { method: "HEAD" }), env);
     expect(await head?.text()).toBe("");
   });
   it("never forwards backend namespaces or mutations to static hosting", async () => {
     const fetch = vi.fn(); const env = { ASSETS: { fetch } } as unknown as Env;
-    for (const path of ["/api", "/assets", "/auth", "/oauth", "/webhooks", "/internal", "/.well-known", "/auth/login/unknown", "/auth/unknown", "/healthz/unknown", "/api/v1", "/api/v1/unknown", "/api/v1/jobs", "/oauth/token", "/auth/linear", "/auth/github/setup", "/webhooks/github", "/internal/missing", "/mcp", "/healthz", "/.well-known/oauth-authorization-server", "/assets/subdir/file.js"]) {
+    for (const path of ["/api", "/assets", "/auth", "/oauth", "/webhooks", "/internal", "/.well-known", "/auth/login/unknown", "/auth/unknown", "/healthz/unknown", "/api/v1", "/api/v1/unknown", "/api/v1/triggers", "/oauth/token", "/auth/linear", "/auth/github/setup", "/webhooks/github", "/internal/missing", "/mcp", "/healthz", "/.well-known/oauth-authorization-server", "/assets/subdir/file.js"]) {
       expect(await staticApp(new Request(`https://app.factorize.sh${path}`), env)).toBeNull();
     }
-    for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) for (const path of ["/skills", "/unknown", "/jobs", "/authorize", "/device", "/assets/index-hash.js", "/auth/login"]) expect(await staticApp(new Request(`https://app.factorize.sh${path}`, { method }), env)).toBeNull();
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) for (const path of ["/skills", "/unknown", "/triggers", "/authorize", "/device", "/assets/index-hash.js", "/auth/login"]) expect(await staticApp(new Request(`https://app.factorize.sh${path}`, { method }), env)).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
     expect(isStaticPage("/settings/unknown")).toBe(true);
   });

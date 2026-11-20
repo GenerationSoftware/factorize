@@ -11,7 +11,7 @@ after(async () => { await browser?.close(); if (server) await new Promise(resolv
 
 test("skills link to detail pages and edit from the detail page", async () => {
   const context = await browser.newContext(), page = await context.newPage();
-  await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, workspace: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: ["skills:read", "skills:write"] } }));
+  await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, team: { id: "workspace", name: "Workspace", role: "owner" }, capabilities: ["skills:read", "skills:write"] } }));
   await page.route("**/api/v1/skills**", route => route.fulfill({ json: { items: [{ ...skill, body: undefined }], nextCursor: null } }));
   let current = skill;
   await page.route(`**/api/v1/skills/${skill.id}`, async route => {
@@ -41,7 +41,7 @@ test("replacing native skills with a GitHub folder requires confirmation", async
   try {
     let source = {kind:"managed"};
     const writes = [];
-    await page.route("**/api/v1/session", route => route.fulfill({json:{authenticated:true,user:{id:"owner",email:"owner@example.test"},workspace:{id:"workspace",name:"Workspace",role:"owner"},capabilities:["skills:read","skills:write","integrations:write"]}}));
+    await page.route("**/api/v1/session", route => route.fulfill({json:{authenticated:true,user:{id:"owner",email:"owner@example.test"},team:{id:"workspace",name:"Workspace",role:"owner"},capabilities:["skills:read","skills:write","integrations:write"]}}));
     await page.route("**/api/v1/skills?**", route => route.fulfill({json:{items:[],nextCursor:null}}));
     await page.route("**/api/v1/providers/github/installations", route => route.fulfill({json:[{installationId:7,state:"active",accountLogin:"org"}]}));
     await page.route("**/api/v1/providers/github/installations/7/repositories", route => route.fulfill({json:[{id:42,fullName:"org/agents",defaultBranch:"main"}]}));

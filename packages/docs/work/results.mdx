@@ -1,15 +1,15 @@
 ---
 title: Inspect results
-description: Read run state, output, prompt, and trigger context.
+description: Read run state, output, prompt, and event context.
 ---
 
-Ask: “Show the latest runs for this job and summarize the completed review.” Use `list_runs({"jobId":"JOB_ID","limit":10})`, then `get_run({"runId":"RUN_ID"})`. Current MCP does not return an `output` field or trace messages. Open the browser run page to read the trace, or retrieve REST trace pages with an authorized client. Report the state/link through MCP and only summarize findings after actually reading them.
+Ask: “Show the latest runs for this trigger and summarize the completed review.” Use `list_runs({"triggerId":"JOB_ID","limit":10})`, then `get_run({"runId":"RUN_ID"})`. Current MCP does not return an `output` field or trace messages. Open the browser run page to read the trace, or retrieve REST trace pages with an authorized client. Report the state/link through MCP and only summarize findings after actually reading them.
 
-Run pages return `items` and `nextCursor`; send that cursor for the next page. Optional `state` and `contextQuery` filter runs. Context search is a case-insensitive substring, not a query language. Current list rows contain no context excerpt; `get_run` returns full `context`, rendered `prompt`, `invocation.trigger_id`, execution metadata and activity.
+Run pages return `items` and `nextCursor`; send that cursor for the next page. Optional `state` and `contextQuery` filter runs. Context search is a case-insensitive substring, not a query language. Current list rows contain no context excerpt; `get_run` returns full `context`, rendered `prompt`, `invocation.event_id`, execution metadata and activity.
 
-Check that the intended trigger fired, the repository/task appears in the rendered prompt, and the browser/REST trace supports the reported result. A queued submission is not a successful execution. Browser run pages are at `https://app.factorize.sh/job-runs/RUN_ID`. Agent output stays in Factorize and is not automatically copied into Linear.
+Check that the intended event fired, the repository/task appears in the rendered prompt, and the browser/REST trace supports the reported result. A queued submission is not a successful execution. Browser run pages are at `https://app.factorize.sh/runs/RUN_ID`. Agent output stays in Factorize and is not automatically copied into Linear.
 
-New agent runs must write a JSON result envelope to the absolute path in `FACTORIZE_RESULT_PATH` before exiting. The object requires `status` (`succeeded` or `failed`); it may include a `summary` and an `outputs` JSON object. Failed results require a non-empty `reason`. The file is limited to 64 KiB. A zero process exit without a valid `succeeded` result is a failed run. Put additional run files in `~/.factorize-job/`; regular files up to 10 MiB each (100 files, 50 MiB total) are retained. Symlinks and paths outside that directory are not collected. Run details show the result and authorized downloads.
+New agent runs must write a JSON result envelope to the absolute path in `FACTORIZE_RESULT_PATH` before exiting. The object requires `status` (`succeeded` or `failed`); it may include a `summary` and an `outputs` JSON object. Failed results require a non-empty `reason`. The file is limited to 64 KiB. A zero process exit without a valid `succeeded` result is a failed run. Put additional run files in `~/.factorize-trigger/`; regular files up to 10 MiB each (100 files, 50 MiB total) are retained. Symlinks and paths outside that directory are not collected. Run details show the result and authorized downloads.
 
 For missing output or execution failures, call `get_run_diagnostics` and follow [failed-run troubleshooting](/troubleshooting/runs).
 
@@ -19,27 +19,27 @@ Classification is based on execution evidence, never text in agent-controlled JS
 
 Protocol version 0 runs keep optional-result compatibility. Protocol version 1 requires a valid result envelope (strict fields, maximum 64 KiB); malformed, oversized, missing or schema-invalid files fail the run. The result and report-error schemas do not accept a failure source or infrastructure provenance.
 
-Historical repair is evidence based. Migration `0032_run_failure_outcomes.sql` only repairs failed rows with `job_result.status="failed"`, a successful execution diagnostic, systemd `Result=success`, and exit status 0. It clears `artifact_error` only when it exactly equals the structured task reason. Before rollout, run this read-only audit and retain its counts with a database snapshot:
+Historical repair is evidence based. Migration `0032_run_failure_outcomes.sql` only repairs failed rows with `trigger_result.status="failed"`, a successful execution diagnostic, systemd `Result=success`, and exit status 0. It clears `artifact_error` only when it exactly equals the structured task reason. Before rollout, run this read-only audit and retain its counts with a database snapshot:
 
 ```sql
 SELECT count(*) AS proven_run_failures,
-       count(*) FILTER (WHERE artifact_error=job_result->>'reason') AS exact_misplaced_artifact_reasons,
-       count(*) FILTER (WHERE artifact_error IS NOT NULL AND artifact_error IS DISTINCT FROM job_result->>'reason') AS retained_artifact_diagnostics
+       count(*) FILTER (WHERE artifact_error=trigger_result->>'reason') AS exact_misplaced_artifact_reasons,
+       count(*) FILTER (WHERE artifact_error IS NOT NULL AND artifact_error IS DISTINCT FROM trigger_result->>'reason') AS retained_artifact_diagnostics
 FROM app.runs
 WHERE state='failed' AND failure_source='system'
-  AND job_result->>'status'='failed'
+  AND trigger_result->>'status'='failed'
   AND execution_diagnostics->>'state'='succeeded'
   AND execution_diagnostics->'systemd'->>'result'='success'
   AND execution_diagnostics->'systemd'->>'execMainStatus'='0'
-  AND coalesce(job_result->>'reason','') <> '';
+  AND coalesce(trigger_result->>'reason','') <> '';
 ```
 
 Roll forward with the additive migration before serving the new UI/API. Roll back application code separately and leave repaired outcome data intact; the old API ignores the new columns. Do not reverse the repair by changing every `agent` source back to `system`; unknown historical rows remain unknown.
 
 ## Background runs
 
-Set the project's direct-run VM defaults with an owner session using `PUT /api/v1/projects/{projectId}/run-defaults`. Supply an execution configuration ID and optional model, permissions and capacity. Direct launches require the separate `runs:start` scope. A verified parent run can launch in its own project. The child's permissions come from the project's configured defaults. Finishing the parent leaves the child running.
+Set the team's model, optional workspace, permissions and capacity with an owner session using `PUT /api/v1/team/run-defaults`. Requires VM defaults off for agents; scripts require a VM. Explicit settings precede Team defaults. Direct launches require the separate `runs:start` scope. A verified parent run can launch within its team, bounded by its own permissions. Run execution defaults belong to the team. Finishing the parent leaves the child running.
 
-Call `start_run` with a literal prompt, optional skill key or ID, and a client-generated idempotency key. Supply `projectId` when an external client has multiple projects. Retrying the same request returns the same run. A launch skill is captured by ID, key and revision. Filter `list_runs` by `launchSkillId`, using `none` for unclassified runs.
+Call `start_run` with a literal prompt, optional skill key or ID, and a client-generated idempotency key. Supply `projectId` when an external client has multiple projects. Retrying the same request returns the same run. A launch skill is captured by ID, key and revision. Filter `list_runs` by `skillId`, using `none` for unclassified runs.
 
 Save the receipt's `outcomeUri` with the originating conversation ID. With MCP revision 2026-07-28, request `subscriptions/listen` with that URI in `notifications.resourceSubscriptions`. On acknowledgment and on each resource update, call `resources/read`. A terminal outcome has a stable `eventId`, state, available result, failure and artifact references. Append it to the originating conversation once per event ID. Reopen the listen stream on close or reconnect. Older clients can read the resource directly. Reading or watching requires `runs:read`. Outcomes share the run's history retention period.

@@ -3,7 +3,7 @@ import { terminalDiagnostics } from "../src/harness-diagnostics";
 import { RunScheduler } from "../src/postgres/run-scheduler";
 import { RunRepository } from "../src/postgres/run-repository";
 import { ArtifactRepository } from "../src/postgres/artifact-repository";
-import { FlyJobExecutionBackend } from "../src/fly-job-execution-backend";
+import { FlyTriggerExecutionBackend } from "../src/fly-job-execution-backend";
 import { FlyClientError, type FlyMachine } from "../src/fly-machines-client";
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -17,14 +17,14 @@ function fixture() {
     inspect: vi.fn(async () => ({ state: "succeeded" })),
     terminate: vi.fn(async () => { events.push("terminate"); return { state: "stopped" }; }),
     stop: vi.fn(async () => { events.push("destroy"); return { state: "stopped" }; }),
-    readJobResult: vi.fn(async () => { events.push("result"); return '{"status":"succeeded"}'; }),
+    readTriggerResult: vi.fn(async () => { events.push("result"); return '{"status":"succeeded"}'; }),
     readHarnessLog: vi.fn(async () => { events.push("log"); return "Fly guest log\n"; }),
-    listJobFiles: vi.fn(async () => []),
-    collectJobFile: vi.fn(),
+    listTriggerFiles: vi.fn(async () => []),
+    collectTriggerFile: vi.fn(),
     collectArtifact: vi.fn(),
   };
   const run: any = {
-    tenantId: "tenant", id: "run", jobId: "job", state: "stopping",
+    tenantId: "tenant", id: "run", triggerId: "trigger", state: "stopping",
     executionConfig: { executionProvider: "fly", executionType: "code" },
     executionHandle: machine, resultProtocolVersion: 1, finalizationAttempt: 0,
   };
@@ -32,7 +32,7 @@ function fixture() {
   vi.spyOn(RunRepository.prototype, "recordObservation").mockImplementation(async (_run, value) => {
     events.push("observation"); observation ??= terminalDiagnostics(value); return observation;
   });
-  vi.spyOn(RunRepository.prototype, "recordJobResult").mockImplementation(async () => { events.push("persist-result"); });
+  vi.spyOn(RunRepository.prototype, "recordTriggerResult").mockImplementation(async () => { events.push("persist-result"); });
   vi.spyOn(RunRepository.prototype, "terminal").mockImplementation(async () => { events.push("terminal"); });
   vi.spyOn(RunRepository.prototype, "retryFinalization").mockImplementation(async () => { run.finalizationAttempt++; events.push("retry"); });
   vi.spyOn(ArtifactRepository.prototype, "list").mockImplementation(async () => stored);
@@ -45,7 +45,7 @@ function fixture() {
   return { scheduler, run, backend, events, stored };
 }
 
-function localFlyFixture(options: { ambiguousCreate?: boolean; failFirstInspect?: boolean; failFirstResult?: boolean; failFirstDestroy?: boolean; jobFiles?: string[] } = {}) {
+function localFlyFixture(options: { ambiguousCreate?: boolean; failFirstInspect?: boolean; failFirstResult?: boolean; failFirstDestroy?: boolean; triggerFiles?: string[] } = {}) {
   const events: string[] = [];
   const runId = "11111111-1111-4111-8111-111111111111";
   let machine: FlyMachine | undefined = options.ambiguousCreate ? undefined : {
@@ -78,26 +78,26 @@ function localFlyFixture(options: { ambiguousCreate?: boolean; failFirstInspect?
   };
   const guest = {
     run: vi.fn(async (command: readonly string[]) => {
-      if (command.at(-1)?.includes("curl --fail") && command.at(-1)?.includes("report.json")) events.push("upload-job-file");
+      if (command.at(-1)?.includes("curl --fail") && command.at(-1)?.includes("report.json")) events.push("upload-trigger-file");
       if (command.at(-1) === "status") return { ok: true, exitCode: 0, stdout: JSON.stringify({ state: "exited", exitCode: 0 }), stderr: "" };
-      if (command.at(-1)?.startsWith("find ")) return { ok: true, exitCode: 0, stdout: (options.jobFiles ?? []).map(path => `${path}\t4`).join("\n"), stderr: "" };
+      if (command.at(-1)?.startsWith("find ")) return { ok: true, exitCode: 0, stdout: (options.triggerFiles ?? []).map(path => `${path}\t4`).join("\n"), stderr: "" };
       return { ok: true, exitCode: 0, stdout: "", stderr: "" };
     }),
     download: vi.fn(async (path: string) => {
       events.push(path.endsWith("results.json") ? "result" : "log");
       if (path.endsWith("results.json") && options.failFirstResult && resultReads++ === 0) throw new Error("local guest result transport timed out");
-      if (path.endsWith("report.json")) events.push("download-job-file");
+      if (path.endsWith("report.json")) events.push("download-trigger-file");
       return new TextEncoder().encode(path.endsWith("results.json") ? '{"status":"succeeded"}' : "local Fly guest log\n");
     }),
   };
-  const backend = new FlyJobExecutionBackend({ app: "factorize-test", image: "local/image", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest });
+  const backend = new FlyTriggerExecutionBackend({ app: "factorize-test", image: "local/image", region: "iad", size: "shared-cpu-1x", machines, guest: () => guest });
   return { backend, machines, guest, events };
 }
 
-function schedulerForLocalFly(backend: FlyJobExecutionBackend) {
+function schedulerForLocalFly(backend: FlyTriggerExecutionBackend) {
   const stored: any[] = [], events: string[] = [];
   const run: any = {
-    tenantId: "tenant", id: "11111111-1111-4111-8111-111111111111", jobId: "job", state: "running",
+    tenantId: "tenant", id: "11111111-1111-4111-8111-111111111111", triggerId: "trigger", state: "running",
     executionConfig: { executionProvider: "fly", executionType: "code" },
     executionHandle: { backendKind: "fly", id: "factorize-test/machine-1", operationId: "11111111-1111-4111-8111-111111111111" },
     resultProtocolVersion: 1, finalizationAttempt: 0,
@@ -106,7 +106,7 @@ function schedulerForLocalFly(backend: FlyJobExecutionBackend) {
     events.push("observation");
     return terminalDiagnostics(value);
   });
-  vi.spyOn(RunRepository.prototype, "recordJobResult").mockImplementation(async () => { events.push("persist-result"); });
+  vi.spyOn(RunRepository.prototype, "recordTriggerResult").mockImplementation(async () => { events.push("persist-result"); });
   vi.spyOn(RunRepository.prototype, "terminal").mockImplementation(async () => { events.push("terminal"); });
   vi.spyOn(RunRepository.prototype, "retryFinalization").mockImplementation(async () => { run.finalizationAttempt++; events.push("retry"); });
   vi.spyOn(RunRepository.prototype, "markLaunched").mockImplementation(async (_run, handle) => { run.executionHandle = handle; events.push("mark-launched"); });
@@ -133,7 +133,7 @@ describe("Fly scheduler lifecycle", () => {
   it("keeps a Fly Machine available when result collection needs a retry", async () => {
     const f = fixture();
     f.run.state = "running";
-    f.backend.readJobResult.mockImplementationOnce(async () => { f.events.push("result"); throw new Error("guest transport unavailable"); });
+    f.backend.readTriggerResult.mockImplementationOnce(async () => { f.events.push("result"); throw new Error("guest transport unavailable"); });
     await f.scheduler.poll(f.run).catch((error: unknown) => f.scheduler.fail(f.run, error, "poll"));
     expect(f.events).toEqual(["observation", "result", "retry"]);
     expect(f.backend.stop).not.toHaveBeenCalled();
@@ -202,17 +202,17 @@ describe("Fly scheduler lifecycle", () => {
     expect(f.events.at(-1)).toBe("terminal");
   });
 
-  it("collects and uploads Fly job files before destroying the Machine", async () => {
-    const fly = localFlyFixture({ jobFiles: ["report.json"] });
+  it("collects and uploads Fly trigger files before destroying the Machine", async () => {
+    const fly = localFlyFixture({ triggerFiles: ["report.json"] });
     const f = schedulerForLocalFly(fly.backend);
     f.run.executionHandle.identityProxyOrigin="https://app.example.test";
 
     await f.scheduler.poll(f.run);
 
-    expect(fly.events.indexOf("upload-job-file")).toBeGreaterThanOrEqual(0);
-    expect(fly.events.indexOf("upload-job-file")).toBeLessThan(fly.events.indexOf("destroy"));
+    expect(fly.events.indexOf("upload-trigger-file")).toBeGreaterThanOrEqual(0);
+    expect(fly.events.indexOf("upload-trigger-file")).toBeLessThan(fly.events.indexOf("destroy"));
     expect(fly.guest.run.mock.calls.some(([command])=>command.at(-1)?.includes("http://127.0.0.1:18180/internal/run-artifacts/"))).toBe(true);
-    expect(fly.guest.download).not.toHaveBeenCalledWith("/home/exedev/.factorize-job/report.json");
+    expect(fly.guest.download).not.toHaveBeenCalledWith("/home/exedev/.factorize-trigger/report.json");
     expect(f.events.at(-1)).toBe("terminal");
   });
 });

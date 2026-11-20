@@ -9,7 +9,7 @@ Register provider applications for your deployment origin. Linear requires Issue
 
 ## Account authentication
 
-Factorize owns authentication in PostgreSQL. Create a native account at `/auth/signup` with an email address and a password of 12–200 characters. Emails are case-insensitive. Verify the email before signing in at `/auth/login`; email plus password are accepted. Linear is connected after sign-in from **Integrations**, only for Linear-backed jobs.
+Factorize owns authentication in PostgreSQL. Create a native account at `/auth/signup` with an email address and a password of 12–200 characters. Emails are case-insensitive. Verify the email before signing in at `/auth/login`; email plus password are accepted. Linear is connected after sign-in from **Integrations**, only for Linear-backed triggers.
 
 Postmark sends one-hour, single-use verification and password-reset links. `/auth/verify/request` resends verification; `/auth/password-reset` handles recovery. Links never appear in application responses or logs. Passwords use salted PBKDF2-SHA-256. **Change password** in the account menu requires the current password. Password reset, password change and sign-out invalidate existing sessions via membership session versions, including delegated API credentials.
 
@@ -25,7 +25,7 @@ Before deploying, configure `POSTMARK_SERVER_TOKEN` as a **production GitHub env
 
 ### Existing account migration
 
-Apply `0008_native_accounts.sql` and `0009_remove_auth_usernames.sql` before deploying this code. They reject ambiguous legacy emails that differ only in case (reconcile those identities before retrying migration), preserve tenant IDs, memberships, jobs and encrypted Linear connections, and backfill explicit Linear organization-to-workspace mappings. Existing Linear-only users choose **Forgot password or previously signed in with Linear?**, receive a reset email at their existing address, and set a password. Email possession is required; signup cannot replace an existing account's credentials. Existing native users keep their passwords and may sign in by email; unverified accounts must verify first. A reset never promotes a member to owner. An account with multiple existing owner memberships currently opens the oldest workspace; no new workspace-switching UI is introduced.
+Apply `0008_native_accounts.sql` and `0009_remove_auth_usernames.sql` before deploying this code. They reject ambiguous legacy emails that differ only in case (reconcile those identities before retrying migration), preserve tenant IDs, memberships, triggers and encrypted Linear connections, and backfill explicit Linear organization-to-workspace mappings. Existing Linear-only users choose **Forgot password or previously signed in with Linear?**, receive a reset email at their existing address, and set a password. Email possession is required; signup cannot replace an existing account's credentials. Existing native users keep their passwords and may sign in by email; unverified accounts must verify first. A reset never promotes a member to owner. An account with multiple existing owner memberships currently opens the oldest workspace; no new workspace-switching UI is introduced.
 
 Linear OAuth requires an authenticated owner, binds state to that user/workspace, stores the connection there, and never creates a Factorize session. A Linear organization already bound to another workspace cannot be claimed. Existing webhook routes resolve the explicit mapping. Do not delete that binding to work around an account-recovery problem.
 
@@ -48,7 +48,7 @@ After changing the webhook settings, re-authorize existing workspaces so Linear 
 
 ## Configure ClickUp
 
-Create a ClickUp OAuth application with the callback URL `https://your-domain.example/auth/clickup/callback`, then store its client ID and secret in `CLICKUP_CLIENT_ID` and `CLICKUP_CLIENT_SECRET`. Connecting ClickUp from Integrations registers the signed task webhook automatically. ClickUp triggers can filter a list by status, tag, assignee, or creator; all configured rules must match.
+Create a ClickUp OAuth application with the callback URL `https://your-domain.example/auth/clickup/callback`, then store its client ID and secret in `CLICKUP_CLIENT_ID` and `CLICKUP_CLIENT_SECRET`. Connecting ClickUp from Integrations registers the signed task webhook automatically. ClickUp events can filter a list by status, tag, assignee, or creator; all configured rules must match.
 
 
 ## Configuration reference
@@ -66,3 +66,25 @@ Create a ClickUp OAuth application with the callback URL `https://your-domain.ex
 | `OAUTH_KV` | KV binding containing OAuth clients, grants, refresh tokens, and revocation state |
 
 Never commit `.dev.vars` or production secret values. The included `.dev.vars.example` is a safe template.
+
+## Hosted Pi and optional workspace cutover
+
+Apply migrations 0067–0079 before the coordinated API/static-client release.
+Personal Teams are created automatically; projects and personal default APIs
+are retired. Existing resource IDs, credentials, runs and trace data remain.
+Review app.configuration_diagnostics for normalized names, conflicting skill
+contexts and retired model/harness configuration. Configure an OpenAI-compatible
+model integration with provider URL and optional key, and choose the model in
+Team settings. Pi is bundled in Factorize and persists sessions in PostgreSQL;
+no guest Pi or agent CLI is required. Optional exe.dev/Fly workspace provisioning
+waits for readiness. RUN_ARTIFACTS stores unchanged input/scratch/result media,
+with PostgreSQL receipts and retryable cleanup. No production deployment or
+external model/VM account is required for the local validation suite.
+
+Migration 0079 blocks unstarted legacy guest-agent admissions with
+managed_agent_cutover_required. It preserves their encrypted inputs, credentials
+references, names and history. Review those diagnostics, configure hosted Pi,
+then explicitly cancel/resubmit the affected work. Blocked runs retain their
+capacity until canceled. Drain already running guest agents before a production
+cutover; their retained traces remain readable. No legacy harness is launched
+for new managed runs, and no provider credential is silently substituted.

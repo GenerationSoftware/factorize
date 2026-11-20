@@ -6,7 +6,7 @@ import { build } from "esbuild";
 import { compile } from "@tailwindcss/node";
 import { Scanner } from "@tailwindcss/oxide";
 import { chromium } from "playwright";
-import { mockApi, screens, jobId, runId, events } from "../../packages/app/test/visual/fixtures.mjs";
+import { mockApi, screens, triggerId, runId, events } from "../../packages/app/test/visual/fixtures.mjs";
 const root = new URL("../../", import.meta.url).pathname;
 const temp = root + "packages/app/test/visual/.legacy";
 const reference = "ff4b51b";
@@ -22,15 +22,15 @@ const scanner = new Scanner({ sources: [{ base: src, pattern: "**/*", negated: f
 const css = compiler.build(scanner.scan());
 const viewer = { email: "owner@example.test" };
 const html = {
-  jobs: ui.jobsPage(viewer), job: ui.jobDetailPage(viewer, jobId), editor: ui.jobPage(viewer, jobId),
-  trace: ui.jobRunPage(viewer, runId), settings: ui.settingsPage(viewer),
+  triggers: ui.triggersPage(viewer), trigger: ui.triggerDetailPage(viewer, triggerId), editor: ui.triggerPage(viewer, triggerId),
+  trace: ui.triggerRunPage(viewer, runId), settings: ui.settingsPage(viewer),
   login: ui.authPage("Sign in to Factorize", "login"),
 };
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, "http://fixture").pathname;
   if (path === "/styles.css") { res.setHeader("Content-Type", "text/css"); res.end(css); }
   else if (path === "/bee-mark-monochrome.png") { res.setHeader("Content-Type", "image/png"); res.end(await readFile(root + "packages/app/src/assets/bee-mark-monochrome.png")); }
-  else { res.setHeader("Content-Type", "text/html"); res.end(html[path.slice(1)] ?? html.jobs); }
+  else { res.setHeader("Content-Type", "text/html"); res.end(html[path.slice(1)] ?? html.triggers); }
 });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const origin = "http://127.0.0.1:" + server.address().port;
@@ -44,8 +44,8 @@ try {
     await page.addInitScript(value => localStorage.setItem("factorize-theme", value), theme);
     await mockApi(page, { legacy: true, authenticated: name !== "login" });
     await page.goto(origin + "/" + name);
-    if (name === "jobs") await page.locator("#jobs li").first().waitFor();
-    if (name === "job" || name === "trace") await page.locator("main h1").waitFor();
+    if (name === "triggers") await page.locator("#triggers li").first().waitFor();
+    if (name === "trigger" || name === "trace") await page.locator("main h1").waitFor();
     if (name === "editor") await page.locator('input[name="name"]').filter({ visible: true }).waitFor();
     if (name === "settings") await page.locator("#installed-loading").waitFor({ state: "hidden" });
     // Historical native auth omitted the theme script; exercise its existing dark classes explicitly.

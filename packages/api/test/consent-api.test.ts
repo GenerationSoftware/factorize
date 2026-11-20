@@ -3,7 +3,7 @@ import { consentPreview, consentDecision } from "../src/consent-api";
 import { decideDevice, deviceAuthorization, inspectDevice } from "../src/device-oauth";
 import type { Env } from "../src/types";
 const session = { tenantId: "tenant", userId: "owner", email: "owner@example.test", sessionVersion: 2, exp: Math.floor(Date.now() / 1000) + 3600 };
-const parsed = { responseType: "code", clientId: "client", redirectUri: "https://client.test/callback", scope: ["flows:read", "runs:write"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: "https://factorize.test/mcp", issuer: "https://factorize.test" };
+const parsed = { responseType: "code", clientId: "client", redirectUri: "https://client.test/callback", scope: ["team:read", "triggers:read", "integrations:read", "runs:read", "runs:invoke", "runs:cancel", "runs:write"], state: "state", codeChallenge: "challenge", codeChallengeMethod: "S256", resource: "https://factorize.test/mcp", issuer: "https://factorize.test" };
 function fixture() {
   const values = new Map<string, string>();
   const used = new Set<string>();
@@ -19,13 +19,13 @@ describe("static consent support", () => {
   it("binds expiring decisions to owner, tenant and session version; enforces requested scopes and current registered redirects", async () => {
     const { env, oauth } = fixture(), preview = (await consentPreview(env, session, { authorizationQuery: "client_id=client&redirect_uri=https%3A%2F%2Fclient.test%2Fcallback" }))!;
     expect(preview.clientName).toBe("External client");
-    const input = { request: preview.request, signature: preview.signature, decision: "allow" as const, scopes: ["flows:read" as const] };
+    const input = { request: preview.request, signature: preview.signature, decision: "allow" as const, scopes: ["team:read", "triggers:read", "integrations:read"] };
     for (const modified of [{ ...session, tenantId: "other" }, { ...session, userId: "other" }, { ...session, sessionVersion: 3 }]) expect(await consentDecision(env, modified, input)).toBeNull();
-    expect(await consentDecision(env, session, { ...input, scopes: ["flows:write"] })).toBeNull();
+    expect(await consentDecision(env, session, { ...input, scopes: ["team:write", "triggers:write", "integrations:write"] })).toBeNull();
     expect(await consentDecision(env, session, { ...input, request: input.request + "x" })).toBeNull();
     expect(oauth.completeAuthorization).not.toHaveBeenCalled();
     expect((await consentDecision(env, session, input))?.redirectTo).toContain("code=authorized");
-    expect(oauth.completeAuthorization.mock.calls[0][0]).toMatchObject({ scope: ["flows:read"], props: { tenantId: session.tenantId, userId: session.userId, sessionVersion: 2, scopes: ["flows:read"] } });
+    expect(oauth.completeAuthorization.mock.calls[0][0]).toMatchObject({ scope: ["team:read", "triggers:read", "integrations:read"], props: { tenantId: session.tenantId, userId: session.userId, sessionVersion: 2, scopes: ["team:read", "triggers:read", "integrations:read"] } });
     oauth.lookupClient.mockResolvedValue({ clientId: "client", clientName: "External client", redirectUris: ["https://other.test/callback"], tokenEndpointAuthMethod: "none" });
     expect(await consentDecision(env, session, input)).toBeNull();
   });
@@ -39,9 +39,9 @@ describe("static consent support", () => {
     } finally { vi.useRealTimers(); }
   });
   it("inspects only public device metadata and keeps grant/code state server-owned", async () => {
-    const { env, oauth } = fixture(); delete env.DATABASE; const form = new FormData(); form.set("client_id", "client"); form.set("scope", "flows:read");
-    const issued = await (await deviceAuthorization(new Request(env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: form }), env, oauth as any, ["flows:read"])).json() as any;
-    const info = await inspectDevice(env, issued.user_code); expect(info).toMatchObject({ clientName: "External client", scopes: ["flows:read"] }); expect(info).not.toHaveProperty("device_code");
+    const { env, oauth } = fixture(); delete env.DATABASE; const form = new FormData(); form.set("client_id", "client"); form.set("scope", "team:read triggers:read integrations:read");
+    const issued = await (await deviceAuthorization(new Request(env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: form }), env, oauth as any, ["team:read", "triggers:read", "integrations:read"])).json() as any;
+    const info = await inspectDevice(env, issued.user_code); expect(info).toMatchObject({ clientName: "External client", scopes: ["team:read", "triggers:read", "integrations:read"] }); expect(info).not.toHaveProperty("device_code");
     expect(await decideDevice(env, oauth as any, session, issued.user_code, "allow")).toEqual({ status: "approved" }); expect(await inspectDevice(env, issued.user_code)).toBeNull(); expect(await decideDevice(env, oauth as any, session, issued.user_code, "allow")).toBeNull(); expect(oauth.completeAuthorization).toHaveBeenCalledTimes(1);
   });
 });

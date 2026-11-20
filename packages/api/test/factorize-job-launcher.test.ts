@@ -8,10 +8,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FACTORIZE_JOB_LAUNCHER } from "../src/factorize-job-launcher";
 
-describe("shared factorize-job launcher", () => {
-  it.each(["agent", "code"] as const)("preserves native HTTPS proxy routing for %s jobs alongside the Factorize helper", async kind => {
+describe("shared factorize-trigger launcher", () => {
+  it.each(["agent", "code"] as const)("preserves native HTTPS proxy routing for %s triggers alongside the Factorize helper", async kind => {
     const directory = await mkdtemp(join(tmpdir(), "factorize-launcher-network-"));
-    const root = join(directory, "job"), helper = join(directory, "factorize-job"), agent = join(directory, "network-agent.py");
+    const root = join(directory, "trigger"), helper = join(directory, "factorize-trigger"), agent = join(directory, "network-agent.py");
     const key = join(directory, "key.pem"), cert = join(directory, "cert.pem");
     const tunnels: string[] = [];
     let helperRequests = 0;
@@ -42,7 +42,7 @@ describe("shared factorize-job launcher", () => {
       const proxy = `http://127.0.0.1:${(nativeProxy.address() as { port: number }).port}`;
       const factorize = `http://127.0.0.1:${(identityHelper.address() as { port: number }).port}`;
       const proxyNames = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"];
-      await writeFile(helper, FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-job", root));
+      await writeFile(helper, FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-trigger", root));
       await writeFile(agent, `import json, os, ssl, urllib.request\ncontext = ssl.create_default_context(cafile=${JSON.stringify(cert)})\nbody = urllib.request.urlopen('https://models.fixture/check', context=context, timeout=3).read().decode()\nprint(json.dumps({'body': body, 'factorize': os.environ['FACTORIZE_PROXY_URL'], 'proxies': {name: os.environ[name] for name in ${JSON.stringify(proxyNames)}}}))\n`);
       const payload = { version: 1, runId: "network-fixture", ...(kind === "agent"
         ? { harness: { executable: "python3", args: [agent], env: {} }, prompt: "verify networking" }
@@ -63,10 +63,10 @@ describe("shared factorize-job launcher", () => {
     }
   });
 
-  it("runs code jobs asynchronously and records process completion and output", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "factorize-job-launcher-"));
-    const root = join(directory, "job"), log = join(directory, "factorize.log"), helper = join(directory, "factorize-job");
-    const source = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-job", root).replace("/tmp/factorize.log", log).replace("/tmp/factorize.stderr", join(directory, "factorize.stderr"));
+  it("runs code triggers asynchronously and records process completion and output", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "factorize-trigger-launcher-"));
+    const root = join(directory, "trigger"), log = join(directory, "factorize.log"), helper = join(directory, "factorize-trigger");
+    const source = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-trigger", root).replace("/tmp/factorize.log", log).replace("/tmp/factorize.stderr", join(directory, "factorize.stderr"));
     try {
       await writeFile(helper, source, { mode: 0o700 });
       await mkdir(root, { mode: 0o700 });
@@ -78,9 +78,9 @@ describe("shared factorize-job launcher", () => {
             const state = JSON.parse(await readFile(join(root, "process.json"), "utf8"));
             if (state.state === "exited") return state;
           } catch { /* The launcher writes process state by atomic rename. */ }
-          if (Date.now() > deadline) throw new Error("factorize-job did not record completion before the test deadline");
+          if (Date.now() > deadline) throw new Error("factorize-trigger did not record completion before the test deadline");
         }
-        throw new Error("factorize-job state watcher closed before completion");
+        throw new Error("factorize-trigger state watcher closed before completion");
       })();
       const payload = JSON.stringify({ version: 1, runId: "test-run", code: { script: "printf '%s' '{\"status\":\"succeeded\"}' > \"$FACTORIZE_RESULT_PATH\"; printf 'launcher-ok\\n'", context: { fixture: true } } });
       expect(execFileSync("python3", [helper, "launch"], { input: payload, encoding: "utf8" }).trim()).toBe("started");
@@ -92,9 +92,9 @@ describe("shared factorize-job launcher", () => {
   });
 
   it("preserves a failed code process exit state, structured result, and output", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "factorize-job-launcher-failure-"));
-    const root = join(directory, "job"), log = join(directory, "factorize.log"), helper = join(directory, "factorize-job");
-    const source = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-job", root).replace("/tmp/factorize.log", log).replace("/tmp/factorize.stderr", join(directory, "factorize.stderr"));
+    const directory = await mkdtemp(join(tmpdir(), "factorize-trigger-launcher-failure-"));
+    const root = join(directory, "trigger"), log = join(directory, "factorize.log"), helper = join(directory, "factorize-trigger");
+    const source = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-trigger", root).replace("/tmp/factorize.log", log).replace("/tmp/factorize.stderr", join(directory, "factorize.stderr"));
     try {
       await writeFile(helper, source, { mode: 0o700 });
       await mkdir(root, { mode: 0o700 });
@@ -106,9 +106,9 @@ describe("shared factorize-job launcher", () => {
             const state = JSON.parse(await readFile(join(root, "process.json"), "utf8"));
             if (state.state === "exited") return state;
           } catch { /* The launcher writes process state by atomic rename. */ }
-          if (Date.now() > deadline) throw new Error("factorize-job did not record failure before the test deadline");
+          if (Date.now() > deadline) throw new Error("factorize-trigger did not record failure before the test deadline");
         }
-        throw new Error("factorize-job state watcher closed before failure was recorded");
+        throw new Error("factorize-trigger state watcher closed before failure was recorded");
       })();
       const payload = JSON.stringify({
         version: 1,
@@ -126,9 +126,9 @@ describe("shared factorize-job launcher", () => {
 
   it("runs an agent harness with its prompt and environment and records its result", async () => {
     const directory = await mkdtemp(join(tmpdir(), "factorize-agent-launcher-"));
-    const root = join(directory, "job"), log = join(directory, "factorize.log"), helper = join(directory, "factorize-job");
+    const root = join(directory, "trigger"), log = join(directory, "factorize.log"), helper = join(directory, "factorize-trigger");
     const agent = join(directory, "fake-agent.py");
-    const source = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-job", root).replace("/tmp/factorize.log", log).replace("/tmp/factorize.stderr", join(directory, "factorize.stderr"));
+    const source = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-trigger", root).replace("/tmp/factorize.log", log).replace("/tmp/factorize.stderr", join(directory, "factorize.stderr"));
     try {
       await writeFile(helper, source, { mode: 0o700 });
       await writeFile(agent, "#!/usr/bin/env python3\nimport json, os, pathlib, sys\nprompt = sys.stdin.read()\nresult = {\"status\": \"succeeded\", \"prompt\": prompt, \"account\": os.environ.get(\"FACTORIZE_FIXTURE_ACCOUNT\")}\npathlib.Path(os.environ[\"FACTORIZE_RESULT_PATH\"]).write_text(json.dumps(result))\nprint(\"agent-harness-ok\")\n", { mode: 0o700 });
@@ -141,9 +141,9 @@ describe("shared factorize-job launcher", () => {
             const state = JSON.parse(await readFile(join(root, "process.json"), "utf8"));
             if (state.state === "exited") return state;
           } catch { /* The launcher writes process state by atomic rename. */ }
-          if (Date.now() > deadline) throw new Error("factorize-job did not record agent completion before the test deadline");
+          if (Date.now() > deadline) throw new Error("factorize-trigger did not record agent completion before the test deadline");
         }
-        throw new Error("factorize-job state watcher closed before agent completion");
+        throw new Error("factorize-trigger state watcher closed before agent completion");
       })();
       const payload = JSON.stringify({
         version: 1,
@@ -164,9 +164,9 @@ describe("shared factorize-job launcher", () => {
 
   it("allows a custom image entrypoint to finish setup before execing the shared launcher", async () => {
     const directory = await mkdtemp(join(tmpdir(), "factorize-custom-image-launcher-"));
-    const root = join(directory, "job"), log = join(directory, "factorize.log"), helper = join(directory, "factorize-job");
+    const root = join(directory, "trigger"), log = join(directory, "factorize.log"), helper = join(directory, "factorize-trigger");
     const setup = join(directory, "image-setup.complete");
-    const source = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-job", root).replace("/tmp/factorize.log", log).replace("/tmp/factorize.stderr", join(directory, "factorize.stderr"));
+    const source = FACTORIZE_JOB_LAUNCHER.replace("/home/exedev/.factorize-trigger", root).replace("/tmp/factorize.log", log).replace("/tmp/factorize.stderr", join(directory, "factorize.stderr"));
     try {
       await writeFile(helper, source, { mode: 0o700 });
       await mkdir(root, { mode: 0o700 });

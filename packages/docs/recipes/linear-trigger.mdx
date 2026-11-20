@@ -1,0 +1,20 @@
+---
+title: Run a trigger from Linear
+description: Connect a workspace, select a project and match issues.
+---
+
+User request:
+
+> When an issue in my selected Linear project moves to my selected Ready status, run the repository agent to investigate it and report the result.
+
+In browser [Integrations](https://app.factorize.sh/integrations), connect Linear, approve workspace access, and select an accessible project/status in the trigger editor. The execution account separately needs repository and Linear access if the prompt asks it to read/update Linear. MCP does not list Linear projects/statuses or connect accounts; use browser resource selection to obtain the IDs.
+
+Create a trigger with the required [trigger fields](/mcp/tools), repository instructions, and this event (replace both IDs):
+
+```json
+{"kind":"webhook","enabled":true,"config":{"provider":"linear","projectId":"PROJECT_ID","matchRules":[{"type":"status","targetId":"STATUS_ID"}]}}
+```
+
+Factorize adds the manual event. Fetch the saved trigger to obtain the webhook slug/reflection. Safely replace configuration with an Event template such as `Clone REPOSITORY_URL. Investigate this Linear issue: {{event-2.issue.title}}. Issue context: {{event-2}}. Run relevant checks and report evidence.` Use the actual webhook slug, preserving all other configuration.
+
+Expected result: a matching issue change delivers an event and starts a run; all configured rules must match. Move one test issue into the selected status. Verify `list_webhook_deliveries({"provider":"linear","triggerId":"JOB_ID"})`, inspect the delivery timeline and `list_trigger_webhook_activity`, then check the run's firing event, issue context, then inspect output in the browser trace. Factorize does not automatically post execution output to Linear. For absent/rejected events follow [triggers not firing](/troubleshooting/events).
