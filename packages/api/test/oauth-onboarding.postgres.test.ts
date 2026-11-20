@@ -41,7 +41,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
   }
   it("signs up, verifies, signs in automatically and explicitly consents once with original state/PKCE", async () => {
     mail(); const a = await start("new-user"), account = email();
-    expect((await call("/api/v1/auth/signup", { email: account, password, connection: a.connection }, a.cookie)).status).toBe(202);
+    expect((await call("/api/v1/auth/signup", { email: account, username: account.split("@")[0].replaceAll("_","-").slice(0,39), password, connection: a.connection }, a.cookie)).status).toBe(202);
     expect(await (await call("/api/v1/auth/connections/resume", { connection: a.connection }, a.cookie)).json()).toMatchObject({ pending: true, clientName: "MCP CLI" });
     const verification = token(); const verified = await call("/api/v1/auth/email-verification/complete", { token: verification }, a.cookie);
     expect(verified.status).toBe(200); const body = await verified.json() as any, cookie = a.cookie + "; " + cookieOf(verified);
@@ -55,7 +55,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
   });
   it("verifies in another browser but allows callback consent only in the initiating browser; denial is final", async () => {
     mail(); const a = await start("another-browser"), account = email();
-    await call("/api/v1/auth/signup", { email: account, password, connection: a.connection }, a.cookie);
+    await call("/api/v1/auth/signup", { email: account, username: account.split("@")[0].replaceAll("_","-").slice(0,39), password, connection: a.connection }, a.cookie);
     const verified = await call("/api/v1/auth/email-verification/complete", { token: token() }); expect(await verified.json()).toEqual({ ok: true, crossBrowser: true });
     const foreign = cookieOf(verified), returnTo = a.destination + `&connection=${a.connection}`;
     expect((await call("/api/v1/oauth/consent/preview", { authorizationQuery: returnTo.split("?")[1] }, foreign)).status).toBe(400);
@@ -70,7 +70,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
   it("isolates simultaneous requests through resend, existing-account login and password recovery", async () => {
     mail(); const a = await start("a"), b = await start("b"), account = email(), cookies = a.cookie + "; " + b.cookie;
     expect(a.cookie.split("=")[0]).not.toBe(b.cookie.split("=")[0]);
-    await call("/api/v1/auth/signup", { email: account, password, connection: a.connection }, cookies); const first = token();
+    await call("/api/v1/auth/signup", { email: account, username: account.split("@")[0].replaceAll("_","-").slice(0,39), password, connection: a.connection }, cookies); const first = token();
     await call("/api/v1/auth/email-verification/request", { email: account, connection: b.connection }, cookies); const second = token();
     for (const [t, c] of [[first, a], [second, b]]) { const verified = await call("/api/v1/auth/email-verification/complete", { token: t }, cookies); expect(verified.status).toBe(200); expect((await verified.json() as any).returnTo).toContain(`connection=${c.connection}`); }
     const c = await start("existing"), signed = await call("/api/v1/auth/login", { email: account, password, connection: c.connection }, c.cookie);
@@ -84,8 +84,8 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
   it("rejects forged/expired connections and revoked verification without extending the client request", async () => {
     mail(); for (const returnTo of ["https://evil.test", "//evil.test", destination("bad").replace("127.0.0.1", "evil.test"), destination("bad").replace("S256", "plain")]) expect((await call("/api/v1/auth/connections", { returnTo })).status).toBe(400);
     const a = await start("expired"), account = email();
-    expect((await call("/api/v1/auth/signup", { email: account, password, connection: a.connection })).status).toBe(400);
-    await call("/api/v1/auth/signup", { email: account, password, connection: a.connection }, a.cookie); const verification = token();
+    expect((await call("/api/v1/auth/signup", { email: account, username: account.split("@")[0].replaceAll("_","-").slice(0,39), password, connection: a.connection })).status).toBe(400);
+    await call("/api/v1/auth/signup", { email: account, username: account.split("@")[0].replaceAll("_","-").slice(0,39), password, connection: a.connection }, a.cookie); const verification = token();
     await f.db.pool.query("UPDATE app.oauth_connections SET expires_at=now()-interval '1 second' WHERE id=$1", [a.connection]);
     expect((await call("/api/v1/auth/email-verification/request", { email: account, connection: a.connection }, a.cookie)).status).toBe(400);
     const verified = await call("/api/v1/auth/email-verification/complete", { token: verification }, a.cookie); expect(verified.status).toBe(200); expect(await verified.json()).toMatchObject({ returnTo: "/auth/login?expired=1" });
@@ -98,7 +98,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("MCP onboarding public boun
   async function device() { return await (await deviceAuthorization(new Request(f.env.APP_ORIGIN + "/oauth/device_authorization", { method: "POST", body: new URLSearchParams({ client_id: "client", scope: "team:read triggers:read integrations:read" }) }), f.env, oauth as any, ["team:read", "triggers:read", "integrations:read"])).json() as any; }
   it("continues device signup in the verification browser and rejects unsigned, cross-owner and forged consent", async () => {
     mail(); const issued = await device(), a = await start("device", `/device?user_code=${issued.user_code}`), account = email();
-    await call("/api/v1/auth/signup", { email: account, password, connection: a.connection }, a.cookie);
+    await call("/api/v1/auth/signup", { email: account, username: account.split("@")[0].replaceAll("_","-").slice(0,39), password, connection: a.connection }, a.cookie);
     const verified = await call("/api/v1/auth/email-verification/complete", { token: token() }), cookie = cookieOf(verified);
     expect((await verified.json() as any).returnTo).toContain("/device?user_code="); expect(grant).not.toHaveBeenCalled();
     const preview = await (await call("/api/v1/oauth/device/preview", { userCode: issued.user_code }, cookie)).json() as any;

@@ -1,3 +1,6 @@
+import { skillTriggerInput, skillTriggerResponse } from "./skill-trigger";
+import { skillSettings, skillSettingsInput } from "./skill-settings";
+import { profileInput, profileResponse } from "./usernames";
 import {mediaUploadInput,mediaReceipt,fetchMediaInput} from "./media-contracts";
 import {modelProviderConfiguration} from "./pi-provider";
 import { teamRunDefaults, teamResponse } from "./flow-schemas";
@@ -34,7 +37,7 @@ import { traceReplaySchema } from "./trace-replay-schemas";
 import { X_OAUTH_SCOPES } from "./x-oauth";
 import document from "./api-document.json";
 import { authInputs, authSuccess, continuationSuccess, connectionStartInput, connectionStartSuccess, connectionResumeInput, loginSuccess, sessionResponse, type AuthAction } from "./auth-api";
-import { skillInput, skillUpdateInput, skillPage, skillResponse, skillTriggersResponse, previewSkillInput, previewPromptResponse } from "./skills";
+import { skillDirectoryResponse, skillInput, skillUpdateInput, skillPage, skillResponse, skillTriggersResponse, previewSkillInput, previewPromptResponse } from "./skills";
 import { flyConnectionInput, flyConnectionMetadata } from "./fly-account-client";
 import { flyExecutionConfiguration, flyExecutionConfigurationInput } from "./fly-execution-configurations";
 
@@ -287,6 +290,8 @@ export const API_ROUTES: RouteContract[] = [
   }, (service, { params, body }) => service.deleteBearerIntegration(params.integrationId, body), { body: bearerIntegrationDelete, maxBodyBytes: 4096, ownerSession: true }),
   authRoute("POST", "/api/v1/auth/connections", "connection-start", "Persist an individual validated MCP connection; sets a per-attempt browser cookie", connectionStartSuccess, connectionStartInput),
   authRoute("POST", "/api/v1/auth/connections/resume", "connection-resume", "Resume verified onboarding in the initiating browser; never grants OAuth access", continuationSuccess, connectionResumeInput),
+  {...authRoute("GET", "/api/v1/profile", "profile", "Read your profile; interactive owner browser session required", profileResponse),ownerSession:true},
+  {...authRoute("PUT", "/api/v1/profile", "profile-update", "Change your globally unique username; interactive owner browser session required", profileResponse, profileInput),ownerSession:true},
   authRoute("GET", "/api/v1/session", "session", "Get current browser session", sessionResponse),
   authRoute("POST", "/api/v1/auth/login", "login", "Sign in", loginSuccess, authInputs.login),
   authRoute("POST", "/api/v1/auth/signup", "signup", "Request signup; existing accounts return the same accepted response", authSuccess, authInputs.signup, 202),
@@ -809,6 +814,11 @@ export const API_ROUTES: RouteContract[] = [
   route("PUT", "/api/v1/skill-library", "skills:write", { summary: "Select the authoritative skills repository", responses: { "200": { description: "Select the authoritative skills repository", content: { "application/json": { schema: jsonSchema(libraryStatus, "output") } } } } }, (service,{body}) => service.configureSkillLibrary(body), {body:configureLibrary}),
   route("POST", "/api/v1/skill-library/token", "skills:write", { summary: "Issue a one-hour repository credential (read-only for GitHub mirrors)", responses: { "200": { description: "Issue a one-hour repository credential (read-only for GitHub mirrors)", content: { "application/json": { schema: jsonSchema(libraryToken, "output") } } } } }, (service) => service.skillLibraryToken()),
   route("POST", "/api/v1/skill-library/sync", "skills:write", { summary: "Synchronize the tracked branch", responses: { "200": { description: "Synchronize the tracked branch", content: { "application/json": { schema: jsonSchema(libraryStatus, "output") } } } } }, (service) => service.syncSkillLibrary()),
+  route("GET", "/api/v1/skills/{skillId}/files", "skills:read", {summary:"Browse the published skill directory at its immutable revision",responses:{"200":{description:"Published files, with base64 encoded contents",content:{"application/json":{schema:jsonSchema(skillDirectoryResponse,"output")}}}}},(service,{params})=>service.getSkillDirectory(params.skillId),{parameters:z.object({skillId:z.uuid()})}),
+  route("GET", "/api/v1/skills/{skillId}/trigger", ["skills:read","triggers:read"], {summary:"Read a skill's optional trigger",responses:{"200":{description:"Optional trigger",content:{"application/json":{schema:jsonSchema(skillTriggerResponse,"output")}}}}},(service,{params})=>service.getSkillTrigger(params.skillId),{parameters:z.object({skillId:z.uuid()})}),
+  route("PUT", "/api/v1/skills/{skillId}/trigger", ["skills:write","triggers:write"], {summary:"Configure a skill's event sources and enabled state",responses:{"200":{description:"Saved trigger",content:{"application/json":{schema:jsonSchema(skillTriggerResponse,"output")}}}}},(service,{params,body})=>service.saveSkillTrigger(params.skillId,body),{parameters:z.object({skillId:z.uuid()}),body:skillTriggerInput,maxBodyBytes:1_000_000}),
+  route("GET", "/api/v1/skills/{skillId}/settings", "skills:read", {summary:"Read skill execution defaults",responses:{"200":{description:"Skill settings",content:{"application/json":{schema:jsonSchema(skillSettings,"output")}}}}},(service,{params})=>service.getSkillSettings(params.skillId),{parameters:z.object({skillId:z.uuid()})}),
+  route("PUT", "/api/v1/skills/{skillId}/settings", ["skills:write","triggers:write"], {summary:"Save skill execution defaults for future manual and triggered runs",responses:{"200":{description:"Saved skill settings",content:{"application/json":{schema:jsonSchema(skillSettings,"output")}}}}},(service,{params,body})=>service.setSkillSettings(params.skillId,body),{parameters:z.object({skillId:z.uuid()}),body:skillSettingsInput,maxBodyBytes:300_000}),
   route("GET", "/api/v1/skills", "skills:read", { summary: "Search global skills", responses: { "200": { description: "Skills", content: { "application/json": { schema: jsonSchema(skillPage, "output") } } } } }, (service, { query }) => service.listSkills(query), { query: skillQuery }),
   route("POST", "/api/v1/skills", "skills:write", { summary: "Create a global skill", responses: { "201": { description: "Created", content: { "application/json": { schema: jsonSchema(skillResponse, "output") } } } } }, (service, { body }) => service.createSkill(body), { body: skillInput }),
   route("POST", "/api/v1/triggers/preview", "skills:read", { summary: "Preview one skill, a literal prompt and optional Event template", responses: { "200": { description: "Prompt preview", content: { "application/json": { schema: jsonSchema(previewPromptResponse, "output") } } } } }, (service, { body }) => service.previewTriggerPrompt(body), { body: previewSkillInput }),

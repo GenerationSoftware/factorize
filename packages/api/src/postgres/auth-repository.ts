@@ -1,3 +1,4 @@
+import { usernameSchema } from "../usernames";
 import { hashPassword, normalizeEmail, tokenDigest, validEmail, validPassword, verifyPassword } from "../auth";
 import { sendAuthEmail, validateAuthEmailConfig } from "../auth-email";
 import type { Env } from "../types";
@@ -13,15 +14,18 @@ export class AuthRepository {
   async signup(input: Record<string, unknown>) {
     const email = normalizeEmail(String(input.email ?? "")), password = String(input.password ?? "");
     if (!validEmail(email) || !validPassword(password)) return { status: 400, body: { error: "Use a valid email and a password of 12–200 characters." } };
+    const username = usernameSchema.safeParse(input.username);
+    if (!username.success) return { status: 400, body: { error: "Choose a username of 3–39 letters/numbers with single hyphens between segments." } };
     validateAuthEmailConfig(this.env);
     const userId = crypto.randomUUID(), passwordHash = await hashPassword(password);
     try {
       await this.database.transaction(async client => {
-        await client.query("INSERT INTO app.auth_users(id,email,email_verified) VALUES ($1,$2,false)", [userId, email]);
+        await client.query("INSERT INTO app.auth_users(id,email,email_verified,username) VALUES ($1,$2,false,$3)", [userId, email, username.data]);
         await client.query("INSERT INTO app.auth_accounts(id,user_id,provider,provider_account_id,password_hash) VALUES ($1,$2::uuid,'credential',$2::uuid::text,$3)", [crypto.randomUUID(), userId, passwordHash]);
         await this.ensurePersonalTeam(client, userId, email);
       });
     } catch (error: any) {
+      if (error?.constraint === "auth_users_username_unique") return { status: 409, body: { error: "That username is already taken." } };
       if (error?.code === "23505") return { status: 409, body: { error: "That email is already registered. Sign in, resend verification, or reset your password." } };
       throw error;
     }
@@ -29,12 +33,25 @@ export class AuthRepository {
     return { status: 201, body: { ok: true } };
   }
 
+  async profile(userId: string) {
+    return (await this.database.pool.query<{username:string;email:string}>("SELECT username,email FROM app.auth_users WHERE id=$1", [userId])).rows[0];
+  }
+  async updateProfile(userId: string, username: string) {
+    try {
+      const row = (await this.database.pool.query<{username:string;email:string}>("UPDATE app.auth_users SET username=$2 WHERE id=$1 RETURNING username,email", [userId, usernameSchema.parse(username)])).rows[0];
+      return { status: 200, body: row };
+    } catch (error: any) {
+      if (error?.constraint === "auth_users_username_unique") return { status: 409, body: { error: "That username is already taken." } };
+      throw error;
+    }
+  }
+
   async login(input: Record<string, unknown>) {
     const email = normalizeEmail(String(input.email ?? "")), password = String(input.password ?? "");
     return this.database.transaction(async client => {
-      const row = (await client.query<{ id: string; email: string; email_verified: boolean }>("SELECT id,email,email_verified FROM app.auth_users WHERE lower(email)=$1 FOR UPDATE", [email])).rows[0];
+      const row = (await client.query<{ id: string; email: string; email_verified: boolean }>("SELECT id,email,email_verified FROM app.auth_users WHERE lower(email)=$1 OR username=$1 FOR UPDATE", [email])).rows[0];
       const account = row ? (await client.query<{ password_hash: string }>("SELECT password_hash FROM app.auth_accounts WHERE user_id=$1 AND provider='credential'", [row.id])).rows[0] : null;
-      if (!validPassword(password) || !row || !account?.password_hash || !(await verifyPassword(password, account.password_hash))) return { status: 401, body: { error: "Invalid email or password." } };
+      if (!validPassword(password) || !row || !account?.password_hash || !(await verifyPassword(password, account.password_hash))) return { status: 401, body: { error: "Invalid username, email, or password." } };
       if (!row.email_verified) return { status: 403, body: { error: "Verify your email before signing in. You can resend the verification email below." } };
       // Existing accounts keep their existing workspace; never derive tenancy from OAuth.
       const member = (await client.query<{ tenant_id: string; session_version: number }>("SELECT tenant_id,session_version FROM app.members WHERE user_id=$1 AND role='owner' ORDER BY created_at,tenant_id LIMIT 1", [row.id])).rows[0];

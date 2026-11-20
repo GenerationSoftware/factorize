@@ -8,7 +8,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "factorize-api-client";
 import { runPageQuery, runStatusQuery, RunNotFoundError } from "./queries";
 import { triggerQuery } from "../jobs/queries";
-import { TriggerNav } from "../jobs/job-nav";
 import { ResourceSwitcher } from "../../shared/resource-switcher";
 import { messageOf } from "../auth/session";
 import { NavIcon } from "../../shared/nav-icon";
@@ -70,7 +69,7 @@ export function RunDetail() {
   const cancelRename = () => { setRenaming(false); setNameError(""); rename.reset(); };
   const content = <>
     {status.isPending && <p role="status">Loading run…</p>}{status.error && <p role="alert">{status.error.message}</p>}
-    <Breadcrumb>{status.data?.trigger_id ? <Link to="/triggers/$triggerId" params={{ triggerId: status.data.trigger_id }}>{status.data.trigger_name}</Link> : <Link to="/runs">Runs</Link>}</Breadcrumb>
+
     {status.data && <>
       <ResourceHeader type="Run" title={status.data.run_name || "Run"} titleActions={<>{trigger.data && !renaming && <ResourceSwitcher kind="Run" items={(triggerRuns.data?.items ?? []).map(run => ({ id: run.id, name: run.run_name || "Run" }))} currentId={runId!} loading={triggerRuns.isPending} error={triggerRuns.error?.message} onSelect={id => { void navigate({ to: "/runs/$runId", params: { runId: id } }); }} />}{renaming ? <form className="flex flex-wrap items-center gap-2" onSubmit={event => { event.preventDefault(); setNameError(""); rename.mutate(); }}><label className="sr-only" htmlFor="run-name">Run name</label><input autoFocus id="run-name" className="w-64 rounded-lg border border-stone-300 bg-white px-3 py-2 text-base font-normal dark:border-slate-700 dark:bg-slate-950" value={nameDraft} maxLength={120} aria-invalid={!!nameError} aria-describedby={nameError ? "run-name-error" : undefined} onChange={event => { setNameDraft(event.target.value); setNameError(""); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); cancelRename(); } }} /><Button type="submit" disabled={rename.isPending}>Save</Button><Button type="button" disabled={rename.isPending} onClick={cancelRename}>Cancel</Button>{nameError && <span id="run-name-error" role="alert" className="basis-full text-sm text-red-700 dark:text-red-300">{nameError}</span>}</form> : <Button type="button" onClick={startRename}>Rename</Button>}</>} description={<p role="status"><RunStatusLabel state={status.data.state} failureSource={status.data.failure_source} failure={status.data.failure} />{status.data.launch_skill_key && <span> · /{status.data.launch_skill_key}</span>}{status.data.finalizing ? " · Finalizing trace and artifacts" : ""}{(status.data.failure?.reason || (status.data.agent_error as any)?.reason) && <span className="mt-1 block max-w-3xl text-left">{status.data.failure?.reason || (status.data.agent_error as any).reason}</span>}</p>}>{["starting", "running", "blocked", "stopping"].includes(status.data.state) && <Button className="shrink-0" disabled={stop.isPending || status.data.state === "stopping"} onClick={() => stop.mutate()}>Stop run</Button>}</ResourceHeader>
     </>}
@@ -101,5 +100,5 @@ export function RunDetail() {
     <ContinuousTrace key={`${revision}:${fullTrace}`} runId={runId!} revision={revision} active={active} visible={fullTrace || tab === "trace"} preview={!fullTrace} onReset={next => { if (next === revision) return; void cache.cancelQueries({ queryKey: ["runs", runId, "continuous-trace"] }); cache.removeQueries({ queryKey: ["runs", runId, "continuous-trace"] }); setRevision(next); cache.setQueryData(runStatusQuery(runId!).queryKey, previous => previous ? { ...previous, trace_revision: next } : previous); cache.removeQueries({ queryKey: ["runs", runId, "continuous-tail"] }); }} />
     </section>}
   </>;
-  return <>{trigger.data && <TriggerNav triggerId={trigger.data.id} tab="runs" />}<Page className="max-w-6xl pt-6 sm:pt-8">{content}</Page></>;
+  return <><Page className="max-w-6xl pt-6 sm:pt-8">{content}</Page></>;
 }

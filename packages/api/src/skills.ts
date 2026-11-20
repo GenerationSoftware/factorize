@@ -6,7 +6,7 @@ export const SKILL_BODY_LIMIT = 100_000;
 export const skillInput = z.object({ key: resourceName, body: z.string().max(SKILL_BODY_LIMIT) }).strict();
 export const skillUpdateInput = z.object({ key: resourceName.optional(), body: z.string().max(SKILL_BODY_LIMIT).optional(), expectedRevision: z.number().int().positive() }).strict();
 export const skillResponse = z.object({ id: z.guid(), key: z.string(), revision: z.number().int().positive(), body: z.string(), usageCount: z.number().int().nonnegative(), createdAt: z.string(), updatedAt: z.string() });
-export const skillMetadata = skillResponse.omit({ body: true });
+export const skillMetadata = skillResponse.omit({ body: true }).extend({trigger:z.object({id:z.guid(),enabled:z.boolean()}).nullable().optional(),lastRunState:z.string().nullable().optional()});
 export const skillPage = z.object({ items: z.array(skillMetadata), nextCursor: z.guid().nullable() });
 export const skillTriggersResponse = z.object({ skillId: z.guid(), triggers: z.array(z.object({ id: z.guid(), name: z.string(), enabled: z.boolean() })) });
 export const previewSkillInput = z.object({
@@ -19,3 +19,5 @@ export type Skill = z.infer<typeof skillResponse>;
 export function composePrompt(skill: {body:string}|undefined, prompt:string):string {
   return [skill?.body ?? "",prompt].filter(text=>text.trim()).join("\n\n");
 }
+
+export const skillDirectoryResponse=z.object({revision:z.number().int().positive(),commit:z.string().nullable(),files:z.array(z.object({path:z.string(),content:z.string(),executable:z.boolean()}))});

@@ -47,7 +47,7 @@ test("login handles errors, prevents duplicate submissions and sends explicit ty
     await new Promise(resolve => { release = resolve; });
     await route.fulfill({ status: 401, json: { error: { code: "invalid_token", message: "Invalid email or password." } } });
   });
-  await page.getByLabel("Email", { exact: true }).fill("owner@example.test");
+  await page.getByLabel("Username or email", { exact: true }).fill("owner@example.test");
   await page.getByLabel("Password", { exact: true }).fill("long-test-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("main form button")?.disabled);
@@ -70,7 +70,7 @@ test("signup and verification requests use non-enumerating feedback", async () =
     const { page, context } = await pageFor(path);
     await page.route("**" + endpoint, route => route.fulfill({ status: path === "/auth/signup" ? 202 : 200, json: { ok: true } }));
     await page.getByLabel("Email", { exact: true }).fill("owner@example.test");
-    if (path === "/auth/signup") await page.getByLabel("New password", { exact: true }).fill("long-test-password");
+    if (path === "/auth/signup") { await page.getByLabel("Username", { exact: true }).fill("owner"); await page.getByLabel("New password", { exact: true }).fill("long-test-password"); }
     await page.getByRole("button", { name: "Continue" }).click();
     await waitText(page, "status", "check your inbox");
     await context.close();
@@ -103,7 +103,7 @@ test("reset and verification deep links survive refresh and retain their token u
 
 test("mobile layout, keyboard navigation and client links remain usable", async () => {
   const { page, context } = await pageFor("/auth/login", { viewport: { width: 375, height: 812 }, isMobile: true });
-  await page.getByLabel("Email", { exact: true }).focus();
+  await page.getByLabel("Username or email", { exact: true }).focus();
   await page.keyboard.press("Tab");
   assert.equal(await page.getByLabel("Password", { exact: true }).evaluate(el => el === document.activeElement), true);
   await page.getByRole("link", { name: "Forgot password?" }).click();
@@ -202,7 +202,7 @@ test("MCP onboarding preserves the attempt across account links and resumes auto
     if (verified) active = true;
     return route.fulfill({ json: verified ? { ok: true, returnTo } : { ok: true, pending: true, clientName: "My MCP CLI" } });
   });
-  await page.route("**/api/v1/auth/signup", route => { assert.deepEqual(route.request().postDataJSON(), { email: "new@example.test", password: "long-test-password", connection }); return route.fulfill({ status: 202, json: { ok: true } }); });
+  await page.route("**/api/v1/auth/signup", route => { assert.deepEqual(route.request().postDataJSON(), { email: "new@example.test", username: "new-user", password: "long-test-password", connection }); return route.fulfill({ status: 202, json: { ok: true } }); });
   await page.route("**/api/v1/oauth/consent/preview", route => route.fulfill({ json: { clientName: "My MCP CLI", scopes: ["team:read", "triggers:read", "integrations:read"], request: "signed", signature: "signature", expiresAt: new Date(Date.now() + 600000).toISOString() } }));
   await page.route("**/api/v1/oauth/consent/decision", route => { grants++; assert.equal(route.request().postDataJSON().decision, "allow"); return route.fulfill({ json: { redirectTo: origin + "/completed?code=grant" } }); });
   await page.goto(origin + `/auth/login?connection=${connection}`);
@@ -211,6 +211,7 @@ test("MCP onboarding preserves the attempt across account links and resumes auto
   await page.getByRole("link", { name: "Resend verification" }).click();
   assert.equal(new URL(page.url()).searchParams.get("connection"), connection);
   await page.goto(origin + `/auth/signup?connection=${connection}`);
+  await page.getByLabel("Username", { exact: true }).fill("new-user");
   await page.getByLabel("Email", { exact: true }).fill("new@example.test"); await page.getByLabel("New password").fill("long-test-password");
   await page.getByRole("button", { name: "Continue" }).click(); await waitText(page, "status", "check your inbox");
   await page.reload(); // Waiting survives refresh, including a verification in a different browser.
@@ -233,4 +234,35 @@ test("verification automatically signs in and resumes consent, while other-brows
     else await page.getByRole("heading", { name: "Authorize MCP CLI" }).waitFor();
     assert.equal(verifications, 1); await context.close();
   }
+});
+
+test("profile edits username, reports conflicts, and retains the saved value on reload", async () => {
+  const {page,context}=await pageFor("/auth/login");
+  let username="profile-owner";
+  await page.route("**/api/v1/session",route=>route.fulfill({json:{authenticated:true,user:{id:"u",email:"owner@example.test"},team:{id:"t",name:username,role:"owner"},capabilities:[],expiresAt:"2099-01-01T00:00:00Z"}}));
+  await page.route("**/api/v1/profile",route=>{
+    if(route.request().method()==="PUT"){
+      const next=route.request().postDataJSON().username;
+      if(next==="taken")return route.fulfill({status:409,json:{error:{code:"invalid_request",message:"That username is already taken."}}});
+      username=next;
+    }
+    return route.fulfill({json:{username,email:"owner@example.test"}});
+  });
+  await page.route("**/api/v1/skills?*",route=>route.fulfill({json:{items:[],nextCursor:null}}));
+  await page.goto(origin+"/settings/profile");
+  assert.equal(await page.getByRole("navigation",{name:"Main navigation",exact:true}).getByRole("link",{name:"profile-owner",exact:true}).getAttribute("href"),"/skills");
+  await page.getByLabel("Username",{exact:true}).fill("updated-owner");
+  await page.getByRole("button",{name:"Save profile"}).click();
+  await page.getByRole("status").filter({hasText:"Profile saved"}).waitFor();
+  await page.getByRole("navigation",{name:"Main navigation",exact:true}).getByRole("link",{name:"updated-owner",exact:true}).waitFor();
+  await page.reload();
+  assert.equal(await page.getByLabel("Username",{exact:true}).inputValue(),"updated-owner");
+  await page.getByLabel("Username",{exact:true}).fill("taken");
+  await page.getByRole("button",{name:"Save profile"}).click();
+  await page.getByRole("alert").filter({hasText:"already taken"}).waitFor();
+  await page.reload();
+  assert.equal(await page.getByLabel("Username",{exact:true}).inputValue(),"updated-owner");
+  await page.getByRole("navigation",{name:"Main navigation",exact:true}).getByRole("link",{name:"updated-owner",exact:true}).click();
+  await page.getByRole("heading",{name:"Skills",exact:true}).waitFor();
+  await context.close();
 });

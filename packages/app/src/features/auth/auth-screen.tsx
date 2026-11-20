@@ -13,6 +13,7 @@ const titles: Record<AuthMode, string> = {
 };
 export function AuthScreen({ mode, inSettingsLayout = false }: { mode: AuthMode; inSettingsLayout?: boolean }) {
   const search = useSearch({ strict: false }) as { token?: string; returnTo?: string; connection?: string; expired?: boolean };
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -30,7 +31,7 @@ export function AuthScreen({ mode, inSettingsLayout = false }: { mode: AuthMode;
       let result;
       switch (mode) {
         case "login": result = await api.POST("/api/v1/auth/login", { body: { email, password, returnTo: search.returnTo, connection: search.connection } }); break;
-        case "signup": result = await api.POST("/api/v1/auth/signup", { body: { email, password, connection: search.connection } }); break;
+        case "signup": result = await api.POST("/api/v1/auth/signup", { body: { email, username, password, connection: search.connection } }); break;
         case "reset": result = resetCompletion
           ? await api.POST("/api/v1/auth/password-reset/complete", { body: { token: search.token!, password } })
           : await api.POST("/api/v1/auth/password-reset/request", { body: { email, connection: search.connection } }); break;
@@ -67,7 +68,8 @@ export function AuthScreen({ mode, inSettingsLayout = false }: { mode: AuthMode;
       {(continuation.error || search.expired) && <p role="alert">{continuation.error?.message ?? "Your MCP request has expired. Start a new connection from your client."}</p>}
       {mode === "login" && <p className="my-4">New to Factorize? <Link className="font-semibold text-factorize-700 underline dark:text-factorize-500" to="/auth/signup" search={{ connection: search.connection, returnTo: search.returnTo }}>Create an account to connect your client</Link>.</p>}
       <form onSubmit={submit} className="space-y-4" aria-busy={mutation.isPending}>
-        {showEmail && <Label className="block">Email<Input className="mt-1 block w-full rounded border p-2" name="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required maxLength={320} /></Label>}
+        {mode === "signup" && <Label className="block">Username<Input name="username" autoComplete="username" required minLength={3} maxLength={39} pattern="[a-z0-9]+(-[a-z0-9]+)*" value={username} onChange={e => setUsername(e.target.value.toLowerCase())} /></Label>}
+      {showEmail && <Label className="block">{mode === "login" ? "Username or email" : "Email"}<Input className="mt-1 block w-full rounded border p-2" name="email" type={mode === "login" ? "text" : "email"} autoComplete={mode === "login" ? "username" : "email"} value={email} onChange={e => setEmail(e.target.value)} required maxLength={320} /></Label>}
         {mode === "password" && <Label className="block">Current password<Input className="mt-1 block w-full rounded border p-2" name="currentPassword" type="password" autoComplete="current-password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required minLength={12} maxLength={200} /></Label>}
         {showPassword && <><Label className="block">{mode === "login" ? "Password" : "New password"}<Input className="mt-1 block w-full rounded border p-2" name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} onChange={e => setPassword(e.target.value)} required minLength={12} maxLength={200} aria-describedby={mode !== "login" ? "password-rules" : undefined} /></Label>{mode !== "login" && <p id="password-rules" className="text-sm">Use 12–200 characters.</p>}</>}
         {mode === "verify" && !search.token ? <p role="alert">This link has no verification token. Request a new email below.</p> : <Button variant="primary" className="w-full" disabled={mutation.isPending}>{mutation.isPending ? "Please wait…" : mode === "login" ? "Sign in" : mode === "verify" ? "Verify email" : "Continue"}</Button>}

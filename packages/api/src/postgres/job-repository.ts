@@ -41,11 +41,11 @@ export class PostgresTriggerRepository implements TriggerRepository {
     if (db === this.database.orm) {
       [eventRows, skillRows] = await Promise.all([
         loadedEvents ?? db.select().from(events).where(and(eq(events.tenantId, this.tenantId), eq(events.triggerId, row.id), isNull(events.removedAt))).orderBy(events.position, events.createdAt, events.id),
-        loadedSkills?.filter(skill => skill.trigger_id === row.id) ?? this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,js.position,js.context_skill FROM app.trigger_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.trigger_id=$2 ORDER BY js.position", [this.tenantId, row.id]).then(result => result.rows),
+        loadedSkills?.filter(skill => skill.trigger_id === row.id) ?? this.database.pool.query<any>("SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,s.legacy_context,js.position,js.context_skill FROM app.trigger_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=$1 AND js.trigger_id=$2 ORDER BY js.position", [this.tenantId, row.id]).then(result => result.rows),
       ]);
     } else {
       eventRows = loadedEvents ?? await db.select().from(events).where(and(eq(events.tenantId, this.tenantId), eq(events.triggerId, row.id), isNull(events.removedAt))).orderBy(events.position, events.createdAt, events.id);
-      skillRows = loadedSkills?.filter(skill => skill.trigger_id === row.id) ?? (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,js.position,js.context_skill FROM app.trigger_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.trigger_id=${row.id}::uuid ORDER BY js.position`)).rows;
+      skillRows = loadedSkills?.filter(skill => skill.trigger_id === row.id) ?? (await db.execute(sql`SELECT s.id,s.key,s.revision,s.encrypted_body,s.encrypted_directory,s.artifact_version,s.legacy_context,js.position,js.context_skill FROM app.trigger_skills js JOIN app.skills s ON s.tenant_id=js.tenant_id AND s.id=js.skill_id WHERE js.tenant_id=${this.tenantId}::uuid AND js.trigger_id=${row.id}::uuid ORDER BY js.position`)).rows;
     }
     const skills = await Promise.all(skillRows.map(async skill => ({
       id:skill.id, key:skill.key, revision:skill.revision, position:skill.position, ...await this.content.read(skill, this.decrypt),

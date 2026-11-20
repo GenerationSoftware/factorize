@@ -299,7 +299,7 @@ test("team settings can be saved before connecting a VM provider", async () => {
   await page.route("**/api/v1/integrations", route => route.fulfill({ json: { exeConnections: [], ampConnections: [] } }));
   await page.route("**/api/v1/fly/execution-configurations", route => route.fulfill({ json: { configurations: [] } }));
   await page.goto(origin + "/settings");
-  await page.getByRole("heading", { name: "Team settings", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "VM settings", exact: true }).waitFor();
   await page.getByLabel("Team concurrency limit").fill("7");
   await page.getByRole("button", { name: "Save run defaults" }).click();
   await page.getByRole("status").filter({ hasText: "Run defaults saved." }).waitFor();

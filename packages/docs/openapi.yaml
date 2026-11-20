@@ -3409,6 +3409,140 @@ paths:
               required:
                 - connection
               additionalProperties: false
+  /api/v1/profile:
+    get:
+      summary: Read your profile; interactive owner browser session required
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username:
+                    type: string
+                    minLength: 3
+                    maxLength: 39
+                    pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+                  email:
+                    type: string
+                    format: email
+                    pattern: ^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+                required:
+                  - username
+                  - email
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: get_api_v1_profile
+      tags:
+        - profile
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: profile
+      x-owner-session-required: true
+    put:
+      summary: Change your globally unique username; interactive owner browser session required
+      description: Cookie-only browser operation. Mutations require an exact app Origin and reject cross-site requests. Authorization headers are rejected. Responses are never cached.
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Factorize-Webhook-Conditions:
+              description: Conditions-only webhook runtime deployment marker.
+              schema:
+                type: string
+                const: v1
+            X-Factorize-Contract:
+              description: Deployment compatibility marker for the complete GEN-2157 static-client API contract. Deploy this API stage before static frontend cutover.
+              schema:
+                type: string
+                const: gen-2157-static-v1
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username:
+                    type: string
+                    minLength: 3
+                    maxLength: 39
+                    pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+                  email:
+                    type: string
+                    format: email
+                    pattern: ^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+                required:
+                  - username
+                  - email
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      operationId: put_api_v1_profile
+      tags:
+        - profile
+      security:
+        - cookieAuth: []
+      x-browser-auth-operation: profile-update
+      x-owner-session-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 39
+                  pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+              required:
+                - username
+              additionalProperties: false
   /api/v1/session:
     get:
       summary: Get current browser session
@@ -3590,9 +3724,8 @@ paths:
               properties:
                 email:
                   type: string
+                  minLength: 1
                   maxLength: 320
-                  format: email
-                  pattern: ^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
                 password:
                   type: string
                   minLength: 12
@@ -3674,6 +3807,11 @@ paths:
                   maxLength: 320
                   format: email
                   pattern: ^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 39
+                  pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
                 password:
                   type: string
                   minLength: 12
@@ -3685,6 +3823,7 @@ paths:
                   pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
               required:
                 - email
+                - username
                 - password
               additionalProperties: false
   /api/v1/auth/email-verification/request:
@@ -9239,6 +9378,2143 @@ paths:
         - cookieAuth: []
       x-required-scope: skills:write
       x-owner-session-required: false
+  /api/v1/skills/{skillId}/files:
+    get:
+      summary: Browse the published skill directory at its immutable revision
+      responses:
+        "200":
+          description: Published files, with base64 encoded contents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  commit:
+                    type:
+                      - string
+                      - "null"
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        content:
+                          type: string
+                        executable:
+                          type: boolean
+                      required:
+                        - path
+                        - content
+                        - executable
+                      additionalProperties: false
+                required:
+                  - revision
+                  - commit
+                  - files
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_skills_skillId_files
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: skills:read
+      x-owner-session-required: false
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+  /api/v1/skills/{skillId}/trigger:
+    get:
+      summary: Read a skill's optional trigger
+      responses:
+        "200":
+          description: Optional trigger
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trigger:
+                    anyOf:
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                          name:
+                            type: string
+                          enabled:
+                            type: boolean
+                          requiresVm:
+                            type: boolean
+                          executionType:
+                            type: string
+                            enum:
+                              - agent
+                              - code
+                          prompt:
+                            type: string
+                          script:
+                            type: string
+                          runNameTemplate:
+                            type: string
+                          tags:
+                            type: array
+                            items:
+                              type: string
+                          model:
+                            type: string
+                          effort:
+                            type: string
+                          executionConfig:
+                            type: object
+                            properties:
+                              connectionId:
+                                type: string
+                              requiresVm:
+                                type: boolean
+                              workspace:
+                                type: string
+                              cwd:
+                                type: string
+                              agentKind:
+                                type: string
+                              image:
+                                type: string
+                              region:
+                                type: string
+                              size:
+                                type: string
+                              executionType:
+                                type: string
+                                enum:
+                                  - agent
+                                  - code
+                              script:
+                                type: string
+                            required:
+                              - connectionId
+                              - agentKind
+                            additionalProperties: false
+                          runScopes:
+                            type: array
+                            items:
+                              type: string
+                              enum:
+                                - team:read
+                                - team:write
+                                - triggers:read
+                                - triggers:write
+                                - runs:read
+                                - runs:invoke
+                                - runs:start
+                                - runs:cancel
+                                - runs:write
+                                - integrations:read
+                                - integrations:write
+                                - skills:read
+                                - skills:write
+                          portableIntegrationIds:
+                            type: array
+                            items:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                          modelAccountId:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                          githubInstallationIds:
+                            type: array
+                            items:
+                              type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                          linearConnectionId:
+                            anyOf:
+                              - type: string
+                                const: linear
+                              - type: "null"
+                          xConnectionIds:
+                            type: array
+                            items:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                          skillId:
+                            anyOf:
+                              - type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              - type: "null"
+                          executionConfigId:
+                            type: string
+                          agentKind:
+                            type: string
+                          concurrencyLimit:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                          runningCount:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                          currentRuns:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                          maxConcurrency:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                          lastRunState:
+                            anyOf:
+                              - type: string
+                                enum:
+                                  - queued
+                                  - reserved
+                                  - starting
+                                  - running
+                                  - blocked
+                                  - stopping
+                                  - succeeded
+                                  - failed
+                                  - stopped
+                                  - done
+                                  - ignored
+                              - type: "null"
+                          events:
+                            type: array
+                            items:
+                              oneOf:
+                                - type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    slug:
+                                      type: string
+                                    kind:
+                                      type: string
+                                      const: manual
+                                    template:
+                                      type: string
+                                      maxLength: 50000
+                                    enabled:
+                                      default: true
+                                      type: boolean
+                                    config:
+                                      default: {}
+                                      type: object
+                                      properties: {}
+                                      additionalProperties: false
+                                    triggerId:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    createdAt:
+                                      type: string
+                                    updatedAt:
+                                      type: string
+                                  required:
+                                    - id
+                                    - slug
+                                    - kind
+                                    - enabled
+                                    - config
+                                    - triggerId
+                                    - createdAt
+                                    - updatedAt
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    slug:
+                                      type: string
+                                    kind:
+                                      type: string
+                                      const: schedule
+                                    template:
+                                      type: string
+                                      maxLength: 50000
+                                    enabled:
+                                      default: true
+                                      type: boolean
+                                    config:
+                                      type: object
+                                      properties:
+                                        cron:
+                                          type: string
+                                          minLength: 1
+                                        timezone:
+                                          type: string
+                                          minLength: 1
+                                      required:
+                                        - cron
+                                        - timezone
+                                      additionalProperties: false
+                                    triggerId:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    createdAt:
+                                      type: string
+                                    updatedAt:
+                                      type: string
+                                  required:
+                                    - id
+                                    - slug
+                                    - kind
+                                    - enabled
+                                    - config
+                                    - triggerId
+                                    - createdAt
+                                    - updatedAt
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    slug:
+                                      type: string
+                                    kind:
+                                      type: string
+                                      const: webhook
+                                    template:
+                                      type: string
+                                      maxLength: 50000
+                                    enabled:
+                                      default: true
+                                      type: boolean
+                                    config:
+                                      oneOf:
+                                        - type: object
+                                          properties:
+                                            conditions:
+                                              type: object
+                                              propertyNames:
+                                                type: string
+                                              additionalProperties: {}
+                                            provider:
+                                              type: string
+                                              const: linear
+                                            projectId:
+                                              type: string
+                                              minLength: 1
+                                            matchRules:
+                                              minItems: 1
+                                              type: array
+                                              items:
+                                                type: object
+                                                properties:
+                                                  type:
+                                                    type: string
+                                                    enum:
+                                                      - owner
+                                                      - creator
+                                                      - status
+                                                      - label
+                                                      - assignee
+                                                  targetId:
+                                                    type: string
+                                                    minLength: 1
+                                                required:
+                                                  - type
+                                                  - targetId
+                                                additionalProperties: false
+                                            secretConfigured:
+                                              type: boolean
+                                          required:
+                                            - provider
+                                            - projectId
+                                            - matchRules
+                                          additionalProperties: false
+                                        - type: object
+                                          properties:
+                                            conditions:
+                                              type: object
+                                              propertyNames:
+                                                type: string
+                                              additionalProperties: {}
+                                            provider:
+                                              type: string
+                                              const: clickup
+                                            listId:
+                                              type: string
+                                              minLength: 1
+                                            matchRules:
+                                              minItems: 1
+                                              type: array
+                                              items:
+                                                type: object
+                                                properties:
+                                                  type:
+                                                    type: string
+                                                    enum:
+                                                      - owner
+                                                      - creator
+                                                      - status
+                                                      - label
+                                                      - assignee
+                                                  targetId:
+                                                    type: string
+                                                    minLength: 1
+                                                required:
+                                                  - type
+                                                  - targetId
+                                                additionalProperties: false
+                                            secretConfigured:
+                                              type: boolean
+                                          required:
+                                            - provider
+                                            - listId
+                                            - matchRules
+                                          additionalProperties: false
+                                        - type: object
+                                          properties:
+                                            conditions:
+                                              type: object
+                                              propertyNames:
+                                                type: string
+                                              additionalProperties: {}
+                                            provider:
+                                              type: string
+                                              const: github
+                                            installationId:
+                                              type: integer
+                                              exclusiveMinimum: 0
+                                              maximum: 9007199254740991
+                                            repositoryId:
+                                              type: integer
+                                              exclusiveMinimum: 0
+                                              maximum: 9007199254740991
+                                            event:
+                                              type: string
+                                              minLength: 1
+                                            action:
+                                              type: string
+                                              minLength: 1
+                                            matchRules:
+                                              minItems: 1
+                                              type: array
+                                              items:
+                                                type: object
+                                                properties:
+                                                  type:
+                                                    type: string
+                                                    enum:
+                                                      - owner
+                                                      - creator
+                                                      - status
+                                                      - label
+                                                      - assignee
+                                                  targetId:
+                                                    type: string
+                                                    minLength: 1
+                                                required:
+                                                  - type
+                                                  - targetId
+                                                additionalProperties: false
+                                            secretConfigured:
+                                              type: boolean
+                                          required:
+                                            - provider
+                                            - installationId
+                                            - repositoryId
+                                          additionalProperties: false
+                                        - type: object
+                                          properties:
+                                            conditions:
+                                              type: object
+                                              propertyNames:
+                                                type: string
+                                              additionalProperties: {}
+                                            provider:
+                                              type: string
+                                              const: cloudflareTail
+                                            integrationId:
+                                              type: string
+                                              minLength: 1
+                                            destination:
+                                              type: string
+                                            secretConfigured:
+                                              type: boolean
+                                          required:
+                                            - provider
+                                            - integrationId
+                                          additionalProperties: false
+                                    triggerId:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    createdAt:
+                                      type: string
+                                    updatedAt:
+                                      type: string
+                                  required:
+                                    - id
+                                    - slug
+                                    - kind
+                                    - enabled
+                                    - config
+                                    - triggerId
+                                    - createdAt
+                                    - updatedAt
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    slug:
+                                      type: string
+                                    kind:
+                                      type: string
+                                      const: triggerLifecycle
+                                    template:
+                                      type: string
+                                      maxLength: 50000
+                                    enabled:
+                                      default: true
+                                      type: boolean
+                                    config:
+                                      type: object
+                                      properties:
+                                        sourceTriggerIds:
+                                          minItems: 1
+                                          type: array
+                                          items:
+                                            type: string
+                                            minLength: 1
+                                        states:
+                                          minItems: 1
+                                          type: array
+                                          items:
+                                            type: string
+                                            enum:
+                                              - succeeded
+                                              - failed
+                                              - stopped
+                                              - edited
+                                      required:
+                                        - sourceTriggerIds
+                                        - states
+                                      additionalProperties: false
+                                    triggerId:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    createdAt:
+                                      type: string
+                                    updatedAt:
+                                      type: string
+                                  required:
+                                    - id
+                                    - slug
+                                    - kind
+                                    - enabled
+                                    - config
+                                    - triggerId
+                                    - createdAt
+                                    - updatedAt
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    slug:
+                                      type: string
+                                    kind:
+                                      type: string
+                                      const: triggerIdle
+                                    template:
+                                      type: string
+                                      maxLength: 50000
+                                    enabled:
+                                      default: true
+                                      type: boolean
+                                    config:
+                                      type: object
+                                      properties:
+                                        sourceTriggerIds:
+                                          minItems: 1
+                                          type: array
+                                          items:
+                                            type: string
+                                            minLength: 1
+                                      required:
+                                        - sourceTriggerIds
+                                      additionalProperties: false
+                                    triggerId:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    createdAt:
+                                      type: string
+                                    updatedAt:
+                                      type: string
+                                  required:
+                                    - id
+                                    - slug
+                                    - kind
+                                    - enabled
+                                    - config
+                                    - triggerId
+                                    - createdAt
+                                    - updatedAt
+                                  additionalProperties: false
+                          skill:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  id:
+                                    type: string
+                                    format: uuid
+                                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                  key:
+                                    type: string
+                                  revision:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 9007199254740991
+                                required:
+                                  - id
+                                  - key
+                                  - revision
+                                additionalProperties: false
+                              - type: "null"
+                          contextReviewRequired:
+                            type: boolean
+                          createdAt:
+                            type: string
+                          updatedAt:
+                            type: string
+                        required:
+                          - id
+                          - name
+                          - enabled
+                          - requiresVm
+                          - prompt
+                          - runNameTemplate
+                          - model
+                          - executionConfig
+                          - runScopes
+                          - executionConfigId
+                          - agentKind
+                          - concurrencyLimit
+                          - runningCount
+                          - currentRuns
+                          - maxConcurrency
+                          - lastRunState
+                          - events
+                          - createdAt
+                          - updatedAt
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - trigger
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:read and triggers:read scopes.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_skills_skillId_trigger
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope:
+        - skills:read
+        - triggers:read
+      x-owner-session-required: false
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+    put:
+      summary: Configure a skill's event sources and enabled state
+      responses:
+        "200":
+          description: Saved trigger
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trigger:
+                    anyOf:
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                          name:
+                            type: string
+                          enabled:
+                            type: boolean
+                          requiresVm:
+                            type: boolean
+                          executionType:
+                            type: string
+                            enum:
+                              - agent
+                              - code
+                          prompt:
+                            type: string
+                          script:
+                            type: string
+                          runNameTemplate:
+                            type: string
+                          tags:
+                            type: array
+                            items:
+                              type: string
+                          model:
+                            type: string
+                          effort:
+                            type: string
+                          executionConfig:
+                            type: object
+                            properties:
+                              connectionId:
+                                type: string
+                              requiresVm:
+                                type: boolean
+                              workspace:
+                                type: string
+                              cwd:
+                                type: string
+                              agentKind:
+                                type: string
+                              image:
+                                type: string
+                              region:
+                                type: string
+                              size:
+                                type: string
+                              executionType:
+                                type: string
+                                enum:
+                                  - agent
+                                  - code
+                              script:
+                                type: string
+                            required:
+                              - connectionId
+                              - agentKind
+                            additionalProperties: false
+                          runScopes:
+                            type: array
+                            items:
+                              type: string
+                              enum:
+                                - team:read
+                                - team:write
+                                - triggers:read
+                                - triggers:write
+                                - runs:read
+                                - runs:invoke
+                                - runs:start
+                                - runs:cancel
+                                - runs:write
+                                - integrations:read
+                                - integrations:write
+                                - skills:read
+                                - skills:write
+                          portableIntegrationIds:
+                            type: array
+                            items:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                          modelAccountId:
+                            type: string
+                            format: uuid
+                            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                          githubInstallationIds:
+                            type: array
+                            items:
+                              type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                          linearConnectionId:
+                            anyOf:
+                              - type: string
+                                const: linear
+                              - type: "null"
+                          xConnectionIds:
+                            type: array
+                            items:
+                              type: string
+                              format: uuid
+                              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                          skillId:
+                            anyOf:
+                              - type: string
+                                format: uuid
+                                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                              - type: "null"
+                          executionConfigId:
+                            type: string
+                          agentKind:
+                            type: string
+                          concurrencyLimit:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                          runningCount:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                          currentRuns:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                          maxConcurrency:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                          lastRunState:
+                            anyOf:
+                              - type: string
+                                enum:
+                                  - queued
+                                  - reserved
+                                  - starting
+                                  - running
+                                  - blocked
+                                  - stopping
+                                  - succeeded
+                                  - failed
+                                  - stopped
+                                  - done
+                                  - ignored
+                              - type: "null"
+                          events:
+                            type: array
+                            items:
+                              oneOf:
+                                - type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    slug:
+                                      type: string
+                                    kind:
+                                      type: string
+                                      const: manual
+                                    template:
+                                      type: string
+                                      maxLength: 50000
+                                    enabled:
+                                      default: true
+                                      type: boolean
+                                    config:
+                                      default: {}
+                                      type: object
+                                      properties: {}
+                                      additionalProperties: false
+                                    triggerId:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    createdAt:
+                                      type: string
+                                    updatedAt:
+                                      type: string
+                                  required:
+                                    - id
+                                    - slug
+                                    - kind
+                                    - enabled
+                                    - config
+                                    - triggerId
+                                    - createdAt
+                                    - updatedAt
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    slug:
+                                      type: string
+                                    kind:
+                                      type: string
+                                      const: schedule
+                                    template:
+                                      type: string
+                                      maxLength: 50000
+                                    enabled:
+                                      default: true
+                                      type: boolean
+                                    config:
+                                      type: object
+                                      properties:
+                                        cron:
+                                          type: string
+                                          minLength: 1
+                                        timezone:
+                                          type: string
+                                          minLength: 1
+                                      required:
+                                        - cron
+                                        - timezone
+                                      additionalProperties: false
+                                    triggerId:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    createdAt:
+                                      type: string
+                                    updatedAt:
+                                      type: string
+                                  required:
+                                    - id
+                                    - slug
+                                    - kind
+                                    - enabled
+                                    - config
+                                    - triggerId
+                                    - createdAt
+                                    - updatedAt
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    slug:
+                                      type: string
+                                    kind:
+                                      type: string
+                                      const: webhook
+                                    template:
+                                      type: string
+                                      maxLength: 50000
+                                    enabled:
+                                      default: true
+                                      type: boolean
+                                    config:
+                                      oneOf:
+                                        - type: object
+                                          properties:
+                                            conditions:
+                                              type: object
+                                              propertyNames:
+                                                type: string
+                                              additionalProperties: {}
+                                            provider:
+                                              type: string
+                                              const: linear
+                                            projectId:
+                                              type: string
+                                              minLength: 1
+                                            matchRules:
+                                              minItems: 1
+                                              type: array
+                                              items:
+                                                type: object
+                                                properties:
+                                                  type:
+                                                    type: string
+                                                    enum:
+                                                      - owner
+                                                      - creator
+                                                      - status
+                                                      - label
+                                                      - assignee
+                                                  targetId:
+                                                    type: string
+                                                    minLength: 1
+                                                required:
+                                                  - type
+                                                  - targetId
+                                                additionalProperties: false
+                                            secretConfigured:
+                                              type: boolean
+                                          required:
+                                            - provider
+                                            - projectId
+                                            - matchRules
+                                          additionalProperties: false
+                                        - type: object
+                                          properties:
+                                            conditions:
+                                              type: object
+                                              propertyNames:
+                                                type: string
+                                              additionalProperties: {}
+                                            provider:
+                                              type: string
+                                              const: clickup
+                                            listId:
+                                              type: string
+                                              minLength: 1
+                                            matchRules:
+                                              minItems: 1
+                                              type: array
+                                              items:
+                                                type: object
+                                                properties:
+                                                  type:
+                                                    type: string
+                                                    enum:
+                                                      - owner
+                                                      - creator
+                                                      - status
+                                                      - label
+                                                      - assignee
+                                                  targetId:
+                                                    type: string
+                                                    minLength: 1
+                                                required:
+                                                  - type
+                                                  - targetId
+                                                additionalProperties: false
+                                            secretConfigured:
+                                              type: boolean
+                                          required:
+                                            - provider
+                                            - listId
+                                            - matchRules
+                                          additionalProperties: false
+                                        - type: object
+                                          properties:
+                                            conditions:
+                                              type: object
+                                              propertyNames:
+                                                type: string
+                                              additionalProperties: {}
+                                            provider:
+                                              type: string
+                                              const: github
+                                            installationId:
+                                              type: integer
+                                              exclusiveMinimum: 0
+                                              maximum: 9007199254740991
+                                            repositoryId:
+                                              type: integer
+                                              exclusiveMinimum: 0
+                                              maximum: 9007199254740991
+                                            event:
+                                              type: string
+                                              minLength: 1
+                                            action:
+                                              type: string
+                                              minLength: 1
+                                            matchRules:
+                                              minItems: 1
+                                              type: array
+                                              items:
+                                                type: object
+                                                properties:
+                                                  type:
+                                                    type: string
+                                                    enum:
+                                                      - owner
+                                                      - creator
+                                                      - status
+                                                      - label
+                                                      - assignee
+                                                  targetId:
+                                                    type: string
+                                                    minLength: 1
+                                                required:
+                                                  - type
+                                                  - targetId
+                                                additionalProperties: false
+                                            secretConfigured:
+                                              type: boolean
+                                          required:
+                                            - provider
+                                            - installationId
+                                            - repositoryId
+                                          additionalProperties: false
+                                        - type: object
+                                          properties:
+                                            conditions:
+                                              type: object
+                                              propertyNames:
+                                                type: string
+                                              additionalProperties: {}
+                                            provider:
+                                              type: string
+                                              const: cloudflareTail
+                                            integrationId:
+                                              type: string
+                                              minLength: 1
+                                            destination:
+                                              type: string
+                                            secretConfigured:
+                                              type: boolean
+                                          required:
+                                            - provider
+                                            - integrationId
+                                          additionalProperties: false
+                                    triggerId:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    createdAt:
+                                      type: string
+                                    updatedAt:
+                                      type: string
+                                  required:
+                                    - id
+                                    - slug
+                                    - kind
+                                    - enabled
+                                    - config
+                                    - triggerId
+                                    - createdAt
+                                    - updatedAt
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    slug:
+                                      type: string
+                                    kind:
+                                      type: string
+                                      const: triggerLifecycle
+                                    template:
+                                      type: string
+                                      maxLength: 50000
+                                    enabled:
+                                      default: true
+                                      type: boolean
+                                    config:
+                                      type: object
+                                      properties:
+                                        sourceTriggerIds:
+                                          minItems: 1
+                                          type: array
+                                          items:
+                                            type: string
+                                            minLength: 1
+                                        states:
+                                          minItems: 1
+                                          type: array
+                                          items:
+                                            type: string
+                                            enum:
+                                              - succeeded
+                                              - failed
+                                              - stopped
+                                              - edited
+                                      required:
+                                        - sourceTriggerIds
+                                        - states
+                                      additionalProperties: false
+                                    triggerId:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    createdAt:
+                                      type: string
+                                    updatedAt:
+                                      type: string
+                                  required:
+                                    - id
+                                    - slug
+                                    - kind
+                                    - enabled
+                                    - config
+                                    - triggerId
+                                    - createdAt
+                                    - updatedAt
+                                  additionalProperties: false
+                                - type: object
+                                  properties:
+                                    id:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    slug:
+                                      type: string
+                                    kind:
+                                      type: string
+                                      const: triggerIdle
+                                    template:
+                                      type: string
+                                      maxLength: 50000
+                                    enabled:
+                                      default: true
+                                      type: boolean
+                                    config:
+                                      type: object
+                                      properties:
+                                        sourceTriggerIds:
+                                          minItems: 1
+                                          type: array
+                                          items:
+                                            type: string
+                                            minLength: 1
+                                      required:
+                                        - sourceTriggerIds
+                                      additionalProperties: false
+                                    triggerId:
+                                      type: string
+                                      format: uuid
+                                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                    createdAt:
+                                      type: string
+                                    updatedAt:
+                                      type: string
+                                  required:
+                                    - id
+                                    - slug
+                                    - kind
+                                    - enabled
+                                    - config
+                                    - triggerId
+                                    - createdAt
+                                    - updatedAt
+                                  additionalProperties: false
+                          skill:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  id:
+                                    type: string
+                                    format: uuid
+                                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                  key:
+                                    type: string
+                                  revision:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 9007199254740991
+                                required:
+                                  - id
+                                  - key
+                                  - revision
+                                additionalProperties: false
+                              - type: "null"
+                          contextReviewRequired:
+                            type: boolean
+                          createdAt:
+                            type: string
+                          updatedAt:
+                            type: string
+                        required:
+                          - id
+                          - name
+                          - enabled
+                          - requiresVm
+                          - prompt
+                          - runNameTemplate
+                          - model
+                          - executionConfig
+                          - runScopes
+                          - executionConfigId
+                          - agentKind
+                          - concurrencyLimit
+                          - runningCount
+                          - currentRuns
+                          - maxConcurrency
+                          - lastRunState
+                          - events
+                          - createdAt
+                          - updatedAt
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - trigger
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:write and triggers:write scopes.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: put_api_v1_skills_skillId_trigger
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope:
+        - skills:write
+        - triggers:write
+      x-owner-session-required: false
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                events:
+                  maxItems: 50
+                  type: array
+                  items:
+                    oneOf:
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                            minLength: 1
+                          slug:
+                            type: string
+                            pattern: ^[a-z][a-z0-9_-]{0,63}$
+                          kind:
+                            type: string
+                            const: manual
+                          template:
+                            type: string
+                            maxLength: 50000
+                          enabled:
+                            default: true
+                            type: boolean
+                          config:
+                            default: {}
+                            type: object
+                            properties: {}
+                            additionalProperties: false
+                        required:
+                          - kind
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                            minLength: 1
+                          slug:
+                            type: string
+                            pattern: ^[a-z][a-z0-9_-]{0,63}$
+                          kind:
+                            type: string
+                            const: schedule
+                          template:
+                            type: string
+                            maxLength: 50000
+                          enabled:
+                            default: true
+                            type: boolean
+                          config:
+                            type: object
+                            properties:
+                              cron:
+                                type: string
+                                minLength: 1
+                              timezone:
+                                type: string
+                                minLength: 1
+                            required:
+                              - cron
+                              - timezone
+                            additionalProperties: false
+                        required:
+                          - kind
+                          - config
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                            minLength: 1
+                          slug:
+                            type: string
+                            pattern: ^[a-z][a-z0-9_-]{0,63}$
+                          kind:
+                            type: string
+                            const: webhook
+                          template:
+                            type: string
+                            maxLength: 50000
+                          enabled:
+                            default: true
+                            type: boolean
+                          config:
+                            oneOf:
+                              - type: object
+                                properties:
+                                  conditions:
+                                    type: object
+                                    propertyNames:
+                                      type: string
+                                    additionalProperties: {}
+                                  provider:
+                                    type: string
+                                    const: linear
+                                  projectId:
+                                    type: string
+                                    minLength: 1
+                                  matchRules:
+                                    minItems: 1
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        type:
+                                          type: string
+                                          enum:
+                                            - owner
+                                            - creator
+                                            - status
+                                            - label
+                                            - assignee
+                                        targetId:
+                                          type: string
+                                          minLength: 1
+                                      required:
+                                        - type
+                                        - targetId
+                                required:
+                                  - provider
+                                  - projectId
+                                  - matchRules
+                                additionalProperties: false
+                              - type: object
+                                properties:
+                                  conditions:
+                                    type: object
+                                    propertyNames:
+                                      type: string
+                                    additionalProperties: {}
+                                  provider:
+                                    type: string
+                                    const: clickup
+                                  listId:
+                                    type: string
+                                    minLength: 1
+                                  matchRules:
+                                    minItems: 1
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        type:
+                                          type: string
+                                          enum:
+                                            - owner
+                                            - creator
+                                            - status
+                                            - label
+                                            - assignee
+                                        targetId:
+                                          type: string
+                                          minLength: 1
+                                      required:
+                                        - type
+                                        - targetId
+                                required:
+                                  - provider
+                                  - listId
+                                  - matchRules
+                                additionalProperties: false
+                              - type: object
+                                properties:
+                                  conditions:
+                                    type: object
+                                    propertyNames:
+                                      type: string
+                                    additionalProperties: {}
+                                  provider:
+                                    type: string
+                                    const: github
+                                  installationId:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 9007199254740991
+                                  repositoryId:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 9007199254740991
+                                  event:
+                                    type: string
+                                    minLength: 1
+                                  action:
+                                    type: string
+                                    minLength: 1
+                                  matchRules:
+                                    minItems: 1
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        type:
+                                          type: string
+                                          enum:
+                                            - owner
+                                            - creator
+                                            - status
+                                            - label
+                                            - assignee
+                                        targetId:
+                                          type: string
+                                          minLength: 1
+                                      required:
+                                        - type
+                                        - targetId
+                                required:
+                                  - provider
+                                  - installationId
+                                  - repositoryId
+                                additionalProperties: false
+                              - type: object
+                                properties:
+                                  conditions:
+                                    type: object
+                                    propertyNames:
+                                      type: string
+                                    additionalProperties: {}
+                                  provider:
+                                    type: string
+                                    const: cloudflareTail
+                                  integrationId:
+                                    type: string
+                                    minLength: 1
+                                required:
+                                  - provider
+                                  - integrationId
+                                additionalProperties: false
+                        required:
+                          - kind
+                          - config
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                            minLength: 1
+                          slug:
+                            type: string
+                            pattern: ^[a-z][a-z0-9_-]{0,63}$
+                          kind:
+                            type: string
+                            const: triggerLifecycle
+                          template:
+                            type: string
+                            maxLength: 50000
+                          enabled:
+                            default: true
+                            type: boolean
+                          config:
+                            type: object
+                            properties:
+                              sourceTriggerIds:
+                                minItems: 1
+                                type: array
+                                items:
+                                  type: string
+                                  minLength: 1
+                              states:
+                                minItems: 1
+                                type: array
+                                items:
+                                  type: string
+                                  enum:
+                                    - succeeded
+                                    - failed
+                                    - stopped
+                                    - edited
+                            required:
+                              - sourceTriggerIds
+                              - states
+                            additionalProperties: false
+                        required:
+                          - kind
+                          - config
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                            minLength: 1
+                          slug:
+                            type: string
+                            pattern: ^[a-z][a-z0-9_-]{0,63}$
+                          kind:
+                            type: string
+                            const: triggerIdle
+                          template:
+                            type: string
+                            maxLength: 50000
+                          enabled:
+                            default: true
+                            type: boolean
+                          config:
+                            type: object
+                            properties:
+                              sourceTriggerIds:
+                                minItems: 1
+                                type: array
+                                items:
+                                  type: string
+                                  minLength: 1
+                            required:
+                              - sourceTriggerIds
+                            additionalProperties: false
+                        required:
+                          - kind
+                          - config
+                        additionalProperties: false
+                enabled:
+                  default: true
+                  type: boolean
+                expectedUpdatedAt:
+                  type: string
+                  format: date-time
+                  pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$
+              required:
+                - events
+              additionalProperties: false
+  /api/v1/skills/{skillId}/settings:
+    get:
+      summary: Read skill execution defaults
+      responses:
+        "200":
+          description: Skill settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  defaults:
+                    type: object
+                    properties:
+                      executionConfigId:
+                        type: string
+                        minLength: 1
+                      requiresVm:
+                        type: boolean
+                      model:
+                        type: string
+                        maxLength: 120
+                      effort:
+                        type: string
+                        enum:
+                          - ""
+                          - minimal
+                          - low
+                          - medium
+                          - high
+                          - xhigh
+                      vmImage:
+                        type: string
+                        maxLength: 512
+                        description: Public Docker/OCI image reference, or blank for the provider default.
+                      tags:
+                        maxItems: 20
+                        type: array
+                        items:
+                          type: string
+                          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                      modelAccountId:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      portableIntegrationIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      githubInstallationIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                      linearConnectionId:
+                        anyOf:
+                          - type: string
+                            const: linear
+                          - type: "null"
+                      xConnectionIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      runScopes:
+                        description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
+                        maxItems: 13
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - team:read
+                            - team:write
+                            - triggers:read
+                            - triggers:write
+                            - runs:read
+                            - runs:invoke
+                            - runs:start
+                            - runs:cancel
+                            - runs:write
+                            - integrations:read
+                            - integrations:write
+                            - skills:read
+                            - skills:write
+                      concurrencyLimit:
+                        type: integer
+                        minimum: 1
+                        maximum: 50
+                      allowedTriggerIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      executionType:
+                        default: agent
+                        type: string
+                        enum:
+                          - agent
+                          - code
+                      prompt:
+                        default: ""
+                        type: string
+                        maxLength: 50000
+                      script:
+                        type: string
+                        maxLength: 200000
+                    required:
+                      - executionType
+                      - prompt
+                    additionalProperties: false
+                required:
+                  - revision
+                  - defaults
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:read scope.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: get_api_v1_skills_skillId_settings
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope: skills:read
+      x-owner-session-required: false
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+    put:
+      summary: Save skill execution defaults for future manual and triggered runs
+      responses:
+        "200":
+          description: Saved skill settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision:
+                    type: integer
+                    exclusiveMinimum: 0
+                    maximum: 9007199254740991
+                  defaults:
+                    type: object
+                    properties:
+                      executionConfigId:
+                        type: string
+                        minLength: 1
+                      requiresVm:
+                        type: boolean
+                      model:
+                        type: string
+                        maxLength: 120
+                      effort:
+                        type: string
+                        enum:
+                          - ""
+                          - minimal
+                          - low
+                          - medium
+                          - high
+                          - xhigh
+                      vmImage:
+                        type: string
+                        maxLength: 512
+                        description: Public Docker/OCI image reference, or blank for the provider default.
+                      tags:
+                        maxItems: 20
+                        type: array
+                        items:
+                          type: string
+                          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                      modelAccountId:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      portableIntegrationIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      githubInstallationIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                      linearConnectionId:
+                        anyOf:
+                          - type: string
+                            const: linear
+                          - type: "null"
+                      xConnectionIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      runScopes:
+                        description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
+                        maxItems: 13
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - team:read
+                            - team:write
+                            - triggers:read
+                            - triggers:write
+                            - runs:read
+                            - runs:invoke
+                            - runs:start
+                            - runs:cancel
+                            - runs:write
+                            - integrations:read
+                            - integrations:write
+                            - skills:read
+                            - skills:write
+                      concurrencyLimit:
+                        type: integer
+                        minimum: 1
+                        maximum: 50
+                      allowedTriggerIds:
+                        maxItems: 100
+                        type: array
+                        items:
+                          type: string
+                          format: uuid
+                          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                      executionType:
+                        default: agent
+                        type: string
+                        enum:
+                          - agent
+                          - code
+                      prompt:
+                        default: ""
+                        type: string
+                        maxLength: 50000
+                      script:
+                        type: string
+                        maxLength: 200000
+                    required:
+                      - executionType
+                      - prompt
+                    additionalProperties: false
+                required:
+                  - revision
+                  - defaults
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/Error400"
+        "401":
+          $ref: "#/components/responses/Error401"
+        "403":
+          $ref: "#/components/responses/Error403"
+        "404":
+          $ref: "#/components/responses/Error404"
+        "409":
+          $ref: "#/components/responses/Error409"
+        "415":
+          $ref: "#/components/responses/Error415"
+        "429":
+          $ref: "#/components/responses/Error429"
+        "500":
+          $ref: "#/components/responses/Error500"
+        "503":
+          $ref: "#/components/responses/Error503"
+      description: |-
+        Requires the skills:write and triggers:write scopes.
+
+        Accepts a scoped bearer token, vendor-verified run identity, or interactive owner session.
+      operationId: put_api_v1_skills_skillId_settings
+      tags:
+        - skills
+      security:
+        - bearerAuth: []
+        - vendorRunIdentity: []
+          runIdentityHeader: []
+        - cookieAuth: []
+      x-required-scope:
+        - skills:write
+        - triggers:write
+      x-owner-session-required: false
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedRevision:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                defaults:
+                  type: object
+                  properties:
+                    executionConfigId:
+                      type: string
+                      minLength: 1
+                    requiresVm:
+                      type: boolean
+                    model:
+                      type: string
+                      maxLength: 120
+                    effort:
+                      type: string
+                      enum:
+                        - ""
+                        - minimal
+                        - low
+                        - medium
+                        - high
+                        - xhigh
+                    vmImage:
+                      type: string
+                      maxLength: 512
+                      description: Public Docker/OCI image reference, or blank for the provider default.
+                    tags:
+                      maxItems: 20
+                      type: array
+                      items:
+                        type: string
+                        pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$
+                    modelAccountId:
+                      type: string
+                      format: uuid
+                      pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    portableIntegrationIds:
+                      maxItems: 100
+                      type: array
+                      items:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    githubInstallationIds:
+                      maxItems: 100
+                      type: array
+                      items:
+                        type: integer
+                        exclusiveMinimum: 0
+                        maximum: 9007199254740991
+                    linearConnectionId:
+                      anyOf:
+                        - type: string
+                          const: linear
+                        - type: "null"
+                    xConnectionIds:
+                      maxItems: 100
+                      type: array
+                      items:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    runScopes:
+                      description: Factorize API scopes for new trigger runs. Omission uses existing scopes on update or read/invoke defaults on create; an empty array grants no application scopes. triggers:write permits configuring triggers and their future run scopes.
+                      maxItems: 13
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - team:read
+                          - team:write
+                          - triggers:read
+                          - triggers:write
+                          - runs:read
+                          - runs:invoke
+                          - runs:start
+                          - runs:cancel
+                          - runs:write
+                          - integrations:read
+                          - integrations:write
+                          - skills:read
+                          - skills:write
+                    concurrencyLimit:
+                      type: integer
+                      minimum: 1
+                      maximum: 50
+                    allowedTriggerIds:
+                      maxItems: 100
+                      type: array
+                      items:
+                        type: string
+                        format: uuid
+                        pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                    executionType:
+                      default: agent
+                      type: string
+                      enum:
+                        - agent
+                        - code
+                    prompt:
+                      default: ""
+                      type: string
+                      maxLength: 50000
+                    script:
+                      type: string
+                      maxLength: 200000
+                  additionalProperties: false
+              required:
+                - expectedRevision
+                - defaults
+              additionalProperties: false
   /api/v1/skills:
     get:
       summary: Search global skills
@@ -9273,6 +11549,25 @@ paths:
                           type: string
                         updatedAt:
                           type: string
+                        trigger:
+                          anyOf:
+                            - type: object
+                              properties:
+                                id:
+                                  type: string
+                                  format: uuid
+                                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$
+                                enabled:
+                                  type: boolean
+                              required:
+                                - id
+                                - enabled
+                              additionalProperties: false
+                            - type: "null"
+                        lastRunState:
+                          type:
+                            - string
+                            - "null"
                       required:
                         - id
                         - key

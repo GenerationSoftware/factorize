@@ -1,7 +1,11 @@
 ---
 title: Create and edit triggers
-description: Discover a target and replace configuration safely.
+description: Configure skill event sources and retain compatibility with trigger clients.
 ---
+
+In the browser, open a [skill](/work/skills), then **Settings → Trigger**. Each skill has at most one optional trigger, which can contain several event sources. Execution defaults belong to the skill, and the browser uses its name to label the trigger.
+
+The following describes the compatible REST/MCP trigger interface. Existing trigger IDs, names and write omission semantics remain available to external clients.
 
 Ask: “List execution integrations and triggers, then create a review trigger for this repository.” Use [the first-trigger input](/quickstart) and [MCP tool contract](/mcp/tools). Reuse an existing trigger when its name/purpose matches; trigger creation has no idempotency key.
 
@@ -15,10 +19,10 @@ After saving, call `get_trigger` and compare prompt, target and events. `enable_
 
 ## Names
 
-A Trigger has one name, shared with the team skill namespace. Follow the [Agent Skills naming rules](https://agentskills.io/specification): 1–64 lowercase letters, digits, and hyphens, with no leading, trailing, or consecutive hyphens. `manual` is reserved. A skill and Trigger cannot use the same name. Renames preserve resource IDs and run history. Migrated names and their previous display names are recorded for review.
+The browser displays the owning skill name and has no separate trigger-name field or skill selector. Skill renames preserve IDs and run history. The compatibility API still accepts a trigger's internal name in its existing shared resource namespace; use the name returned by `get_trigger` when updating through that interface.
 
-## Team defaults and settings
+## Team and skill defaults
 
-In Team settings, configure VM, model, concurrency, application scopes, provider credentials, and allowed invocation destinations. New Triggers copy concrete defaults when they are created. Explicit values override defaults, including empty permission lists. Later default changes apply to future Triggers and direct runs. They do not rewrite existing Triggers. Missing or unavailable VM configuration is an error.
+Team settings has **VM**, **Permissions**, and **Skills** sections. VM contains execution/model/concurrency defaults and presets; Permissions contains application scopes, provider access and invocation destinations; Skills contains Git repository configuration and sync.
 
-Trigger General settings contain model and capacity choices. VM settings contain workspace configuration. Permissions contains scopes, provider credentials, and manual invocation destinations. Direct runs narrow default scopes, integrations, and destinations to the caller’s access. Explicit requests outside that access fail. Delegated runs cannot gain scopes or destinations that their active parent lacks.
+New skills copy team defaults. Each skill then owns its execution mode, VM/model, prompt, concurrency and permissions. Both manual and event-triggered launches use those saved settings; accepted runs keep their snapshots. Runs without a selected skill use team defaults. Direct runs narrow permissions to their caller's access, and explicit requests beyond that access fail.

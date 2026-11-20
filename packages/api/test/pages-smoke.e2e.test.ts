@@ -72,7 +72,7 @@ describe.skipIf(!process.env.AUTH_TEST_DATABASE_URL)("every page E2E smoke", () 
     "run info": { path: () => run() + "/info", ready: info },
     "legacy run context": { path: () => run() + "/context", destination: () => run() + "/info", ready: info },
     "legacy run settings": { path: () => run() + "/settings", destination: () => run() + "/info", ready: info },
-    "settings": { path: () => "/settings", ready: heading("Team settings") },
+    "settings": { path: () => "/settings", destination: () => "/settings/vm", ready: heading("VM settings") },
     "VM presets": { path: () => "/settings/vm-presets", ready: heading("VM presets") },
     "legacy integrations": { path: () => "/settings/integrations", destination: () => "/integrations", ready: heading("Available integrations") },
     "integrations": { path: () => "/integrations", ready: heading("Available integrations") },

@@ -24,7 +24,7 @@ export function triggersRoutes(root: AnyRootRoute) {
     loaderDeps: ({ search }) => ({ cursor: search.cursor, sort: search.sort, direction: search.direction, states: search.states }),
     loader: ({ params, deps }) => {
       void queryClient.prefetchQuery(historyQuery(params.triggerId, deps.cursor, deps.sort, deps.direction, deps.states)).catch(() => undefined);
-      return queryClient.ensureQueryData(triggerQuery(params.triggerId));
+      return queryClient.ensureQueryData(triggerQuery(params.triggerId)).then(trigger=>{if(trigger.skillId)throw redirect({to:"/skills/$skillId",params:{skillId:trigger.skillId},replace:true});return trigger;});
     },
     component: lazyRouteComponent(() => import("./detail"), "TriggerDetail"),
   });
@@ -34,6 +34,6 @@ export function triggersRoutes(root: AnyRootRoute) {
   const settings = createRoute({ getParentRoute: () => root, path: "/triggers/$triggerId/settings",
     beforeLoad: ({ params }) => { throw redirect({ to: "/triggers/$triggerId/settings/$section", params: { triggerId: params.triggerId, section: "general" } }); } });
   const settingsSection = createRoute({ getParentRoute: () => root, path: "/triggers/$triggerId/settings/$section", beforeLoad: async context => { await guard(context); if (!["general","vm","context","permissions","events"].includes(context.params.section)) throw notFound(); },
-    loader: ({ params }) => queryClient.ensureQueryData(triggerQuery(params.triggerId)), component: lazyRouteComponent(() => import("./editor"), "TriggerEditor") });
+    loader: ({ params }) => queryClient.ensureQueryData(triggerQuery(params.triggerId)).then(trigger=>{if(trigger.skillId)throw redirect({to:"/skills/$skillId/settings/$section",params:{skillId:trigger.skillId,section:params.section==="events"?"trigger":params.section==="context"?"general":params.section},replace:true});return trigger;}), component: lazyRouteComponent(() => import("./editor"), "TriggerEditor") });
   return [triggers, trigger, create, edit, settings, settingsSection];
 }

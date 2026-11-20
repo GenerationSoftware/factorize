@@ -9,7 +9,7 @@ const siblingRunId = "00000000-0000-4000-8000-000000000004";
 before(async () => { server = createServer(async (req, res) => { const path = new URL(req.url, "http://local").pathname, file = (/^(\/assets\/|\/theme-init.js$|\/bee-mark-monochrome.png$|\/favicon.ico$)/.test(path)) ? path : "/index.html"; try { const body = await readFile(new URL("../dist" + file, import.meta.url)); res.setHeader("Content-Type", file.endsWith(".js") ? "application/javascript" : file.endsWith(".css") ? "text/css" : "text/html"); res.end(body); } catch { res.statusCode = 404; res.end(); } }); await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = "http://127.0.0.1:" + server.address().port; browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); });
 async function setup(locale = "en-US") { const context = await browser.newContext({ locale }), page = await context.newPage(); page.setDefaultTimeout(10000); await page.route("**/api/v1/session", route => route.fulfill({ json: { authenticated: true, user: { id: "owner", email: "owner@example.test" }, team: { id: "tenant", name: "Workspace" }, capabilities: [], expiresAt: "2026-10-10T00:00:00Z" } })); return { context, page }; }
-test("individual run keeps its trigger navigation context", async () => {
+test("individual run uses team navigation and retains its run switcher", async () => {
   const { context, page } = await setup();
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({ json: { id: runId, trigger_id: triggerId, trigger_name: "Review builds", run_name: "Project run", state: "succeeded", finalizing: false, trace_revision: "rev", artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
   await page.route(`**/api/v1/runs/${siblingRunId}/status`, route => route.fulfill({ json: { id: siblingRunId, trigger_id: triggerId, trigger_name: "Review builds", run_name: "Sibling run", state: "succeeded", finalizing: false, trace_revision: "rev", artifact_state: "stored", created_at: time, updated_at: time, started_at: time, destination_url: null } }));
@@ -18,16 +18,17 @@ test("individual run keeps its trigger navigation context", async () => {
   await page.route(`**/api/v1/projects/${projectId}`, route => route.fulfill({ json: { id: projectId, name: "Release project", description: "", triggerCount: 1 } }));
   await page.route(`**/api/v1/runs/${runId}/trace-pages?**`, route => route.fulfill({ json: { items: [], nextCursor: null, revision: "rev", reset: false } }));
   await page.goto(origin + `/runs/${runId}`);
-  const nav = page.getByRole("navigation", { name: "Trigger navigation" });
+  const nav = page.getByRole("navigation", { name: "Dashboard navigation" });
   await nav.getByRole("link", { name: "Runs", exact: true }).waitFor();
   assert.equal(await nav.getByRole("link", { name: "Runs", exact: true }).getAttribute("aria-current"), "page");
   const mainNav = page.getByRole("navigation", { name: "Main navigation" });
-  await mainNav.getByRole("link", { name: "Review builds", exact: true }).waitFor();
+  await mainNav.getByRole("link", { name: "Workspace", exact: true }).waitFor();
+  assert.equal(await mainNav.getByRole("link",{name:"Review builds",exact:true}).count(),0);
   await page.getByRole("button", { name: "Switch run" }).click();
   await page.getByRole("option", { name: /Project run.*Current/ }).waitFor();
   await page.getByRole("option", { name: "Sibling run" }).click();
   await page.waitForURL(new RegExp(siblingRunId));
-  assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 1);
+  assert.equal(await page.getByRole("navigation", { name: "Breadcrumb" }).count(), 0);
   await context.close();
 });
 test("an expired run shows a missing state, stops polling, and never loads retained details", async () => {
@@ -87,7 +88,7 @@ test("all-triggers runs index uses a tenant-scoped page, navigation, refresh, an
 const runs = Array.from({ length: 21 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, project_id: projectId, project_name: "Project Alpha", trigger_id: triggerId, trigger_name: "Review builds", run_name: `Run ${index}`, state: index === 0 ? "running" : "succeeded", created_at: time, updated_at: time, started_at: index === 0 ? time : null, agent_kind: "codex", elapsed_time: index === 0 ? { low: 60, high: 180 } : { duration: 120 } }));
   await page.route("**/api/v1/runs?**", route => { const url = new URL(route.request().url()); requests.push(url); refreshes++; const second = url.searchParams.has("cursor"); return route.fulfill({ json: { items: second ? [runs[20]] : runs.slice(0, 20), nextCursor: second ? null : "page-2" } }); });
   await page.goto(origin + "/runs"); await page.getByRole("heading", { name: "Runs", exact: true }).waitFor(); await page.getByRole("link", { name: "Run 0", exact: true }).waitFor();
-  assert.equal(await page.getByRole("link", { name: "Triggers", exact: true }).count(), 1); assert.equal(await page.getByRole("link", { name: "Runs", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("link", { name: "Triggers", exact: true }).count(), 0); assert.equal(await page.getByRole("link", { name: "Skills", exact: true }).count(),1); assert.equal(await page.getByRole("link", { name: "Runs", exact: true }).count(), 1);
   const table = page.getByRole("table"); await table.getByRole("columnheader",{name:"Prompt",exact:true}).waitFor();
  assert.deepEqual(await table.locator("thead th").allTextContents(), ["Status", "Source", "Run", "Prompt", "Elapsed", "Created"]); assert.equal(await page.getByText("Run 0", { exact: true }).count(), 1); assert.equal(await page.getByText("1m–3m", { exact: true }).count(), 1); assert.equal(await page.getByText("2m", { exact: true }).count(), 19); assert.equal(await page.getByRole("link", { name: "Project Alpha", exact: true }).count(), 0); assert.equal(await page.locator("td time").count(), 20); assert.equal(await page.locator("td time").first().getAttribute("datetime"), time);
   const firstRowCells = await table.locator("tbody tr").first().locator("td").all(); const elapsedBox = await firstRowCells[3].boundingBox(); const createdBox = await firstRowCells[4].boundingBox(); assert.ok(elapsedBox && createdBox && elapsedBox.x + elapsedBox.width <= createdBox.x, "Elapsed and Created columns must not overlap");
@@ -190,8 +191,7 @@ test("prompt/provenance and diagnostics are lazy, terminal replay retries reuse 
   assert.equal(await page.locator('a[href^="javascript:"]').count(), 0); assert.equal(await page.locator("main script").count(), 0);
   assert.equal(await page.getByRole("tab", { name: "Trace", exact: true }).getAttribute("aria-selected"), "true");
   const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
-  assert.equal(await breadcrumbs.getByRole("link", { name: "Trigger", exact: true }).count(), 1);
-  assert.equal(await breadcrumbs.getByRole("link", { name: "Trigger", exact: true }).getAttribute("href"), "/triggers/" + triggerId);
+  assert.equal(await breadcrumbs.getByRole("link", { name: "Trigger", exact: true }).count(), 0);
   await page.getByRole("tab", { name: "Info", exact: true }).click();
   await page.getByText("Created", { exact: true }).waitFor(); await page.getByText("Started", { exact: true }).waitFor(); await page.getByText("Queue time", { exact: true }).waitFor(); await page.getByText("Runtime", { exact: true }).waitFor(); await page.getByText("Execution destination", { exact: true }).waitFor();
   await page.getByText("Prompt, context and provenance", { exact: true }).click(); await page.getByText("Private prompt", { exact: true }).waitFor(); await page.getByText("event-fixture", { exact: true }).waitFor(); await page.getByRole("heading", { name: "Event context and occurrence" }).waitFor(); await page.getByText("Diagnostics and artifacts", { exact: true }).click(); await page.getByText(/retained\/log.txt/).waitFor(); assert.equal(detailReads, 1); assert.equal(diagnosticReads, 1);
@@ -482,8 +482,8 @@ test("filter direct runs by launch skill and start another in the team", async (
   });
   await page.route(`**/api/v1/runs/${runId}/status`, route => route.fulfill({json: {...run, finalizing: false, artifact_state: "stored", trace_revision: "rev"}}));
   try {
-    await page.goto(origin+"/runs");
-    await page.getByLabel("Skill").selectOption(skillId);
+    await page.goto(origin+"/runs?skillId="+skillId);
+    assert.equal(await page.getByLabel("Skill",{exact:true}).count(),0);
     const row = page.getByRole("row").filter({hasText: "Review"});
     await row.getByText("manual", {exact: true}).waitFor();
     await row.getByText("/dev", {exact: true}).waitFor();
@@ -530,7 +530,7 @@ for(const viewport of [{width:1440,height:1000},{width:390,height:844}])test(`So
  await page.goto(origin+"/runs");const table=page.getByRole("region",{name:"Trigger runs table"});
  await table.getByRole("columnheader",{name:"Prompt",exact:true}).waitFor();
  assert.deepEqual(await table.locator("thead th").allTextContents(),["Status","Source","Run","Prompt","Elapsed","Created"]);
- const row=table.getByRole("row").filter({hasText:"Keep this run name"});await row.getByText("original-trigger",{exact:true}).waitFor();
+ const row=table.getByRole("row").filter({hasText:"Keep this run name"});await row.getByText("original-skill",{exact:true}).waitFor();
  assert.equal(await row.locator("td").nth(3).textContent(),"/original-skill "+long);assert.equal(await row.locator("script").count(),0);
  assert.equal(await table.getByRole("row").filter({hasText:"Manual script run"}).locator("td").nth(1).textContent(),"manual");
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
@@ -538,4 +538,21 @@ for(const viewport of [{width:1440,height:1000},{width:390,height:844}])test(`So
  await page.goto(origin+`/triggers/${triggerId}`);const history=page.getByRole("region",{name:"Runs table",exact:true});await history.getByText("Keep this run name",{exact:true}).waitFor();
  assert.equal(await history.getByRole("columnheader",{name:"Source",exact:true}).count(),1);assert.equal(await history.getByRole("columnheader",{name:"Prompt",exact:true}).count(),1);
  assert.equal(await history.getByRole("row").filter({hasText:"Retained old run"}).locator("td").nth(3).textContent(),"/deleted-skill Historical instructions");
+});
+
+test("manual and triggered detail/full trace retain team navigation and omit trigger breadcrumbs",async()=>{
+ for(const triggered of [false,true])for(const suffix of ["","/trace"]){
+  const {page,context}=await setup();
+  await page.route(`**/api/v1/runs/${runId}/status`,route=>route.fulfill({json:{id:runId,trigger_id:triggered?triggerId:null,trigger_name:triggered?"Original trigger":null,run_name:"Navigation run",state:"succeeded",finalizing:false,trace_revision:"rev",artifact_state:"stored",created_at:time,updated_at:time,started_at:time,destination_url:null}}));
+  await page.route(`**/api/v1/triggers/${triggerId}`,route=>route.fulfill({json:{id:triggerId,name:"Original trigger",events:[]}}));
+  await page.route(`**/api/v1/runs/${runId}/trace-pages?**`,route=>route.fulfill({json:{items:[],nextCursor:null,revision:"rev",reset:false}}));
+  await page.goto(origin+`/runs/${runId}${suffix}`);
+  await page.getByRole("heading",{name:"Navigation run",exact:true}).waitFor();
+  const nav=page.getByRole("navigation",{name:"Dashboard navigation",exact:true});
+  assert.equal(await nav.getByRole("link",{name:"Runs",exact:true}).getAttribute("aria-current"),"page");
+  assert.equal(await page.getByRole("navigation",{name:"Trigger navigation",exact:true}).count(),0);
+  assert.equal(await page.getByRole("navigation",{name:"Main navigation",exact:true}).getByRole("link",{name:"Original trigger",exact:true}).count(),0);
+  assert.equal(await page.getByRole("navigation",{name:"Breadcrumb",exact:true}).getByRole("link",{name:"Original trigger",exact:true}).count(),0);
+  await context.close();
+ }
 });

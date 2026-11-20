@@ -23,7 +23,7 @@ export class RunQueryRepository {
     if (triggerIds.length) { values.push(triggerIds); clauses.push(`r.trigger_id=ANY($${values.length}::uuid[])`); }
     const skill = query.get("skillId");
     if (skill === "none") clauses.push("r.launch_skill_id IS NULL");
-    else if (skill) { values.push(skill); clauses.push(`r.launch_skill_id=$${values.length}::uuid`); }
+    else if (skill) { values.push(skill); clauses.push(`(r.launch_skill_id=$${values.length}::uuid OR r.trigger_id IN (SELECT trigger_id FROM app.trigger_skills WHERE tenant_id=r.tenant_id AND skill_id=$${values.length}::uuid))`); }
     const states = query.getAll("state");
     if (states.length) { values.push(states.flatMap(state => state === "done" ? ["done", "succeeded"] : [state])); clauses.push(`r.state=ANY($${values.length}::text[])`); }
     if (query.get("contextQuery")) { values.push(`%${query.get("contextQuery")}%`); clauses.push(`i.context::text ILIKE $${values.length}`); }

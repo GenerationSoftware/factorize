@@ -1,3 +1,4 @@
+import { PostgresSkillContentCache } from "./postgres/skill-content-cache";
 import {publishedFiles} from "./mcp-skills";
 import { SkillContent, repositoryToken, type ArtifactVersion } from "./skill-content";
 import { decrypt } from "./crypto";
@@ -19,7 +20,7 @@ type LibraryRow = {
   error: string | null;
   github_tree: string | null;
 };
-type Current = Directory & { id: string; body: string; version?: SkillVersion; ref?: ArtifactVersion };
+type Current = Directory & { id: string; body: string; version?: SkillVersion; ref?: ArtifactVersion; migrationPending?:boolean };
 function fingerprint(dir: Directory) {
   return JSON.stringify(
     dir.files
@@ -112,10 +113,10 @@ export class SkillLibrary {
   }
   private async current(client: DatabaseClient, edits?: Map<string, string>): Promise<Current[]> {
     const { rows } = await client.query(
-      "SELECT id,key,encrypted_body,encrypted_directory,artifact_version FROM app.skills WHERE tenant_id=$1 ORDER BY key FOR UPDATE",
+      "SELECT id,key,encrypted_body,encrypted_directory,artifact_version,legacy_context,migration_pending FROM app.skills WHERE tenant_id=$1 ORDER BY key FOR UPDATE",
       [this.tenant],
     );
-    const content = new SkillContent(this.env.SKILL_ARTIFACTS);
+    const content = new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(this.db,this.tenant,this.env.CREDENTIAL_ENCRYPTION_KEY));
     return Promise.all(
       rows.map(async (row) => {
         const { body, version } = await content.read(
@@ -137,6 +138,7 @@ export class SkillLibrary {
           version,
           files: version?.files ?? [markdown(body)],
           ref: row.artifact_version,
+          migrationPending:row.migration_pending,
         };
       }),
     );
@@ -249,7 +251,7 @@ export class SkillLibrary {
       const pointer: ArtifactVersion = { repo: row.repo, remote: row.remote, commit, key: dir.key };
       await client.query(
         `INSERT INTO app.skills(tenant_id,id,key,artifact_version) VALUES($1,$2,$3,$4)
-         ON CONFLICT(tenant_id,key) DO UPDATE SET encrypted_body=NULL,encrypted_directory=NULL,artifact_version=excluded.artifact_version,
+         ON CONFLICT(tenant_id,key) DO UPDATE SET encrypted_body=NULL,encrypted_directory=NULL,artifact_version=excluded.artifact_version,legacy_context='[]'::jsonb,
          revision=app.skills.revision+$5,updated_at=CASE WHEN $5=0 THEN app.skills.updated_at ELSE now() END`,
         [this.tenant, previous?.id ?? crypto.randomUUID(), dir.key, pointer, same ? 0 : 1],
       );
@@ -335,16 +337,21 @@ export class SkillLibrary {
             }
           }
           const current = await this.current(client);
-          const dirs = await repo.directories(
+          const incoming = await repo.directories(
             source.kind === "managed" ? managedFolder : source.folder,
             current,
           );
+          const incomingKeys=new Set(incoming.map(dir=>dir.key));
+          const preserved=current.filter(dir=>dir.migrationPending&&!incomingKeys.has(dir.key));
+          const dirs=[...incoming,...preserved];
+          // Migration-created skills stay available until a publish adopts them.
+          await client.query("UPDATE app.skills SET migration_pending=false WHERE tenant_id=$1 AND key=ANY($2::text[])",[this.tenant,[...incomingKeys]]);
           const head = repo.head;
           const mirror = () =>
             this.managed(row, "write").then((remote) =>
               withSkillGit(remote, (repo) => repo.write(managedFolder, dirs, "Sync GitHub " + head)),
             );
-          await this.publish(client, current, dirs, source.kind === "managed" ? head : mirror, head, tree);
+          await this.publish(client, current, dirs, source.kind === "managed" && !preserved.length ? head : mirror, head, tree);
         };
         if (source.kind === "managed") await withSkillGit(await this.managed(row, "read"), reconcile);
         else await reconcile(await this.github(client, source));
@@ -375,7 +382,7 @@ export class SkillLibrary {
         this.tenant,
         this.env.CREDENTIAL_ENCRYPTION_KEY,
         client,
-        new SkillContent(this.env.SKILL_ARTIFACTS),
+        new SkillContent(this.env.SKILL_ARTIFACTS,new PostgresSkillContentCache(this.db,this.tenant,this.env.CREDENTIAL_ENCRYPTION_KEY)),
         edits,
       );
       const result = await work(store);
@@ -410,7 +417,7 @@ export class SkillLibrary {
       for (const dir of after) {
         const pointer: ArtifactVersion = { repo: row.repo, remote: row.remote, commit, key: dir.key };
         await client.query(
-          "UPDATE app.skills SET artifact_version=$3,encrypted_directory=NULL,encrypted_body=NULL WHERE tenant_id=$1 AND id=$2",
+          "UPDATE app.skills SET artifact_version=$3,encrypted_directory=NULL,encrypted_body=NULL,legacy_context='[]'::jsonb,migration_pending=false WHERE tenant_id=$1 AND id=$2",
           [this.tenant, dir.id, pointer],
         );
       }

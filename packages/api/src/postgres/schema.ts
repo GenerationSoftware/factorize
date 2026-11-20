@@ -17,7 +17,7 @@ export const schemaMigrations = app.table("schema_migrations", {
   version: text("version").primaryKey(), appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const tenants = app.table("tenants", { id: uuid("id").primaryKey(), name: text("name"), createdAt: createdAt(), updatedAt: updatedAt() });
+export const tenants = app.table("tenants", { id: uuid("id").primaryKey(), personalOwnerId:uuid("personal_owner_id").references(()=>authUsers.id), name: text("name"), createdAt: createdAt(), updatedAt: updatedAt() });
 export const teamSettings = app.table("team_settings", {
   tenantId: uuid("tenant_id").primaryKey().references(() => tenants.id, { onDelete: "cascade" }),
   runDefaults: jsonb("run_defaults").notNull().default({}), updatedAt: updatedAt(),
@@ -27,7 +27,7 @@ export const vmPresets = app.table("vm_presets", {
   id: uuid("id").notNull(), name: text("name").notNull(), settings: jsonb("settings").notNull(),
   executionConfigId: text("execution_config_id").notNull(),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("vm_presets_name").on(t.tenantId, sql`lower(${t.name})`)]);
-export const authUsers = app.table("auth_users", { id: uuid("id").primaryKey(), email: text("email").notNull().unique(), emailVerified: boolean("email_verified").notNull().default(false), createdAt: createdAt() }, t => [uniqueIndex("auth_users_email_normalized").on(sql`lower(${t.email})`)]);
+export const authUsers = app.table("auth_users", { id: uuid("id").primaryKey(), username:text("username").notNull().unique("auth_users_username_unique").default(sql`'user-' || replace(gen_random_uuid()::text,'-','')`), email: text("email").notNull().unique(), emailVerified: boolean("email_verified").notNull().default(false), createdAt: createdAt() }, t => [uniqueIndex("auth_users_email_normalized").on(sql`lower(${t.email})`)]);
 export const authAccounts = app.table("auth_accounts", {
   id: uuid("id").primaryKey(), userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }), provider: text("provider").notNull(), providerAccountId: text("provider_account_id").notNull(), passwordHash: text("password_hash"),
 }, t => [unique().on(t.provider, t.providerAccountId)]);
@@ -124,9 +124,13 @@ export const skillLibraryBackfill = app.table("skill_library_backfill", {
   attemptedAt: timestamp("attempted_at", {withTimezone:true}), error: text("error"),
 });
 export const skills = app.table("skills", {
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), key: text("key").notNull(), encryptedBody: text("encrypted_body"), artifactVersion: jsonb("artifact_version"), encryptedDirectory: text("encrypted_directory"), revision: integer("revision").notNull().default(1), createdAt: createdAt(), updatedAt: updatedAt(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }), id: uuid("id").notNull(), key: text("key").notNull(), runDefaults:jsonb("run_defaults").notNull(), encryptedPrompt:text("encrypted_prompt"), encryptedScript:text("encrypted_script"), settingsRevision:integer("settings_revision").notNull().default(1), legacyContext:jsonb("legacy_context").notNull().default([]), migrationPending:boolean("migration_pending").notNull().default(false), encryptedBody: text("encrypted_body"), artifactVersion: jsonb("artifact_version"), encryptedDirectory: text("encrypted_directory"), revision: integer("revision").notNull().default(1), createdAt: createdAt(), updatedAt: updatedAt(),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), unique().on(t.tenantId, t.key)]);
-export const triggerSkills = app.table("trigger_skills", { contextSkill:boolean("context_skill").notNull().default(true), tenantId: uuid("tenant_id").notNull(), triggerId: uuid("trigger_id").notNull(), skillId: uuid("skill_id").notNull(), position: integer("position").notNull() }, t => [primaryKey({ columns: [t.tenantId, t.triggerId, t.skillId] }), unique().on(t.tenantId, t.triggerId, t.position), uniqueIndex("trigger_one_skill").on(t.tenantId,t.triggerId), foreignKey({ columns: [t.tenantId, t.triggerId], foreignColumns: [triggers.tenantId, triggers.id] }).onDelete("cascade"), foreignKey({ columns: [t.tenantId, t.skillId], foreignColumns: [skills.tenantId, skills.id] }).onDelete("restrict")]);
+export const skillContentCache = app.table("skill_content_cache", {
+  tenantId:uuid("tenant_id").notNull().references(()=>tenants.id,{onDelete:"cascade"}),
+  repository:text("repository").notNull(),commitSha:text("commit_sha").notNull(),encryptedContent:text("encrypted_content").notNull(),createdAt:createdAt(),
+},t=>[primaryKey({columns:[t.tenantId,t.repository,t.commitSha]})]);
+export const triggerSkills = app.table("trigger_skills", { skillOwned:boolean("skill_owned").notNull().default(true), contextSkill:boolean("context_skill").notNull().default(true), tenantId: uuid("tenant_id").notNull(), triggerId: uuid("trigger_id").notNull(), skillId: uuid("skill_id").notNull(), position: integer("position").notNull() }, t => [primaryKey({ columns: [t.tenantId, t.triggerId, t.skillId] }), unique().on(t.tenantId, t.triggerId, t.position), uniqueIndex("trigger_one_skill").on(t.tenantId,t.triggerId), uniqueIndex("one_trigger_per_skill").on(t.tenantId,t.skillId), foreignKey({ columns: [t.tenantId, t.triggerId], foreignColumns: [triggers.tenantId, triggers.id] }).onDelete("cascade"), foreignKey({ columns: [t.tenantId, t.skillId], foreignColumns: [skills.tenantId, skills.id] }).onDelete("restrict")]);
 export const events = app.table("events", {
   tenantId: uuid("tenant_id").notNull(), id: uuid("id").notNull(), triggerId: uuid("trigger_id").notNull(), kind: text("kind").$type<EventKind>().notNull(), slug: text("slug").notNull(), enabled: boolean("enabled").notNull().default(true), config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}), encryptedTemplate:text("encrypted_template"), legacyTemplate:boolean("legacy_template").notNull().default(false), position: integer("position").notNull().default(0), createdAt: createdAt(), updatedAt: updatedAt(), removedAt: timestamp("removed_at", { withTimezone: true }),
 }, t => [primaryKey({ columns: [t.tenantId, t.id] }), uniqueIndex("events_active_slug").on(t.tenantId, t.triggerId, t.slug).where(sql`${t.removedAt} is null`), foreignKey({ columns: [t.tenantId, t.triggerId], foreignColumns: [triggers.tenantId, triggers.id] }).onDelete("cascade"), check("no_webhook_handler_code", sql`NOT (${t.config} ? 'handlerCode')`), check("events_kind_check", sql`${t.kind} in ('manual','schedule','webhook','triggerLifecycle','triggerIdle')`)]);
@@ -230,7 +234,7 @@ export const databaseSchema = {
   runMedia,runMediaLinks,mediaUploadAttempts,runWorkspaces,piSessions,piSessionEvents,piToolCalls,
   teamSettings,
   schemaMigrations, tenants, vmPresets, oauthConnections, oauthConsentPreviews, authUsers, authAccounts, authResetTokens, authSessions, oauthDeviceAuthorizations, members, accessTokens,
-  connections, agentIntegrations, agentIdentities, vmGrants, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, modelDeviceAuthorizations, linearWorkspaces, githubInstallations, githubSetupStates, projects, triggers, vmImageVerifications, skillLibraries, skillLibraryBackfill, skills, triggerSkills, events, webhookConditionsCutover, invocations, manualInvocationPermissions, triggerRuns, runAuthorizations, runs, runArtifacts, runRetentionCleanup,
+  connections, agentIntegrations, agentIdentities, vmGrants, agentProxyResponses, integrationCollections, integrationRecords, integrationChanges, modelDeviceAuthorizations, linearWorkspaces, githubInstallations, githubSetupStates, projects, triggers, vmImageVerifications, skillLibraries, skillLibraryBackfill, skills, skillContentCache, triggerSkills, events, webhookConditionsCutover, invocations, manualInvocationPermissions, triggerRuns, runAuthorizations, runs, runArtifacts, runRetentionCleanup,
   runTraceEvents, runActivity, activeClaims, scheduleState, automaticWakes, lifecycleDeliveries, lifecycleEvents, triggerEditDeliveries, triggerEvents,
   webhookDeliveries, webhookDeliveryEvents, pendingVerifications, tailFingerprints, wakeHints, runTraceCursors, runTraceChunks,
   runTraceProjections, traceReplayLimits, traceReplayOperations,

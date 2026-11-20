@@ -1,3 +1,4 @@
+import { usernameSchema } from "./usernames";
 import { integrationConsentLabels } from "./agent-api";
 import { ACCESS_SCOPES } from "./access-tokens";
 import { connectionFor, originalBrowser, startConnection, connectionDestination } from "./oauth-continuation";
@@ -17,8 +18,8 @@ const password = z.string().min(12).max(200).meta({ writeOnly: true });
 const connection = z.uuid().optional();
 const token = z.string().min(1).max(512).meta({ writeOnly: true });
 export const authInputs = {
-  login: z.object({ email, password, returnTo: z.string().max(8192).optional(), connection }).strict(),
-  signup: z.object({ email, password, connection }).strict(),
+  login: z.object({ email: z.string().trim().toLowerCase().min(1).max(320), password, returnTo: z.string().max(8192).optional(), connection }).strict(),
+  signup: z.object({ email, username: usernameSchema, password, connection }).strict(),
   request: z.object({ email, connection }).strict(),
   verify: z.object({ token }).strict(),
   reset: z.object({ token, password }).strict(),
@@ -47,7 +48,7 @@ export function safeReturnTo(value: string | undefined): string {
   try {
     const url = new URL(value, "https://local.invalid");
     if (url.origin !== "https://local.invalid") return "/integrations";
-    if (!/^\/(?:authorize|device|integrations|triggers(?:\/[^/]+(?:\/(?:edit|settings))?)?|runs(?:\/[^/]+)?|settings(?:\/(?:integrations|api-keys(?:\/new)?|password))?)$/.test(url.pathname)) return "/integrations";
+    if (!/^\/(?:authorize|device|integrations|skills(?:\/[^/]+(?:\/(?:runs|settings(?:\/(?:general|vm|permissions|trigger))?))?)?|triggers(?:\/[^/]+(?:\/(?:edit|settings(?:\/(?:general|vm|context|permissions|events))?))?)?|runs(?:\/[^/]+(?:\/(?:trace|info))?)?|settings(?:\/(?:profile|vm|permissions|skills|vm-presets|integrations|api-keys(?:\/new)?|authorized-clients|password))?)$/.test(url.pathname)) return "/integrations";
     return url.pathname + url.search + url.hash;
   } catch { return "/integrations"; }
 }
@@ -68,7 +69,7 @@ async function currentSession(request: Request, env: Env): Promise<Session | nul
   const member = await new IdentityRepository(databaseFor(env), session.tenantId).member(session.userId);
   return member?.role === "owner" && member.sessionVersion === session.sessionVersion ? { ...session, email: member.email } : null;
 }
-export type AuthAction = "connection-start" | "connection-resume" | "session" | "login" | "signup" | "verification-request" | "verification" | "reset-request" | "reset" | "password" | "logout" | "consent-preview" | "consent-decision" | "device-preview" | "device-decision";
+export type AuthAction = "profile" | "profile-update" | "connection-start" | "connection-resume" | "session" | "login" | "signup" | "verification-request" | "verification" | "reset-request" | "reset" | "password" | "logout" | "consent-preview" | "consent-decision" | "device-preview" | "device-decision";
 
 export async function executeAuth(action: AuthAction, request: Request, env: Env, input: Record<string, unknown> = {}): Promise<Response> {
   // These operations use browser cookies only. Ignore neither a bad bearer nor a
@@ -101,8 +102,15 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
     const pending = await connectionFor(env, String(input.connection));
     if (!pending || !await originalBrowser(request, env, pending)) return failure(400, "Invalid or expired connection. Restart connecting from your MCP client.");
   }
-  if (action === "session" || action === "logout" || action === "password" || action === "consent-preview" || action === "consent-decision" || action === "device-preview" || action === "device-decision") {
+  if (action === "profile" || action === "profile-update" || action === "session" || action === "logout" || action === "password" || action === "consent-preview" || action === "consent-decision" || action === "device-preview" || action === "device-decision") {
     const session = await currentSession(request, env);
+    if (action === "profile" || action === "profile-update") {
+      if (!session) return failure(401, "Sign in to manage your profile.");
+      const repo = new AuthRepository(databaseFor(env), env);
+      if (action === "profile") return authJson(await repo.profile(session.userId));
+      const result = await repo.updateProfile(session.userId, String(input.username));
+      return result.status === 200 ? authJson(result.body) : failure(result.status, (result.body as {error:string}).error);
+    }
     if (action === "session") {
       if (!session) return authJson({ authenticated: false });
       const workspace = (await databaseFor(env).pool.query<{ name: string | null }>("SELECT name FROM app.tenants WHERE id=$1", [session.tenantId])).rows[0];
@@ -180,7 +188,7 @@ export async function executeAuth(action: AuthAction, request: Request, env: Env
   if ((action === "verification" || action === "reset") && result.status === 200 && "userId" in result.body && result.body.userId && !result.body.tenantId) return failure(403, "This account needs a workspace owner invitation.");
   // The new public signup contract intentionally does not enumerate accounts.
   // Keep legacy form status compatibility until those screens are cut over.
-  if (action === "signup" && (result.status === 201 || result.status === 409)) return authJson({ ok: true }, 202);
+  if (action === "signup" && (result.status === 201 || result.status === 409 && (!("error" in result.body) || result.body.error !== "That username is already taken."))) return authJson({ ok: true }, 202);
   return result.status < 300 ? authJson({ ok: true }) : failure(result.status, "error" in result.body ? result.body.error ?? "Request failed." : "Request failed.");
 }
 
